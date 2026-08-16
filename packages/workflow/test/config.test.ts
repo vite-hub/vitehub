@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { normalizeWorkflowOptions } from "../src/config.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../src/integrations/vercel.ts"
+import { hubWorkflow } from "../src/vite.ts"
 
 describe("workflow config", () => {
   it("infers cloudflare from hosting", () => {
@@ -90,6 +91,13 @@ describe("workflow config", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
       provider: "vercel",
     })
+  })
+
+  it("does not prepare a Vercel schedule runtime for Cloudflare workflows", async () => {
+    const plugin = hubWorkflow({ provider: "cloudflare" })
+    ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
+
+    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
   })
 
   it("rejects invalid openworkflow options", () => {

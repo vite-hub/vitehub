@@ -559,6 +559,43 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).rejects.toThrow()
   })
 
+  it("adds standalone schedules to Vercel's Nitro output config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const userConfig: Record<string, unknown> = {
+      nitro: {
+        preset: "vercel",
+        vercel: { config: { crons: [{ path: "/api/user", schedule: "5 0 * * *" }] } },
+      },
+      root,
+    }
+    const plugin = hubSchedule({ providerOutput: "standalone" })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+      userConfig,
+      { command: "build", mode: "production" },
+    )
+
+    expect(userConfig).toMatchObject({
+      nitro: {
+        vercel: {
+          config: {
+            crons: [
+              { path: "/api/user", schedule: "5 0 * * *" },
+              { path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" },
+            ],
+          },
+        },
+      },
+    })
+    expect(userConfig).not.toHaveProperty("nitro.plugins")
+  })
+
   it("can force Nitro plugin output for suffix schedules", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-force-nitro-"))
     await mkdir(join(root, "src"), { recursive: true })

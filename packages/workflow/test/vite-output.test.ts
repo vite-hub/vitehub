@@ -236,8 +236,13 @@ describe("Vite workflow provider outputs", () => {
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
-      .replace("plugins: [hubMarkdownTemplate(), hubWorkflow()],", `plugins: [hubMarkdownTemplate(), hubWorkflow(), { name: "nitro:main", config() {} }],`)
+      .replace("plugins: [hubMarkdownTemplate(), hubWorkflow()],", `plugins: [hubMarkdownTemplate(), { name: "@vite-hub/email/vite", api: { getDefinition: () => ({ handler: resolve(import.meta.dirname, "server/email.ts") }) } }, hubWorkflow(), { name: "nitro:main", config() {} }],`)
       .replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
+    await mkdir(generatedWorkflowDir, { recursive: true })
+    await writeFile(join(rootDir, "server", "email.ts"), "export default { driver: () => ({ send: async () => ({}) }) }\n")
+    await writeFile(join(generatedWorkflowDir, "01-collect.ts"), "export default async function collect(input) { return { ...input, collected: true } }\n")
+    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email/server'\nexport default async function send(input) { await email.send(input); return input }\n")
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
       `export async function durable() {`,
       `  "use workflow"`,
@@ -257,8 +262,18 @@ describe("Vite workflow provider outputs", () => {
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
+    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native.mjs"), "utf8")
+    expect(generatedNative).toContain('"use workflow"')
+    expect(generatedNative).toContain('"use step"')
+    expect(generatedNative).toContain('globalThis[Symbol.for("vitehub.email.definition")] = viteHubEmailDefinition')
+    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
+    const nativeExport = `${getCloudflareWorkflowClassName("monthly-recap")}Native`
+    expect(registry).toContain(nativeExport)
+    expect(registry).toContain(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)
     expect(await readFile(join(rootDir, ".vercel", "output", "functions", "__workflow.func", "index.mjs"), "utf8")).toContain("workflowId")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"))).toBe(true)
+    const combinedFlow = await readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8")
+    expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "webhook", "[token].func", "index.mjs"))).toBe(true)
     expect(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).toContain("/.well-known/workflow/v1/webhook/")
   }, buildOutputTestTimeout)

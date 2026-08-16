@@ -1,8 +1,12 @@
+import { createRequire } from "node:module"
+import { resolve } from "node:path"
+
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
+import { normalizeWorkflowOptions } from "./config.ts"
+import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
@@ -19,6 +23,11 @@ export type WorkflowVitePlugin = Plugin & {
   vitehub?: {
     workflow?: {
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
+      prepareScheduleRuntime?: () => Promise<{
+        bundleAlias: Record<string, string>
+        importBase: string
+        registryFile: string
+      } | undefined>
     }
   }
 }
@@ -68,6 +77,49 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     return database ? { "@vite-hub/database/drizzle": database } : {}
   }
 
+  function providerImportAliases(): Record<string, string> {
+    if (!resolved) return { ...internalOptions?.providerImportAliases }
+    const aliases = {
+      ...resolveStringAliases(resolved),
+      ...internalOptions?.providerImportAliases,
+    }
+    const emailDefinition = (resolved.plugins as Array<Plugin & {
+      api?: { getDefinition?: () => { handler?: string } }
+    }>).find(plugin => plugin.name === "@vite-hub/email/vite")?.api?.getDefinition?.()?.handler
+    if (emailDefinition) aliases["#vitehub/email/definition"] = emailDefinition
+    return aliases
+  }
+
+  async function prepareScheduleRuntime() {
+    if (!resolved) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
+    if (normalizeWorkflowOptions(workflow, { hosting: "vercel" })?.provider !== "vercel") return
+    const rootDir = resolveViteHubProjectRoot(resolved.root)
+    const artifacts = await writeProviderEntries(rootDir, workflow, {
+      agent: internalOptions?.agentImportBase,
+      workflow: internalOptions?.importBase,
+      workspace: internalOptions?.workspaceImportBase,
+      workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
+    }, serverDirs, internalOptions?.includeUserAppEntry, (resolved.plugins as AgentWorkflowRegistryPlugin[])
+      .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
+      ?.vitehub?.agent?.transformWorkflowRegistry, providerImportAliases())
+    if (!artifacts.providerDefinitions.length) return
+    const importBase = internalOptions?.importBase ?? workflowPackageName
+    const projectRequire = createRequire(resolve(rootDir, "package.json"))
+    const workflowRequire = createRequire(import.meta.url)
+    const workflowApi = workflowRequire.resolve("workflow/api")
+    return {
+      bundleAlias: {
+        [`${importBase}/runtime/state`]: projectRequire.resolve(`${importBase}/runtime/state`),
+        [`${importBase}/runtime/vercel-vite`]: projectRequire.resolve(`${importBase}/runtime/vercel-vite`),
+        "@workflow/core/runtime/world-target": createRequire(workflowApi).resolve("@workflow/world-vercel"),
+        "workflow/api": workflowApi,
+        "workflow/runtime": workflowRequire.resolve("workflow/runtime"),
+      },
+      importBase,
+      registryFile: artifacts.registryFile,
+    }
+  }
+
   return {
     name: "@vite-hub/workflow/vite",
     config(config) {
@@ -103,6 +155,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
             transformRegistry,
           })
         },
+        prepareScheduleRuntime,
       },
     },
     async closeBundle() {
@@ -113,15 +166,12 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolved.build.outDir,
         importBase: internalOptions?.importBase,
-        providerImportAliases: {
-          ...resolveStringAliases(resolved),
-          ...internalOptions?.providerImportAliases,
-        },
+        providerImportAliases: providerImportAliases(),
         providerRuntimeImportAliases: {
           cloudflare: providerRuntimeImportAliases("cloudflare"),
           vercel: providerRuntimeImportAliases("vercel"),
         },
-        rootDir: resolved.root,
+        rootDir: resolveViteHubProjectRoot(resolved.root),
         serverDirs,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "workflow"),
         includeUserAppEntry: internalOptions?.includeUserAppEntry,

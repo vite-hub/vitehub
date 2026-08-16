@@ -246,12 +246,11 @@ export async function bundleEsmEntry(
           js: [
             options.banner,
             ...(format === "esm" && platform === "node" ? [
-              'import { createRequire as __createRequire } from "node:module";',
-              'import { dirname as __vitehubDirname } from "node:path";',
-              'import { fileURLToPath as __vitehubFileURLToPath } from "node:url";',
-              "globalThis.require = __createRequire(import.meta.url);",
-              "globalThis.__filename = __vitehubFileURLToPath(import.meta.url);",
-              "globalThis.__dirname = __vitehubDirname(globalThis.__filename);",
+              "if (globalThis.process?.getBuiltinModule && import.meta.url) {",
+              '  globalThis.require = globalThis.process.getBuiltinModule("node:module").createRequire(import.meta.url);',
+              '  globalThis.__filename = globalThis.process.getBuiltinModule("node:url").fileURLToPath(import.meta.url);',
+              '  globalThis.__dirname = globalThis.process.getBuiltinModule("node:path").dirname(globalThis.__filename);',
+              "}",
             ] : []),
           ].filter(Boolean).join("\n"),
         }
