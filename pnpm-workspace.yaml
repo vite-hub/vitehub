@@ -98,6 +98,7 @@ catalogs:
   tooling:
     "@types/node": ^24.13.3
     "@types/picomatch": ^4.0.3
+    "@oxlint/plugins": 1.61.0
     esbuild: ^0.28.1
     fallow: 2.41.0
     knip: 6.27.0

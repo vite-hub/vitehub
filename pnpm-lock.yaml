@@ -238,6 +238,9 @@ catalogs:
       specifier: ^7.7.4
       version: 7.7.4
   tooling:
+    '@oxlint/plugins':
+      specifier: 1.61.0
+      version: 1.61.0
     '@types/node':
       specifier: ^24.13.3
       version: 24.13.3
@@ -403,6 +406,9 @@ importers:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
         version: 0.8.14
+      '@oxlint/plugins':
+        specifier: catalog:tooling
+        version: 1.61.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
