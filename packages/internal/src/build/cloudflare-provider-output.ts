@@ -31,6 +31,7 @@ interface CloudflareProviderOutputContribution {
   }
   r2Buckets?: CloudflareR2Bucket[]
   rateLimits?: CloudflareRateLimit[]
+  requiredSecrets?: string[]
 }
 
 interface CloudflareProviderOutputCatalog {
@@ -81,14 +82,16 @@ function compatibleEntries<T extends Record<string, unknown>>(existing: unknown,
   })
 }
 
-function removeEntries(existing: unknown, entries: Array<Record<string, unknown>> | undefined): unknown[] {
+function removeEntries(existing: unknown, entries: unknown[] | undefined): unknown[] {
   if (!Array.isArray(existing) || !entries?.length) return Array.isArray(existing) ? existing : []
   return existing.filter(entry => !entries.some(previous => isDeepStrictEqual(entry, previous)))
 }
 
 function removeContribution(wrangler: Record<string, unknown>, contribution: CloudflareProviderOutputContribution): Record<string, unknown> {
   const queues = cloneProviderRecord(wrangler.queues)
+  const secrets = cloneProviderRecord(wrangler.secrets)
   const hasQueues = Boolean(contribution.queues?.consumers?.length || contribution.queues?.producers?.length)
+  const hasSecrets = Boolean(contribution.requiredSecrets?.length)
   if (contribution.queues?.consumers?.length) {
     const consumers = removeEntries(queues.consumers, contribution.queues.consumers)
     if (consumers.length) queues.consumers = consumers
@@ -99,10 +102,18 @@ function removeContribution(wrangler: Record<string, unknown>, contribution: Clo
     if (producers.length) queues.producers = producers
     else delete queues.producers
   }
-  const { queues: _queues, ...withoutQueues } = wrangler
+  if (contribution.requiredSecrets?.length) {
+    const required = removeEntries(secrets.required, contribution.requiredSecrets)
+    if (required.length) secrets.required = required
+    else delete secrets.required
+  }
+  const withoutOwned = { ...wrangler }
+  if (hasQueues) delete withoutOwned.queues
+  if (hasSecrets) delete withoutOwned.secrets
   return {
-    ...(hasQueues ? withoutQueues : wrangler),
+    ...withoutOwned,
     ...(hasQueues && Object.keys(queues).length ? { queues } : {}),
+    ...(hasSecrets && Object.keys(secrets).length ? { secrets } : {}),
     ...(contribution.r2Buckets?.length ? { r2_buckets: removeEntries(wrangler.r2_buckets, contribution.r2Buckets) } : {}),
     ...(contribution.rateLimits?.length ? { ratelimits: removeEntries(wrangler.ratelimits, contribution.rateLimits) } : {}),
   }
@@ -110,10 +121,14 @@ function removeContribution(wrangler: Record<string, unknown>, contribution: Clo
 
 function mergeContribution(wrangler: Record<string, unknown>, owner: string, contribution: CloudflareProviderOutputContribution): [Record<string, unknown>, CloudflareProviderOutputContribution] {
   const queues = cloneProviderRecord(wrangler.queues)
+  const secrets = cloneProviderRecord(wrangler.secrets)
   const consumers = compatibleEntries(queues.consumers, contribution.queues?.consumers, "queue", [], owner)
   const producers = compatibleEntries(queues.producers, contribution.queues?.producers, "binding", ["queue"], owner)
   const r2Buckets = compatibleEntries(wrangler.r2_buckets, contribution.r2Buckets, "binding", ["bucket_name"], owner)
   const rateLimits = compatibleEntries(wrangler.ratelimits, contribution.rateLimits, "name", ["namespace_id", "simple"], owner)
+  const currentRequiredSecrets = Array.isArray(secrets.required) ? secrets.required : []
+  const requiredSecrets = (contribution.requiredSecrets ?? []).filter(name => !currentRequiredSecrets.includes(name))
+  if (requiredSecrets.length) secrets.required = [...currentRequiredSecrets, ...requiredSecrets]
   const nextQueues = mergeProviderOutputConfig(
     queues,
     {
@@ -133,6 +148,7 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
       ...(Object.keys(nextQueues).length ? { queues: nextQueues } : {}),
       ...(r2Buckets.length ? { r2_buckets: r2Buckets } : {}),
       ...(rateLimits.length ? { ratelimits: rateLimits } : {}),
+      ...(Object.keys(secrets).length ? { secrets } : {}),
     },
     {
       arrays: {
@@ -144,6 +160,7 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
     queues: { consumers, producers },
     r2Buckets,
     rateLimits,
+    requiredSecrets,
   }]
 }
 

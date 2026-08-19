@@ -68,6 +68,28 @@ describe("Cloudflare provider output", () => {
     ).toThrow(/already assigned/)
   })
 
+  it("composes required secrets without taking ownership of existing names", () => {
+    const config = {}
+    registerCloudflareProviderOutput(config, "env", {
+      requiredSecrets: ["EXISTING_SECRET", "VITEHUB_TOKEN"],
+    })
+
+    const first = composeNitroCloudflareProviderOutput(config, {
+      cloudflare: {
+        wrangler: {
+          secrets: { required: ["EXISTING_SECRET"] },
+        },
+      },
+    })
+    expect(first).toHaveProperty("cloudflare.wrangler.secrets.required", ["EXISTING_SECRET", "VITEHUB_TOKEN"])
+
+    registerCloudflareProviderOutput(config, "env", {})
+    expect(composeNitroCloudflareProviderOutput(config, first)).toHaveProperty(
+      "cloudflare.wrangler.secrets.required",
+      ["EXISTING_SECRET"],
+    )
+  })
+
   it("replaces an owner's contribution without changing application policy", () => {
     const config = {}
     registerCloudflareProviderOutput(config, "queue", {

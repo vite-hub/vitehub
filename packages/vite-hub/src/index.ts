@@ -21,6 +21,7 @@ import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
+import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
 import { assertDeploymentService, deploymentPresetFromNitro, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -34,7 +35,8 @@ import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
 import type { ChannelsVitePluginOptions } from "@vite-hub/channels/vite"
 import type { DBModulePublicOptions } from "@vite-hub/database"
 import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
-import type { EnvIntegrationOptions } from "@vite-hub/env"
+import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
+import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { QueueModuleOptions } from "@vite-hub/queue"
@@ -282,6 +284,29 @@ function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
+  const names = new Set<string>()
+  const visit = (value: unknown): void => {
+    const entry = cloneRecord(value)
+    const source = cloneRecord(entry.source)
+    if (source.kind === "env" && typeof source.name === "string") {
+      const sources = Array.isArray(source.names) ? source.names : [source.name]
+      if (
+        entry.required === true
+        && entry.secret === true
+        && entry.default === undefined
+        && sources.length === 1
+        && typeof sources[0] === "string"
+      ) names.add(sources[0])
+      return
+    }
+    if (entry.kind === "literal") return
+    for (const child of Object.values(entry)) visit(child)
+  }
+  for (const value of Object.values(registry)) visit(value)
+  return [...names]
+}
+
 function matchesRollupExternal(value: unknown, source: string, args: unknown[]): boolean {
   if (typeof value === "string") return value === source
   if (value instanceof RegExp) {
@@ -353,6 +378,7 @@ function deploymentPlugins(
   blobEnabled: boolean,
   services: object,
   options: ViteHubOptions,
+  envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
   const nitroPreset = plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
@@ -477,6 +503,14 @@ function deploymentPlugins(
     {
       name: "vite-hub/deployment-output",
       enforce: "post",
+      config(config) {
+        if (plan.preset !== "cloudflare" || !envPlugin) return
+        registerCloudflareProviderOutput(config, "env", {
+          requiredSecrets: requiredCloudflareSecretNames(envPlugin.api.getServerEnvRegistry()),
+        })
+        const viteConfig = config as { nitro?: unknown }
+        viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
+      },
       configResolved(config) {
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
@@ -536,7 +570,17 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const manifestServices = hasExplicitBlobStore(options.blob)
     ? { ...plan.services, blob: { configured: true, supported: true } }
     : plan.services
-  plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options))
+  const envPlugin = options.env === false
+    ? undefined
+    : hubEnv({
+        ...options.env,
+        runtimeImports: {
+          secret: "vite-hub/env/secret",
+          server: "vite-hub/env/server",
+          ...options.env?.runtimeImports,
+        },
+      })
+  plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
@@ -547,17 +591,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   plugins.push(frameworkDependencyResolver(options, providerImportAliases, blobEnabled, presetKVOptions || undefined))
   plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
 
-  if (options.env !== false) {
-    const envOptions = options.env ?? {}
-    plugins.push(hubEnv({
-      ...envOptions,
-      runtimeImports: {
-        secret: "vite-hub/env/secret",
-        server: "vite-hub/env/server",
-        ...envOptions.runtimeImports,
-      },
-    }))
-  }
+  if (envPlugin) plugins.push(envPlugin)
 
   if (options.auth) {
     plugins.push(hubAuth({
