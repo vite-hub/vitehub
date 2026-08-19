@@ -51,7 +51,7 @@ export default defineConfig({
 })
 ```
 
-ViteHub generates the Cloudflare Browser Run binding and maps the provider's `quickAction()` method to ViteHub's `browser.run()` and `browser.content()` API. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`.
+ViteHub generates the Cloudflare Browser Run binding and uses Kitesurf by default. `browser.content()` and `browser.run("screenshot", ...)` use ViteHub's Kitesurf adapter; other Browser Run actions currently require `browser: { engine: "chromium" }` and use Cloudflare Quick Actions. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`.
 
 ## Low-level sessions
 

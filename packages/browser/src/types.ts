@@ -155,4 +155,5 @@ export type BrowserDefinitionRegistry = Record<
 
 export interface BrowserRuntimeConfig {
   binding: string
+  engine: BrowserEngine
 }

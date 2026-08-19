@@ -5,6 +5,7 @@ import {
   browserRuntimeNotConfiguredError,
   toBrowserError,
 } from "./errors.ts"
+import { runKitesurfAction } from "./internal/kitesurf-actions.ts"
 
 import type {
   BrowserAction,
@@ -13,6 +14,7 @@ import type {
 } from "./types.ts"
 
 interface BrowserRunBinding {
+  fetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response>
   quickAction(action: BrowserAction, input: Record<string, unknown>): Promise<Response>
 }
 
@@ -54,7 +56,14 @@ export async function runBrowserAction(
   input: BrowserActionInput,
 ): Promise<BrowserRunResult<Response>> {
   try {
-    return [null, await (await resolveBinding()).quickAction(action, normalizeInput(input))]
+    const binding = await resolveBinding()
+    const normalized = normalizeInput(input)
+    return [
+      null,
+      runtimeConfig.engine === "kitesurf"
+        ? await runKitesurfAction(binding, action, normalized)
+        : await binding.quickAction(action, normalized),
+    ]
   }
   catch (error) {
     return [toBrowserError(error), undefined]
