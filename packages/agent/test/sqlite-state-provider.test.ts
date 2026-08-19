@@ -111,9 +111,15 @@ describe("SQLite Agent State Provider", () => {
     expect(second?.deliveryId).toBe("delivery-3")
     await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
 
+    const client = createClient({ url })
+    await client.execute({
+      args: [first!.scope, first!.deliveryId],
+      sql: "UPDATE test_agent_state_webhook_queue SET lease_expires_at = 0 WHERE scope = ? AND delivery_id = ?",
+    })
+    await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, "wrong-token", 30_000)).resolves.toBe(false)
+    await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, first!.leaseToken, 30_000)).resolves.toBe(true)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
-    const client = createClient({ url })
     await expect(client.execute({
       args: [first!.scope, first!.deliveryId],
       sql: "SELECT status, value FROM test_agent_state_webhook_queue WHERE scope = ? AND delivery_id = ?",

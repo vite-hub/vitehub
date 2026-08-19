@@ -396,8 +396,8 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       tx,
       `UPDATE ${this.tables.webhookQueue} SET lease_expires_at = ?
         WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering')
-          AND lease_token = ? AND lease_expires_at > ? RETURNING delivery_id`,
-      [now + ttlMs, scope, deliveryId, leaseToken, now],
+          AND lease_token = ? RETURNING delivery_id`,
+      [now + ttlMs, scope, deliveryId, leaseToken],
     ))
     return extended.length > 0
   }

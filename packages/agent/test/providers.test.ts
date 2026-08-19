@@ -9017,6 +9017,48 @@ describe("server helpers", () => {
     }
   })
 
+  it("starts typing before chat context resolves", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    let contextStarted!: () => void
+    let releaseContext!: () => void
+    const contextStartedPromise = new Promise<void>(resolve => { contextStarted = resolve })
+    const contextReleasePromise = new Promise<void>(resolve => { releaseContext = resolve })
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => {
+      contextStarted()
+      await contextReleasePromise
+      return Buffer.from([1, 2, 3])
+    } })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: () => ({ text: "ok" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ message: { chat: { id: 456, type: "private" }, document: { content: "context", file_name: "context.txt", mime_type: "text/plain" }, from: { id: 123 }, message_id: 44, text: "hello" } }),
+      method: "POST",
+    }), "telegram")
+    await contextStartedPromise
+    try {
+      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    }
+    finally {
+      releaseContext()
+    }
+    await expect(responsePromise).resolves.toMatchObject({ status: 200 })
+  })
+
   it("does not block chat webhook handling on typing status", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")

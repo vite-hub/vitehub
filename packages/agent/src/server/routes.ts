@@ -3394,6 +3394,9 @@ async function handleChatSdkMessage(
       return
     }
 
+    const manualDelivery = options?.delivery === "manual"
+    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
+    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
@@ -3427,8 +3430,6 @@ async function handleChatSdkMessage(
     }
 
     assertChatDeliveryOptions(options || {})
-    const manualDelivery = options?.delivery === "manual"
-    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     run = invocation.run
     await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: run?.runId })
     await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: run?.runId })
@@ -3447,7 +3448,8 @@ async function handleChatSdkMessage(
       if (state.workflowCustodySupported === false) {
         throw new Error("[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider.")
       }
-      const durableTyping = startChatTypingRefresh(thread, context)
+      const durableTyping = typing || startChatTypingRefresh(thread, context)
+      typing = undefined
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
       try {
         await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({
@@ -3475,7 +3477,6 @@ async function handleChatSdkMessage(
       }
       return
     }
-    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
       const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
