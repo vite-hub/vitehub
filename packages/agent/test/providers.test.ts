@@ -9849,7 +9849,7 @@ describe("server helpers", () => {
     const tasks: Promise<unknown>[] = []
 
     try {
-      const response = await createChannelWebhookRouteHandler(agent as never)(chatWebhookRequest(2003), "telegram", {
+      const response = await createChannelWebhookRouteHandler(agent as never)(chatWebhookRequest(90_003), "telegram", {
         waitUntil: task => tasks.push(task),
       })
       expect(response.status).toBe(200)
