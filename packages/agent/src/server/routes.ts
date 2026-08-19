@@ -2468,10 +2468,12 @@ function createChatSdkConfig(
   const identity: ChatConfig["identity"] = options?.identity ?? (options?.transcripts
     ? ({ author }) => author.isBot === true ? null : `${adapterName}:${author.userId}`
     : undefined)
-  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial">(options, "concurrency")
+  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
-    concurrency: concurrency === "parallel" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
+    // TODO: forward active Chat messages through Agent Invocation steering once
+    // model and Workflow runtimes expose the same resumable input contract.
+    concurrency: concurrency === "parallel" ? "concurrent" : concurrency === "serial" || concurrency === "steer" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -2929,6 +2931,7 @@ function chatErrorHookArgs(
     : undefined
   return {
     error,
+    publicError: toAgentPublicError(error, "http"),
     history: input ? uiMessagesToAgentMessages(input.messages) : [],
     message: {
       id: inputMessage?.id || message.id,

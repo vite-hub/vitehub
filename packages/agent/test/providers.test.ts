@@ -9828,6 +9828,39 @@ describe("server helpers", () => {
     }
   })
 
+  it("posts the sanitized provider quota message to chat", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const error = Object.assign(new Error("private balance"), {
+      data: { error: { code: "insufficient_quota" } },
+      name: "AI_APICallError",
+      statusCode: 429,
+    })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => adapter as never },
+        webhooks: { telegram: {} },
+      })],
+      driver: { run: () => { throw error } },
+    })
+    const tasks: Promise<unknown>[] = []
+
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(chatWebhookRequest(2003), "telegram", {
+        waitUntil: task => tasks.push(task),
+      })
+      expect(response.status).toBe(200)
+      await Promise.all(tasks)
+      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", "AI provider quota is exhausted.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("keeps name-spoofed rate-limit errors behind the generic chat fallback", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -9867,6 +9900,7 @@ describe("server helpers", () => {
     ["drop", "drop"],
     ["queue", "queue"],
     ["serial", "queue"],
+    ["steer", "queue"],
   ] as const)("maps ViteHub %s message concurrency to Chat SDK %s", async (concurrency, expectedConcurrency) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

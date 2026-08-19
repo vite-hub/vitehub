@@ -7,7 +7,7 @@ import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./i
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
-import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
+import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import {
   createBackedAgentInvocationController,
@@ -201,6 +201,12 @@ export type {
   AgentInvocationSnapshot,
   AgentInvocationStatus,
 } from "./agent-invocation.ts"
+
+export type {
+  AgentPublicError,
+  AgentPublicErrorCode,
+  AgentPublicErrorDetails,
+} from "./agent-error.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -2885,6 +2891,7 @@ function createAgentErrorHookEvent<
     ...errorEvent,
     error: errorEvent.error,
     errorMessage: errorEvent.errorMessage ?? agentErrorDetails(errorEvent.error).message,
+    publicError: toAgentPublicError(errorEvent.error, "http"),
     reaction: delivery.reaction,
     reply: delivery.reply,
     status: delivery.status,
