@@ -4948,9 +4948,6 @@ export function createChannelWebhookRouteHandler(
             if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
               return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured."))
             }
-            if (invocation.webhook.busy === "steer" && invocation.webhook.rehydrate) {
-              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership cannot combine busy steering with rehydration."))
-            }
             const concurrencyLimit = positiveWebhookConcurrencyLimit(invocation.webhook.concurrencyLimit)!
             if (!hasAgentWebhookQueue(webhookState.state)) {
               return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(503, "Persistent webhook concurrency requires a queue-capable Agent state provider."))

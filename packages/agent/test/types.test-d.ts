@@ -77,7 +77,6 @@ describe("agent public types", () => {
         concurrencyKey: "pull-request:1",
         concurrencyLimit: 1,
         deliveryId: "delivery-steer",
-        // @ts-expect-error Successful busy steering bypasses queue-time rehydration.
         rehydrate: () => ({
           input: { prompt: "fresh", options: { mode: "fresh" } },
           webhook: { concurrencyLimit: 1, deliveryId: "delivery-steer" },

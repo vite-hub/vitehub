@@ -6969,6 +6969,18 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const rehydrate = vi.fn((deliveryId: string) => ({
+      input: { prompt: `fresh ${deliveryId}` },
+      run: { runId: deliveryId },
+      webhook: {
+        busy: "steer" as const,
+        concurrencyGroup: "reviews",
+        concurrencyKey: "pr-42",
+        concurrencyLimit: 1,
+        concurrencyTtlMs: 1_000,
+        deliveryId,
+      },
+    }))
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
@@ -7019,6 +7031,7 @@ describe("server helpers", () => {
                     concurrencyLimit: 1,
                     concurrencyTtlMs: 1_000,
                     deliveryId,
+                    rehydrate: () => rehydrate(deliveryId),
                   },
                 }
               },
@@ -7053,6 +7066,7 @@ describe("server helpers", () => {
       const first = await handler(request("delivery-1"), "github", options)
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(rehydrate).toHaveBeenCalledWith("delivery-1")
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
 
       const waitUntilCount = waitUntilTasks.length
