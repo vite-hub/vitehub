@@ -27,8 +27,7 @@ describe("published Browser types", () => {
     defineBrowser(async (input: { url: string }, { browser }) => {
       expectTypeOf(browser.content(input.url)).resolves.toEqualTypeOf<string>()
       expectTypeOf(browser.run("screenshot", input)).resolves.toEqualTypeOf<Response>()
-      // @ts-expect-error full-control sessions require an explicit provider and controller
-      browser.open()
+      expectTypeOf(browser.open()).resolves.toEqualTypeOf<import("../src/types.ts").BrowserPageSession>()
       return input.url
     })
   })

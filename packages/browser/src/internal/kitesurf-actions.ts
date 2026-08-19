@@ -1,5 +1,6 @@
 import { cdp } from "../controllers/cdp.ts"
 import { browserProviderError } from "../errors.ts"
+import { attachCDPPage } from "./cdp-page.ts"
 
 import type { BrowserAction } from "../types.ts"
 
@@ -38,21 +39,7 @@ export async function runKitesurfAction(
     },
   )
   try {
-    const targets = await control.client.send<{
-      targetInfos?: Array<{ targetId?: string, type?: string }>
-    }>("Target.getTargets")
-    const targetId = targets.targetInfos?.find(target => target.type === "page")?.targetId
-    if (!targetId) throw browserProviderError("cloudflare", "find the Kitesurf page target")
-
-    const attached = await control.client.send<{ sessionId?: string }>("Target.attachToTarget", {
-      flatten: true,
-      targetId,
-    })
-    if (!attached.sessionId) {
-      throw browserProviderError("cloudflare", "attach to the Kitesurf page target")
-    }
-    const send = <TResult>(method: string, params: object = {}) =>
-      control.client.send<TResult>(method, params, attached.sessionId)
+    const { send } = await attachCDPPage(control.client)
 
     const viewport = input.viewport as { height?: unknown, width?: unknown } | undefined
     if (typeof viewport?.height === "number" && typeof viewport.width === "number") {
@@ -64,7 +51,6 @@ export async function runKitesurfAction(
       })
     }
 
-    await send("Page.enable")
     const frameTree = await send<{ frameTree?: { frame?: { id?: string } } }>("Page.getFrameTree")
     const frameId = frameTree.frameTree?.frame?.id
     if (!frameId) throw browserProviderError("cloudflare", "find the Kitesurf page frame")

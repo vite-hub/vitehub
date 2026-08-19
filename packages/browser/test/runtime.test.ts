@@ -6,6 +6,8 @@ import {
   runBrowser,
 } from "../src/runtime.ts"
 
+import type { BrowserClient } from "../src/types.ts"
+
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
 
 afterEach(() => {
@@ -48,5 +50,34 @@ describe("Browser Definitions", () => {
     await expect(executeBrowserDefinition(definition, { url: "https://example.com" })).resolves.toBe(response)
 
     expect(quickAction).toHaveBeenCalledWith("screenshot", { url: "https://example.com" })
+  })
+
+  it("closes definition-owned page sessions", async () => {
+    const release = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async (method: string) => method === "Target.getTargets"
+              ? { targetInfos: [{ targetId: "page", type: "page" }] }
+              : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(() => ({ features: { liveHandoff: false }, id: "browser-1", provider: "test", state: "released" })),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await browser.open()
+      return "ok"
+    })
+
+    await expect(executeBrowserDefinition(definition, undefined, { client })).resolves.toBe("ok")
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
   })
 })

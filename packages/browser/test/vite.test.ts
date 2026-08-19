@@ -237,7 +237,9 @@ describe("hubBrowser", () => {
       [
         `import { defineBrowser } from "@vite-hub/browser"`,
         `export default defineBrowser(async (_input, { browser }) => {`,
-        `  return await browser.content(_input.url)`,
+        `  const { page } = await browser.open()`,
+        `  await page.goto(_input.url)`,
+        `  return await page.locator("title").count()`,
         `})`,
         "",
       ].join("\n"),
@@ -282,6 +284,7 @@ describe("hubBrowser", () => {
       .join("\n")
     expect(output).toContain("code-image")
     expect(output).toContain("CODE_BROWSER")
+    expect(output).toContain("Target.getTargets")
     expect(output).not.toContain("@vite-hub/browser/providers/cloudflare")
     expect(output).not.toContain("playwright-core")
   })

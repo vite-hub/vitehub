@@ -49,6 +49,12 @@ export type {
   BrowserDefinitionContext,
   BrowserDefinitionHandler,
   BrowserDefinitionRegistry,
+  BrowserDownload,
+  BrowserLocator,
+  BrowserLocatorOptions,
+  BrowserLocatorWaitOptions,
+  BrowserPage,
+  BrowserPageSession,
   BrowserRunResult,
 } from "./types.ts"
 

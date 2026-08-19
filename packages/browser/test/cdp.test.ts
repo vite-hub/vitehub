@@ -16,6 +16,12 @@ class FakeSocket extends EventTarget {
       data: JSON.stringify({ id: request.id, result: { method: request.method } }),
     }))
   }
+
+  emit(method: string, params: unknown) {
+    this.dispatchEvent(new MessageEvent("message", {
+      data: JSON.stringify({ method, params, sessionId: "page-session" }),
+    }))
+  }
 }
 
 describe("cdp controller", () => {
@@ -56,5 +62,30 @@ describe("cdp controller", () => {
     await attached.release()
     expect(socket.close).toHaveBeenCalledOnce()
     await expect(attached.client.send("Target.getTargets")).rejects.toThrow("after release")
+  })
+
+  it("forwards protocol events to subscribers", async () => {
+    const socket = new FakeSocket()
+    const attached = await cdp({ connect: async () => socket }).attach({
+      binding: { fetch: vi.fn() },
+      kind: "cloudflare-binding",
+      sessionId: "provider-secret",
+    }, {
+      provider: { features: { liveHandoff: true }, isolation: "provider", name: "cloudflare" },
+      sessionId: "public-id",
+    })
+    const listener = vi.fn()
+    const stop = attached.client.on("Page.downloadWillBegin", listener)
+
+    socket.emit("Page.downloadWillBegin", { suggestedFilename: "card.png", url: "data:image/png;base64,cG5n" })
+
+    expect(listener).toHaveBeenCalledWith(
+      { suggestedFilename: "card.png", url: "data:image/png;base64,cG5n" },
+      "page-session",
+    )
+    stop()
+    socket.emit("Page.downloadWillBegin", { suggestedFilename: "ignored.png" })
+    expect(listener).toHaveBeenCalledOnce()
+    await attached.release()
   })
 })

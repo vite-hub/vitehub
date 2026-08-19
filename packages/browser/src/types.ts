@@ -126,8 +126,48 @@ export interface CreateBrowserOptions<TConnection> {
   trace?: (event: TraceEvent) => MaybePromise<void>
 }
 
+export interface BrowserDownload {
+  readonly suggestedFilename: string
+  readonly url: string
+}
+
+export interface BrowserLocatorOptions {
+  hasText?: string
+}
+
+export interface BrowserLocatorWaitOptions {
+  state?: "visible"
+  timeoutMs?: number
+}
+
+export interface BrowserLocator {
+  click(): Promise<void>
+  count(): Promise<number>
+  fill(value: string): Promise<void>
+  inputValue(): Promise<string>
+  waitFor(options?: BrowserLocatorWaitOptions): Promise<void>
+}
+
+export interface BrowserPage {
+  goto(url: string): Promise<void>
+  locator(selector: string, options?: BrowserLocatorOptions): BrowserLocator
+  press(key: string): Promise<void>
+  waitForDownload(
+    action: () => MaybePromise<void>,
+    options?: { timeoutMs?: number },
+  ): Promise<BrowserDownload>
+}
+
+export interface BrowserPageSession {
+  readonly id: string
+  readonly page: BrowserPage
+  close(): Promise<void>
+  inspect(): BrowserSessionInfo
+}
+
 export interface BrowserDefinitionBrowser {
   content(input: BrowserActionInput): Promise<string>
+  open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession>
   run(action: BrowserAction, input: BrowserActionInput): Promise<Response>
 }
 
