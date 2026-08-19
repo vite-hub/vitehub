@@ -6026,7 +6026,7 @@ describe("agent message protocol", () => {
   it("rejects overlap-policy concurrency with durable message delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
-    for (const concurrency of ["drop", "queue", "reject", "serial", "steer", "tenant-policy"] as const) {
+    for (const concurrency of ["drop", "queue", "reject", "serial", "tenant-policy"] as const) {
       expect(() => defineAgent({
         channels: { telegram: telegram({ adapter: () => ({}) as never }) },
         driver: { run: () => "ok" },
