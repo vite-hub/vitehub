@@ -80,17 +80,14 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
     delete wrangler.browser
     return { ...nitro, cloudflare: { ...cloudflare, wrangler } }
   }
-  const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
-  if (!flags.includes("nodejs_compat")) flags.push("nodejs_compat")
   return {
     ...nitro,
     cloudflare: {
       ...cloudflare,
+      nodeCompat: true,
       wrangler: {
         ...wrangler,
         browser: browserBinding(options),
-        compatibility_date: wrangler.compatibility_date ?? defaultCloudflareCompatibilityDate,
-        compatibility_flags: flags,
       },
     },
     rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },

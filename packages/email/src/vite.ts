@@ -154,17 +154,15 @@ function configureNitroCloudflareWorkers(config: Record<string, unknown>, email:
   const rollupConfig = isRecord(nitro.rollupConfig) ? nitro.rollupConfig : {}
   const cloudflare = isRecord(nitro.cloudflare) ? nitro.cloudflare : {}
   const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
-  const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
   const sendEmail = Array.isArray(wrangler.send_email) ? [...wrangler.send_email] : []
-  if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   if (email && !sendEmail.some(binding => isRecord(binding) && binding.name === "EMAIL")) sendEmail.push({ name: "EMAIL" })
   config.nitro = {
     ...nitro,
     cloudflare: {
       ...cloudflare,
+      nodeCompat: true,
       wrangler: {
         ...wrangler,
-        compatibility_flags: compatibilityFlags,
         ...(sendEmail.length ? { send_email: sendEmail } : {}),
       },
     },

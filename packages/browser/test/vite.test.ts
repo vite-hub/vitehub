@@ -30,11 +30,8 @@ describe("hubBrowser", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER", remote: true })
-    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_date", "2026-04-20")
-    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", [
-      "existing",
-      "nodejs_compat",
-    ])
+    expect(config).toHaveProperty("nitro.cloudflare.nodeCompat", true)
+    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["existing"])
     expect(config).toHaveProperty("nitro.rollupConfig.external", ["existing-module", "cloudflare:workers"])
   })
 
