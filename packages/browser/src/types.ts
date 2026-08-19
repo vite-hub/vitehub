@@ -20,11 +20,6 @@ export type BrowserAction =
 
 export type BrowserActionInput = string | ({ url?: string } & Record<string, unknown>)
 
-export interface BrowserActionOptions {
-  binding?: string | unknown
-  resolveBinding?: (name: string) => MaybePromise<unknown>
-}
-
 export interface BrowserFeatures {
   liveHandoff: boolean
 }

@@ -1,10 +1,16 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   defineBrowser,
   executeBrowserDefinition,
   runBrowser,
 } from "../src/runtime.ts"
+
+const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
+
+afterEach(() => {
+  delete runtime.__env__
+})
 
 describe("Browser Definitions", () => {
   it("returns an error-first result when a definition cannot run", async () => {
@@ -19,15 +25,12 @@ describe("Browser Definitions", () => {
     const quickAction = vi.fn(async () => new Response(
       "<html><meta property=\"og:image\" content=\"https://example.com/card.png\"></html>",
     ))
+    runtime.__env__ = { BROWSER: { quickAction } }
     const definition = defineBrowser(async (input: { url: string }, { browser }) => {
       return await browser.content(input.url)
     })
 
-    await expect(executeBrowserDefinition(
-      definition,
-      { url: "https://example.com" },
-      { binding: { quickAction } },
-    )).resolves.toContain("card.png")
+    await expect(executeBrowserDefinition(definition, { url: "https://example.com" })).resolves.toContain("card.png")
 
     expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
@@ -37,15 +40,12 @@ describe("Browser Definitions", () => {
       headers: { "content-type": "image/png" },
     })
     const quickAction = vi.fn(async () => response)
+    runtime.__env__ = { BROWSER: { quickAction } }
     const definition = defineBrowser(async (input: { url: string }, { browser }) => {
       return await browser.run("screenshot", input)
     })
 
-    await expect(executeBrowserDefinition(
-      definition,
-      { url: "https://example.com" },
-      { binding: { quickAction } },
-    )).resolves.toBe(response)
+    await expect(executeBrowserDefinition(definition, { url: "https://example.com" })).resolves.toBe(response)
 
     expect(quickAction).toHaveBeenCalledWith("screenshot", { url: "https://example.com" })
   })

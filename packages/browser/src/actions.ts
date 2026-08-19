@@ -9,7 +9,6 @@ import {
 import type {
   BrowserAction,
   BrowserActionInput,
-  BrowserActionOptions,
   BrowserRunResult,
 } from "./types.ts"
 
@@ -33,12 +32,10 @@ async function runtimeBinding(name: string): Promise<unknown> {
   }
 }
 
-async function resolveBinding(options: BrowserActionOptions = {}): Promise<BrowserRunBinding> {
-  const bindingOption = options.binding ?? runtimeConfig.binding
+async function resolveBinding(): Promise<BrowserRunBinding> {
+  const bindingOption = runtimeConfig.binding
   if (!bindingOption) throw browserRuntimeNotConfiguredError()
-  const binding = typeof bindingOption === "string"
-    ? await options.resolveBinding?.(bindingOption) ?? await runtimeBinding(bindingOption)
-    : bindingOption
+  const binding = await runtimeBinding(bindingOption)
   if (!binding || typeof (binding as BrowserRunBinding).quickAction !== "function") {
     throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)
   }
@@ -55,10 +52,9 @@ async function readQuickActionText(response: Response, action: BrowserAction): P
 export async function runBrowserAction(
   action: BrowserAction,
   input: BrowserActionInput,
-  options?: BrowserActionOptions,
 ): Promise<BrowserRunResult<Response>> {
   try {
-    return [null, await (await resolveBinding(options)).quickAction(action, normalizeInput(input))]
+    return [null, await (await resolveBinding()).quickAction(action, normalizeInput(input))]
   }
   catch (error) {
     return [toBrowserError(error), undefined]
@@ -67,9 +63,8 @@ export async function runBrowserAction(
 
 export async function runBrowserContent(
   input: BrowserActionInput,
-  options?: BrowserActionOptions,
 ): Promise<BrowserRunResult<string>> {
-  const [error, response] = await runBrowserAction("content", input, options)
+  const [error, response] = await runBrowserAction("content", input)
   if (error) return [error, undefined]
   try {
     return [null, await readQuickActionText(response, "content")]

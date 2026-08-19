@@ -9,7 +9,6 @@ import { runBrowserAction, runBrowserContent } from "./actions.ts"
 import type {
   BrowserAction,
   BrowserActionInput,
-  BrowserActionOptions,
   BrowserDefinition,
   BrowserDefinitionBrowser,
   BrowserDefinitionHandler,
@@ -23,16 +22,14 @@ import type {
 } from "./registry-types.ts"
 
 class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
-  constructor(private readonly options?: BrowserActionOptions) {}
-
   async content(input: BrowserActionInput): Promise<string> {
-    const [error, content] = await runBrowserContent(input, this.options)
+    const [error, content] = await runBrowserContent(input)
     if (error) throw error
     return content
   }
 
   async run(action: BrowserAction, input: BrowserActionInput): Promise<Response> {
-    const [error, response] = await runBrowserAction(action, input, this.options)
+    const [error, response] = await runBrowserAction(action, input)
     if (error) throw error
     return response
   }
@@ -65,9 +62,8 @@ export function defineBrowser<TInput = unknown, TResult = unknown>(
 export async function executeBrowserDefinition<TInput, TResult>(
   definition: BrowserDefinition<TInput, TResult>,
   input: TInput,
-  options?: BrowserActionOptions,
 ): Promise<TResult> {
-  const browser = new BrowserDefinitionBrowserImpl(options)
+  const browser = new BrowserDefinitionBrowserImpl()
   return await definition.run(input, { browser })
 }
 
