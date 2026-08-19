@@ -59,7 +59,7 @@ describe("Browser Run actions", () => {
       }
 
       send(value: string) {
-        const request = JSON.parse(value) as { id: number, method: string }
+        const request = JSON.parse(value) as { id: number, method: string, params?: { expression?: string } }
         commands.push(request.method)
         const result = request.method === "Target.getTargets"
           ? { targetInfos: [{ targetId: "page", type: "page" }] }
@@ -67,8 +67,8 @@ describe("Browser Run actions", () => {
             ? { sessionId: "page-session" }
             : request.method === "Page.getFrameTree"
               ? { frameTree: { frame: { id: "frame" } } }
-              : request.method === "Page.getLayoutMetrics"
-                ? { cssContentSize: { height: 20, width: 10 } }
+              : request.params?.expression?.includes("scrollHeight")
+                ? { result: { value: { height: 20, width: 10 } } }
                 : request.method === "Page.captureScreenshot"
                   ? { data: btoa("png") }
                   : {}

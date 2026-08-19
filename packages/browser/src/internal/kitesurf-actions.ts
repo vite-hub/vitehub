@@ -93,15 +93,15 @@ export async function runKitesurfAction(
     const type = options?.type === "jpeg" || options?.type === "webp" ? options.type : "png"
     let clip = options?.clip
     if (options?.fullPage) {
-      const metrics = await send<{
-        cssContentSize?: { height?: number, width?: number, x?: number, y?: number }
-        contentSize?: { height?: number, width?: number, x?: number, y?: number }
-      }>("Page.getLayoutMetrics")
-      const size = metrics.cssContentSize || metrics.contentSize
+      const metrics = await send<{ result?: { value?: { height?: number, width?: number } } }>("Runtime.evaluate", {
+        expression: "({ height: document.documentElement.scrollHeight, width: document.documentElement.scrollWidth })",
+        returnByValue: true,
+      })
+      const size = metrics.result?.value
       if (!size?.height || !size.width) {
         throw browserProviderError("cloudflare", "measure the Kitesurf page")
       }
-      clip = { height: size.height, scale: 1, width: size.width, x: size.x || 0, y: size.y || 0 }
+      clip = { height: size.height, scale: 1, width: size.width, x: 0, y: 0 }
     }
     if (options?.omitBackground) {
       await send("Emulation.setDefaultBackgroundColorOverride", {
