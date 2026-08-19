@@ -30,10 +30,10 @@ describe("hubBrowser", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER", remote: true })
+    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_date", "2026-04-20")
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", [
       "existing",
       "nodejs_compat",
-      "no_websocket_standard_binary_type",
     ])
     expect(config).toHaveProperty("nitro.rollupConfig.external", ["existing-module", "cloudflare:workers"])
   })
@@ -291,6 +291,49 @@ describe("hubBrowser", () => {
     expect(output).not.toContain("playwright-core")
   })
 
+  it("bundles Browser Run actions without Playwright", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-action-build-"))
+    roots.push(root)
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }), "utf8")
+    await writeFile(
+      join(root, "server.ts"),
+      [
+        `import { runBrowserContent } from "@vite-hub/browser/actions"`,
+        `export async function render() { return await runBrowserContent("https://example.com") }`,
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const buildResult = await build({
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          external: ["cloudflare:workers"],
+        },
+        ssr: "server.ts",
+      },
+      logLevel: "silent",
+      plugins: [hubBrowser({ binding: "CODE_BROWSER" })],
+      resolve: {
+        alias: {
+          "@vite-hub/browser/actions": join(import.meta.dirname, "../dist/actions.js"),
+        },
+      },
+      root,
+    })
+
+    const results = Array.isArray(buildResult) ? buildResult : [buildResult]
+    const output = results
+      .flatMap(result => "output" in result ? result.output : [])
+      .flatMap(chunk => chunk.type === "chunk" ? [chunk.code] : [])
+      .join("\n")
+    expect(output).toContain("quickAction")
+    expect(output).toContain("CODE_BROWSER")
+    expect(output).not.toContain("@cloudflare/playwright")
+    expect(output).not.toContain("playwright-core")
+  })
+
   it("writes and cleans owned standalone Provider Output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-vite-"))
     roots.push(root)
@@ -312,7 +355,8 @@ describe("hubBrowser", () => {
     const output = JSON.parse(await readFile(outputFile, "utf8"))
     expect(output).toEqual({
       browser: { binding: "BROWSER", remote: true },
-      compatibility_flags: ["custom", "nodejs_compat", "no_websocket_standard_binary_type"],
+      compatibility_date: "2026-04-20",
+      compatibility_flags: ["custom", "nodejs_compat"],
     })
 
     const disabledPlugin = hubBrowser(false)
@@ -326,7 +370,8 @@ describe("hubBrowser", () => {
     })
     await (disabledPlugin.closeBundle as { handler(): Promise<void> }).handler()
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toEqual({
-      compatibility_flags: ["custom", "nodejs_compat"],
+      compatibility_date: "2026-04-20",
+      compatibility_flags: ["custom"],
     })
   })
 

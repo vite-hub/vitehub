@@ -4,16 +4,40 @@ import type {
   TraceEvent,
   ViteHubError,
 } from "@vite-hub/runtime"
-import type {
-  Browser as PlaywrightBrowser,
-  BrowserContext,
-  Download as PlaywrightDownload,
-  Page,
-} from "playwright-core"
 
-export type BrowserDownload = PlaywrightDownload
+export interface BrowserDownload {
+  url(): string
+}
+
+export interface BrowserPageLocator {
+  screenshot(options?: Record<string, unknown>): Promise<Uint8Array>
+}
+
+export interface BrowserPage {
+  goto(url: string, options?: Record<string, unknown>): Promise<unknown>
+  locator(selector: string): BrowserPageLocator
+  title(): Promise<string>
+}
 
 export type BrowserEngine = "chromium" | "kitesurf"
+
+export type BrowserRunAction =
+  | "accessibilityTree"
+  | "content"
+  | "json"
+  | "links"
+  | "markdown"
+  | "pdf"
+  | "scrape"
+  | "screenshot"
+  | "snapshot"
+
+export type BrowserRunActionInput = string | ({ url?: string } & Record<string, unknown>)
+
+export interface BrowserRunActionOptions {
+  binding?: string | unknown
+  resolveBinding?: (name: string) => MaybePromise<unknown>
+}
 
 export interface BrowserFeatures {
   liveHandoff: boolean
@@ -122,16 +146,18 @@ export interface CreateBrowserOptions<TConnection> {
 }
 
 export interface BrowserPageSession {
-  readonly browser: PlaywrightBrowser
-  readonly context: BrowserContext
+  readonly browser: unknown
+  readonly context: unknown
   readonly id: string
-  readonly page: Page
+  readonly page: BrowserPage
   close(): Promise<void>
   inspect(): BrowserSessionInfo
 }
 
 export interface BrowserDefinitionBrowser {
+  content(input: BrowserRunActionInput): Promise<string>
   open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession>
+  quickAction(action: BrowserRunAction, input: BrowserRunActionInput): Promise<Response>
 }
 
 export interface BrowserDefinitionContext {

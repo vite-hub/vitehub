@@ -189,7 +189,7 @@ export interface ViteHubOptions {
   browser?: boolean | BrowserModuleOptions
   channels?: boolean | ChannelsVitePluginOptions
   database?: boolean | DBModulePublicOptions
-  email?: EmailVitePluginOptions
+  email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   queue?: boolean
@@ -694,8 +694,11 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as unknown as BlobModuleOptions))
   }
   if (options.email) {
+    const emailOptions = options.email === true
+      ? { driver: "unemail/driver/cloudflare-email" as const }
+      : options.email
     plugins.push(hubEmail({
-      ...options.email,
+      ...emailOptions,
       hosting: plan.nitroPreset,
       runtimeEnvImport: "vite-hub/env/server",
     } as unknown as EmailVitePluginOptions))

@@ -7,9 +7,7 @@ import {
   browserRuntimeNotConfiguredError,
   toBrowserError,
 } from "./errors.ts"
-import { createBrowser } from "./client.ts"
-import { cloudflarePlaywright } from "./internal/cloudflare-playwright.ts"
-import { cloudflareBrowser } from "./providers/cloudflare.ts"
+import { runBrowserAction, runBrowserContent } from "./actions.ts"
 
 import type {
   BrowserClient,
@@ -20,6 +18,9 @@ import type {
   BrowserDefinitionHandler,
   BrowserPageSession,
   BrowserProviderOpenOptions,
+  BrowserRunAction,
+  BrowserRunActionInput,
+  BrowserRunActionOptions,
   BrowserRunResult,
   BrowserSession,
 } from "./types.ts"
@@ -80,15 +81,25 @@ class BrowserDefinitionBrowserImpl<TConnection> implements BrowserDefinitionBrow
   private readonly sessions: Array<ManagedBrowserPageSession<TConnection>> = []
 
   constructor(
-    private readonly client: BrowserClient<TConnection>,
-    private readonly controller: BrowserController<PlaywrightClient, TConnection>,
+    private readonly options: {
+      action?: BrowserRunActionOptions
+      client?: BrowserClient<TConnection>
+      controller?: BrowserController<PlaywrightClient, TConnection>
+    },
   ) {}
 
+  async content(input: BrowserRunActionInput): Promise<string> {
+    const [error, content] = await runBrowserContent(input, this.options.action)
+    if (error) throw error
+    return content
+  }
+
   async open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession> {
-    const providerSession = await this.client.open(options)
+    const client = this.options.client ?? (await resolveConfiguredClient() as BrowserClient<TConnection>)
+    const providerSession = await client.open(options)
     let control: BrowserControl<PlaywrightClient>
     try {
-      control = await providerSession.attach(this.controller)
+      control = await providerSession.attach(this.options.controller ?? await resolveDefaultController<TConnection>())
     }
     catch (error) {
       try {
@@ -107,6 +118,12 @@ class BrowserDefinitionBrowserImpl<TConnection> implements BrowserDefinitionBrow
     return session
   }
 
+  async quickAction(action: BrowserRunAction, input: BrowserRunActionInput): Promise<Response> {
+    const [error, response] = await runBrowserAction(action, input, this.options.action)
+    if (error) throw error
+    return response
+  }
+
   async close(): Promise<void> {
     const errors: unknown[] = []
     for (const session of [...this.sessions].reverse()) {
@@ -123,13 +140,22 @@ class BrowserDefinitionBrowserImpl<TConnection> implements BrowserDefinitionBrow
 
 let configuredClient: BrowserClient | undefined
 
-function resolveConfiguredClient(): BrowserClient {
+async function resolveConfiguredClient(): Promise<BrowserClient> {
   if (configuredClient) return configuredClient
   if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
+  const [{ createBrowser }, { cloudflareBrowser }] = await Promise.all([
+    import("./client.ts"),
+    import("./providers/cloudflare.ts"),
+  ])
   configuredClient = createBrowser({
     provider: cloudflareBrowser({ binding: runtimeConfig.binding, engine: runtimeConfig.engine }),
   })
   return configuredClient
+}
+
+async function resolveDefaultController<TConnection>(): Promise<BrowserController<PlaywrightClient, TConnection>> {
+  const { cloudflarePlaywright } = await import("./internal/cloudflare-playwright.ts")
+  return cloudflarePlaywright() as BrowserController<PlaywrightClient, TConnection>
 }
 
 function isBrowserDefinition(value: unknown): value is BrowserDefinition {
@@ -160,14 +186,12 @@ export async function executeBrowserDefinition<TInput, TResult, TConnection>(
   definition: BrowserDefinition<TInput, TResult>,
   input: TInput,
   options: {
-    client: BrowserClient<TConnection>
+    action?: BrowserRunActionOptions
+    client?: BrowserClient<TConnection>
     controller?: BrowserController<PlaywrightClient, TConnection>
-  },
+  } = {},
 ): Promise<TResult> {
-  const browser = new BrowserDefinitionBrowserImpl(
-    options.client,
-    options.controller ?? cloudflarePlaywright() as BrowserController<PlaywrightClient, TConnection>,
-  )
+  const browser = new BrowserDefinitionBrowserImpl(options)
   let result: TResult
   try {
     result = await definition.run(input, { browser })
@@ -199,9 +223,7 @@ export function runBrowser<TName extends string>(
 export async function runBrowser(name: string, input?: unknown): Promise<BrowserRunResult<unknown>> {
   try {
     const definition = await resolveBrowserDefinition(name)
-    return [null, await executeBrowserDefinition(definition, input, {
-      client: resolveConfiguredClient(),
-    })]
+    return [null, await executeBrowserDefinition(definition, input)]
   }
   catch (error) {
     return [toBrowserError(error), undefined]

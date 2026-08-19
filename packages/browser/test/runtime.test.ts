@@ -83,6 +83,26 @@ describe("Browser Definitions", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("lets definitions use Browser Run content without opening a Playwright session", async () => {
+    const { browser, close, controller, release } = fixture()
+    const quickAction = vi.fn(async () => new Response(
+      "<html><meta property=\"og:image\" content=\"https://example.com/card.png\"></html>",
+    ))
+    const definition = defineBrowser(async (input: { url: string }, { browser }) => {
+      return await browser.content(input.url)
+    })
+
+    await expect(executeBrowserDefinition(definition, { url: "https://example.com" }, {
+      action: { binding: { quickAction } },
+      client: browser,
+      controller,
+    })).resolves.toContain("card.png")
+
+    expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
+    expect(release).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+  })
+
   it("closes sessions when the definition throws", async () => {
     const { browser, close, controller, release } = fixture()
     const definition = defineBrowser(async (_input: undefined, { browser }) => {

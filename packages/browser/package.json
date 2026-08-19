@@ -37,6 +37,7 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./actions": "./dist/actions.js",
     "./controllers/cdp": "./dist/controllers/cdp.js",
     "./controllers/playwright": "./dist/controllers/playwright.js",
     "./internal/runtime/empty-registry": "./dist/internal/runtime/empty-registry.js",
@@ -53,13 +54,13 @@
     "test": "vp run -t @vite-hub/browser#build && vp test"
   },
   "dependencies": {
-    "@cloudflare/playwright": "catalog:browser",
-    "@vite-hub/runtime": "workspace:*",
-    "playwright-core": "catalog:browser"
+    "@vite-hub/runtime": "workspace:*"
   },
   "devDependencies": {
+    "@cloudflare/playwright": "catalog:browser",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

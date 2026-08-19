@@ -290,6 +290,16 @@ describe("vitehub", () => {
     })
   })
 
+  it("uses Cloudflare Email when Email is enabled by preset", () => {
+    vitehub({ email: true, preset: "cloudflare" })
+
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
+      driver: "unemail/driver/cloudflare-email",
+      hosting: "cloudflare-module",
+      runtimeEnvImport: "vite-hub/env/server",
+    })
+  })
+
   it("uses framework subpaths in generated Env modules", () => {
     vitehub({ preset: "node" })
 

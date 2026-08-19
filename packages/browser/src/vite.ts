@@ -1,7 +1,11 @@
 import { normalize, resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
+import {
+  createDefaultCloudflareOutputRoot,
+  defaultCloudflareCompatibilityDate,
+  writeCloudflareWranglerConfig,
+} from "@vite-hub/internal/build/cloudflare"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import {
   createNoExternalMerger,
@@ -77,9 +81,7 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
     return { ...nitro, cloudflare: { ...cloudflare, wrangler } }
   }
   const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
-  for (const flag of ["nodejs_compat", "no_websocket_standard_binary_type"]) {
-    if (!flags.includes(flag)) flags.push(flag)
-  }
+  if (!flags.includes("nodejs_compat")) flags.push("nodejs_compat")
   return {
     ...nitro,
     cloudflare: {
@@ -87,6 +89,7 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
       wrangler: {
         ...wrangler,
         browser: browserBinding(options),
+        compatibility_date: wrangler.compatibility_date ?? defaultCloudflareCompatibilityDate,
         compatibility_flags: flags,
       },
     },
@@ -219,7 +222,8 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
             ? {
                 wranglerConfig: {
                   browser: browserBinding(resolvedOptions),
-                  compatibility_flags: ["nodejs_compat", "no_websocket_standard_binary_type"],
+                  compatibility_date: defaultCloudflareCompatibilityDate,
+                  compatibility_flags: ["nodejs_compat"],
                 },
               }
             : {}),
@@ -227,7 +231,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
             keys: ["browser"],
             arrays: {
               compatibility_flags: {
-                values: ["no_websocket_standard_binary_type"],
+                values: ["nodejs_compat"],
               },
             },
           },

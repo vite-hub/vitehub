@@ -48,6 +48,8 @@ export type {
   BrowserDefinitionHandler,
   BrowserDefinitionRegistry,
   BrowserDownload,
+  BrowserPage,
+  BrowserPageLocator,
   BrowserPageSession,
   BrowserRunResult,
 } from "./types.ts"

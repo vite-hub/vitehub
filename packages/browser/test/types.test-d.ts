@@ -4,9 +4,11 @@ import {
   createBrowser,
   defineBrowser,
   type BrowserDownload,
+  type BrowserPage,
   type BrowserPageSession,
   type BrowserRunResult,
   type BrowserSessionRef,
+  runBrowserContent,
 } from "../src/index.ts"
 import { playwright, type PlaywrightClient } from "../src/controllers/playwright.ts"
 import { cloudflareBrowser } from "../src/providers/cloudflare.ts"
@@ -26,13 +28,24 @@ describe("published Browser types", () => {
 
   it("types imperative definition-scoped sessions", () => {
     defineBrowser(async (input: { url: string }, { browser }) => {
+      expectTypeOf(browser.content(input.url)).resolves.toEqualTypeOf<string>()
       expectTypeOf(browser.open()).resolves.toEqualTypeOf<BrowserPageSession>()
       return input.url
     })
   })
 
-  it("exports the complete Browser Download event type", () => {
-    expectTypeOf<BrowserDownload>().toEqualTypeOf<import("playwright-core").Download>()
+  it("types Browser Run quick actions", () => {
+    expectTypeOf(runBrowserContent("https://example.com")).resolves.toEqualTypeOf<BrowserRunResult<string>>()
+  })
+
+  it("exports a Browser Download event shape without requiring Playwright types", () => {
+    expectTypeOf<BrowserDownload>().toEqualTypeOf<{ url(): string }>()
+  })
+
+  it("exports documented page operations without requiring Playwright types", () => {
+    expectTypeOf<BrowserPage["goto"]>().parameters.toEqualTypeOf<[url: string, options?: Record<string, unknown>]>()
+    expectTypeOf<BrowserPage["title"]>().returns.toEqualTypeOf<Promise<string>>()
+    expectTypeOf<ReturnType<BrowserPage["locator"]>["screenshot"]>().returns.toEqualTypeOf<Promise<Uint8Array>>()
   })
 
   it("types error-first Browser Definition results", () => {

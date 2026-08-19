@@ -78,11 +78,11 @@ The generated Browser registry infers each definition's input and result types. 
 | API | Description |
 | --- | --- |
 | `defineBrowser(handler)` | Defines one discovered browser operation. |
-| `browser.open(options?)` | Opens a Playwright-backed session owned by the current definition invocation. |
+| `browser.open(options?)` | Opens a Playwright-backed session owned by the current definition invocation. Install Playwright packages only for apps that use this path. |
 | `runBrowser(name, input)` | Runs a discovered definition and returns `[error, result]` with inferred types. |
-| `session.browser` | Playwright Browser connected to the provider session. |
-| `session.context` | Invocation-owned Playwright Browser Context. |
-| `session.page` | Initial Playwright Page. |
+| `session.browser` | Provider browser handle. |
+| `session.context` | Invocation-owned browser context handle. |
+| `session.page` | Initial page with ViteHub's documented page methods. |
 | `session.inspect()` | Returns sanitized session state without provider credentials. |
 | `session.close()` | Closes a session early; otherwise the definition runner closes it. |
 
@@ -111,11 +111,36 @@ export default defineConfig({
 | `browser: { binding?, engine?, remote? }` | Customizes the Cloudflare binding; `engine: 'chromium'` opts out of the Kitesurf default, and `remote: true` connects local Wrangler development to Cloudflare Browser Run. |
 | `browser: false` | Disables Browser Provider Output. |
 
-The Cloudflare preset writes the Browser Run binding plus the `nodejs_compat` and `no_websocket_standard_binary_type` flags to Nitro's generated Provider Output. The second flag preserves `ArrayBuffer` delivery for the Playwright WebSocket connection.
+The Cloudflare preset writes the Browser Run binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag to Nitro's generated Provider Output.
 
 Kitesurf uses Cloudflare's service-defined session timeout and does not accept `idleTimeoutMs`. Select `engine: 'chromium'` when an invocation must configure a persistent session's idle timeout.
 
 Cloudflare can run a local browser during `wrangler dev`. Set `remote: true` only when a local proof must connect to Cloudflare's Browser Run service. Both the root integration and direct `hubBrowser()` output write the Browser binding and required compatibility flags while preserving unrelated Wrangler fields.
+
+## Quick actions
+
+Use Browser Run quick actions when the operation fits Cloudflare's hosted action surface and does not need a long-lived page session:
+
+```ts [server/render-og.ts]
+import { runBrowserContent } from 'vite-hub/browser/actions'
+
+const [error, html] = await runBrowserContent('https://example.com')
+if (error) throw error
+```
+
+`runBrowserAction(action, input)` returns the raw `Response` for binary actions such as screenshots or PDFs. `runBrowserContent(input)` reads the `content` action response as text.
+
+Browser Definitions can use the same path through the definition context:
+
+```ts [server/browsers/page-html.ts]
+import { defineBrowser } from 'vite-hub/browser'
+
+export default defineBrowser(async (input: { url: string }, { browser }) => {
+  return await browser.content(input.url)
+})
+```
+
+Calling `browser.content()` or `runBrowserContent()` uses the Browser Run binding directly and does not install or import Playwright. Call `browser.open()` only when the definition needs a Playwright page, context, downloads, or CDP-backed session behavior; then install `@cloudflare/playwright` and `playwright-core` in the app.
 
 ## Low-level sessions
 
