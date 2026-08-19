@@ -7,7 +7,7 @@ icon: i-lucide-monitor
 
 Browser Definitions are named, server-side browser operations. Use them when a route, job, workflow, or trusted server actor needs to inspect a page, render browser-only UI, or capture evidence.
 
-ViteHub discovers each definition, selects Cloudflare Browser Run from the Cloudflare deployment preset, and owns every session opened during the invocation. Application code does not import a Cloudflare provider or pass browser credentials. Browser Definitions currently require the Cloudflare preset.
+ViteHub discovers each definition and maps its provider-neutral actions to Cloudflare Browser Run when deployed with the Cloudflare preset. Application code does not import a Cloudflare provider or pass browser credentials. Browser Definitions currently require the Cloudflare preset.
 
 Browser is a server primitive, not an Agent Capability. Server code invokes Browser Definitions directly. Agents receive browser access only when you expose an appropriate tool or attach a model-facing Capability such as [`browser()`](/docs/capabilities/browser).
 
@@ -43,52 +43,46 @@ export default defineConfig({
 
 Place Browser Definitions in `server/browsers/` or name them `*.browser.ts`.
 
-```ts [server/browsers/page-title.ts]
+```ts [server/browsers/page-html.ts]
 import { defineBrowser } from 'vite-hub/browser'
 
 export default defineBrowser(async (
   input: { url: string },
   { browser },
 ) => {
-  const session = await browser.open()
-  await session.page.goto(input.url)
-  return await session.page.title()
+  return await browser.content(input.url)
 })
 ```
 
 ### Run it by name
 
-```ts [server/api/page-title.post.ts]
+```ts [server/api/page-html.post.ts]
 import { runBrowser } from 'vite-hub/browser'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ url: string }>(event)
-  const [error, title] = await runBrowser('page-title', input)
+  const [error, html] = await runBrowser('page-html', input)
   if (error) throw error
-  return title
+  return html
 })
 ```
 
 ::
 
-The generated Browser registry infers each definition's input and result types. `runBrowser()` returns an error-first tuple, and ViteHub closes every session after the definition completes or throws, including when one invocation opens several sessions.
+The generated Browser registry infers each definition's input and result types. `runBrowser()` returns an error-first tuple.
 
 ## Runtime API
 
 | API | Description |
 | --- | --- |
 | `defineBrowser(handler)` | Defines one discovered browser operation. |
-| `browser.open(options?)` | Opens a Playwright-backed session owned by the current definition invocation. Install Playwright packages only for apps that use this path. |
+| `browser.content(input)` | Returns fully rendered HTML as text. |
+| `browser.run(action, input)` | Runs a browser action and returns its standard Web `Response`. |
 | `runBrowser(name, input)` | Runs a discovered definition and returns `[error, result]` with inferred types. |
-| `session.browser` | Provider browser handle. |
-| `session.context` | Invocation-owned browser context handle. |
-| `session.page` | Initial page with ViteHub's documented page methods. |
-| `session.inspect()` | Returns sanitized session state without provider credentials. |
-| `session.close()` | Closes a session early; otherwise the definition runner closes it. |
 
 ## Configuration
 
-`browser: true` enables Cloudflare Browser with Kitesurf. Use an object only to change the host binding, connect local development to the hosted service, or explicitly select Chromium for compatibility.
+`browser: true` enables Cloudflare Browser Run actions. Use an object only to change the host binding or connect local development to the hosted service.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -97,7 +91,6 @@ export default defineConfig({
       preset: 'cloudflare',
       browser: {
         binding: 'RENDER_BROWSER',
-        engine: 'chromium',
         remote: true,
       },
     }),
@@ -107,19 +100,17 @@ export default defineConfig({
 
 | Shape | Description |
 | --- | --- |
-| `browser: true` | Enables Kitesurf with the `BROWSER` binding. |
-| `browser: { binding?, engine?, remote? }` | Customizes the Cloudflare binding; `engine: 'chromium'` opts out of the Kitesurf default, and `remote: true` connects local Wrangler development to Cloudflare Browser Run. |
+| `browser: true` | Enables Browser Run with the `BROWSER` binding. |
+| `browser: { binding?, remote? }` | Customizes the Cloudflare binding; `remote: true` connects local Wrangler development to Browser Run. |
 | `browser: false` | Disables Browser Provider Output. |
 
 The Cloudflare preset writes the Browser Run binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag to Nitro's generated Provider Output.
 
-Kitesurf uses Cloudflare's service-defined session timeout and does not accept `idleTimeoutMs`. Select `engine: 'chromium'` when an invocation must configure a persistent session's idle timeout.
+Cloudflare's Worker `quickAction()` currently requires remote mode during local development. Set `remote: true` when local Wrangler development must call Browser Run. Both the root integration and direct `hubBrowser()` output write the Browser binding and required compatibility fields while preserving unrelated Wrangler fields.
 
-Cloudflare can run a local browser during `wrangler dev`. Set `remote: true` only when a local proof must connect to Cloudflare's Browser Run service. Both the root integration and direct `hubBrowser()` output write the Browser binding and required compatibility flags while preserving unrelated Wrangler fields.
+## Browser actions
 
-## Quick actions
-
-Use Browser Run quick actions when the operation fits Cloudflare's hosted action surface and does not need a long-lived page session:
+Use a Browser action directly when the operation does not need a persistent session:
 
 ```ts [server/render-og.ts]
 import { runBrowserContent } from 'vite-hub/browser/actions'
@@ -128,7 +119,7 @@ const [error, html] = await runBrowserContent('https://example.com')
 if (error) throw error
 ```
 
-`runBrowserAction(action, input)` returns the raw `Response` for binary actions such as screenshots or PDFs. `runBrowserContent(input)` reads the `content` action response as text.
+`runBrowserAction(action, input)` returns the raw `Response` for binary actions such as screenshots or PDFs. `runBrowserContent(input)` reads the `content` action response as text. Cloudflare's `quickAction()` name stays inside the provider adapter.
 
 Browser Definitions can use the same path through the definition context:
 
@@ -140,7 +131,7 @@ export default defineBrowser(async (input: { url: string }, { browser }) => {
 })
 ```
 
-Calling `browser.content()` or `runBrowserContent()` uses the Browser Run binding directly and does not install or import Playwright. Call `browser.open()` only when the definition needs a Playwright page, context, downloads, or CDP-backed session behavior; then install `@cloudflare/playwright` and `playwright-core` in the app.
+Use `browser.run(action, input)` for other actions. The current ViteHub action backend is Cloudflare Browser Run; the public Definition contract does not expose the provider method.
 
 ## Low-level sessions
 
@@ -171,7 +162,7 @@ finally {
 }
 ```
 
-Provider and controller subpaths are advanced integration surfaces. Normal ViteHub application code should use Browser Definitions so the deployment preset can own the provider.
+Provider and controller subpaths are advanced integration surfaces. They are also the explicit path for applications that need Playwright, mutable page state, downloads, or CDP instead of stateless actions. Install `@cloudflare/playwright` and `playwright-core` when using the Cloudflare Playwright controller.
 
 ## Live handoff
 

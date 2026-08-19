@@ -45,7 +45,7 @@ describe("hubBrowser", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "TOP_LEVEL_BROWSER" })
-    expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", engine: "kitesurf", remote: false })
+    expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", remote: false })
   })
 
   it("generates the provider runtime and discovered Browser Definition registry", async () => {
@@ -78,9 +78,7 @@ describe("hubBrowser", () => {
 
     expect(registry).toContain('"code-image": async () => import(')
     expect(registry).toContain("server/browsers/code-image.ts")
-    expect(runtime).toContain('"provider": "cloudflare"')
     expect(runtime).toContain('"binding": "CODE_BROWSER"')
-    expect(runtime).toContain('"engine": "kitesurf"')
     expect(types).toContain("interface ViteHubBrowserDefinitionModules")
     expect(types).toContain('"code-image": typeof import(')
     expect(types).toContain("server/browsers/code-image.ts")
@@ -238,8 +236,7 @@ describe("hubBrowser", () => {
       [
         `import { defineBrowser } from "@vite-hub/browser"`,
         `export default defineBrowser(async (_input, { browser }) => {`,
-        `  const session = await browser.open()`,
-        `  return await session.page.title()`,
+        `  return await browser.content(_input.url)`,
         `})`,
         "",
       ].join("\n"),
@@ -374,10 +371,5 @@ describe("hubBrowser", () => {
 
   it("validates binding names", () => {
     expect(() => hubBrowser({ binding: "bad-binding" })).toThrow("valid Cloudflare binding name")
-  })
-
-  it("validates engine names", () => {
-    expect(() => hubBrowser({ engine: "webkit" as never })).toThrow("engine must be chromium or kitesurf")
-    expect(() => hubBrowser({ engine: "" as never })).toThrow("engine must be chromium or kitesurf")
   })
 })

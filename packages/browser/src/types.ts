@@ -5,23 +5,9 @@ import type {
   ViteHubError,
 } from "@vite-hub/runtime"
 
-export interface BrowserDownload {
-  url(): string
-}
-
-export interface BrowserPageLocator {
-  screenshot(options?: Record<string, unknown>): Promise<Uint8Array>
-}
-
-export interface BrowserPage {
-  goto(url: string, options?: Record<string, unknown>): Promise<unknown>
-  locator(selector: string): BrowserPageLocator
-  title(): Promise<string>
-}
-
 export type BrowserEngine = "chromium" | "kitesurf"
 
-export type BrowserRunAction =
+export type BrowserAction =
   | "accessibilityTree"
   | "content"
   | "json"
@@ -32,9 +18,9 @@ export type BrowserRunAction =
   | "screenshot"
   | "snapshot"
 
-export type BrowserRunActionInput = string | ({ url?: string } & Record<string, unknown>)
+export type BrowserActionInput = string | ({ url?: string } & Record<string, unknown>)
 
-export interface BrowserRunActionOptions {
+export interface BrowserActionOptions {
   binding?: string | unknown
   resolveBinding?: (name: string) => MaybePromise<unknown>
 }
@@ -145,19 +131,9 @@ export interface CreateBrowserOptions<TConnection> {
   trace?: (event: TraceEvent) => MaybePromise<void>
 }
 
-export interface BrowserPageSession {
-  readonly browser: unknown
-  readonly context: unknown
-  readonly id: string
-  readonly page: BrowserPage
-  close(): Promise<void>
-  inspect(): BrowserSessionInfo
-}
-
 export interface BrowserDefinitionBrowser {
-  content(input: BrowserRunActionInput): Promise<string>
-  open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession>
-  quickAction(action: BrowserRunAction, input: BrowserRunActionInput): Promise<Response>
+  content(input: BrowserActionInput): Promise<string>
+  run(action: BrowserAction, input: BrowserActionInput): Promise<Response>
 }
 
 export interface BrowserDefinitionContext {
@@ -184,6 +160,4 @@ export type BrowserDefinitionRegistry = Record<
 
 export interface BrowserRuntimeConfig {
   binding: string
-  engine?: BrowserEngine
-  provider?: "cloudflare"
 }

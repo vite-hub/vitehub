@@ -1,8 +1,8 @@
 # `@vite-hub/browser`
 
-Browser Definitions and Browser Run quick actions for deterministic server-side browser automation.
+Browser Definitions and provider-backed actions for deterministic server-side browser automation.
 
-Use Browser Run quick actions when the operation fits Cloudflare's hosted action surface:
+Use an action directly when the operation does not need a persistent session:
 
 ```ts
 import { runBrowserContent } from "@vite-hub/browser/actions"
@@ -11,25 +11,16 @@ const [error, html] = await runBrowserContent("https://example.com")
 if (error) throw error
 ```
 
-Application code can also define a browser operation. It can use quick actions without opening a session, or call `browser.open()` when it needs Playwright:
+Application code can also define a named browser operation without exposing its provider:
 
 ```ts
 import { defineBrowser } from "@vite-hub/browser"
 
 export default defineBrowser(async (
-  input: {
-    url: string
-    selector?: string
-  },
+  input: { url: string },
   { browser },
 ) => {
-  if (!input.selector) return await browser.content(input.url)
-
-  const session = await browser.open()
-  await session.page.goto(input.url)
-  return await session.page.locator(input.selector ?? "body").screenshot({
-    type: "png",
-  })
+  return await browser.content(input.url)
 })
 ```
 
@@ -60,17 +51,20 @@ export default defineConfig({
 })
 ```
 
-ViteHub generates the Cloudflare Browser Run binding and uses quick actions without Playwright. Apps that call `browser.open()` install `@cloudflare/playwright` and `playwright-core`; quick-action-only apps do not. ViteHub closes every opened session after its Browser Definition completes or throws. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`. A definition can open more than one session; each one belongs to that invocation.
-
-Kitesurf uses Cloudflare's service-defined session timeout and rejects `idleTimeoutMs`. Select `engine: "chromium"` when an invocation must configure a persistent session's idle timeout.
+ViteHub generates the Cloudflare Browser Run binding and maps the provider's `quickAction()` method to ViteHub's `browser.run()` and `browser.content()` API. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`.
 
 ## Low-level sessions
 
-`createBrowser()` remains available for standalone integrations where the caller owns provider selection and cleanup. Controller attachment is imperative:
+`createBrowser()` remains available for standalone integrations where the caller explicitly owns provider selection, controller selection, and cleanup. Playwright stays on this path instead of being selected implicitly by a Browser Definition:
 
 ```ts
+import { createBrowser } from "@vite-hub/browser"
+import { playwright } from "@vite-hub/browser/controllers/playwright"
+import { cloudflareBrowser } from "@vite-hub/browser/providers/cloudflare"
+
+const browser = createBrowser({ provider: cloudflareBrowser() })
 const session = await browser.open()
-const control = await session.attach(controller)
+const control = await session.attach(playwright())
 
 try {
   await control.client.doSomething()

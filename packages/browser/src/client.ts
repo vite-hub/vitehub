@@ -42,15 +42,14 @@ export type {
   CreateBrowserOptions,
 } from "./types.ts"
 export type {
+  BrowserAction,
+  BrowserActionInput,
+  BrowserActionOptions,
   BrowserDefinition,
   BrowserDefinitionBrowser,
   BrowserDefinitionContext,
   BrowserDefinitionHandler,
   BrowserDefinitionRegistry,
-  BrowserDownload,
-  BrowserPage,
-  BrowserPageLocator,
-  BrowserPageSession,
   BrowserRunResult,
 } from "./types.ts"
 

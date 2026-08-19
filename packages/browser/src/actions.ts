@@ -7,17 +7,17 @@ import {
 } from "./errors.ts"
 
 import type {
-  BrowserRunAction,
-  BrowserRunActionInput,
-  BrowserRunActionOptions,
+  BrowserAction,
+  BrowserActionInput,
+  BrowserActionOptions,
   BrowserRunResult,
 } from "./types.ts"
 
 interface BrowserRunBinding {
-  quickAction(action: BrowserRunAction, input: Record<string, unknown>): Promise<Response>
+  quickAction(action: BrowserAction, input: Record<string, unknown>): Promise<Response>
 }
 
-function normalizeInput(input: BrowserRunActionInput): Record<string, unknown> {
+function normalizeInput(input: BrowserActionInput): Record<string, unknown> {
   return typeof input === "string" ? { url: input } : input
 }
 
@@ -33,7 +33,7 @@ async function runtimeBinding(name: string): Promise<unknown> {
   }
 }
 
-async function resolveBinding(options: BrowserRunActionOptions = {}): Promise<BrowserRunBinding> {
+async function resolveBinding(options: BrowserActionOptions = {}): Promise<BrowserRunBinding> {
   const bindingOption = options.binding ?? runtimeConfig.binding
   if (!bindingOption) throw browserRuntimeNotConfiguredError()
   const binding = typeof bindingOption === "string"
@@ -45,7 +45,7 @@ async function resolveBinding(options: BrowserRunActionOptions = {}): Promise<Br
   return binding as BrowserRunBinding
 }
 
-async function readQuickActionText(response: Response, action: BrowserRunAction): Promise<string> {
+async function readQuickActionText(response: Response, action: BrowserAction): Promise<string> {
   if (!response.ok) {
     throw browserProviderError("cloudflare", `run ${action} quick action (${response.status})`)
   }
@@ -53,9 +53,9 @@ async function readQuickActionText(response: Response, action: BrowserRunAction)
 }
 
 export async function runBrowserAction(
-  action: BrowserRunAction,
-  input: BrowserRunActionInput,
-  options?: BrowserRunActionOptions,
+  action: BrowserAction,
+  input: BrowserActionInput,
+  options?: BrowserActionOptions,
 ): Promise<BrowserRunResult<Response>> {
   try {
     return [null, await (await resolveBinding(options)).quickAction(action, normalizeInput(input))]
@@ -66,8 +66,8 @@ export async function runBrowserAction(
 }
 
 export async function runBrowserContent(
-  input: BrowserRunActionInput,
-  options?: BrowserRunActionOptions,
+  input: BrowserActionInput,
+  options?: BrowserActionOptions,
 ): Promise<BrowserRunResult<string>> {
   const [error, response] = await runBrowserAction("content", input, options)
   if (error) return [error, undefined]

@@ -3,9 +3,6 @@ import { describe, expectTypeOf, it } from "vitest"
 import {
   createBrowser,
   defineBrowser,
-  type BrowserDownload,
-  type BrowserPage,
-  type BrowserPageSession,
   type BrowserRunResult,
   type BrowserSessionRef,
   runBrowserContent,
@@ -26,26 +23,18 @@ describe("published Browser types", () => {
     expectTypeOf((await cloudflareSession.attach(playwright())).client).toEqualTypeOf<PlaywrightClient>()
   })
 
-  it("types imperative definition-scoped sessions", () => {
+  it("types provider-neutral Browser Definition actions", () => {
     defineBrowser(async (input: { url: string }, { browser }) => {
       expectTypeOf(browser.content(input.url)).resolves.toEqualTypeOf<string>()
-      expectTypeOf(browser.open()).resolves.toEqualTypeOf<BrowserPageSession>()
+      expectTypeOf(browser.run("screenshot", input)).resolves.toEqualTypeOf<Response>()
+      // @ts-expect-error full-control sessions require an explicit provider and controller
+      browser.open()
       return input.url
     })
   })
 
-  it("types Browser Run quick actions", () => {
+  it("types Browser actions", () => {
     expectTypeOf(runBrowserContent("https://example.com")).resolves.toEqualTypeOf<BrowserRunResult<string>>()
-  })
-
-  it("exports a Browser Download event shape without requiring Playwright types", () => {
-    expectTypeOf<BrowserDownload>().toEqualTypeOf<{ url(): string }>()
-  })
-
-  it("exports documented page operations without requiring Playwright types", () => {
-    expectTypeOf<BrowserPage["goto"]>().parameters.toEqualTypeOf<[url: string, options?: Record<string, unknown>]>()
-    expectTypeOf<BrowserPage["title"]>().returns.toEqualTypeOf<Promise<string>>()
-    expectTypeOf<ReturnType<BrowserPage["locator"]>["screenshot"]>().returns.toEqualTypeOf<Promise<Uint8Array>>()
   })
 
   it("types error-first Browser Definition results", () => {
@@ -60,6 +49,6 @@ describe("published Browser types", () => {
     const session = await browser.open()
     expectTypeOf(session.handoff({ audience: "run-1", mode: "live" })).resolves.toEqualTypeOf<BrowserSessionRef>()
     expectTypeOf(hubBrowser()).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
-    expectTypeOf(hubBrowser({ engine: "chromium" })).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
+    expectTypeOf(hubBrowser({ remote: true })).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
   })
 })
