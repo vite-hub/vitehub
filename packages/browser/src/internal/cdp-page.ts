@@ -56,7 +56,7 @@ function locatorExpression(
     const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
     if (!setter) throw new Error("Browser locator could not set the element value");
     setter.call(element, ${JSON.stringify(value)});
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, data: ${JSON.stringify(value)}, inputType: "insertText" }));
+    element.dispatchEvent(new Event("input", { bubbles: true }));
     return true;
   })()`
 }

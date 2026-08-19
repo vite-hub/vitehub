@@ -44,6 +44,10 @@ describe("CDP page", () => {
     expect(await editor.count()).toBe(1)
     await editor.fill("const answer = 42")
     expect(await editor.inputValue()).toBe("typescript")
+    const fill = fake.send.mock.calls.find((call) => {
+      return call[0] === "Runtime.evaluate" && String(call[1]?.expression).includes('new Event("input"')
+    })
+    expect(fill).toBeDefined()
 
     const download = await page.waitForDownload(async () => {
       await page.locator("button", { hasText: "Export Image" }).click()
