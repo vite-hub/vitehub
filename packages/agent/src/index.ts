@@ -2911,6 +2911,33 @@ async function applyDurableFailureDeliveryEffects<
   }
 }
 
+async function resolveDurableFailureFinishExtensions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  event: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
+  providers: ResolvedAgentFinishExtensionProvider[],
+  timeout: number,
+): Promise<AgentFinishExtensions> {
+  const operation = createAgentInvocationExtensions(event as never, providers)
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(Object.assign(
+          new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
+          { isRetryable: false as const },
+        )), timeout)
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+    void operation.catch(() => undefined)
+  }
+}
+
 function createFinishDeliveryEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -3120,11 +3147,20 @@ async function finishAgentInvocation<
         ? context.finishExtensionProviders
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
-        const extensions = await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
+        if (hasDurableFailureDelivery) {
+          const fallbackEvent = provisionalFinishEvent(context, eventBase)
+          const fallbackProviders = activeFinishDeliveryEffectProviders(context, fallbackEvent)
+            .filter(isDurableChatErrorFallbackEffect)
+          await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, context.durableErrorFallbackTimeout!)
+        }
+        const extensions = hasDurableFailureDelivery
+          ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, context.durableErrorFallbackTimeout!)
+          : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
-        if (failed && context.durableErrorFallbackTimeout !== undefined && activeDeliveryProviders.some(isDurableChatErrorFallbackEffect)) {
-          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, context.durableErrorFallbackTimeout)
+          .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
+        if (hasDurableFailureDelivery) {
+          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, context.durableErrorFallbackTimeout!)
         }
         else {
           const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
