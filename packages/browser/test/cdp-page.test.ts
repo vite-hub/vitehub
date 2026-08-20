@@ -57,6 +57,11 @@ describe("CDP page", () => {
     const { page } = await attachCDPPage(fake.client)
 
     const navigation = page.goto("https://ray.so/")
+    await vi.waitFor(() => expect(fake.send).toHaveBeenCalledWith(
+      "Page.navigate",
+      { url: "https://ray.so/" },
+      "page-session",
+    ))
     fake.emit("Page.lifecycleEvent", { loaderId: "document-loader", name: "load" })
     await navigation
     const editor = page.locator("textarea")
@@ -106,7 +111,7 @@ describe("CDP page", () => {
     )
   })
 
-  it("correlates concurrent navigation lifecycle events", async () => {
+  it("serializes overlapping page navigations", async () => {
     const fake = fakeClient()
     let navigation = 0
     fake.send.mockImplementation(async (method: string) => {
@@ -116,18 +121,14 @@ describe("CDP page", () => {
       return {}
     })
     const { page } = await attachCDPPage(fake.client)
-    let firstDone = false
-
-    const first = page.goto("https://example.com/first").then(() => {
-      firstDone = true
-    })
+    const first = page.goto("https://example.com/first")
     const second = page.goto("https://example.com/second")
+    await vi.waitFor(() => expect(navigation).toBe(1))
+    fake.emit("Page.lifecycleEvent", { loaderId: "loader-1", name: "load" })
+    await first
     await vi.waitFor(() => expect(navigation).toBe(2))
     fake.emit("Page.lifecycleEvent", { loaderId: "loader-2", name: "load" })
     await second
-    expect(firstDone).toBe(false)
-    fake.emit("Page.lifecycleEvent", { loaderId: "loader-1", name: "load" })
-    await first
   })
 
   it("waits for navigation requested by a locator click to stop", async () => {
@@ -207,6 +208,7 @@ describe("CDP page", () => {
       await vi.advanceTimersByTimeAsync(30_000)
       await firstResult
       await expect(page.locator("a:last-child").click()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await expect(page.locator("main").count()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
       fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
       await vi.advanceTimersByTimeAsync(0)
       expect(evaluations).toBe(1)

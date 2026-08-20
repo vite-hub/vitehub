@@ -215,9 +215,11 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     assertPageUsable()
     if (clickFailure) return Promise.reject(clickFailure)
     let expired = false
+    let started = false
     const barrier = clickQueue.then(async () => {
       if (expired) return
       if (clickFailure) throw clickFailure
+      started = true
       await runClick(locator)
     })
     clickQueue = barrier.catch(() => {})
@@ -228,38 +230,52 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       (error) => {
         expired = true
         clickFailure ??= error
+        if (started) invalidatePage(error)
       },
     )
   }
 
+  let navigationQueue = Promise.resolve()
+
   const page: BrowserPage = {
     async goto(url, options = {}) {
       assertPageUsable()
-      let navigationLoaderId: string | undefined
-      const loadedLoaderIds = new Set<string>()
-      let resolveLoad = () => {}
-      const loaded = new Promise<void>((resolve) => {
-        resolveLoad = resolve
-      })
-      const stopLoad = client.on("Page.lifecycleEvent", (params, eventSessionId) => {
-        const event = params as { loaderId?: unknown, name?: unknown }
-        if (eventSessionId !== sessionId || event.name !== "load" || typeof event.loaderId !== "string") return
-        loadedLoaderIds.add(event.loaderId)
-        if (event.loaderId === navigationLoaderId) resolveLoad()
-      })
-      try {
-        await withTimeout((async () => {
+      const operation = `navigate to ${JSON.stringify(url)}`
+      let expired = false
+      let started = false
+      const barrier = navigationQueue.then(async () => {
+        if (expired) return
+        assertPageUsable()
+        started = true
+        let navigationLoaderId: string | undefined
+        const loadedLoaderIds = new Set<string>()
+        let resolveLoad = () => {}
+        const loaded = new Promise<void>((resolve) => {
+          resolveLoad = resolve
+        })
+        const stopLoad = client.on("Page.lifecycleEvent", (params, eventSessionId) => {
+          const event = params as { loaderId?: unknown, name?: unknown }
+          if (eventSessionId !== sessionId || event.name !== "load" || typeof event.loaderId !== "string") return
+          loadedLoaderIds.add(event.loaderId)
+          if (event.loaderId === navigationLoaderId) resolveLoad()
+        })
+        try {
           const navigation = await send<{ errorText?: string, loaderId?: string }>("Page.navigate", { url })
           if (navigation.errorText) {
-            throw browserProviderError("cdp", `navigate to ${JSON.stringify(url)} (${navigation.errorText})`)
+            throw browserProviderError("cdp", `${operation} (${navigation.errorText})`)
           }
           navigationLoaderId = navigation.loaderId
           if (navigationLoaderId && !loadedLoaderIds.has(navigationLoaderId)) await loaded
-        })(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS, `navigate to ${JSON.stringify(url)}`, invalidatePage)
-      }
-      finally {
-        stopLoad()
-      }
+        }
+        finally {
+          stopLoad()
+        }
+      })
+      navigationQueue = barrier.catch(() => {})
+      await withTimeout(barrier, options.timeoutMs ?? DEFAULT_TIMEOUT_MS, operation, (error) => {
+        expired = true
+        if (started) invalidatePage(error)
+      })
     },
     locator(selector: string, options: BrowserLocatorOptions = {}) {
       return new CDPBrowserLocator(send, { selector, ...options }, clickLocator, assertPageUsable, invalidatePage)
