@@ -114,7 +114,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         [`${importBase}/runtime/vercel-vite`]: projectRequire.resolve(`${importBase}/runtime/vercel-vite`),
         ...(workflowApi && workflowRequire
           ? {
-              "@workflow/core/runtime/world-target": createRequire(workflowApi).resolve("@workflow/world-vercel"),
+              "@workflow/core/runtime/world-target": createRequire(workflowRequire.resolve("@workflow/builders")).resolve("@workflow/world-vercel"),
               "workflow/api": workflowApi,
               "workflow/runtime": workflowRequire.resolve("workflow/runtime"),
             }
