@@ -51,7 +51,7 @@ export default defineConfig({
 })
 ```
 
-ViteHub generates the Cloudflare Browser Run binding and uses Kitesurf by default. `browser.content()` and `browser.run("screenshot", ...)` use ViteHub's Kitesurf adapter; other Browser Run actions currently require `browser: { engine: "chromium" }` and use Cloudflare Quick Actions. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`.
+ViteHub generates the Cloudflare Browser Run binding and uses its Quick Actions directly for `browser.content()` and `browser.run()`. The Kitesurf default applies only when `browser.open()` creates a full browser session. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`.
 
 Use a definition-owned page when the operation needs multiple interactions or a native download. ViteHub controls the page through CDP and closes it after the definition finishes:
 
