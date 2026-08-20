@@ -112,6 +112,7 @@ function nonRetryableAgentWorkflowError(error: unknown): unknown {
   const retry = readAgentErrorProperty(error, "name") === "AI_RetryError"
     ? readAgentErrorProperty(error, "lastError")
     : error
+  const exhaustedProviderRetries = retry !== error
   const name = readAgentErrorProperty(retry, "name")
   const status = readAgentErrorProperty(retry, "statusCode")
   const permanentProviderRequest = name === "AI_LoadAPIKeyError"
@@ -123,7 +124,7 @@ function nonRetryableAgentWorkflowError(error: unknown): unknown {
   const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON"
     || code === "AGENT_OUTPUT_SCHEMA_INVALID"
     || name === "AI_NoObjectGeneratedError"
-  if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedOutput) return error
+  if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedProviderRetries && !exhaustedOutput) return error
 
   const value = error instanceof Error ? error : new Error(String(error), { cause: error })
   try {

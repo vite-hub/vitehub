@@ -13,6 +13,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatPlatformResolver,
+  AgentChannelDeliveryEffectIntent,
   AgentChannelWebhookRegistrationDefinition,
   AgentInvocationContextStore,
   AgentRunMetadata,
@@ -122,29 +123,38 @@ export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends Agent
   })
 }
 
+export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig> | undefined,
+  args: Omit<AgentChatErrorHookArgs<TRuntimeConfig>, "thread">,
+): Promise<AgentChannelDeliveryEffectIntent[]> {
+  const intents: AgentChannelDeliveryEffectIntent[] = []
+  const hookArgs = {
+    ...args,
+    thread: {
+      post: async (message: unknown) => {
+        intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" }))
+      },
+    },
+  } as AgentChatErrorHookArgs<TRuntimeConfig>
+  const fallback = await resolveDurableChatErrorFallbackText(options, hookArgs, () => intents.length > 0)
+  if (!intents.length && fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
+  return intents
+}
+
 function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig>,
 ) {
   const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
     if (context.error === undefined || !(context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
-    const replies: ReturnType<typeof createReplyDeliveryEffectIntent>[] = []
     const chat = getAgentChatContext(context.context)
-    const fallback = await resolveDurableChatErrorFallbackText(options, {
+    return await resolveDurableChatErrorFallbackIntents(options, {
       error: context.error,
       history: context.input.messages || [],
       message: chat?.message || { text: "" },
       publicError: toAgentPublicError(context.error, "http"),
       run: context.run,
-      thread: {
-        post: async (message) => {
-          replies.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" }))
-        },
-      },
       toolResults: context.event.toolResults,
-    }, () => replies.length > 0)
-    if (replies.length) return replies
-    if (fallback) replies.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
-    return replies
+    })
   })
   effect.active = context => context.error !== undefined && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
   effect.kind = "reply"
