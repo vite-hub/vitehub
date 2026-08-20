@@ -1281,6 +1281,14 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       catch (error) {
         const failure = await nativeAgentOutputValidationFailure(context.output, error)
+        const synthesized = failure && fallback.enabled && !failure.text.trim()
+          ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
+          : undefined
+        if (synthesized) {
+          const output = { raw: withCapturedUsage(undefined, usageCapture), text: synthesized }
+          Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
+          return output
+        }
         const repairedOutput = failure && repairOutput
           ? await repairOutput(failure, repairCallInput) as GenerateTextResult<ToolSet, never, never>
           : undefined

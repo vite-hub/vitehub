@@ -1884,9 +1884,10 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("preserves evidence-backed fallback when structured tool output ends without a final value", async () => {
+  it("preserves evidence-backed fallback when structured tool output returns or throws without a final value", async () => {
     const fallbackGenerate = vi.fn(async () => ({ text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}" }))
     const repairGenerate = vi.fn()
+    let throwNativeOutput = false
     loadAiSdk.mockResolvedValue({
       generateText: fallbackGenerate,
       isStepCount: vi.fn(count => ({ count })),
@@ -1903,6 +1904,7 @@ describe("agent message protocol", () => {
           const tools = this.settings.tools as Record<string, { execute: (input: unknown) => unknown }> | undefined
           if (!tools) return await repairGenerate()
           const output = await tools.db_exec!.execute({ sql: "INSERT" })
+          if (throwNativeOutput) throw nativeOutputError("")
           return {
             finishReason: "tool-calls",
             steps: [{ content: [{ output, type: "tool-result" }] }],
@@ -1930,6 +1932,14 @@ describe("agent message protocol", () => {
     expect(fallbackGenerate).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining("meal-1"),
     }))
+
+    throwNativeOutput = true
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Save breakfast" })).resolves.toEqual({
+      summary: "Saved meal-1",
+      title: "Skyr",
+    })
+    expect(repairGenerate).not.toHaveBeenCalled()
+    expect(fallbackGenerate).toHaveBeenCalledTimes(2)
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
