@@ -1211,17 +1211,17 @@ async function createAgent(
   const prepareRepairCall = typeof prepareCall === "function"
     ? async (input: Record<string, unknown>) => withoutToolCallSettings(await prepareCall(input as never) as Record<string, unknown>)
     : undefined
-  const repairAgent = nativeOutput && context.output
+  const repairAgent = context.output
     ? new ToolLoopAgent({
         ...repairSettings,
         instructions,
         model: instrumentedModel as never,
-        output: nativeOutput,
+        ...(nativeOutput ? { output: nativeOutput } : {}),
         ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
         stopWhen: isStepCount(1),
       } as never)
     : undefined
-  const repairOutput = nativeOutput && context.output
+  const repairOutput = context.output
     ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
         const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = callInput
         try {
@@ -1289,19 +1289,28 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const synthesizedOutput = async (text: string, original?: unknown) => {
         const captures = [usageCapture, repairUsageCapture, fallbackUsageCapture]
         const raw = withCapturedUsage(original, captures)
+        let usageRecord: AgentUsageRecord | undefined
         if (raw && typeof raw === "object" && fallbackUsageCapture.captured) {
           const calls = [
             { capture: usageCapture, result: originalGenerated ?? original },
             ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: original }] : []),
             { capture: fallbackUsageCapture },
           ]
+          usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
           Object.defineProperty(raw, "usageRecord", {
             configurable: true,
             enumerable: true,
-            value: await combinedUsageRecord(calls, combinedCapturedUsage(captures)),
+            value: usageRecord,
           })
         }
         const output = { raw, text }
+        if (usageRecord) {
+          Object.defineProperty(output, "usageRecord", {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord,
+          })
+        }
         Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
         return output
       }

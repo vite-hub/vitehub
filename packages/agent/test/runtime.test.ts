@@ -1852,6 +1852,50 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("model")
   })
 
+  it("repairs structured output when the schema root is not an object", async () => {
+    const repairGenerate = vi.fn(async () => ({ finishReason: "stop", text: '"fixed"' }))
+    loadAiSdk.mockResolvedValue({
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(options => options) },
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+        }
+
+        async generate() {
+          return (this.settings.stopWhen as { count?: number }).count === 1
+            ? await repairGenerate()
+            : { finishReason: "stop", text: "42" }
+        }
+      },
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        model: {} as never,
+        output: {
+          schema: {
+            "~standard": {
+              jsonSchema: { input: () => ({ type: "string" }) },
+              validate: (value: unknown) => typeof value === "string"
+                ? { value }
+                : { issues: [{ message: "Expected a string" }] },
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          } as never,
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("fixed")
+    expect(repairGenerate).toHaveBeenCalledOnce()
+  })
+
   it("keeps the ViteHub output error when the single repair remains invalid", async () => {
     const repairGenerate = vi.fn(async () => ({ finishReason: "stop", text: "{\"summary\":\"Saved\",\"title\":42}" }))
     loadAiSdk.mockResolvedValue({
@@ -1886,8 +1930,16 @@ describe("agent message protocol", () => {
 
   it("preserves evidence-backed fallback when structured tool output returns or throws without a final value", async () => {
     const fallbackGenerate = vi.fn(async (settings: Record<string, unknown>) => {
-      await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 2 } })
-      return { text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}" }
+      await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({
+        modelId: "fallback-route",
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+        usage: { totalTokens: 2 },
+      })
+      return {
+        modelId: "fallback-route",
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+        text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}",
+      }
     })
     const repairGenerate = vi.fn()
     let throwNativeOutput = false
@@ -1903,13 +1955,20 @@ describe("agent message protocol", () => {
           this.settings = settings
         }
 
-        async generate() {
+        async generate(input: Record<string, unknown>) {
           const tools = this.settings.tools as Record<string, { execute: (input: unknown) => unknown }> | undefined
           if (!tools) return await repairGenerate()
+          await (input.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({
+            modelId: "original-route",
+            providerMetadata: { test: { usage: { cost: 0.4 } } },
+            usage: { totalTokens: 5 },
+          })
           const output = await tools.db_exec!.execute({ sql: "INSERT" })
           if (throwNativeOutput) throw nativeOutputError("")
           return {
             finishReason: "tool-calls",
+            modelId: "original-route",
+            providerMetadata: { test: { usage: { cost: 0.4 } } },
             steps: [{ content: [{ output, type: "tool-result" }] }],
             text: "",
           }
@@ -1945,7 +2004,14 @@ describe("agent message protocol", () => {
     })
     expect(repairGenerate).not.toHaveBeenCalled()
     expect(fallbackGenerate).toHaveBeenCalledTimes(2)
-    expect(finish.mock.calls.at(-1)![0].invocation.usage).toMatchObject({ usage: { totalTokens: 2 } })
+    expect(finish.mock.calls.at(-1)![0].invocation.usage).toMatchObject({
+      calls: [
+        { cost: { usd: "0.4" }, model: "original-route", usage: { totalTokens: 5 } },
+        { cost: { usd: "0.2" }, model: "fallback-route", usage: { totalTokens: 2 } },
+      ],
+      cost: { usd: "0.6" },
+      usage: { totalTokens: 7 },
+    })
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
