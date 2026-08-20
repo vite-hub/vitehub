@@ -10336,7 +10336,15 @@ describe("server helpers", () => {
       channels: {
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
-      driver: { run: () => "Final answer" },
+      driver: {
+        run: ({ input }) => {
+          expect(input.context?.["agent.channel.progress"]).toEqual(expect.objectContaining({
+            ready: expect.any(Promise),
+            threadId: "telegram:456",
+          }))
+          return "Final answer"
+        },
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 

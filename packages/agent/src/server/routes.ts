@@ -3555,9 +3555,9 @@ async function handleChatSdkMessage(
                 const summary = progressSummaryFromEvent(event)
                 if (summary) progress?.update(summary)
               },
-              ...(progressReference ? { [messageChannelProgressContextKey]: progressReference } : {}),
             }
           : {}),
+        ...(progressReference ? { [messageChannelProgressContextKey]: progressReference } : {}),
         ...(options?.stream === false || manualDelivery ? { [finalChannelOutputContextKey]: true } : {}),
       },
     }, invoker), chatFinish)
