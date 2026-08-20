@@ -12307,6 +12307,53 @@ describe("agent message protocol", () => {
       expect(postMessage).not.toHaveBeenCalled()
     })
 
+    it("bounds durable progress replacement before posting an error fallback", async () => {
+      vi.useFakeTimers()
+      const { defineAgent, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const editMessage = vi.fn(() => new Promise<never>(() => undefined))
+      const deleteMessage = vi.fn(async () => undefined)
+      const failure = new Error("provider unavailable")
+      const agent = defineAgent({
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              deleteMessage,
+              editMessage,
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => { throw failure } },
+        messages: { errorFallbackText: "Please try again." },
+      })
+      const invocation = expect(runAgentWorkflowDefinition(agent, {
+        id: "run-stalled-fallback-edit",
+        name: "calories",
+        payload: {
+          input: {
+            context: {
+              "agent.channel.progress": { messageId: "progress-1", threadId: "telegram:123" },
+              channel: { message: { text: "Hello" } },
+            },
+            prompt: "Hello",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBe(failure)
+
+      await vi.waitFor(() => expect(editMessage).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync(1_000)
+      await invocation
+      expect(deleteMessage).toHaveBeenCalledWith("telegram:123", "progress-1")
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
+      vi.useRealTimers()
+    })
+
     it("delivers durable failure fallbacks when Capability setup fails", async () => {
       const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { telegram } = await import("../src/channels.ts")

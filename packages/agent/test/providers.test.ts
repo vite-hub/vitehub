@@ -10608,6 +10608,39 @@ describe("server helpers", () => {
     }
   })
 
+  it("bounds stalled default progress replacement before posting the error fallback", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.editMessage.mockImplementation(() => new Promise(() => undefined))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { errorFallbackText: "Please try again." },
+        }),
+      },
+      driver: { run: () => { throw new Error("model failed") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = expect(handler(chatWebhookRequest(91_004_12), "telegram")).rejects.toThrow("model failed")
+      await vi.waitFor(() => expect(adapter.editMessage).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync(2_000)
+      await response
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("delivers only explicit manual replies after deleting the placeholder", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

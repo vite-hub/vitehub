@@ -3,7 +3,7 @@ import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { readPullRequestContext } from "./capabilities/repository-host-context.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
-import { clearMessageChannelProgress, messageChannelProgressClearedContextKey, messageChannelProgressContextKey, type MessageChannelProgressReference } from "./internal/message-channel-progress.ts"
+import { clearMessageChannelProgress, messageChannelProgressClearedContextKey, messageChannelProgressContextKey, type MessageChannelProgressReference, withinMessageChannelProgressDeadline } from "./internal/message-channel-progress.ts"
 import {
   deliveryArtifactAttachments,
   deliveryArtifactMarkdownReferencePaths,
@@ -1249,7 +1249,10 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     if (progress && context.context.get<boolean>(messageChannelProgressClearedContextKey) !== true) {
       if (progress.reusable !== false && context.effect.intent === "chat.error-fallback" && adapter.editMessage && !attachments.length && !files.length) {
         try {
-          await adapter.editMessage(progress.threadId, progress.messageId, message)
+          await withinMessageChannelProgressDeadline(
+            adapter.editMessage(progress.threadId, progress.messageId, message),
+            "[vitehub] Timed out replacing message Channel progress with an error fallback.",
+          )
           context.context.set(messageChannelProgressClearedContextKey, true, { overwrite: true })
           return
         }

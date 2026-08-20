@@ -3103,9 +3103,15 @@ async function deliverToManualDeliveryPlaceholder(
   beforeDelete?: () => void,
 ): Promise<boolean> {
   if (!placeholder) return false
-  if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) return true
+  if (await withinMessageChannelProgressDeadline(
+    replaceManualDeliveryPlaceholder(placeholder, message),
+    "Disposable chat progress replacement timed out.",
+  ).catch(() => false)) return true
   beforeDelete?.()
-  await deleteManualDeliveryPlaceholder(placeholder)
+  await withinMessageChannelProgressDeadline(
+    deleteManualDeliveryPlaceholder(placeholder),
+    "Disposable chat progress cleanup timed out.",
+  ).catch(() => undefined)
   return false
 }
 
@@ -3175,7 +3181,9 @@ async function postChatErrorFallback(
   const fallbackDeliveryAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   const fallbackDelivery = (async () => {
     if (!fallback) {
-      if (fallbackPlaceholder) await deleteManualDeliveryPlaceholder(fallbackPlaceholder)
+      if (fallbackPlaceholder) {
+        await deleteManualDeliveryPlaceholderWithin(fallbackPlaceholder).catch(() => undefined)
+      }
       return
     }
     if (await deliverToManualDeliveryPlaceholder(fallbackPlaceholder, fallback)) return
@@ -3636,7 +3644,9 @@ async function handleChatSdkMessage(
           await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
           const unusedPlaceholder = manualDeliveryState.placeholder
           if (unusedPlaceholder) {
-            await deleteManualDeliveryPlaceholder(unusedPlaceholder)
+            await deleteManualDeliveryPlaceholderWithin(unusedPlaceholder).catch(error => {
+              console.warn("[vitehub] Could not delete an unused progress message.", error)
+            })
             if (manualDeliveryState.placeholder === unusedPlaceholder) {
               manualDeliveryState.placeholder = undefined
             }
