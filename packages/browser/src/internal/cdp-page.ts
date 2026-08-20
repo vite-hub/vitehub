@@ -149,7 +149,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const mainFrameId = frameTree.frameTree?.frame?.id
 
   let clickQueue = Promise.resolve()
-  const runClick = async (locator: LocatorSpec) => {
+  const runClick = async (locator: LocatorSpec, timeoutMs: number) => {
     let navigationRequested = false
     let navigationStopped = false
     let resolveStopped = () => {}
@@ -167,16 +167,18 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       resolveStopped()
     })
     try {
-      const result = await send<{ exceptionDetails?: unknown, result?: { value?: boolean } }>("Runtime.evaluate", {
-        awaitPromise: true,
-        expression: locatorExpression("click", locator),
-        returnByValue: true,
-      })
+      const result = await withTimeout(
+        send<{ exceptionDetails?: unknown, result?: { value?: boolean } }>("Runtime.evaluate", {
+          awaitPromise: true,
+          expression: locatorExpression("click", locator),
+          returnByValue: true,
+        }),
+        timeoutMs,
+        `click Browser locator ${JSON.stringify(locator.selector)}`,
+      )
       evaluateResult(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
       await new Promise(resolve => setTimeout(resolve, 0))
-      if (navigationRequested && !navigationStopped) {
-        await withTimeout(stopped, DEFAULT_TIMEOUT_MS, `wait for navigation after clicking ${JSON.stringify(locator.selector)}`)
-      }
+      if (navigationRequested && !navigationStopped) await stopped
     }
     finally {
       stopNavigation()
@@ -184,9 +186,21 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     }
   }
   const clickLocator = (locator: LocatorSpec) => {
-    const click = clickQueue.then(() => runClick(locator))
-    clickQueue = click.catch(() => {})
-    return click
+    const deadline = Date.now() + DEFAULT_TIMEOUT_MS
+    let expired = false
+    const barrier = clickQueue.then(async () => {
+      if (expired) return
+      await runClick(locator, Math.max(0, deadline - Date.now()))
+    })
+    clickQueue = barrier.catch(() => {})
+    return withTimeout(
+      barrier,
+      DEFAULT_TIMEOUT_MS,
+      `click Browser locator ${JSON.stringify(locator.selector)}`,
+    ).catch((error) => {
+      expired = true
+      throw error
+    })
   }
 
   const page: BrowserPage = {

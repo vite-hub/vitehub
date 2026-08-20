@@ -149,6 +149,67 @@ describe("CDP page", () => {
     expect(evaluations).toBe(2)
   })
 
+  it("keeps a timed-out click behind the navigation barrier", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      let evaluations = 0
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Runtime.evaluate") {
+          evaluations++
+          fake.emit("Page.frameRequestedNavigation", { frameId: "main-frame" })
+          return { result: { value: true } }
+        }
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+
+      const first = page.locator("a:first-child").click()
+      const firstResult = expect(first).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(evaluations).toBe(1)
+      await vi.advanceTimersByTimeAsync(30_000)
+      await firstResult
+      const second = page.locator("a:last-child").click()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(evaluations).toBe(1)
+      fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(evaluations).toBe(2)
+      fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
+      await expect(second).resolves.toBeUndefined()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds a stalled locator click evaluation", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Runtime.evaluate") return await new Promise(() => {})
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+
+      const click = page.locator("button").click()
+      const clickResult = expect(click).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await clickResult
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("bounds locator evaluation", async () => {
     const fake = fakeClient()
     fake.send.mockImplementation(async (method: string) => {
