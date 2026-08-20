@@ -134,15 +134,18 @@ export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig exte
   args: Omit<AgentChatErrorHookArgs<TRuntimeConfig>, "thread">,
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
+  let acceptingIntents = true
   const hookArgs = {
     ...args,
     thread: {
       post: async (message: unknown) => {
+        if (!acceptingIntents) throw new Error("Durable chat error fallback resolution has already completed.")
         intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" }))
       },
     },
   } as AgentChatErrorHookArgs<TRuntimeConfig>
   const fallback = await resolveDurableChatErrorFallbackText(options, hookArgs, () => intents.length > 0)
+  acceptingIntents = false
   if (!intents.length && fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
   return intents
 }

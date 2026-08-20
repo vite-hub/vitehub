@@ -12481,6 +12481,53 @@ describe("agent message protocol", () => {
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "The UI streamed write completed before the failure." })
     })
 
+    it("bounds durable prepared fallback delivery", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const postMessage = vi.fn(() => new Promise(() => undefined))
+        const agent = defineAgent({
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-prepared-fallback",
+          name: "failure",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("delivers durable failure fallbacks when Capability setup fails", async () => {
       const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { telegram } = await import("../src/channels.ts")
@@ -12675,6 +12722,7 @@ describe("agent message protocol", () => {
       const { telegram } = await import("../src/channels.ts")
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const postMessage = vi.fn(async () => undefined)
+      const errorHook = vi.fn(async () => undefined)
       const cleanupFailure = new Error("Capability cleanup failed")
       const agent = defineAgent({
         capabilities: [defineCapability({
@@ -12690,6 +12738,7 @@ describe("agent message protocol", () => {
           }),
         },
         driver: { run: async () => ({ text: "completed before cleanup" }) },
+        hooks: { "agent:error": errorHook },
         messages: { errorFallbackText: "Cleanup failed after completion." },
       })
 
@@ -12708,6 +12757,7 @@ describe("agent message protocol", () => {
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Cleanup failed after completion." })
       expect(postMessage).toHaveBeenCalledOnce()
+      expect(errorHook).not.toHaveBeenCalled()
     })
 
     it("preserves cleanup failures when later Agent error handling also fails", async () => {
@@ -12772,6 +12822,35 @@ describe("agent message protocol", () => {
       await vi.advanceTimersByTimeAsync(10)
       await expect(resolution).resolves.toBe("Sorry, I couldn't process that message.")
       vi.useRealTimers()
+    })
+
+    it("ignores fallback posts after durable callback resolution times out", async () => {
+      vi.useFakeTimers()
+      try {
+        const { resolveDurableChatErrorFallbackIntents } = await import("../src/chat-trigger.ts")
+        const resolution = resolveDurableChatErrorFallbackIntents({
+          errorFallbackText: async ({ thread }) => {
+            await new Promise(resolve => setTimeout(resolve, 20))
+            await thread.post("late fallback")
+          },
+          timeout: 10,
+        }, {
+          error: new Error("provider failed"),
+          history: [],
+          message: { text: "hello" },
+          publicError: { code: "INTERNAL", error: "Internal error" },
+          toolResults: [],
+        })
+
+        await vi.advanceTimersByTimeAsync(10)
+        const intents = await resolution
+        expect(intents).toHaveLength(1)
+        await vi.advanceTimersByTimeAsync(20)
+        expect(intents).toHaveLength(1)
+      }
+      finally {
+        vi.useRealTimers()
+      }
     })
 
     it.each([
