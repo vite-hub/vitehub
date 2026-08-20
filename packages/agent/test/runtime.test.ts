@@ -1818,7 +1818,16 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
       driver: {
         execution: { callSettings: {
-          prepareCall: (input: Record<string, unknown>) => ({ ...input, model: repairModel, providerOptions: { test: { route: "repair" } }, toolChoice: "required", tools: { repeat_write: {} } }),
+          prepareCall: (input: Record<string, unknown>) => ({
+            ...input,
+            instructions: "Repeat the original task.",
+            messages: [{ content: "Repeat the original task.", role: "user" }],
+            model: repairModel,
+            prompt: "Repeat the original task.",
+            providerOptions: { test: { route: "repair" } },
+            toolChoice: "required",
+            tools: { repeat_write: {} },
+          }),
           toolChoice: "auto",
         }, workspaceFallback: false },
         model: {} as never,
@@ -1840,6 +1849,8 @@ describe("agent message protocol", () => {
     }))
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("tools")
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("toolChoice")
+    expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("messages")
+    expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("instructions")
     expect(agentSettings[1]).toHaveProperty("tools.db_exec")
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
       calls: [

@@ -1124,6 +1124,16 @@ function withoutToolCallSettings(settings: Record<string, unknown>): Record<stri
   return rest
 }
 
+function withoutRepairConversationSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const {
+    instructions: _instructions,
+    messages: _messages,
+    prompt: _prompt,
+    ...rest
+  } = withoutToolCallSettings(settings)
+  return rest
+}
+
 function outputRepairPrompt(text: string, error: Error, evidence: string[] = []): string {
   const cause = error.cause instanceof Error ? error.cause.message : undefined
   return [
@@ -1210,7 +1220,10 @@ async function createAgent(
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
   const prepareRepairCall = typeof prepareCall === "function"
-    ? async (input: Record<string, unknown>) => withoutToolCallSettings(await prepareCall(input as never) as Record<string, unknown>)
+    ? async (input: Record<string, unknown>) => ({
+        ...withoutRepairConversationSettings(await prepareCall(input as never) as Record<string, unknown>),
+        ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+      })
     : undefined
   const repairAgent = context.output && context.nativeStructuredOutput !== false
     ? new ToolLoopAgent({
