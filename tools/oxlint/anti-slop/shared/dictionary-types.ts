@@ -108,6 +108,7 @@ function declarationName(node: ESTree.Node): string | null {
 		node.type === "TSTypeAliasDeclaration" ||
 		node.type === "TSInterfaceDeclaration" ||
 		node.type === "TSEnumDeclaration" ||
+		node.type === "TSImportEqualsDeclaration" ||
 		node.type === "ClassDeclaration" ||
 		node.type === "FunctionDeclaration"
 	) {
