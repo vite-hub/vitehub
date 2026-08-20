@@ -2868,6 +2868,49 @@ async function resolveFinishDeliveryEffectIntents<
   return intents
 }
 
+interface DurableFailureDeadline {
+  expiresAt: number
+  timeout: number
+}
+
+function createDurableFailureDeadline(timeout: number): DurableFailureDeadline {
+  return { expiresAt: Date.now() + timeout, timeout }
+}
+
+function durableFailureTimeoutError(timeout: number): Error & { isRetryable: false } {
+  return Object.assign(
+    new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
+    { isRetryable: false as const },
+  )
+}
+
+async function runWithinDurableFailureDeadline<T>(
+  deadline: DurableFailureDeadline,
+  operation: (abortSignal: AbortSignal) => Promise<T>,
+  parentSignal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController()
+  const abortSignal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
+  const task = operation(abortSignal)
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          const error = durableFailureTimeoutError(deadline.timeout)
+          controller.abort(error)
+          reject(error)
+        }, Math.max(0, deadline.expiresAt - Date.now()))
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+    void task.catch(() => undefined)
+  }
+}
+
 async function applyDurableFailureDeliveryEffects<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -2875,40 +2918,17 @@ async function applyDurableFailureDeliveryEffects<
   providers: readonly AgentChannelDeliveryFinishEffect[],
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
-  timeout: number,
+  deadline: DurableFailureDeadline,
 ): Promise<void> {
   const fallbackProviders = providers.filter(isDurableChatErrorFallbackEffect)
   const otherProviders = providers.filter(provider => !isDurableChatErrorFallbackEffect(provider))
-  const controller = new AbortController()
-  const parentSignal = context.input.abortSignal
-  const abortSignal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
-  const deliveryContext = { ...context, input: { ...context.input, abortSignal } }
-  const operation = (async () => {
+  await runWithinDurableFailureDeadline(deadline, async (abortSignal) => {
+    const deliveryContext = { ...context, input: { ...context.input, abortSignal } }
     for (const group of [fallbackProviders, otherProviders]) {
       const intents = await resolveFinishDeliveryEffectIntents(group, event, deliveryContext)
       for (const intent of intents) await applyChannelDeliveryEffectIntents(deliveryContext, [intent], event)
     }
-  })()
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    await Promise.race([
-      operation,
-      new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => {
-          const error = Object.assign(
-            new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
-            { isRetryable: false as const },
-          )
-          controller.abort(error)
-          reject(error)
-        }, timeout)
-      }),
-    ])
-  }
-  finally {
-    if (timeoutId) clearTimeout(timeoutId)
-    void operation.catch(() => undefined)
-  }
+  }, context.input.abortSignal)
 }
 
 async function resolveDurableFailureFinishExtensions<
@@ -2917,25 +2937,12 @@ async function resolveDurableFailureFinishExtensions<
 >(
   event: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
   providers: ResolvedAgentFinishExtensionProvider[],
-  timeout: number,
+  deadline: DurableFailureDeadline,
 ): Promise<AgentFinishExtensions> {
-  const operation = createAgentInvocationExtensions(event as never, providers)
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => reject(Object.assign(
-          new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
-          { isRetryable: false as const },
-        )), timeout)
-      }),
-    ])
-  }
-  finally {
-    if (timeoutId) clearTimeout(timeoutId)
-    void operation.catch(() => undefined)
-  }
+  return await runWithinDurableFailureDeadline(
+    deadline,
+    async () => await createAgentInvocationExtensions(event as never, providers),
+  )
 }
 
 function createFinishDeliveryEffectContext<
@@ -3136,6 +3143,9 @@ async function finishAgentInvocation<
       const hasDurableFailureDelivery = failed
         && context.durableErrorFallbackTimeout !== undefined
         && provisionallyActiveDeliveryProviders.some(isDurableChatErrorFallbackEffect)
+      const durableFailureDeadline = hasDurableFailureDelivery
+        ? createDurableFailureDeadline(context.durableErrorFallbackTimeout!)
+        : undefined
       const provisionalActiveDeliveryProviders = hasDurableFailureDelivery
         ? provisionallyActiveDeliveryProviders
         : await prepareProvisionalTitleDeliverySupport(context, eventBase)
@@ -3153,16 +3163,16 @@ async function finishAgentInvocation<
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
           const fallbackProviders = activeFinishDeliveryEffectProviders(context, fallbackEvent)
             .filter(isDurableChatErrorFallbackEffect)
-          await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, context.durableErrorFallbackTimeout!)
+          await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, durableFailureDeadline!)
         }
         const extensions = hasDurableFailureDelivery
-          ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, context.durableErrorFallbackTimeout!)
+          ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!)
           : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
           .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
         if (hasDurableFailureDelivery) {
-          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, context.durableErrorFallbackTimeout!)
+          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline!)
         }
         else {
           const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
@@ -3170,21 +3180,31 @@ async function finishAgentInvocation<
             await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
           }
         }
-        let outcomeHookResult: void | AgentChannelDeliveryFinishEffectResult
-        await runObservedAgentHook(context.hooks, {
-          ids: { runId: context.run?.runId },
-          name: hookName,
-          owner: "agent",
-          phase: failed ? "error" : "finish",
-        }, async () => {
-          outcomeHookResult = failed
-            ? await outcomeHook?.(createAgentErrorHookEvent(finishEvent, context) as never)
-            : await outcomeHook?.(createAgentFinishHookEvent(finishEvent, context) as never)
-        })
-        if (outcomeHookResult) {
-          const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
-          appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
-          await applyChannelDeliveryEffectIntents(context, outcomeHookIntents, finishEvent)
+        const runOutcomeHook = async (hookContext: typeof context) => {
+          let outcomeHookResult: void | AgentChannelDeliveryFinishEffectResult
+          await runObservedAgentHook(context.hooks, {
+            ids: { runId: context.run?.runId },
+            name: hookName,
+            owner: "agent",
+            phase: failed ? "error" : "finish",
+          }, async () => {
+            outcomeHookResult = failed
+              ? await outcomeHook?.(createAgentErrorHookEvent(finishEvent, hookContext) as never)
+              : await outcomeHook?.(createAgentFinishHookEvent(finishEvent, hookContext) as never)
+          })
+          if (outcomeHookResult) {
+            const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
+            appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
+            await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, finishEvent)
+          }
+        }
+        if (durableFailureDeadline) {
+          await runWithinDurableFailureDeadline(durableFailureDeadline, async (abortSignal) => {
+            await runOutcomeHook({ ...context, input: { ...context.input, abortSignal } })
+          }, context.input.abortSignal)
+        }
+        else {
+          await runOutcomeHook(context)
         }
       }
     }
@@ -3437,35 +3457,19 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   })
   if (!intents.length) return
   const invoker = createFallbackAgentInvoker(context.run)
-  const controller = new AbortController()
-  const abortSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, controller.signal]) : controller.signal
-  const delivery = applyChannelDeliveryEffectIntents({
-    actor: invoker,
-    channels: definition?.channels,
-    context: invocationContext,
-    hooks: definition?.hooks as AgentHookObserverHooks | undefined,
-    input: { ...input, abortSignal },
-    invoker,
-    run: context.run,
-    runtimeContext: createResolvedRuntimeContext(context),
-  } as never, intents)
   const timeout = durableChatErrorFallbackTimeout(options)
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    await Promise.race([
-      delivery,
-      new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => {
-          const timeoutError = Object.assign(new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`), { isRetryable: false as const })
-          controller.abort(timeoutError)
-          reject(timeoutError)
-        }, timeout)
-      }),
-    ])
-  }
-  finally {
-    if (timeoutId) clearTimeout(timeoutId)
-  }
+  await runWithinDurableFailureDeadline(createDurableFailureDeadline(timeout), async (abortSignal) => {
+    await applyChannelDeliveryEffectIntents({
+      actor: invoker,
+      channels: definition?.channels,
+      context: invocationContext,
+      hooks: definition?.hooks as AgentHookObserverHooks | undefined,
+      input: { ...input, abortSignal },
+      invoker,
+      run: context.run,
+      runtimeContext: createResolvedRuntimeContext(context),
+    } as never, intents)
+  }, input.abortSignal)
 }
 
 async function createAgentInvocationContextWithWorkflowFailureDelivery<

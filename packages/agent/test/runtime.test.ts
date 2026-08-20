@@ -12529,6 +12529,60 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("bounds durable Agent error hooks", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const postMessage = vi.fn(async () => undefined)
+        const errorHook = vi.fn(() => new Promise<void>(() => undefined))
+        const agent = defineAgent({
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => { throw failure } },
+          hooks: { "agent:error": errorHook },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-error-hook",
+          name: "failure",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.waitFor(() => expect(errorHook).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({
+          isRetryable: false,
+          message: "Durable chat error fallback delivery timed out after 10ms.",
+        }))
+        expect(error).toMatchObject({ isRetryable: false })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("delivers durable fallbacks before a stalled title effect and bounds the complete finish path", async () => {
       vi.useFakeTimers()
       try {
