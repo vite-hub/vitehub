@@ -180,16 +180,16 @@ function normalizeAudioMediaType(mediaType = ""): string {
   return mediaType.toLowerCase().split(";")[0]?.trim() || ""
 }
 
-export function audioExtensionFor(mediaType = ""): string {
+export function audioExtensionFor(mediaType = "", fallback = "ogg"): string {
   const normalized = normalizeAudioMediaType(mediaType)
   if (normalized === "audio/aac") return "aac"
   if (normalized === "audio/flac" || normalized === "audio/x-flac") return "flac"
-  if (normalized === "audio/mpeg") return "mp3"
+  if (normalized === "audio/mp3" || normalized === "audio/mpeg") return "mp3"
   if (normalized === "audio/mp4" || normalized === "audio/x-m4a") return "m4a"
   if (normalized === "audio/ogg" || normalized === "audio/opus") return "ogg"
   if (normalized === "audio/wav" || normalized === "audio/x-wav") return "wav"
   if (normalized === "audio/webm") return "webm"
-  return "ogg"
+  return fallback
 }
 
 function bytesFromBase64(value: string): Uint8Array {
