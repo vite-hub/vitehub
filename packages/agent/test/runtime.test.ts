@@ -12589,6 +12589,58 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("starts the durable failure deadline before title-support adapter resolution", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { defineFinishEffect, telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const adapter = vi.fn(() => new Promise(() => undefined) as never)
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "thread-title",
+            prepare(context) {
+              const effect = defineFinishEffect(() => ({ kind: "title", payload: { title: "Prepared title" } }))
+              effect.kind = "title"
+              context.delivery.finishEffect(effect)
+            },
+          })],
+          channels: {
+            telegram: telegram({ adapter }),
+          },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-title-adapter-resolution",
+          name: "failure",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              messages: [createMessage({ role: "user", text: "Hello" })],
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(adapter).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error).toMatchObject({ isRetryable: false })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("delivers durable failure fallbacks when Capability setup fails", async () => {
       const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { telegram } = await import("../src/channels.ts")
