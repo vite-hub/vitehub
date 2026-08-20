@@ -20,6 +20,36 @@ interface LocatorSpec {
   selector: string
 }
 
+const namedKeyMetadata: Record<string, { code: string, virtualKeyCode: number }> = {
+  ArrowDown: { code: "ArrowDown", virtualKeyCode: 40 },
+  ArrowLeft: { code: "ArrowLeft", virtualKeyCode: 37 },
+  ArrowRight: { code: "ArrowRight", virtualKeyCode: 39 },
+  ArrowUp: { code: "ArrowUp", virtualKeyCode: 38 },
+  Backspace: { code: "Backspace", virtualKeyCode: 8 },
+  Delete: { code: "Delete", virtualKeyCode: 46 },
+  End: { code: "End", virtualKeyCode: 35 },
+  Enter: { code: "Enter", virtualKeyCode: 13 },
+  Escape: { code: "Escape", virtualKeyCode: 27 },
+  Home: { code: "Home", virtualKeyCode: 36 },
+  PageDown: { code: "PageDown", virtualKeyCode: 34 },
+  PageUp: { code: "PageUp", virtualKeyCode: 33 },
+  Tab: { code: "Tab", virtualKeyCode: 9 },
+}
+
+function keyEventMetadata(key: string) {
+  const named = namedKeyMetadata[key]
+  const letter = /^[a-z]$/i.test(key) ? key.toUpperCase() : undefined
+  const digit = /^[0-9]$/.test(key) ? key : undefined
+  const code = named?.code ?? (letter ? `Key${letter}` : digit ? `Digit${digit}` : key === " " ? "Space" : undefined)
+  const virtualKeyCode = named?.virtualKeyCode ?? letter?.charCodeAt(0) ?? digit?.charCodeAt(0) ?? (key === " " ? 32 : undefined)
+  if (!code || virtualKeyCode === undefined) return {}
+  return {
+    code,
+    nativeVirtualKeyCode: virtualKeyCode,
+    windowsVirtualKeyCode: virtualKeyCode,
+  }
+}
+
 function locatorExpression(
   operation: "click" | "count" | "fill" | "inputValue" | "visible",
   locator: LocatorSpec,
@@ -215,6 +245,12 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       navigationStopped = true
       resolveStopped()
     })
+    const stopSameDocumentNavigation = client.on("Page.navigatedWithinDocument", (params, eventSessionId) => {
+      const event = params as { frameId?: unknown }
+      if (eventSessionId !== sessionId || event.frameId !== mainFrameId || !navigationRequested) return
+      navigationStopped = true
+      resolveStopped()
+    })
     try {
       const result = await send<{ exceptionDetails?: unknown, result?: { value?: { x: number, y: number } } }>("Runtime.evaluate", {
         awaitPromise: true,
@@ -231,6 +267,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     finally {
       stopNavigation()
       stopLoading()
+      stopSameDocumentNavigation()
     }
   }
   const clickLocator = (locator: LocatorSpec) => {
@@ -305,9 +342,10 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     },
     async press(key) {
       assertPageUsable()
+      const metadata = keyEventMetadata(key)
       await withTimeout((async () => {
-        await send("Input.dispatchKeyEvent", { key, text: [...key].length === 1 ? key : undefined, type: "keyDown" })
-        await send("Input.dispatchKeyEvent", { key, type: "keyUp" })
+        await send("Input.dispatchKeyEvent", { key, ...metadata, text: [...key].length === 1 ? key : undefined, type: "keyDown" })
+        await send("Input.dispatchKeyEvent", { key, ...metadata, type: "keyUp" })
       })(), DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`, invalidatePage)
     },
   }

@@ -6,7 +6,7 @@ import type { CDPClient } from "../src/controllers/cdp.ts"
 
 function fakeClient() {
   const listeners = new Map<string, Set<(params: unknown, sessionId?: string) => void>>()
-  const send = vi.fn(async (method: string, params?: { expression?: string }) => {
+  const send = vi.fn(async (method: string, params?: { expression?: string, type?: string }) => {
     if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
     if (method === "Target.attachToTarget") return { sessionId: "page-session" }
     if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
@@ -304,6 +304,28 @@ describe("CDP page", () => {
     await click
   })
 
+  it("completes locator clicks after same-document navigation", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string, params?: { expression?: string, type?: string }) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      if (method === "Runtime.evaluate") {
+        if (params?.expression?.includes('"count" === "count"')) return { result: { value: 1 } }
+        fake.emit("Page.frameRequestedNavigation", { frameId: "main-frame" })
+        return { result: { value: { x: 10, y: 20 } } }
+      }
+      if (method === "Input.dispatchMouseEvent") {
+        if (params?.type === "mouseReleased") fake.emit("Page.navigatedWithinDocument", { frameId: "main-frame" })
+      }
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await page.locator("a[href='#main']").click()
+    await expect(page.locator("main").count()).resolves.toBe(1)
+  })
+
   it("serializes locator click navigation waits", async () => {
     const fake = fakeClient()
     let evaluations = 0
@@ -530,7 +552,14 @@ describe("CDP page", () => {
 
     expect(fake.send).toHaveBeenCalledWith(
       "Input.dispatchKeyEvent",
-      { key: "a", text: "a", type: "keyDown" },
+      { code: "KeyA", key: "a", nativeVirtualKeyCode: 65, text: "a", type: "keyDown", windowsVirtualKeyCode: 65 },
+      "page-session",
+    )
+
+    await page.press("Enter")
+    expect(fake.send).toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      { code: "Enter", key: "Enter", nativeVirtualKeyCode: 13, text: undefined, type: "keyDown", windowsVirtualKeyCode: 13 },
       "page-session",
     )
 
