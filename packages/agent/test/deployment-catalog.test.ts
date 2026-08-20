@@ -354,7 +354,12 @@ describe("generated Agent deployment catalog", () => {
     runtime = undefined
 
     await expect(createDeploymentRuntimeFixture("nitro", "support", "/internal/status"))
-      .rejects.toThrow("Multi-Agent inspection routes require an [agent] parameter.")
+      .rejects.toThrow("Multi-Agent inspection routes require an agent route parameter.")
+
+    await expect(createDeploymentRuntimeFixture("nitro", "support", "/internal/not[agent]"))
+      .rejects.toThrow("Multi-Agent inspection routes require an agent route parameter.")
+
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", "/internal/agents/:agent/inspection")
   })
 
   it("passes the configured state adapter and waitUntil to route handlers", async () => {

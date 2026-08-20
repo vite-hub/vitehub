@@ -1095,6 +1095,7 @@ function workspaceMetadataInstructions<
   Name extends WorkspaceName,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  resolveLocalInstructions = true,
 ): string[] {
   const configuredInstructions = modelDriverInstructions(options)
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
@@ -1104,7 +1105,7 @@ function workspaceMetadataInstructions<
   const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
     if (typeof part === "function") {
-      const localInstructions = readLocalWorkspaceInstructions(options)
+      const localInstructions = resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined
       if (localInstructions) return [localInstructions]
       return ["Dynamic system instructions resolver configured."]
     }
@@ -1617,7 +1618,7 @@ export async function resolveAgentInspectionMetadata<
       capabilityContext.metadataContext,
     )
     const instructionMetadata = defaultsOverride.resolveSources === false
-      ? { instructions: workspaceMetadataInstructions(capabilityContext.options as never), warnings: [] }
+      ? { instructions: workspaceMetadataInstructions(capabilityContext.options as never, false), warnings: [] }
       : await resolveWorkspaceMetadataInstructions(
           capabilityContext.options as never,
           capabilityContext.workspace as never,

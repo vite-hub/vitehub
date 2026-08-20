@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile as writeLocalFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile as writeLocalFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -3132,6 +3132,28 @@ describe("defineAgent workspace option", () => {
     expect(readInstructions).not.toHaveBeenCalled()
     expect(readFile).not.toHaveBeenCalled()
     expect(metadata.instructions).toEqual(["Dynamic system instructions resolver configured."])
+  })
+
+  it("does not probe local Workspace instructions when Source resolution is disabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-source-free-inspection-"))
+    tempRoots.push(root)
+    const workspaceRoot = join(root, ".vitehub", "workspaces", "support")
+    await mkdir(join(workspaceRoot, "docs"), { recursive: true })
+    await writeLocalFile(join(workspaceRoot, "AGENTS.md"), "Private Workspace instructions.\n")
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root)
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      driver: { instructions: async () => "Dynamic instructions.", model: {} as never },
+      workspace: { sources: { docs: { name: "docs" } as never } },
+    }), { workspace: "support" })
+
+    try {
+      const metadata = await resolveAgentInspectionMetadata(agent, { resolveSources: false })
+      expect(metadata.instructions).toEqual(["Dynamic system instructions resolver configured."])
+    }
+    finally {
+      cwd.mockRestore()
+    }
   })
 
   it("resolves dynamic model metadata for Agent inspection", async () => {

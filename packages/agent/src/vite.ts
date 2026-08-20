@@ -1652,8 +1652,8 @@ async function generateAgentDeploymentCatalog(
 ): Promise<GeneratedAgentDeploymentCatalog> {
   const channelHandlers = options.channelHandlers !== false
   const typescript = options.typescript === true
-  if (options.inspection && definitions.length > 1 && !options.inspection.includes("[agent]")) {
-    throw new TypeError("[vitehub] Multi-Agent inspection routes require an [agent] parameter.")
+  if (options.inspection && definitions.length > 1 && !routeUsesParam(options.inspection, "agent")) {
+    throw new TypeError("[vitehub] Multi-Agent inspection routes require an agent route parameter.")
   }
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
