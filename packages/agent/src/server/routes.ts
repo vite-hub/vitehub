@@ -3088,14 +3088,15 @@ async function postChatErrorFallback(
     resolveCallbackDelivery = resolve
   })
   const fallbackResolutionAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
-  const fallbackResolution = enforceChatInvocationTimeout(resolveChatErrorFallbackText(
+  const fallbackResolution = resolveChatErrorFallbackText(
     options,
     chatErrorHookArgs(thread, message, input, run, error, toolResults, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
       resolveCallbackDelivery?.()
     }),
     () => callbackDelivered,
-  ), fallbackResolutionTimeout, fallbackResolutionAbort)
+    resolution => enforceChatInvocationTimeout(resolution, fallbackResolutionTimeout, fallbackResolutionAbort),
+  )
   const fallback = typeof options?.errorFallbackText === "function"
     ? await Promise.race([fallbackResolution, callbackDelivery.then(() => undefined)])
     : await fallbackResolution

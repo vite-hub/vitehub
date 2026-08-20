@@ -12336,7 +12336,7 @@ describe("agent message protocol", () => {
             context: { channel: { message: { text: "I ate skyr" } } },
             prompt: "I ate skyr",
           },
-          run: { channelId: "telegram", threadId: "telegram:123" },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
         },
         provider: "cloudflare",
       }, runAgentInline)).rejects.toBe(failure)
@@ -12345,6 +12345,42 @@ describe("agent message protocol", () => {
       expect(postMessage).toHaveBeenCalledWith("telegram:123", {
         markdown: "The meal was saved, but I could not finish the reply.",
       })
+    })
+
+    it("delivers durable failure fallbacks when Capability setup fails", async () => {
+      const { defineAgent, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const failure = new Error("Capability setup failed")
+      const agent = defineAgent({
+        capabilities: async () => { throw failure },
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => ({ text: "unreachable" }) },
+        messages: { errorFallbackText: "Please try again." },
+      })
+
+      await expect(runAgentWorkflowDefinition(agent, {
+        id: "run-before-capabilities",
+        name: "setup",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBe(failure)
+
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
     })
 
     it.each([

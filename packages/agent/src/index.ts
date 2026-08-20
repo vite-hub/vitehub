@@ -22,7 +22,8 @@ import {
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
-import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
+import { defineChatCapability, getAgentChatContext, getChatCapabilityOptions, resolveChatErrorFallbackText } from "./chat-trigger.ts"
+import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import {
   bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
@@ -3259,6 +3260,44 @@ function deferPreparedInvocationFailure<
   registerAgentBackgroundTask(preparedInvocation.runtimeContext, finishTask)
 }
 
+async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  error: unknown,
+): Promise<void> {
+  if (!(context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
+  const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
+  if (!options) return
+  const intents: AgentChannelDeliveryEffectIntent[] = []
+  const invocationContext = createAgentInvocationContextStore(input.context)
+  const chat = getAgentChatContext(invocationContext)
+  const fallback = await resolveChatErrorFallbackText(options, {
+    error,
+    history: input.messages || [],
+    message: chat?.message || { text: "" },
+    publicError: toAgentPublicError(error, "http"),
+    run: context.run,
+    thread: {
+      post: async message => intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" })),
+    },
+    toolResults: [],
+  }, () => intents.length > 0)
+  if (fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
+  if (!intents.length) return
+  const invoker = createFallbackAgentInvoker(context.run)
+  await applyChannelDeliveryEffectIntents({
+    actor: invoker,
+    channels: definition?.channels,
+    context: invocationContext,
+    hooks: definition?.hooks as AgentHookObserverHooks | undefined,
+    input,
+    invoker,
+    run: context.run,
+    runtimeContext: createResolvedRuntimeContext(context),
+  } as never, intents)
+}
+
 async function executeAgentInvocationWithCapacityLease<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -3274,7 +3313,19 @@ async function executeAgentInvocationWithCapacityLease<
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
-  const invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input, options.kind)
+  let invocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>
+  try {
+    invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input, options.kind)
+  }
+  catch (error) {
+    try {
+      await deliverUnpreparedWorkflowFailure(definition, context, input, error)
+    }
+    catch (deliveryError) {
+      throw new AggregateError([error, deliveryError], "[vitehub] Agent setup failed and Workflow fallback delivery also failed.")
+    }
+    throw error
+  }
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
