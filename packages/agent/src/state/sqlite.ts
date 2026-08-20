@@ -394,10 +394,27 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const now = Date.now()
     const extended = await this.transaction(async tx => await execute(
       tx,
-      `UPDATE ${this.tables.webhookQueue} SET lease_expires_at = ?
-        WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering')
-          AND lease_token = ? AND lease_expires_at > ? RETURNING delivery_id`,
-      [now + ttlMs, scope, deliveryId, leaseToken, now],
+      `UPDATE ${this.tables.webhookQueue} AS candidate SET lease_expires_at = ?
+        WHERE candidate.scope = ? AND candidate.delivery_id = ? AND candidate.status IN ('running', 'steering')
+          AND candidate.lease_token = ?
+          AND (
+            candidate.status = 'steering' OR candidate.lease_expires_at > ? OR (
+              (
+                SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
+                WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
+                  AND active_group.concurrency_group = candidate.concurrency_group
+              ) < candidate.concurrency_limit
+              AND (
+                candidate.concurrency_key IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM ${this.tables.webhookQueue} AS active_key
+                  WHERE active_key.status = 'running' AND active_key.lease_expires_at > ?
+                    AND active_key.concurrency_key = candidate.concurrency_key
+                )
+              )
+            )
+          )
+        RETURNING delivery_id`,
+      [now + ttlMs, scope, deliveryId, leaseToken, now, now, now],
     ))
     return extended.length > 0
   }

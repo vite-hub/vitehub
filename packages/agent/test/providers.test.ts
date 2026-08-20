@@ -6969,6 +6969,18 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const rehydrate = vi.fn((deliveryId: string) => ({
+      input: { prompt: `fresh ${deliveryId}` },
+      run: { runId: deliveryId },
+      webhook: {
+        busy: "steer" as const,
+        concurrencyGroup: "reviews",
+        concurrencyKey: "pr-42",
+        concurrencyLimit: 1,
+        concurrencyTtlMs: 1_000,
+        deliveryId,
+      },
+    }))
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
@@ -7019,6 +7031,7 @@ describe("server helpers", () => {
                     concurrencyLimit: 1,
                     concurrencyTtlMs: 1_000,
                     deliveryId,
+                    rehydrate: () => rehydrate(deliveryId),
                   },
                 }
               },
@@ -7053,6 +7066,7 @@ describe("server helpers", () => {
       const first = await handler(request("delivery-1"), "github", options)
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(rehydrate).toHaveBeenCalledWith("delivery-1")
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
 
       const waitUntilCount = waitUntilTasks.length
@@ -9015,6 +9029,45 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
+  })
+
+  it("starts typing only after chat context is accepted", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    let contextStarted!: () => void
+    let releaseContext!: () => void
+    const contextStartedPromise = new Promise<void>(resolve => { contextStarted = resolve })
+    const contextReleasePromise = new Promise<void>(resolve => { releaseContext = resolve })
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => {
+      contextStarted()
+      await contextReleasePromise
+      return Buffer.from([1, 2, 3])
+    } })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: () => ({ text: "ok" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ message: { chat: { id: 456, type: "private" }, document: { content: "context", file_name: "context.txt", mime_type: "text/plain" }, from: { id: 123 }, message_id: 44, text: "hello" } }),
+      method: "POST",
+    }), "telegram")
+    await contextStartedPromise
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+    releaseContext()
+    await vi.waitFor(() => expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined))
+    await expect(responsePromise).resolves.toMatchObject({ status: 200 })
   })
 
   it("does not block chat webhook handling on typing status", async () => {
