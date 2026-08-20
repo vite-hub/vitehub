@@ -150,6 +150,16 @@ function workflowNitroConfigHandler(plugin: Plugin): WorkflowNitroConfigHandler 
   }).vitehub?.workflow?.createNitroConfig
 }
 
+function deploymentOutputEnvPluginHandler(plugin: Plugin): ((envPlugin: Plugin) => void) | undefined {
+  return (plugin as Plugin & {
+    vitehub?: {
+      deploymentOutput?: {
+        useEnvPlugin?: (envPlugin: Plugin) => void
+      }
+    }
+  }).vitehub?.deploymentOutput?.useEnvPlugin
+}
+
 function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
   return options.flatMap((option) => {
     if (Array.isArray(option)) return [withoutDeploymentOutput(option)]
@@ -189,7 +199,13 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   config.server ??= {}
   const transformWorkflowRegistry = plugins.map(agentWorkflowRegistryTransform).find(Boolean)
 
-  for (const plugin of plugins) {
+  const orderedPlugins = [...plugins].sort((left, right) => {
+    const order = (plugin: Plugin): number => plugin.name === "vite-hub/deployment-output"
+      ? 2
+      : plugin.enforce === "pre" ? -1 : plugin.enforce === "post" ? 1 : 0
+    return order(left) - order(right)
+  })
+  for (const plugin of orderedPlugins) {
     const handler = configHandler(plugin)
     if (handler) {
       const result = await handler.call({} as never, config, environment)
@@ -288,9 +304,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     })(undefined, nuxt)
   }
 
-  const plugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
-    .filter(plugin => plugin.name !== "vite-hub/deployment-output")
+  const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
+  const plugins = installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output")
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
   )
@@ -304,13 +320,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       .filter(plugin => plugin.name)
       .map(plugin => [plugin.name, plugin]),
   )
-  const installedPlugins = [
-    ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
+  const replayPlugins = [
+    ...installedPlugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
     ...flattenPlugins(existing).filter(plugin =>
       (plugin.name.startsWith("@vite-hub/") || plugin.name.startsWith("vite-hub/"))
       && !plugins.some(candidate => candidate.name === plugin.name),
     ),
   ]
+  const replayEnvPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite")
+  if (replayEnvPlugin) {
+    for (const plugin of replayPlugins) deploymentOutputEnvPluginHandler(plugin)?.(replayEnvPlugin)
+  }
 
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
@@ -338,7 +358,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...plugins.filter(plugin => !existingNames.has(plugin.name)),
     ...existing,
   ] as PluginOption[]
-  const envPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
+  const envPlugin = replayEnvPlugin as Plugin & {
     api?: { resolveProjectRoot?: (viteRoot: string) => string }
   } | undefined
   const configuredEnvProjectRootOption = options.env && typeof options.env === "object"
@@ -358,7 +378,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
   }
   nuxt.hook?.("nitro:config", async (config) => {
-    await applyNitroConfig(installedPlugins, config, nuxt)
+    await applyNitroConfig(replayPlugins, config, nuxt)
     const alias = (config.alias ??= {}) as Record<string, string>
     for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
   })

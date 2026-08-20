@@ -23,6 +23,7 @@ export { createRuntimeRegistry as createRuntimeEnvRegistry } from "./core/resolv
 
 import type {
   EnvIntegrationOptions,
+  EnvRuntimeConfigOptions,
   EnvRuntimeImportSpecifiers,
   EnvRuntimeRegistry,
   EnvRuntimeRegistryValue,
@@ -45,8 +46,10 @@ const defaultRuntimeImports = {
 export { env }
 
 export interface EnvVitePluginAPI {
+  createServerEnvRegistry: (declarations: EnvRuntimeConfigOptions | undefined) => EnvRuntimeRegistry
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
+  onServerEnvRegistry: (handler: (registry: EnvRuntimeRegistry, config: UserConfig) => void) => void
   resolveProjectRoot: (viteRoot: string) => string
 }
 
@@ -74,18 +77,28 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   let diagnosticsText: string | undefined
+  const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
   const getPublicEnv = () => buildPublicConfig
   const getServerEnvRegistry = () => serverRegistry
+  const createServerEnvRegistry = (declarations: EnvRuntimeConfigOptions | undefined) => createRuntimeRegistry(declarations, { prefix: options.prefix })
   const resolveProjectRoot = (viteRoot: string) => resolveViteHubProjectRoot(resolve(viteRoot), { projectRoot: options.projectRoot })
   const runtimeImports = resolveRuntimeImports(options.runtimeImports)
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
-    api: { getPublicEnv, getServerEnvRegistry, resolveProjectRoot },
+    api: {
+      createServerEnvRegistry,
+      getPublicEnv,
+      getServerEnvRegistry,
+      onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),
+      resolveProjectRoot,
+    },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
       if (!envConfig) {
+        serverRegistry = {}
+        for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
         return
       }
 
@@ -113,9 +126,8 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       })
 
       buildPublicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
-      serverRegistry = createRuntimeRegistry(envConfig.server, {
-        prefix: options.prefix,
-      })
+      serverRegistry = createServerEnvRegistry(envConfig.server)
+      for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
       diagnosticsText = formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics)
 
       return {

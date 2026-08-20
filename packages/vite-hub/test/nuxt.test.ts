@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { PluginOption } from "vite"
 
@@ -29,6 +29,9 @@ const mocks = vi.hoisted(() => ({
       ownerPlugin: true,
     },
   })),
+  envHook: vi.fn((config: Record<string, unknown>) => {
+    config.envReady = true
+  }),
   outputHook: vi.fn(),
   agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }) => ({
     nitro: {
@@ -48,6 +51,7 @@ const mocks = vi.hoisted(() => ({
       sandbox: config[VITEHUB_NITRO_CONFIG_CONTEXT],
     },
   })),
+  useEnvPlugin: vi.fn(),
   vitehub: vi.fn(),
   workflowNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
@@ -95,9 +99,11 @@ describe("ViteHub Nuxt integration", () => {
     mocks.existingQueueConfig.mockClear()
     mocks.existingQueueNitroConfig.mockClear()
     mocks.existingOwnerConfig.mockClear()
+    mocks.envHook.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
+    mocks.useEnvPlugin.mockClear()
     mocks.workflowNitroConfig.mockClear()
     mocks.vitehub.mockReset()
     mocks.vitehub.mockReturnValue([
@@ -161,7 +167,25 @@ describe("ViteHub Nuxt integration", () => {
       },
       {
         name: "vite-hub/deployment-output",
+        enforce: "post",
         config: mocks.outputHook,
+        vitehub: {
+          deploymentOutput: {
+            useEnvPlugin: mocks.useEnvPlugin,
+          },
+        },
+      },
+      {
+        name: "@vite-hub/env/vite",
+        api: {
+          resolveProjectRoot: vi.fn((root: string) => {
+            const envOptions = (mocks.vitehub.mock.calls.at(-1)?.[0] as {
+              env?: { projectRoot?: string }
+            } | undefined)?.env
+            return envOptions?.projectRoot ? resolve(root, envOptions.projectRoot) : resolveViteHubProjectRoot(root)
+          }),
+        },
+        config: mocks.envHook,
       },
     ])
   })
@@ -192,6 +216,21 @@ describe("ViteHub Nuxt integration", () => {
       existingPlugin,
       { name: "vite-hub/deployment-output" },
     ]])
+    mocks.outputHook.mockImplementationOnce((config: { nitro?: Record<string, unknown> }) => {
+      if (!(config as Record<string, unknown>).envReady) return
+      const cloudflare = config.nitro?.cloudflare as Record<string, unknown> | undefined
+      const wrangler = cloudflare?.wrangler as Record<string, unknown> | undefined
+      config.nitro = {
+        ...config.nitro,
+        cloudflare: {
+          ...cloudflare,
+          wrangler: {
+            ...wrangler,
+            secrets: { required: ["VITEHUB_TOKEN"] },
+          },
+        },
+      }
+    })
 
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
@@ -206,6 +245,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
+      expect.objectContaining({ name: "@vite-hub/env/vite" }),
       existingQueuePlugin,
       existingOwnerPlugin,
       existingPlugin,
@@ -280,7 +320,11 @@ describe("ViteHub Nuxt integration", () => {
         mode: "development",
       },
     )
-    expect(mocks.outputHook).not.toHaveBeenCalled()
+    expect(mocks.outputHook).toHaveBeenCalledOnce()
+    expect(mocks.envHook).toHaveBeenCalledOnce()
+    expect(mocks.useEnvPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "@vite-hub/env/vite" }),
+    )
     expect(nitroConfig).toEqual({
       alias: {
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
@@ -292,6 +336,7 @@ describe("ViteHub Nuxt integration", () => {
           d1_databases: [d1Binding, d1Binding],
           name: "vitehub-nuxt",
           observability: { enabled: true },
+          secrets: { required: ["VITEHUB_TOKEN"] },
         },
       },
       ownerPlugin: true,
@@ -304,6 +349,20 @@ describe("ViteHub Nuxt integration", () => {
       sandbox: true,
       workflows: true,
     })
+  })
+
+  it("binds deployment output to an existing Env plugin selected for replay", async () => {
+    const existingEnvPlugin = {
+      name: "@vite-hub/env/vite",
+      api: { resolveProjectRoot: (root: string) => resolveViteHubProjectRoot(root) },
+      config: vi.fn(),
+    }
+    const { nuxt } = createNuxt(false, [existingEnvPlugin])
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(mocks.useEnvPlugin).toHaveBeenCalledWith(existingEnvPlugin)
+    expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toContain(existingEnvPlugin)
   })
 
   it("replays configured Nuxt Vite options into Nitro hooks", async () => {
@@ -320,6 +379,39 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({
         root: "/tmp/vitehub-nuxt/custom-vite-root",
         workspace: false,
+      }),
+      expect.anything(),
+    )
+  })
+
+  it("finalizes deployment output after later ViteHub post hooks", async () => {
+    const lateCloudflarePlugin = {
+      name: "vite-hub/custom-cloudflare",
+      enforce: "post" as const,
+      config() {
+        return {
+          nitro: {
+            cloudflare: {
+              wrangler: {
+                env: { staging: { name: "staging-worker" } },
+              },
+            },
+          },
+        }
+      },
+    }
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [lateCloudflarePlugin])
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook({})
+
+    expect(mocks.outputHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nitro: expect.objectContaining({
+          cloudflare: expect.objectContaining({
+            wrangler: expect.objectContaining({ env: { staging: { name: "staging-worker" } } }),
+          }),
+        }),
       }),
       expect.anything(),
     )
