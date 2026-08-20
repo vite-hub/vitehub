@@ -15,6 +15,11 @@ type ParameterOwner =
 	| ESTree.TSFunctionType
 	| ESTree.TSMethodSignature;
 
+type TypeBinding = {
+	type: ESTree.TSType;
+	bindings: ReadonlyMap<string, TypeBinding>;
+};
+
 function parameterAnnotation(parameter: Parameter): ESTree.TSTypeAnnotation | null | undefined {
 	if (parameter.type === "TSParameterProperty") {
 		return parameterAnnotation(parameter.parameter);
@@ -54,32 +59,48 @@ export const noObjectParametersRule = defineRule({
 			type: ESTree.TSType,
 			shadowedAliases: ReadonlySet<string>,
 			from: ESTree.Node,
+			bindings: ReadonlyMap<string, TypeBinding> = new Map(),
 			visited = new Set<string>(),
 		): boolean => {
 			if (type.type === "TSObjectKeyword") return true;
 			if (type.type === "TSParenthesizedType")
-				return resolvesToObject(type.typeAnnotation, shadowedAliases, from, visited);
+				return resolvesToObject(type.typeAnnotation, shadowedAliases, from, bindings, visited);
 			if (type.type === "TSUnionType") {
 				return type.types.some((member) =>
-					resolvesToObject(member, shadowedAliases, from, visited),
+					resolvesToObject(member, shadowedAliases, from, bindings, visited),
 				);
 			}
 			if (
 				type.type !== "TSTypeReference" ||
 				type.typeName.type !== "Identifier" ||
-				(type.typeArguments !== null &&
-					type.typeArguments !== undefined &&
-					type.typeArguments.params.length > 0) ||
 				visited.has(type.typeName.name) ||
-				shadowedAliases.has(type.typeName.name)
+				(shadowedAliases.has(type.typeName.name) && !bindings.has(type.typeName.name))
 			) {
 				return false;
 			}
+			const bound = bindings.get(type.typeName.name);
+			if (bound !== undefined)
+				return resolvesToObject(bound.type, shadowedAliases, from, bound.bindings, visited);
 			const alias = findAlias(type.typeName.name, from);
 			if (alias === undefined) return false;
+			const parameters = alias.typeParameters?.params ?? [];
+			const arguments_ = type.typeArguments?.params ?? [];
+			if (arguments_.length > parameters.length) return false;
+			const nextBindings = new Map(bindings);
+			for (const [index, parameter] of parameters.entries()) {
+				const argument = arguments_[index] ?? parameter.default;
+				if (argument === null || argument === undefined) return false;
+				nextBindings.set(parameter.name.name, { type: argument, bindings });
+			}
 			const nextVisited = new Set(visited);
 			nextVisited.add(type.typeName.name);
-			return resolvesToObject(alias.typeAnnotation, shadowedAliases, alias, nextVisited);
+			return resolvesToObject(
+				alias.typeAnnotation,
+				shadowedAliases,
+				alias,
+				nextBindings,
+				nextVisited,
+			);
 		};
 
 		const checkParameters = (node: ParameterOwner) => {

@@ -27,13 +27,25 @@ const antiSlopDiagnostics = report.diagnostics.filter((diagnostic) =>
 const nativeErrors = report.diagnostics.filter(
   (diagnostic) => !diagnostic.code?.startsWith("anti-slop(") && diagnostic.severity === "error",
 );
+const sourceByFilename = new Map(
+  await Promise.all(
+    [...new Set(antiSlopDiagnostics.map((diagnostic) => diagnostic.filename))].map(
+      async (filename) => [filename, await readFile(filename, "utf8")],
+    ),
+  ),
+);
 const identity = (diagnostic) =>
   createHash("sha256")
     .update(
       JSON.stringify({
         code: diagnostic.code,
         filename: diagnostic.filename,
-        labels: diagnostic.labels,
+        labels: diagnostic.labels.map((label) => ({
+          label: label.label,
+          source: sourceByFilename
+            .get(diagnostic.filename)
+            ?.slice(label.span.offset, label.span.offset + label.span.length),
+        })),
         message: diagnostic.message,
       }),
     )
