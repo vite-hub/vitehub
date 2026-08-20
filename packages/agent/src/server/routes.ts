@@ -3026,6 +3026,29 @@ async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: A
   return true
 }
 
+async function replaceManualDeliveryPlaceholderWithin(
+  placeholder: unknown,
+  message: AgentChatMessage,
+  timeoutMs = 1_000,
+  onTimeout?: () => void,
+): Promise<boolean> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      replaceManualDeliveryPlaceholder(placeholder, message),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          onTimeout?.()
+          reject(new Error("Disposable chat progress replacement timed out."))
+        }, timeoutMs)
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<void> {
   const message = "Manual chat delivery could not remove its placeholder."
   if (!placeholder || typeof placeholder !== "object" || !("delete" in placeholder) || typeof placeholder.delete !== "function") {
@@ -3622,8 +3645,14 @@ async function handleChatSdkMessage(
                 }
               }
               else if (text) {
-                if (!await replaceManualDeliveryPlaceholder(completedPlaceholder, { markdown: text }).catch(() => false)) throw error
-                text = ""
+                const replaced = await replaceManualDeliveryPlaceholderWithin(completedPlaceholder, { markdown: text }, 1_000, () => {
+                  if (progressReference) progressReference.reusable = false
+                }).catch(() => false)
+                if (manualDeliveryState.placeholder === completedPlaceholder) {
+                  manualDeliveryState.placeholder = undefined
+                }
+                if (replaced) text = ""
+                else console.warn("[vitehub] Could not replace a progress message; posting final output separately.", error)
               }
             }
             finally {
