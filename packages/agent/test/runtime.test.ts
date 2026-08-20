@@ -1872,7 +1872,7 @@ describe("agent message protocol", () => {
         }
       },
     })
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent, runAgentInline } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: {
         model: {} as never,
@@ -1893,6 +1893,9 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("fixed")
+    expect(repairGenerate).toHaveBeenCalledOnce()
+
+    await expect(runAgentInline(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "raw" })).resolves.toMatchObject({ text: "42" })
     expect(repairGenerate).toHaveBeenCalledOnce()
   })
 

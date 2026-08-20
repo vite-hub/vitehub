@@ -1211,7 +1211,7 @@ async function createAgent(
   const prepareRepairCall = typeof prepareCall === "function"
     ? async (input: Record<string, unknown>) => withoutToolCallSettings(await prepareCall(input as never) as Record<string, unknown>)
     : undefined
-  const repairAgent = context.output
+  const repairAgent = context.output && context.nativeStructuredOutput !== false
     ? new ToolLoopAgent({
         ...repairSettings,
         instructions,
@@ -1221,7 +1221,7 @@ async function createAgent(
         stopWhen: isStepCount(1),
       } as never)
     : undefined
-  const repairOutput = context.output
+  const repairOutput = context.output && context.nativeStructuredOutput !== false
     ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
         const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = callInput
         try {
