@@ -35,7 +35,10 @@ vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrows
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
 vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
-vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
+vi.mock("@vite-hub/env/vite", async importOriginal => ({
+  ...await importOriginal<typeof import("@vite-hub/env/vite")>(),
+  hubEnv: integrationMocks.hubEnv,
+}))
 vi.mock("@vite-hub/kv/vite", () => ({
   hubKv: integrationMocks.hubKv,
   hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,

@@ -1,8 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
-import { resolveConfig } from "vite"
+import { createBuilder, resolveConfig } from "vite"
 import { describe, expect, it } from "vitest"
 
 import { env, hubEnv } from "@vite-hub/env/vite"
@@ -152,6 +152,36 @@ describe("built-in deployment preset integration", () => {
       await rm(root, { force: true, recursive: true })
     }
   })
+
+  it("emits required Server Env secrets through the Nitro Vite plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-required-secrets-build-"))
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        env: {
+          server: {
+            token: env({ secret: true, source: env.source("VITEHUB_TOKEN") }),
+          },
+        },
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({ preset: "cloudflare" }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
+      await builder.buildApp()
+
+      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
+        secrets?: { required?: string[] }
+      }
+      expect(wrangler.secrets?.required).toEqual(["VITEHUB_TOKEN"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 30_000)
 
   it("declares required secrets from a standalone Env plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-standalone-required-secrets-"))
