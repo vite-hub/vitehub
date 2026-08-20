@@ -173,12 +173,12 @@ describe("CDP page", () => {
     const first = page.waitForDownload(async () => {
       actions.push("first")
       await blocked
-      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "first.png", url: "first" })
+      fake.emit("Page.downloadWillBegin", { suggestedFilename: "first.png", url: "first" })
     })
     await vi.waitFor(() => expect(actions).toEqual(["first"]))
     const second = otherPage.waitForDownload(async () => {
       actions.push("second")
-      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "second.png", url: "second" })
+      fake.emit("Page.downloadWillBegin", { suggestedFilename: "second.png", url: "second" })
     }, { timeoutMs: 1 })
 
     await expect(second).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
@@ -200,12 +200,12 @@ describe("CDP page", () => {
     const first = page.waitForDownload(async () => {
       actions.push("first")
       await blocked
-      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "late-first.png", url: "late-first" })
+      fake.emit("Page.downloadWillBegin", { suggestedFilename: "late-first.png", url: "late-first" })
     }, { timeoutMs: 1 })
     await expect(first).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
     const second = otherPage.waitForDownload(async () => {
       actions.push("second")
-      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "second.png", url: "second" })
+      fake.emit("Page.downloadWillBegin", { suggestedFilename: "second.png", url: "second" })
     }, { timeoutMs: 100 })
 
     await new Promise(resolve => setTimeout(resolve, 5))

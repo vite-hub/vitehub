@@ -210,7 +210,6 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
           return
         }
         let stopPage = () => {}
-        let stopBrowser = () => {}
         const download = new Promise<BrowserDownload>((resolve) => {
           const receive = (params: unknown) => {
             const event = params as { suggestedFilename?: unknown, url?: unknown }
@@ -220,7 +219,6 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
           stopPage = client.on("Page.downloadWillBegin", (params, eventSessionId) => {
             if (eventSessionId === sessionId) receive(params)
           })
-          stopBrowser = client.on("Browser.downloadWillBegin", receive)
         })
         const actionPromise = Promise.resolve().then(action)
         try {
@@ -236,7 +234,6 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
         }
         finally {
           stopPage()
-          stopBrowser()
         }
         await actionPromise.catch(() => {})
       }
