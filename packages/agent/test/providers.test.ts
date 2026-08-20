@@ -7716,6 +7716,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(1))
+      await Promise.resolve()
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
@@ -7724,6 +7725,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(2))
+      await Promise.resolve()
       await vi.advanceTimersByTimeAsync(2_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
