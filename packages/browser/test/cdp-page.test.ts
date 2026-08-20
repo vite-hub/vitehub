@@ -187,6 +187,33 @@ describe("CDP page", () => {
     await expect(first).resolves.toMatchObject({ suggestedFilename: "first.png" })
   })
 
+  it("keeps late downloads behind the action barrier", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+    const { page: otherPage } = await attachCDPPage(fake.client)
+    let release = () => {}
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const actions: string[] = []
+
+    const first = page.waitForDownload(async () => {
+      actions.push("first")
+      await blocked
+      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "late-first.png", url: "late-first" })
+    }, { timeoutMs: 1 })
+    await expect(first).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+    const second = otherPage.waitForDownload(async () => {
+      actions.push("second")
+      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "second.png", url: "second" })
+    }, { timeoutMs: 100 })
+
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(actions).toEqual(["first"])
+    release()
+    await expect(second).resolves.toEqual({ suggestedFilename: "second.png", url: "second" })
+  })
+
   it("rejects failed page navigations", async () => {
     const fake = fakeClient()
     fake.send.mockImplementation(async (method: string) => {

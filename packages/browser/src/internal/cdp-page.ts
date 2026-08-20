@@ -197,9 +197,18 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       catch {
         // Kitesurf may omit this command while still emitting download events.
       }
+      let resolveResult = (_download: BrowserDownload) => {}
+      let rejectResult = (_error: unknown) => {}
+      const result = new Promise<BrowserDownload>((resolve, reject) => {
+        resolveResult = resolve
+        rejectResult = reject
+      })
       const wait = async () => {
         const remainingMs = deadline - Date.now()
-        if (remainingMs <= 0) throw browserProviderError("cdp", "wait for the browser download")
+        if (remainingMs <= 0) {
+          rejectResult(browserProviderError("cdp", "wait for the browser download"))
+          return
+        }
         let stopPage = () => {}
         let stopBrowser = () => {}
         const download = new Promise<BrowserDownload>((resolve) => {
@@ -213,22 +222,26 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
           })
           stopBrowser = client.on("Browser.downloadWillBegin", receive)
         })
+        const actionPromise = Promise.resolve().then(action)
         try {
-          const [, result] = await withTimeout(
-            Promise.all([action(), download]),
+          const [, downloaded] = await withTimeout(
+            Promise.all([actionPromise, download]),
             remainingMs,
             "wait for the browser download",
           )
-          return result
+          resolveResult(downloaded)
+        }
+        catch (error) {
+          rejectResult(error)
         }
         finally {
           stopPage()
           stopBrowser()
         }
+        await actionPromise.catch(() => {})
       }
       const queue = downloadQueues.get(client) ?? Promise.resolve()
-      const result = queue.then(wait, wait)
-      downloadQueues.set(client, result.then(() => {}, () => {}))
+      downloadQueues.set(client, queue.then(wait, wait))
       return await withTimeout(result, Math.max(0, deadline - Date.now()), "wait for the browser download")
     },
   }
