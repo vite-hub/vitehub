@@ -3056,7 +3056,10 @@ async function finishAgentInvocation<
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
-      const outcomeHook = failed ? context.errorHook : context.finishHook
+      const cleanupOnlyFailure = outcome.status === "success" && closeError !== undefined
+      const outcomeHook = failed
+        ? cleanupOnlyFailure ? undefined : context.errorHook
+        : context.finishHook
       const hookName = failed ? "agent:error" : "agent:finish"
       const hasOutcomeConsumer = Boolean(outcomeHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders))
       const finishExtensionProviders = hasOutcomeConsumer
