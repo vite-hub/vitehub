@@ -8,7 +8,7 @@ import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
-import { materializeAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
+import { enrichAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -345,15 +345,7 @@ function formatUsageNote(summary: string): string {
 
 async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageRecord> {
   try {
-    if (record.cost) return { ...record, cost: materializeAgentUsageCost(record.cost) }
-    if (!record.usage) return record
-    const cost = await defaultDevUsagePricing()({
-      model: record.model,
-      response: record.response,
-      run: record.run,
-      usage: record.usage,
-    })
-    return cost ? { ...record, cost: materializeAgentUsageCost(cost) } : record
+    return await enrichAgentUsageCost(record, defaultDevUsagePricing())
   }
   catch {
     return record

@@ -74,6 +74,32 @@ export function aggregateAgentUsageCosts(costs: AgentUsageCost[]): AgentUsageCos
   })
 }
 
+export async function enrichAgentUsageCost(
+  record: AgentUsageRecord,
+  pricing: AgentUsagePricing,
+  run?: Partial<AgentRunMetadata>,
+): Promise<AgentUsageRecord> {
+  const calls = record.calls ? await Promise.all(record.calls.map(call => enrichAgentUsageCost(call, pricing, run))) : undefined
+  let cost = record.cost
+  if (!cost && calls?.length && calls.every(call => call.cost)) {
+    cost = aggregateAgentUsageCosts(calls.map(call => call.cost!))
+  }
+  if (!cost && !calls?.length && record.usage) {
+    const priced = await pricing({
+      model: record.model,
+      response: record.response,
+      run: record.run || run,
+      usage: record.usage,
+    })
+    cost = priced ? materializeAgentUsageCost(priced) : undefined
+  }
+  return {
+    ...record,
+    ...(calls ? { calls } : {}),
+    ...(cost ? { cost: materializeAgentUsageCost(cost) } : {}),
+  }
+}
+
 function multiplyDecimal(value: string | undefined, count: number | undefined): { scale: bigint, units: bigint } | undefined {
   if (value === undefined || count === undefined || count <= 0) return
   const parts = decimalToParts(value)
