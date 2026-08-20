@@ -2006,6 +2006,7 @@ describe("agent message protocol", () => {
     expect(repairGenerate).not.toHaveBeenCalled()
     expect(fallbackGenerate).toHaveBeenCalledOnce()
     expect(fallbackGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      instructions: expect.stringContaining('"title"'),
       prompt: expect.stringContaining("meal-1"),
     }))
 

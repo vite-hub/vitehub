@@ -519,6 +519,7 @@ async function synthesizeWorkspaceFallbackFromEvidence(
     instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
+      agentOutputInstructions(context.output),
       resolveMessageChannelInstructions(context.context, context),
     ].filter(Boolean).join("\n"),
     model,
