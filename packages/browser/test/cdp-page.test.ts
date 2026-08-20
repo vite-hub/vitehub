@@ -9,6 +9,7 @@ function fakeClient() {
   const send = vi.fn(async (method: string, params?: { expression?: string }) => {
     if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
     if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+    if (method === "Page.navigate") return { loaderId: "document-loader" }
     if (method !== "Runtime.evaluate") return {}
     if (params?.expression?.includes('"count" === "count"')) return { result: { value: 1 } }
     if (params?.expression?.includes('"visible" === "visible"')) return { result: { value: true } }
@@ -26,8 +27,8 @@ function fakeClient() {
   }
   return {
     client,
-    emit(method: string, params: unknown) {
-      for (const listener of listeners.get(method) ?? []) listener(params, "page-session")
+    emit(method: string, params: unknown, sessionId = "page-session") {
+      for (const listener of listeners.get(method) ?? []) listener(params, sessionId)
     },
     send,
   }
@@ -38,7 +39,9 @@ describe("CDP page", () => {
     const fake = fakeClient()
     const { page } = await attachCDPPage(fake.client)
 
-    await page.goto("https://ray.so/")
+    const navigation = page.goto("https://ray.so/")
+    fake.emit("Page.lifecycleEvent", { loaderId: "document-loader", name: "load" })
+    await navigation
     const editor = page.locator("textarea")
     await editor.waitFor()
     expect(await editor.count()).toBe(1)
@@ -73,7 +76,7 @@ describe("CDP page", () => {
     fake.send.mockImplementation(async (method: string) => {
       if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
       if (method === "Target.attachToTarget") return { sessionId: "page-session" }
-      if (method === "Runtime.evaluate") return await new Promise(() => {})
+      if (method === "Page.navigate") return await new Promise(() => {})
       return {}
     })
     const { page } = await attachCDPPage(fake.client)
@@ -81,6 +84,30 @@ describe("CDP page", () => {
     await expect(page.goto("https://example.com", { timeoutMs: 1 })).rejects.toMatchObject({
       code: "BROWSER_PROVIDER_ERROR",
     })
+  })
+
+  it("correlates concurrent navigation lifecycle events", async () => {
+    const fake = fakeClient()
+    let navigation = 0
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.navigate") return { loaderId: `loader-${++navigation}` }
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+    let firstDone = false
+
+    const first = page.goto("https://example.com/first").then(() => {
+      firstDone = true
+    })
+    const second = page.goto("https://example.com/second")
+    await vi.waitFor(() => expect(navigation).toBe(2))
+    fake.emit("Page.lifecycleEvent", { loaderId: "loader-2", name: "load" })
+    await second
+    expect(firstDone).toBe(false)
+    fake.emit("Page.lifecycleEvent", { loaderId: "loader-1", name: "load" })
+    await first
   })
 
   it("bounds locator evaluation", async () => {
@@ -109,6 +136,55 @@ describe("CDP page", () => {
       })
       await new Promise(() => {})
     }, { timeoutMs: 1 })).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+  })
+
+  it("serializes concurrent download waits", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+    const { page: otherPage } = await attachCDPPage(fake.client)
+    const actions: string[] = []
+
+    const first = page.waitForDownload(async () => {
+      actions.push("first")
+      fake.emit("Page.downloadWillBegin", { suggestedFilename: "first.png", url: "first" })
+    })
+    const second = otherPage.waitForDownload(async () => {
+      actions.push("second")
+      fake.emit("Page.downloadWillBegin", { suggestedFilename: "second.png", url: "second" })
+    })
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { suggestedFilename: "first.png", url: "first" },
+      { suggestedFilename: "second.png", url: "second" },
+    ])
+    expect(actions).toEqual(["first", "second"])
+  })
+
+  it("includes download queueing in the timeout", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+    const { page: otherPage } = await attachCDPPage(fake.client)
+    let release = () => {}
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const actions: string[] = []
+
+    const first = page.waitForDownload(async () => {
+      actions.push("first")
+      await blocked
+      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "first.png", url: "first" })
+    })
+    await vi.waitFor(() => expect(actions).toEqual(["first"]))
+    const second = otherPage.waitForDownload(async () => {
+      actions.push("second")
+      fake.emit("Browser.downloadWillBegin", { suggestedFilename: "second.png", url: "second" })
+    }, { timeoutMs: 1 })
+
+    await expect(second).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+    expect(actions).toEqual(["first"])
+    release()
+    await expect(first).resolves.toMatchObject({ suggestedFilename: "first.png" })
   })
 
   it("rejects failed page navigations", async () => {

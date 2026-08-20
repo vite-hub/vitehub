@@ -10,6 +10,7 @@ import type {
 } from "../types.ts"
 
 const DEFAULT_TIMEOUT_MS = 30_000
+const downloadQueues = new WeakMap<CDPClient, Promise<void>>()
 
 interface AttachedPage {
   page: BrowserPage
@@ -143,20 +144,35 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const sessionId = attached.sessionId
   const send = <TResult>(method: string, params: object = {}) => client.send<TResult>(method, params, sessionId)
   await send("Page.enable")
+  await send("Page.setLifecycleEventsEnabled", { enabled: true })
 
   const page: BrowserPage = {
     async goto(url, options = {}) {
-      await withTimeout((async () => {
-        const navigation = await send<{ errorText?: string }>("Page.navigate", { url })
-        if (navigation.errorText) {
-          throw browserProviderError("cdp", `navigate to ${JSON.stringify(url)} (${navigation.errorText})`)
-        }
-        await send("Runtime.evaluate", {
-          awaitPromise: true,
-          expression: 'document.readyState === "complete" ? true : new Promise(resolve => addEventListener("load", () => resolve(true), { once: true }))',
-          returnByValue: true,
-        })
-      })(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS, `navigate to ${JSON.stringify(url)}`)
+      let navigationLoaderId: string | undefined
+      const loadedLoaderIds = new Set<string>()
+      let resolveLoad = () => {}
+      const loaded = new Promise<void>((resolve) => {
+        resolveLoad = resolve
+      })
+      const stopLoad = client.on("Page.lifecycleEvent", (params, eventSessionId) => {
+        const event = params as { loaderId?: unknown, name?: unknown }
+        if (eventSessionId !== sessionId || event.name !== "load" || typeof event.loaderId !== "string") return
+        loadedLoaderIds.add(event.loaderId)
+        if (event.loaderId === navigationLoaderId) resolveLoad()
+      })
+      try {
+        await withTimeout((async () => {
+          const navigation = await send<{ errorText?: string, loaderId?: string }>("Page.navigate", { url })
+          if (navigation.errorText) {
+            throw browserProviderError("cdp", `navigate to ${JSON.stringify(url)} (${navigation.errorText})`)
+          }
+          navigationLoaderId = navigation.loaderId
+          if (navigationLoaderId && !loadedLoaderIds.has(navigationLoaderId)) await loaded
+        })(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS, `navigate to ${JSON.stringify(url)}`)
+      }
+      finally {
+        stopLoad()
+      }
     },
     locator(selector: string, options: BrowserLocatorOptions = {}) {
       return new CDPBrowserLocator(send, { selector, ...options })
@@ -166,39 +182,54 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       await send("Input.dispatchKeyEvent", { key, type: "keyUp" })
     },
     async waitForDownload(action, options = {}) {
+      const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+      const deadline = Date.now() + timeoutMs
       try {
-        await client.send("Browser.setDownloadBehavior", {
-          behavior: "default",
-          eventsEnabled: true,
-        })
+        await withTimeout(
+          client.send("Browser.setDownloadBehavior", {
+            behavior: "default",
+            eventsEnabled: true,
+          }),
+          timeoutMs,
+          "enable browser downloads",
+        )
       }
       catch {
         // Kitesurf may omit this command while still emitting download events.
       }
-      const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
-      let stopPage = () => {}
-      let stopBrowser = () => {}
-      const download = new Promise<BrowserDownload>((resolve) => {
-        const receive = (params: unknown) => {
-          const event = params as { suggestedFilename?: unknown, url?: unknown }
-          if (typeof event.url !== "string" || typeof event.suggestedFilename !== "string") return
-          resolve({ suggestedFilename: event.suggestedFilename, url: event.url })
+      const wait = async () => {
+        const remainingMs = deadline - Date.now()
+        if (remainingMs <= 0) throw browserProviderError("cdp", "wait for the browser download")
+        let stopPage = () => {}
+        let stopBrowser = () => {}
+        const download = new Promise<BrowserDownload>((resolve) => {
+          const receive = (params: unknown) => {
+            const event = params as { suggestedFilename?: unknown, url?: unknown }
+            if (typeof event.url !== "string" || typeof event.suggestedFilename !== "string") return
+            resolve({ suggestedFilename: event.suggestedFilename, url: event.url })
+          }
+          stopPage = client.on("Page.downloadWillBegin", (params, eventSessionId) => {
+            if (eventSessionId === sessionId) receive(params)
+          })
+          stopBrowser = client.on("Browser.downloadWillBegin", receive)
+        })
+        try {
+          const [, result] = await withTimeout(
+            Promise.all([action(), download]),
+            remainingMs,
+            "wait for the browser download",
+          )
+          return result
         }
-        stopPage = client.on("Page.downloadWillBegin", receive)
-        stopBrowser = client.on("Browser.downloadWillBegin", receive)
-      })
-      try {
-        const [, result] = await withTimeout(
-          Promise.all([action(), download]),
-          timeoutMs,
-          "wait for the browser download",
-        )
-        return result
+        finally {
+          stopPage()
+          stopBrowser()
+        }
       }
-      finally {
-        stopPage()
-        stopBrowser()
-      }
+      const queue = downloadQueues.get(client) ?? Promise.resolve()
+      const result = queue.then(wait, wait)
+      downloadQueues.set(client, result.then(() => {}, () => {}))
+      return await withTimeout(result, Math.max(0, deadline - Date.now()), "wait for the browser download")
     },
   }
 
