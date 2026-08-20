@@ -15,6 +15,16 @@ afterEach(() => {
 })
 
 describe("Browser Definitions", () => {
+  it("reports an unconfigured runtime before opening a default binding", async () => {
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await browser.open()
+    })
+
+    await expect(executeBrowserDefinition(definition, undefined)).rejects.toMatchObject({
+      code: "BROWSER_RUNTIME_NOT_CONFIGURED",
+    })
+  })
+
   it("returns an error-first result when a definition cannot run", async () => {
     const name: string = "missing"
     const [error, value] = await runBrowser(name)

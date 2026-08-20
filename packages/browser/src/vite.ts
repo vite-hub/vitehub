@@ -152,6 +152,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
       `export default ${JSON.stringify(enabled ? {
         binding: resolvedOptions.binding,
         engine: resolvedOptions.engine,
+        provider: "cloudflare",
       } : {}, null, 2)}`,
       "",
     ].join("\n")

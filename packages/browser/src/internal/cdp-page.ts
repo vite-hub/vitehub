@@ -98,15 +98,16 @@ class CDPBrowserLocator implements BrowserLocator {
   ) {}
 
   private async evaluate<TResult>(operation: Parameters<typeof locatorExpression>[0], value?: string): Promise<TResult> {
-    const result = await this.send<{
+    const operationName = `${operation} Browser locator ${JSON.stringify(this.locator.selector)}`
+    const result = await withTimeout(this.send<{
       exceptionDetails?: unknown
       result?: { value?: TResult }
     }>("Runtime.evaluate", {
       awaitPromise: true,
       expression: locatorExpression(operation, this.locator, value),
       returnByValue: true,
-    })
-    return evaluateResult(result, `${operation} Browser locator ${JSON.stringify(this.locator.selector)}`)
+    }), DEFAULT_TIMEOUT_MS, operationName)
+    return evaluateResult(result, operationName)
   }
 
   async click(): Promise<void> {
@@ -139,22 +140,31 @@ class CDPBrowserLocator implements BrowserLocator {
 }
 
 export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
-  const targets = await client.send<{
+  const setupDeadline = Date.now() + DEFAULT_TIMEOUT_MS
+  const setup = <TResult>(promise: Promise<TResult>, operation: string) => withTimeout(
+    promise,
+    Math.max(0, setupDeadline - Date.now()),
+    operation,
+  )
+  const targets = await setup(client.send<{
     targetInfos?: Array<{ targetId?: string, type?: string }>
-  }>("Target.getTargets")
+  }>("Target.getTargets"), "find the browser page target")
   const targetId = targets.targetInfos?.find(target => target.type === "page")?.targetId
   if (!targetId) throw browserProviderError("cdp", "find the browser page target")
 
-  const attached = await client.send<{ sessionId?: string }>("Target.attachToTarget", {
+  const attached = await setup(client.send<{ sessionId?: string }>("Target.attachToTarget", {
     flatten: true,
     targetId,
-  })
+  }), "attach to the browser page target")
   if (!attached.sessionId) throw browserProviderError("cdp", "attach to the browser page target")
   const sessionId = attached.sessionId
   const send = <TResult>(method: string, params: object = {}) => client.send<TResult>(method, params, sessionId)
-  await send("Page.enable")
-  await send("Page.setLifecycleEventsEnabled", { enabled: true })
-  const frameTree = await send<{ frameTree?: { frame?: { id?: string } } }>("Page.getFrameTree")
+  await setup(send("Page.enable"), "enable the browser page")
+  await setup(send("Page.setLifecycleEventsEnabled", { enabled: true }), "enable browser page lifecycle events")
+  const frameTree = await setup(
+    send<{ frameTree?: { frame?: { id?: string } } }>("Page.getFrameTree"),
+    "read the browser page frame tree",
+  )
   const mainFrameId = frameTree.frameTree?.frame?.id
 
   let clickQueue = Promise.resolve()
@@ -243,8 +253,10 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       return new CDPBrowserLocator(send, { selector, ...options }, clickLocator)
     },
     async press(key) {
-      await send("Input.dispatchKeyEvent", { key, type: "keyDown" })
-      await send("Input.dispatchKeyEvent", { key, type: "keyUp" })
+      await withTimeout((async () => {
+        await send("Input.dispatchKeyEvent", { key, type: "keyDown" })
+        await send("Input.dispatchKeyEvent", { key, type: "keyUp" })
+      })(), DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`)
     },
   }
 

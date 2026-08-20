@@ -36,6 +36,22 @@ function fakeClient() {
 }
 
 describe("CDP page", () => {
+  it("bounds page setup", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      fake.send.mockImplementation(async () => await new Promise(() => {}))
+
+      const attached = attachCDPPage(fake.client)
+      const result = expect(attached).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("navigates and interacts with locators", async () => {
     const fake = fakeClient()
     const { page } = await attachCDPPage(fake.client)
@@ -256,6 +272,52 @@ describe("CDP page", () => {
     await expect(page.locator("button").waitFor({ timeoutMs: 1 })).rejects.toMatchObject({
       code: "BROWSER_PROVIDER_ERROR",
     })
+  })
+
+  it("bounds direct locator evaluation", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Runtime.evaluate") return await new Promise(() => {})
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+
+      const count = page.locator("button").count()
+      const result = expect(count).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds page key dispatches", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Input.dispatchKeyEvent") return await new Promise(() => {})
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+
+      const press = page.press("Enter")
+      const result = expect(press).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("rejects failed page navigations", async () => {

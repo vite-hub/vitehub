@@ -152,7 +152,7 @@ let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
 
 function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
-  if (!runtimeConfig.binding) throw browserRuntimeNotConfiguredError()
+  if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
   configuredClient = createBrowser({
     provider: cloudflareBrowser({
       binding: runtimeConfig.binding,
