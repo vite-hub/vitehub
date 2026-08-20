@@ -116,6 +116,19 @@ describe("Cloudflare provider output", () => {
     expect(second).toHaveProperty("cloudflare.wrangler.env.staging.secrets.required", ["VITEHUB_TOKEN"])
     expect(second).not.toHaveProperty("cloudflare.wrangler.env.production.secrets")
     expect(second).toHaveProperty("cloudflare.wrangler.env.production.name", "production-worker")
+
+    const removalConfig = {}
+    registerCloudflareProviderOutput(removalConfig, "env", { requiredSecrets: ["VITEHUB_TOKEN"] })
+    const withEnvironment = composeNitroCloudflareProviderOutput(removalConfig, {
+      cloudflare: { wrangler: { env: { staging: { name: "staging-worker" } } } },
+    })
+    const withEnvironmentCloudflare = withEnvironment.cloudflare as { wrangler: Record<string, unknown> }
+    const { env: _env, ...wranglerWithoutEnvironments } = withEnvironmentCloudflare.wrangler
+    const withoutEnvironments = composeNitroCloudflareProviderOutput(removalConfig, {
+      ...withEnvironment,
+      cloudflare: { ...withEnvironmentCloudflare, wrangler: wranglerWithoutEnvironments },
+    })
+    expect(withoutEnvironments).not.toHaveProperty("cloudflare.wrangler.env")
   })
 
   it("replaces an owner's contribution without changing application policy", () => {

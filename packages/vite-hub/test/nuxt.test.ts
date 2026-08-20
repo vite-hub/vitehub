@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { PluginOption } from "vite"
 
@@ -29,6 +29,9 @@ const mocks = vi.hoisted(() => ({
       ownerPlugin: true,
     },
   })),
+  envHook: vi.fn((config: Record<string, unknown>) => {
+    config.envReady = true
+  }),
   outputHook: vi.fn(),
   agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }) => ({
     nitro: {
@@ -95,6 +98,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.existingQueueConfig.mockClear()
     mocks.existingQueueNitroConfig.mockClear()
     mocks.existingOwnerConfig.mockClear()
+    mocks.envHook.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
@@ -161,7 +165,20 @@ describe("ViteHub Nuxt integration", () => {
       },
       {
         name: "vite-hub/deployment-output",
+        enforce: "post",
         config: mocks.outputHook,
+      },
+      {
+        name: "@vite-hub/env/vite",
+        api: {
+          resolveProjectRoot: vi.fn((root: string) => {
+            const envOptions = (mocks.vitehub.mock.calls.at(-1)?.[0] as {
+              env?: { projectRoot?: string }
+            } | undefined)?.env
+            return envOptions?.projectRoot ? resolve(root, envOptions.projectRoot) : resolveViteHubProjectRoot(root)
+          }),
+        },
+        config: mocks.envHook,
       },
     ])
   })
@@ -193,6 +210,7 @@ describe("ViteHub Nuxt integration", () => {
       { name: "vite-hub/deployment-output" },
     ]])
     mocks.outputHook.mockImplementationOnce((config: { nitro?: Record<string, unknown> }) => {
+      if (!(config as Record<string, unknown>).envReady) return
       const cloudflare = config.nitro?.cloudflare as Record<string, unknown> | undefined
       const wrangler = cloudflare?.wrangler as Record<string, unknown> | undefined
       config.nitro = {
@@ -220,6 +238,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
+      expect.objectContaining({ name: "@vite-hub/env/vite" }),
       existingQueuePlugin,
       existingOwnerPlugin,
       existingPlugin,
@@ -295,6 +314,7 @@ describe("ViteHub Nuxt integration", () => {
       },
     )
     expect(mocks.outputHook).toHaveBeenCalledOnce()
+    expect(mocks.envHook).toHaveBeenCalledOnce()
     expect(nitroConfig).toEqual({
       alias: {
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",

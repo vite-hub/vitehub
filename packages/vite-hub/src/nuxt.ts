@@ -189,7 +189,11 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   config.server ??= {}
   const transformWorkflowRegistry = plugins.map(agentWorkflowRegistryTransform).find(Boolean)
 
-  for (const plugin of plugins) {
+  const orderedPlugins = [...plugins].sort((left, right) => {
+    const order = (plugin: Plugin): number => plugin.enforce === "pre" ? -1 : plugin.enforce === "post" ? 1 : 0
+    return order(left) - order(right)
+  })
+  for (const plugin of orderedPlugins) {
     const handler = configHandler(plugin)
     if (handler) {
       const result = await handler.call({} as never, config, environment)
