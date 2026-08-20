@@ -1292,11 +1292,15 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onLanguageModelCallEnd: repairUsageCapture.onLanguageModelCallEnd,
         onStepEnd: repairUsageCapture.onStepEnd,
       }
+      const captureOriginalStep = async (event: unknown) => {
+        await usageCapture.onStepEnd(event)
+        fallbackCapture?.collect(event)
+      }
       const originalCallInput = {
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-        onStepEnd: usageCapture.onStepEnd,
+        onStepEnd: captureOriginalStep,
       }
       let generated: GenerateTextResult<ToolSet, never, never>
       let originalGenerated: GenerateTextResult<ToolSet, never, never> | undefined

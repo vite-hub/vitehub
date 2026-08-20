@@ -1792,6 +1792,9 @@ describe("agent message protocol", () => {
           const tools = this.settings.tools as Record<string, { execute: (input: unknown) => unknown }>
           if (tools) {
             await (input.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 7 } })
+            await (input.onStepEnd as ((event: unknown) => Promise<void>) | undefined)?.({
+              content: [{ output: { id: "provider-meal-1" }, type: "tool-result" }],
+            })
             await tools.db_exec!.execute({ sql: "INSERT" })
             return {
               finishReason: "stop",
@@ -1845,7 +1848,7 @@ describe("agent message protocol", () => {
     expect(repairGenerate).toHaveBeenCalledWith(expect.objectContaining({
       model: repairModel,
       providerOptions: { test: { route: "repair" } },
-      prompt: expect.stringMatching(/title: Expected a string[\s\S]*meal-1/),
+      prompt: expect.stringMatching(/title: Expected a string[\s\S]*provider-meal-1/),
     }))
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("tools")
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("toolChoice")
