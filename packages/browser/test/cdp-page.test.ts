@@ -242,6 +242,28 @@ describe("CDP page", () => {
     )
   })
 
+  it("serializes locator evaluation behind explicit navigation", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+
+    const navigation = page.goto("https://example.com/next")
+    const count = page.locator("main").count()
+    await vi.waitFor(() => expect(fake.send).toHaveBeenCalledWith(
+      "Page.navigate",
+      { url: "https://example.com/next" },
+      "page-session",
+    ))
+    expect(fake.send).not.toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining('"count" === "count"') }),
+      "page-session",
+    )
+
+    fake.emit("Page.lifecycleEvent", { loaderId: "document-loader", name: "load" })
+    await navigation
+    await expect(count).resolves.toBe(1)
+  })
+
   it("keeps later clicks usable when a queued click expires", async () => {
     vi.useFakeTimers()
     try {

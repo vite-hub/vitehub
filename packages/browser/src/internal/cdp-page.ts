@@ -20,6 +20,11 @@ interface LocatorSpec {
   selector: string
 }
 
+interface QueuedPageOperation<TResult> {
+  promise: Promise<TResult>
+  release(): void
+}
+
 const namedKeyMetadata: Record<string, { code: string, virtualKeyCode: number }> = {
   ArrowDown: { code: "ArrowDown", virtualKeyCode: 40 },
   ArrowLeft: { code: "ArrowLeft", virtualKeyCode: 37 },
@@ -133,6 +138,7 @@ class CDPBrowserLocator implements BrowserLocator {
     private readonly send: AttachedPage["send"],
     private readonly locator: LocatorSpec,
     private readonly clickLocator: (locator: LocatorSpec) => Promise<void>,
+    private readonly queuePageOperation: <TResult>(operation: () => Promise<TResult>) => QueuedPageOperation<TResult>,
     private readonly assertPageUsable: () => void,
     private readonly invalidatePage: (error: Error) => void,
   ) {}
@@ -145,14 +151,26 @@ class CDPBrowserLocator implements BrowserLocator {
   ): Promise<TResult> {
     this.assertPageUsable()
     const operationName = `${operation} Browser locator ${JSON.stringify(this.locator.selector)}`
-    const result = await withTimeout(this.send<{
-      exceptionDetails?: unknown
-      result?: { value?: TResult }
-    }>("Runtime.evaluate", {
-      awaitPromise: true,
-      expression: locatorExpression(operation, this.locator, value),
-      returnByValue: true,
-    }), timeoutMs, operationName, invalidateOnTimeout ? this.invalidatePage : undefined)
+    let expired = false
+    let started = false
+    const evaluation = this.queuePageOperation(async () => {
+      if (expired) throw browserProviderError("cdp", operationName)
+      this.assertPageUsable()
+      started = true
+      return await this.send<{
+        exceptionDetails?: unknown
+        result?: { value?: TResult }
+      }>("Runtime.evaluate", {
+        awaitPromise: true,
+        expression: locatorExpression(operation, this.locator, value),
+        returnByValue: true,
+      })
+    })
+    const result = await withTimeout(evaluation.promise, timeoutMs, operationName, (error) => {
+      expired = true
+      evaluation.release()
+      if (started && invalidateOnTimeout) this.invalidatePage(error)
+    })
     return evaluateResult(result, operationName)
   }
 
@@ -227,6 +245,16 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     pageFailure ??= error
   }
   let pageQueue = Promise.resolve()
+  const queuePageOperation = <TResult>(operation: () => Promise<TResult>) => {
+    let release = () => {}
+    const completed = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const result = pageQueue.then(operation)
+    result.then(release, release)
+    pageQueue = pageQueue.then(() => completed, () => completed)
+    return { promise: result, release }
+  }
   let clickFailure: unknown
   const runClick = async (locator: LocatorSpec) => {
     let pointerDown = false
@@ -345,12 +373,17 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       })
     },
     locator(selector: string, options: BrowserLocatorOptions = {}) {
-      return new CDPBrowserLocator(send, { selector, ...options }, clickLocator, assertPageUsable, invalidatePage)
+      return new CDPBrowserLocator(send, { selector, ...options }, clickLocator, queuePageOperation, assertPageUsable, invalidatePage)
     },
     async press(key) {
       assertPageUsable()
       const metadata = keyEventMetadata(key)
-      await withTimeout((async () => {
+      let expired = false
+      let started = false
+      const dispatch = queuePageOperation(async () => {
+        if (expired) throw browserProviderError("cdp", `press Browser key ${JSON.stringify(key)}`)
+        assertPageUsable()
+        started = true
         let keyDown = false
         try {
           await send("Input.dispatchKeyEvent", { key, ...metadata, text: key === "Enter" ? "\r" : [...key].length === 1 ? key : undefined, type: "keyDown" })
@@ -361,7 +394,12 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
           if (keyDown) invalidatePage(error instanceof Error ? error : browserProviderError("cdp", "release the Browser key"))
           throw error
         }
-      })(), DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`, invalidatePage)
+      })
+      await withTimeout(dispatch.promise, DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`, (error) => {
+        expired = true
+        dispatch.release()
+        if (started) invalidatePage(error)
+      })
     },
   }
 

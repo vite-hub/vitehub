@@ -18,6 +18,12 @@ afterEach(async () => {
 })
 
 describe("hubBrowser", () => {
+  it("rejects an explicitly empty Browser engine", () => {
+    expect(() => hubBrowser({ engine: "" as "chromium" })).toThrow(
+      'Browser engine must be "chromium" or "kitesurf"',
+    )
+  })
+
   it("composes the Cloudflare binding into Nitro config", () => {
     const config: Record<string, unknown> = {
       nitro: {

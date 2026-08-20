@@ -40,7 +40,7 @@ const mergeNoExternal = createNoExternalMerger("@vite-hub/browser")
 
 function resolveOptions(options: BrowserModuleOptions | false | undefined): Required<BrowserModuleOptions> {
   const binding = options && options.binding || "BROWSER"
-  const engine = options && options.engine || "kitesurf"
+  const engine = !options ? "kitesurf" : options.engine ?? "kitesurf"
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
     throw new TypeError("[vitehub:browser] Browser binding must be a valid Cloudflare binding name.")
   }
