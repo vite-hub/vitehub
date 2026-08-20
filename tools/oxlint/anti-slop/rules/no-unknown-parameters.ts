@@ -18,6 +18,12 @@ type TypeBinding = {
   bindings: ReadonlyMap<string, TypeBinding>;
 };
 
+function typeName(type: ESTree.TSTypeName): string {
+  return type.type === "Identifier"
+    ? type.name
+    : `${typeName(type.left)}.${type.right.name}`;
+}
+
 function parameterAnnotation(parameter: Parameter): ESTree.TSTypeAnnotation | null | undefined {
   if (parameter.type === "TSParameterProperty") {
     return parameterAnnotation(parameter.parameter);
@@ -75,8 +81,8 @@ export const noUnknownParametersRule = defineRule({
         return type.types.some((member) =>
           containsUnknown(member, from, shadowedAliases, bindings, visited),
         );
-      if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return false;
-      const name = type.typeName.name;
+      if (type.type !== "TSTypeReference") return false;
+      const name = typeName(type.typeName);
       const bound = bindings.get(name);
       if (bound !== undefined)
         return containsUnknown(bound.type, from, shadowedAliases, bound.bindings, visited);

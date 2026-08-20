@@ -83,6 +83,11 @@ export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment 
 			continue;
 		}
 
+		if (declaration?.type === "TSImportEqualsDeclaration") {
+			if (BUILT_INS.has(declaration.id.name)) shadowedBuiltIns.add(declaration.id.name);
+			continue;
+		}
+
 		if (
 			(declaration?.type === "ClassDeclaration" ||
 				declaration?.type === "FunctionDeclaration") &&
@@ -120,6 +125,12 @@ function declarationName(node: ESTree.Node): string | null {
 function isLexicallyShadowed(name: string, from: ESTree.Node): boolean {
 	let current: ESTree.Node | null = from;
 	while (current !== null && current.type !== "Program") {
+		if (
+			"typeParameters" in current &&
+			current.typeParameters !== null &&
+			current.typeParameters !== undefined &&
+			current.typeParameters.params.some((parameter) => parameter.name.name === name)
+		) return null;
 		if (current.type === "BlockStatement" || current.type === "TSModuleBlock") {
 			for (const statement of current.body) {
 				const declaration = declaredStatement(statement);
