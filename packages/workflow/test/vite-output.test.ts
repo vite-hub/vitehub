@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { hasVercelNativeWorkflowEntry } from "../src/internal/vite-build.ts"
+import { hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -24,6 +24,21 @@ it("detects user-authored native Vercel workflow entries", async () => {
   await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
+})
+
+it("preserves WDK optional externals while installing the Email definition", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-bootstrap-")
+  const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
+  const emailDefinitionFile = join(rootDir, "email-definition.mjs")
+  await mkdir(resolve(flowFile, ".."), { recursive: true })
+  await writeFile(flowFile, `import credentials from "@aws-sdk/credential-provider-web-identity"\nexport { credentials }\n`)
+  await writeFile(emailDefinitionFile, "export default { handler: async () => undefined }\n")
+
+  await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
+
+  const combinedFlow = await readFile(flowFile, "utf8")
+  expect(combinedFlow).toContain("@aws-sdk/credential-provider-web-identity")
+  expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
 })
 
 function resolvePlaygroundNodeModules() {

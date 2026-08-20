@@ -167,7 +167,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
   return hasNativeEntry
 }
 
-async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, emailDefinitionFile: string): Promise<void> {
+export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, emailDefinitionFile: string): Promise<void> {
   // WDK's Vercel builder emits step registrations and workflow orchestration in one combined flow function.
   const flowFile = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
   if (!existsSync(flowFile)) return
@@ -175,6 +175,7 @@ async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, ema
   const bootstrapEntry = resolve(generatedDir, "email-workflow-bootstrap.entry.mjs")
   const workflowBundle = resolve(generatedDir, "email-workflow-bootstrap.source.mjs")
   try {
+    await mkdir(generatedDir, { recursive: true })
     await writeFile(workflowBundle, await readFile(flowFile, "utf8"), "utf8")
     await writeFile(bootstrapEntry, [
       `import viteHubEmailDefinition from ${JSON.stringify(createImportPath(bootstrapEntry, emailDefinitionFile))}`,
@@ -183,6 +184,7 @@ async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, ema
       "",
     ].join("\n"), "utf8")
     await bundleEsmEntry(bootstrapEntry, flowFile, {
+      external: ["@aws-sdk/credential-provider-web-identity"],
       format: "esm",
       platform: "node",
       rootDir,
