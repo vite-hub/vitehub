@@ -307,6 +307,21 @@ function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
   return [...names]
 }
 
+function findEnvPlugin(options: unknown): EnvVitePlugin | undefined {
+  if (Array.isArray(options)) {
+    for (const option of options) {
+      const plugin = findEnvPlugin(option)
+      if (plugin) return plugin
+    }
+    return
+  }
+  if (!options || typeof options !== "object") return
+  const plugin = options as Partial<EnvVitePlugin>
+  return plugin.name === "@vite-hub/env/vite" && typeof plugin.api?.getServerEnvRegistry === "function"
+    ? plugin as EnvVitePlugin
+    : undefined
+}
+
 function matchesRollupExternal(value: unknown, source: string, args: unknown[]): boolean {
   if (typeof value === "string") return value === source
   if (value instanceof RegExp) {
@@ -512,6 +527,7 @@ function deploymentPlugins(
         },
       },
       config(config) {
+        deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
         if (plan.preset !== "cloudflare" || !deploymentEnvPlugin.current) return
         registerCloudflareProviderOutput(config, "env", {
           requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.getServerEnvRegistry()),
