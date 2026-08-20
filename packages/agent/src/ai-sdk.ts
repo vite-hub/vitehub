@@ -1312,8 +1312,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         if (raw && typeof raw === "object" && fallbackUsageCapture.captured) {
           const calls = [
             { capture: usageCapture, result: originalGenerated ?? original },
-            ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: repairResult }] : []),
             { capture: fallbackUsageCapture, result: synthesized.result },
+            ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: repairResult }] : []),
           ]
           usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
           Object.defineProperty(raw, "usageRecord", {
@@ -1396,11 +1396,6 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         })
       }
       const text = result.text.trim()
-      if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
-        const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults, fallbackUsageCapture)
-          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
-        if (synthesized) return await validatedSynthesizedOutput(synthesized, result)
-      }
       if (text) return result as unknown as AgentAdapterResult
 
       return result as unknown as AgentAdapterResult

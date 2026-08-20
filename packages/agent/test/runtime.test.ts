@@ -1972,7 +1972,7 @@ describe("agent message protocol", () => {
 
         async generate(input: Record<string, unknown>) {
           const tools = this.settings.tools as Record<string, { execute: (input: unknown) => unknown }> | undefined
-          if (!tools) return await repairGenerate()
+          if (!tools) return await repairGenerate(input)
           await (input.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({
             modelId: "original-route",
             providerMetadata: { test: { usage: { cost: 0.4 } } },
@@ -2040,6 +2040,31 @@ describe("agent message protocol", () => {
       title: "Skyr",
     })
     expect(repairGenerate).toHaveBeenCalledOnce()
+  })
+
+  it("attempts an unsuccessful Workspace fallback only once", async () => {
+    const fallbackGenerate = vi.fn(async () => ({ text: "" }))
+    loadAiSdk.mockResolvedValue({
+      generateText: fallbackGenerate,
+      isStepCount: vi.fn(count => ({ count })),
+      ToolLoopAgent: class {
+        async generate() {
+          return {
+            finishReason: "tool-calls",
+            steps: [{ content: [{ output: { id: "meal-1" }, type: "tool-result" }] }],
+            text: "",
+          }
+        }
+      },
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never }, runtime: false })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({
+      finishReason: "tool-calls",
+      text: undefined,
+    })
+    expect(fallbackGenerate).toHaveBeenCalledOnce()
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
