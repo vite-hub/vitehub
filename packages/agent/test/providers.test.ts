@@ -10308,13 +10308,13 @@ describe("server helpers", () => {
     }
   })
 
-  it("activates Cloudflare Workflow delivery for durable discovered Agents", async () => {
+  it("activates Cloudflare Workflow delivery for steered manual discovered Agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
-    const { resetWorkflowRuntime } = await import("@vite-hub/workflow/runtime/state")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-workflow-state-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
@@ -10329,12 +10329,13 @@ describe("server helpers", () => {
       channels: {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
-          messages: { delivery: "manual", durable: true, state, timeout: 20 },
+          messages: { concurrency: "steer", delivery: "manual", state, timeout: 20 },
         }),
       },
       driver: { run },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
 
     try {
       await state.connect()
