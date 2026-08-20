@@ -179,7 +179,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const invalidatePage = (error: Error) => {
     pageFailure ??= error
   }
-  let clickQueue = Promise.resolve()
+  let pageQueue = Promise.resolve()
   let clickFailure: unknown
   const runClick = async (locator: LocatorSpec) => {
     let navigationRequested = false
@@ -221,14 +221,14 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     if (clickFailure) return Promise.reject(clickFailure)
     let expired = false
     let started = false
-    const barrier = clickQueue.then(async () => {
+    const barrier = pageQueue.then(async () => {
       if (expired) return
       assertPageUsable()
       if (clickFailure) throw clickFailure
       started = true
       await runClick(locator)
     })
-    clickQueue = barrier.catch(() => {})
+    pageQueue = barrier.catch(() => {})
     return withTimeout(
       barrier,
       DEFAULT_TIMEOUT_MS,
@@ -241,15 +241,13 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     )
   }
 
-  let navigationQueue = Promise.resolve()
-
   const page: BrowserPage = {
     async goto(url, options = {}) {
       assertPageUsable()
       const operation = `navigate to ${JSON.stringify(url)}`
       let expired = false
       let started = false
-      const barrier = navigationQueue.then(async () => {
+      const barrier = pageQueue.then(async () => {
         if (expired) return
         assertPageUsable()
         started = true
@@ -277,7 +275,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
           stopLoad()
         }
       })
-      navigationQueue = barrier.catch(() => {})
+      pageQueue = barrier.catch(() => {})
       await withTimeout(barrier, options.timeoutMs ?? DEFAULT_TIMEOUT_MS, operation, (error) => {
         expired = true
         if (started) invalidatePage(error)

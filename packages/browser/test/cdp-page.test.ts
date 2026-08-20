@@ -160,6 +160,35 @@ describe("CDP page", () => {
     await second
   })
 
+  it("serializes locator clicks behind explicit navigation", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+
+    const navigation = page.goto("https://example.com/first")
+    await vi.waitFor(() => expect(fake.send).toHaveBeenCalledWith(
+      "Page.navigate",
+      { url: "https://example.com/first" },
+      "page-session",
+    ))
+    const click = page.locator("a.next").click()
+    await Promise.resolve()
+    expect(fake.send).not.toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining('"click" === "click"') }),
+      "page-session",
+    )
+
+    fake.emit("Page.lifecycleEvent", { loaderId: "document-loader", name: "load" })
+    await navigation
+    await click
+
+    expect(fake.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining('"click" === "click"') }),
+      "page-session",
+    )
+  })
+
   it("waits for navigation requested by a locator click to stop", async () => {
     const fake = fakeClient()
     fake.send.mockImplementation(async (method: string) => {

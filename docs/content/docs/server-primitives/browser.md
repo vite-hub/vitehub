@@ -78,6 +78,12 @@ The generated Browser registry infers each definition's input and result types. 
 | `defineBrowser(handler)` | Defines one discovered browser operation. |
 | `browser.content(input)` | Returns fully rendered HTML as text. |
 | `browser.run(action, input)` | Runs a browser action and returns its standard Web `Response`. |
+| `browser.open(options?)` | Opens an invocation-owned page session. The definition runtime closes it automatically. |
+| `session.page.goto(url, options?)` | Navigates the session page and waits for the destination document to load. |
+| `session.page.locator(selector, options?)` | Creates a locator with `click()`, `count()`, `fill()`, `inputValue()`, and `waitFor()`. |
+| `session.page.press(key)` | Dispatches a keyboard key to the page. |
+| `session.inspect()` | Returns the provider-neutral session identifier, state, features, and expiry. |
+| `session.close()` | Releases the controller and provider session; concurrent calls share cleanup. |
 | `runBrowser(name, input)` | Runs a discovered definition and returns `[error, result]` with inferred types. |
 
 ## Configuration
@@ -134,6 +140,23 @@ export default defineBrowser(async (input: { url: string }, { browser }) => {
 ```
 
 Use `browser.run(action, input)` for other actions. The current ViteHub action backend is Cloudflare Browser Run; the public Definition contract does not expose the provider method.
+
+## Definition-owned page sessions
+
+Use `browser.open()` when one Browser Definition needs mutable page state or several interactions. The returned provider-neutral session belongs to the invocation and is closed automatically after the handler exits; explicit `session.close()` is available when earlier cleanup is useful.
+
+```ts [server/browsers/page-title.ts]
+import { defineBrowser } from 'vite-hub/browser'
+
+export default defineBrowser(async (input: { url: string }, { browser }) => {
+  const session = await browser.open()
+  await session.page.goto(input.url)
+  await session.page.locator('main').waitFor()
+  return await session.page.locator('h1').count()
+})
+```
+
+Page navigation and pointer clicks are serialized because either operation can replace the active document. Timeouts that leave page state ambiguous invalidate the page instead of allowing later operations to reuse uncertain state.
 
 ## Low-level sessions
 
