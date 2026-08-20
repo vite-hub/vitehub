@@ -149,7 +149,7 @@ describe("CDP page", () => {
     expect(evaluations).toBe(2)
   })
 
-  it("keeps a timed-out click behind the navigation barrier", async () => {
+  it("invalidates later clicks after a navigation timeout", async () => {
     vi.useFakeTimers()
     try {
       const fake = fakeClient()
@@ -173,14 +173,10 @@ describe("CDP page", () => {
       expect(evaluations).toBe(1)
       await vi.advanceTimersByTimeAsync(30_000)
       await firstResult
-      const second = page.locator("a:last-child").click()
+      await expect(page.locator("a:last-child").click()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
       await vi.advanceTimersByTimeAsync(0)
       expect(evaluations).toBe(1)
-      fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
-      await vi.advanceTimersByTimeAsync(0)
-      expect(evaluations).toBe(2)
-      fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
-      await expect(second).resolves.toBeUndefined()
     }
     finally {
       vi.useRealTimers()
@@ -204,6 +200,40 @@ describe("CDP page", () => {
       const clickResult = expect(click).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
       await vi.advanceTimersByTimeAsync(30_000)
       await clickResult
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not advance the click queue after a timed-out evaluation resolves late", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      let evaluations = 0
+      let resolveEvaluation!: (value: { result: { value: boolean } }) => void
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Runtime.evaluate") {
+          evaluations++
+          return await new Promise<{ result: { value: boolean } }>((resolve) => {
+            resolveEvaluation = resolve
+          })
+        }
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+
+      const first = page.locator("a:first-child").click()
+      const firstResult = expect(first).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await firstResult
+      await expect(page.locator("a:last-child").click()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      resolveEvaluation({ result: { value: true } })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(evaluations).toBe(1)
     }
     finally {
       vi.useRealTimers()

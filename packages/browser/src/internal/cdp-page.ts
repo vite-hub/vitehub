@@ -66,13 +66,22 @@ function evaluateResult<TResult>(result: { exceptionDetails?: unknown, result?: 
   return result.result?.value as TResult
 }
 
-async function withTimeout<TResult>(promise: Promise<TResult>, timeoutMs: number, operation: string): Promise<TResult> {
+async function withTimeout<TResult>(
+  promise: Promise<TResult>,
+  timeoutMs: number,
+  operation: string,
+  onTimeout?: (error: Error) => void,
+): Promise<TResult> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(browserProviderError("cdp", operation)), timeoutMs)
+        timer = setTimeout(() => {
+          const error = browserProviderError("cdp", operation)
+          onTimeout?.(error)
+          reject(error)
+        }, timeoutMs)
       }),
     ])
   }
@@ -149,7 +158,8 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const mainFrameId = frameTree.frameTree?.frame?.id
 
   let clickQueue = Promise.resolve()
-  const runClick = async (locator: LocatorSpec, timeoutMs: number) => {
+  let clickFailure: unknown
+  const runClick = async (locator: LocatorSpec) => {
     let navigationRequested = false
     let navigationStopped = false
     let resolveStopped = () => {}
@@ -167,15 +177,11 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       resolveStopped()
     })
     try {
-      const result = await withTimeout(
-        send<{ exceptionDetails?: unknown, result?: { value?: boolean } }>("Runtime.evaluate", {
-          awaitPromise: true,
-          expression: locatorExpression("click", locator),
-          returnByValue: true,
-        }),
-        timeoutMs,
-        `click Browser locator ${JSON.stringify(locator.selector)}`,
-      )
+      const result = await send<{ exceptionDetails?: unknown, result?: { value?: boolean } }>("Runtime.evaluate", {
+        awaitPromise: true,
+        expression: locatorExpression("click", locator),
+        returnByValue: true,
+      })
       evaluateResult(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
       await new Promise(resolve => setTimeout(resolve, 0))
       if (navigationRequested && !navigationStopped) await stopped
@@ -186,21 +192,22 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     }
   }
   const clickLocator = (locator: LocatorSpec) => {
-    const deadline = Date.now() + DEFAULT_TIMEOUT_MS
+    if (clickFailure) return Promise.reject(clickFailure)
     let expired = false
     const barrier = clickQueue.then(async () => {
       if (expired) return
-      await runClick(locator, Math.max(0, deadline - Date.now()))
+      await runClick(locator)
     })
     clickQueue = barrier.catch(() => {})
     return withTimeout(
       barrier,
       DEFAULT_TIMEOUT_MS,
       `click Browser locator ${JSON.stringify(locator.selector)}`,
-    ).catch((error) => {
-      expired = true
-      throw error
-    })
+      (error) => {
+        expired = true
+        clickFailure ??= error
+      },
+    )
   }
 
   const page: BrowserPage = {
