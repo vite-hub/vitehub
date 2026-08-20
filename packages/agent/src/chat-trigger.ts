@@ -1,10 +1,13 @@
 import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
+import { toAgentPublicError } from "./agent-error.ts"
+import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
 
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
+  AgentChatErrorHookArgs,
   AgentChatCapabilityOptions,
   AgentChatFinishExtension,
   AgentChatOptions,
@@ -69,8 +72,57 @@ const CHAT_WEBHOOK_DEFAULTS = {
 } satisfies Record<string, Partial<AgentWebhookRegistrationDefinition> & { provider?: string }>
 
 export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
+const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
+
+export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig> | undefined,
+  args: AgentChatErrorHookArgs<TRuntimeConfig>,
+  callbackDelivered?: () => boolean,
+): Promise<string | undefined> {
+  const fallback = options?.errorFallbackText
+  if (fallback === null) return
+  if (typeof fallback === "function") {
+    try {
+      return await fallback(args) || undefined
+    }
+    catch {
+      return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
+    }
+  }
+  if (args.publicError.code !== "INTERNAL") return args.publicError.error
+  return typeof fallback === "string" ? fallback : defaultChatErrorFallbackText
+}
+
+function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig>,
+) {
+  const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
+    if (context.error === undefined || !context.run?.origin?.startsWith("workflow:")) return
+    const replies: ReturnType<typeof createReplyDeliveryEffectIntent>[] = []
+    const chat = getAgentChatContext(context.context)
+    const fallback = await resolveChatErrorFallbackText(options, {
+      error: context.error,
+      history: context.input.messages || [],
+      message: chat?.message || { text: "" },
+      publicError: toAgentPublicError(context.error, "http"),
+      run: context.run,
+      thread: {
+        post: async (message) => {
+          replies.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" }))
+        },
+      },
+      toolResults: context.event.toolResults,
+    }, () => replies.length > 0)
+    if (replies.length) return replies
+    if (fallback) replies.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
+    return replies
+  })
+  effect.active = context => context.error !== undefined && Boolean(context.run?.origin?.startsWith("workflow:"))
+  effect.kind = "reply"
+  return effect
+}
 
 export interface AgentChatRunContext<
   TMessageMetadata extends object = Record<string, unknown>,
@@ -257,6 +309,7 @@ export function defineChatCapability<
     },
     output(context) {
       context.finish.provide(() => context.context.get<AgentChatFinishExtension>(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
+      context.delivery.finishEffect(durableChatErrorFallback(options) as never)
     },
     triggers: {
       message: createChatMessageTrigger(options),

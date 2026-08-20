@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
-import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority, ViteHubError } from "@vite-hub/runtime"
 import { chat, mcp, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
@@ -11947,6 +11947,102 @@ describe("agent message protocol", () => {
         result: false,
         status: "completed",
       })
+    })
+
+    it("delivers durable failure fallbacks with completed write tool results", async () => {
+      const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const failure = Object.assign(new Error("provider unavailable"), {
+        name: "AI_APICallError",
+        statusCode: 503,
+      })
+      const fallback = vi.fn(({ toolResults }) => {
+        expect(toolResults).toEqual([expect.objectContaining({
+          input: { calories: 240 },
+          output: { id: "meal-1" },
+          toolName: "save_meal",
+        })])
+        return "The meal was saved, but I could not finish the reply."
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "meals",
+          mode: "write",
+          tools: {
+            save_meal: {
+              execute: () => ({ id: "meal-1" }),
+              name: "save_meal",
+            },
+          },
+        })],
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: {
+          run: async ({ tools }) => {
+            await tools!.save_meal!.execute!({ calories: 240 })
+            throw failure
+          },
+        },
+        messages: { errorFallbackText: fallback },
+      })
+
+      expect(agent.capabilities?.map(capability => capability.id)).toContain("chat")
+
+      await expect(runAgentWorkflowDefinition(agent, {
+        id: "run-after-write",
+        name: "calories",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "I ate skyr" } } },
+            prompt: "I ate skyr",
+          },
+          run: { channelId: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBe(failure)
+
+      expect(fallback).toHaveBeenCalledOnce()
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", {
+        markdown: "The meal was saved, but I could not finish the reply.",
+      })
+    })
+
+    it.each([
+      Object.assign(new Error("invalid provider request"), { name: "AI_APICallError", statusCode: 400 }),
+      new ViteHubError("AGENT_OUTPUT_SCHEMA_INVALID", "output failed schema validation"),
+    ])("marks permanent Agent Workflow failures as non-retryable", async (failure) => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "terminal-agent-failure",
+        name: "agent",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("leaves transient provider failures retryable at safe inner seams", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const failure = Object.assign(new Error("provider unavailable"), {
+        name: "AI_APICallError",
+        statusCode: 503,
+      })
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "transient-agent-failure",
+        name: "agent",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => { throw failure })).rejects.toBe(failure)
+      expect(failure).not.toHaveProperty("isRetryable")
     })
 
     it("normalizes noncloneable Agent results before Workflow completion", async () => {

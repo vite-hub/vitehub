@@ -8,7 +8,7 @@ import { awaitAgentInvocationResult } from "../agent-invocation.ts"
 import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
-import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
+import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
 import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatSessionBaseId, resolveChatSessionId, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
@@ -200,7 +200,6 @@ type AgentDefinitionWithCapabilities = {
   chat?: AgentChatOptions
 }
 
-const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
 const chatNativeStreamUpdateIntervalMs = 1
 const chatTypingRefreshIntervalMs = 4000
@@ -3051,29 +3050,6 @@ async function deliverToManualDeliveryPlaceholder(
   return false
 }
 
-async function resolveChatErrorFallbackText(
-  options: AgentChatOptions | undefined,
-  args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
-  resolutionTimeout?: number,
-  resolutionAbort?: AbortController,
-  callbackDelivered?: () => boolean,
-): Promise<string | undefined> {
-  const fallback = options?.errorFallbackText
-  if (fallback === null) return undefined
-  if (typeof fallback === "function") {
-    try {
-      const resolved = await enforceChatInvocationTimeout(Promise.resolve(fallback(args)), resolutionTimeout, resolutionAbort)
-      return resolved || undefined
-    }
-    catch {
-      return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
-    }
-  }
-  const publicError = toAgentPublicError(args.error, "http")
-  if (publicError.code !== "INTERNAL") return publicError.error
-  return typeof fallback === "string" ? fallback : defaultChatErrorFallbackText
-}
-
 interface ManualChatDeliveryState {
   errorFallback?: string
   placeholder?: unknown
@@ -3112,16 +3088,14 @@ async function postChatErrorFallback(
     resolveCallbackDelivery = resolve
   })
   const fallbackResolutionAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
-  const fallbackResolution = resolveChatErrorFallbackText(
+  const fallbackResolution = enforceChatInvocationTimeout(resolveChatErrorFallbackText(
     options,
     chatErrorHookArgs(thread, message, input, run, error, toolResults, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
       resolveCallbackDelivery?.()
     }),
-    fallbackResolutionTimeout,
-    fallbackResolutionAbort,
     () => callbackDelivered,
-  )
+  ), fallbackResolutionTimeout, fallbackResolutionAbort)
   const fallback = typeof options?.errorFallbackText === "function"
     ? await Promise.race([fallbackResolution, callbackDelivery.then(() => undefined)])
     : await fallbackResolution

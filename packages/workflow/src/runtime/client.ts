@@ -103,7 +103,10 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     if (typeof handler !== "function") {
       throw new TypeError("`createWorkflow()` requires a workflow handler.")
     }
-    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
+    registerInlineWorkflowDefinition(name, {
+      handler: handler as WorkflowHandler,
+      ...(createOptions.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
+    })
     return {
       cancel: (id: string) => cancelWorkflow<TPayload, TResult>(name, id),
       name,
@@ -137,7 +140,10 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     if (typeof handler !== "function") {
       throw new TypeError("`createWorkflow()` requires a workflow handler.")
     }
-    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
+    registerInlineWorkflowDefinition(name, {
+      handler: handler as WorkflowHandler,
+      ...(createOptions?.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
+    })
   }
   else if (handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
     throw new TypeError("`createWorkflow()` options must be an object.")

@@ -574,6 +574,7 @@ export interface AgentFinishEvent<
   result?: TOutput
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher }
   text?: string
+  toolResults: AgentToolStepItem[]
 }
 
 export type AgentFinishHookEvent<
