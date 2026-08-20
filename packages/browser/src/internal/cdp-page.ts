@@ -40,14 +40,14 @@ function locatorExpression(
     if (${JSON.stringify(operation)} === "click") {
       if (!(element instanceof Element)) throw new Error("Browser locator did not match an element");
       element.scrollIntoView({ block: "center", inline: "center" });
-      const rect = element.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) throw new Error("Browser locator matched a non-actionable element");
-      const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-      const hit = document.elementFromPoint(point.x, point.y);
-      if (!hit || (hit !== element && !element.contains(hit))) {
-        throw new Error("Browser locator target is covered by another element");
+      const rects = [...element.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0);
+      for (const rect of rects) {
+        const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit && (hit === element || element.contains(hit))) return point;
       }
-      return point;
+      if (rects.length === 0) throw new Error("Browser locator matched a non-actionable element");
+      throw new Error("Browser locator target is covered by another element");
     }
     if (!(element instanceof HTMLElement)) throw new Error("Browser locator did not match an HTML element");
     if (${JSON.stringify(operation)} === "inputValue") {
