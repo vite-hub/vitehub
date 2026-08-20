@@ -64,6 +64,16 @@ function addDecimalParts(items: Array<{ scale: bigint, units: bigint }>): string
   return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
+export function aggregateAgentUsageCosts(costs: AgentUsageCost[]): AgentUsageCost | undefined {
+  if (!costs.length) return
+  const source = costs.every(cost => cost.source === costs[0]!.source) ? costs[0]!.source : "custom"
+  return materializeAgentUsageCost({
+    estimated: costs.some(cost => cost.estimated),
+    source,
+    usd: addDecimalParts(costs.map(cost => decimalToParts(cost.usd))),
+  })
+}
+
 function multiplyDecimal(value: string | undefined, count: number | undefined): { scale: bigint, units: bigint } | undefined {
   if (value === undefined || count === undefined || count <= 0) return
   const parts = decimalToParts(value)

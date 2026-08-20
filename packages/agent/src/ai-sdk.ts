@@ -14,6 +14,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
+import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import {
@@ -942,8 +943,11 @@ async function combinedUsageRecord(
     const value = records[0]![key]
     return records.every(record => JSON.stringify(record[key]) === JSON.stringify(value)) ? value : undefined
   }
+  const costs = records.flatMap(record => record.cost ? [record.cost] : [])
+  const cost = costs.length === records.length ? aggregateAgentUsageCosts(costs) : undefined
   return {
     calls: records,
+    ...(cost ? { cost } : {}),
     ...(shared("credentialSource") ? { credentialSource: shared("credentialSource") } : {}),
     ...(shared("model") ? { model: shared("model") } : {}),
     ...(shared("transport") ? { transport: shared("transport") } : {}),

@@ -1846,10 +1846,10 @@ describe("agent message protocol", () => {
         { cost: { estimated: false, usd: "0.4" }, model: "original-route", usage: { totalTokens: 7 } },
         { cost: { estimated: false, usd: "0.2" }, model: "repair-route", usage: { totalTokens: 3 } },
       ],
+      cost: { estimated: false, source: "provider", usd: "0.6" },
       usage: { totalTokens: 10 },
     })
     expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("model")
-    expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("cost")
   })
 
   it("keeps the ViteHub output error when the single repair remains invalid", async () => {
