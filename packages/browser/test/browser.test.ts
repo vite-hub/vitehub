@@ -254,6 +254,29 @@ describe("Browser Sessions", () => {
     expect(session.inspect().state).toBe("closed")
   })
 
+  it("bounds stalled release of a late attachment", async () => {
+    vi.useFakeTimers()
+    try {
+      const { connection, controller, provider } = fixture()
+      let resolveAttachment!: (value: { client: TestConnection, release: () => Promise<void> }) => void
+      controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => Promise<void> }>(resolve => {
+        resolveAttachment = resolve
+      }))
+      const session = await createBrowser({ provider }).open()
+
+      const attachment = session.attach(controller)
+      const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await session.close()
+      resolveAttachment({ client: connection, release: async () => await new Promise<void>(() => {}) })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("rejects handoff while controller attachment is pending", async () => {
     const { connection, controller, provider, release } = fixture()
     let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void

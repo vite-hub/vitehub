@@ -160,8 +160,14 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const targets = await setup(client.send<{
     targetInfos?: Array<{ targetId?: string, type?: string }>
   }>("Target.getTargets"), "find the browser page target")
-  const targetId = targets.targetInfos?.find(target => target.type === "page")?.targetId
-  if (!targetId) throw browserProviderError("cdp", "find the browser page target")
+  let targetId = targets.targetInfos?.find(target => target.type === "page")?.targetId
+  if (!targetId) {
+    const created = await setup(client.send<{ targetId?: string }>("Target.createTarget", {
+      url: "about:blank",
+    }), "create the browser page target")
+    targetId = created.targetId
+  }
+  if (!targetId) throw browserProviderError("cdp", "create the browser page target")
 
   const attached = await setup(client.send<{ sessionId?: string }>("Target.attachToTarget", {
     flatten: true,

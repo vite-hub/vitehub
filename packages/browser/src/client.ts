@@ -17,9 +17,29 @@ import type { Lease, TraceEvent } from "@vite-hub/runtime"
 
 import {
   browserLiveHandoffUnsupportedError,
+  browserProviderError,
   browserSessionRefError,
   browserSessionStateError,
 } from "./errors.ts"
+
+const CONTROLLER_RELEASE_TIMEOUT_MS = 30_000
+
+async function releaseLateController(release: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      release,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(browserProviderError("browser", "release a late browser controller"))
+        }, CONTROLLER_RELEASE_TIMEOUT_MS)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 export type {
   BrowserClaimOptions,
   BrowserClient,
@@ -182,8 +202,9 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       })
       this.attaching = false
       if (this.closing || this.state !== "released") {
-        await attached.release()
+        const lateControl = attached
         attached = undefined
+        await releaseLateController(Promise.resolve(lateControl.release()))
         throw browserSessionStateError("attach a controller to", this.state)
       }
       this.state = "controlled"

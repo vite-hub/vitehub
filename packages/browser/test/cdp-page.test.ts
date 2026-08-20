@@ -37,6 +37,25 @@ function fakeClient() {
 }
 
 describe("CDP page", () => {
+  it("creates a page target when the browser opens empty", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [] }
+      if (method === "Target.createTarget") return { targetId: "created-page" }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      return {}
+    })
+
+    await attachCDPPage(fake.client)
+
+    expect(fake.send).toHaveBeenCalledWith("Target.createTarget", { url: "about:blank" })
+    expect(fake.send).toHaveBeenCalledWith(
+      "Target.attachToTarget",
+      { flatten: true, targetId: "created-page" },
+    )
+  })
+
   it("bounds page setup", async () => {
     vi.useFakeTimers()
     try {
