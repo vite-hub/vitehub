@@ -12032,7 +12032,12 @@ describe("agent message protocol", () => {
           }),
         },
         driver: { run: async () => ({ text: "unreachable" }) },
-        messages: { errorFallbackText: "Please try again." },
+        messages: {
+          errorFallbackText: async ({ thread }) => {
+            await thread.post("Please try again.")
+            return "Do not duplicate the posted fallback."
+          },
+        },
       })
 
       await expect(runAgentWorkflowDefinition(agent, {
@@ -12049,6 +12054,7 @@ describe("agent message protocol", () => {
       }, runAgentInline)).rejects.toBe(failure)
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
+      expect(postMessage).toHaveBeenCalledOnce()
     })
 
     it.each([
@@ -12059,6 +12065,19 @@ describe("agent message protocol", () => {
 
       await expect(runAgentWorkflowDefinition({} as never, {
         id: "terminal-agent-failure",
+        name: "agent",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("preserves permanent failure classification through finish failures", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const providerFailure = Object.assign(new Error("invalid provider request"), { name: "AI_APICallError", statusCode: 400 })
+      const failure = new AggregateError([providerFailure, new Error("fallback delivery failed")])
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "terminal-aggregate-failure",
         name: "agent",
         payload: {},
         provider: "cloudflare",

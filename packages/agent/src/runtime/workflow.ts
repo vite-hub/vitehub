@@ -103,6 +103,8 @@ function unsupportedWorkflowResult(): never {
 
 function nonRetryableAgentWorkflowError(error: unknown): unknown {
   if (readAgentErrorProperty(error, "isRetryable") === false) return error
+  const nestedNonRetryable = error instanceof AggregateError
+    && error.errors.some(candidate => readAgentErrorProperty(nonRetryableAgentWorkflowError(candidate), "isRetryable") === false)
   const code = getViteHubErrorShape(error)?.code
   const publicError = toAgentPublicError(error, "invocation")
   const terminalProvider = publicError.code === "PROVIDER_AUTHENTICATION_FAILED"
@@ -121,7 +123,7 @@ function nonRetryableAgentWorkflowError(error: unknown): unknown {
   const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON"
     || code === "AGENT_OUTPUT_SCHEMA_INVALID"
     || name === "AI_NoObjectGeneratedError"
-  if (!terminalProvider && !permanentProviderRequest && !exhaustedOutput) return error
+  if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedOutput) return error
 
   const value = error instanceof Error ? error : new Error(String(error), { cause: error })
   try {

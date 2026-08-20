@@ -3283,7 +3283,7 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
     },
     toolResults: [],
   }, () => intents.length > 0)
-  if (fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
+  if (!intents.length && fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
   if (!intents.length) return
   const invoker = createFallbackAgentInvoker(context.run)
   await applyChannelDeliveryEffectIntents({
