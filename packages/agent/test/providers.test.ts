@@ -10385,6 +10385,36 @@ describe("server helpers", () => {
     }
   })
 
+  it("bounds stalled automatic progress cleanup before final output", async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockImplementation(() => new Promise(() => undefined))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run: () => "Final answer" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_004_7), "telegram")
+      await vi.waitFor(() => expect(adapter.deleteMessage).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await expect(response).resolves.toMatchObject({ status: 200 })
+      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", { markdown: "Final answer" })
+    }
+    finally {
+      warn.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("preserves automatic finish replies when progress cleanup fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

@@ -3039,6 +3039,28 @@ async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<vo
   }
 }
 
+async function deleteManualDeliveryPlaceholderWithin(
+  placeholder: unknown,
+  timeoutMs = 1_000,
+  onTimeout?: () => void,
+): Promise<void> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      deleteManualDeliveryPlaceholder(placeholder),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          onTimeout?.()
+          reject(new Error("Disposable chat progress cleanup timed out."))
+        }, timeoutMs)
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 async function postDisposableChatMessage(thread: Thread, message: string): Promise<unknown> {
   const adapter = thread.adapter
   const sent = await adapter.postMessage(thread.id, message)
@@ -3579,7 +3601,9 @@ async function handleChatSdkMessage(
           invocationDeadlineAbort?.signal.throwIfAborted()
           const completedPlaceholder = !manualDelivery && manualDeliveryState.placeholder
           if (completedPlaceholder) {
-            const placeholderCleanup = deleteManualDeliveryPlaceholder(completedPlaceholder)
+            const placeholderCleanup = deleteManualDeliveryPlaceholderWithin(completedPlaceholder, 1_000, () => {
+              if (progressReference) progressReference.reusable = false
+            })
             manualDeliveryState.placeholderCleanup = placeholderCleanup
             try {
               await placeholderCleanup
