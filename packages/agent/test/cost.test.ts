@@ -1796,4 +1796,40 @@ describe("cost Capability", () => {
       display: "$0.01",
     })
   })
+
+  it("prices compound calls independently before aggregating their cost", async () => {
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const pricing = vi.fn(async ({ model }: { model?: string }) => ({
+      estimated: true,
+      source: "test",
+      usd: model === "original" ? "0.4" : "0.2",
+    }))
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [cost({ pricing })],
+      driver: { run: () => ({
+          text: "ok",
+          usageRecord: {
+            calls: [
+              { model: "original", usage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 } },
+              { model: "repair", usage: { inputTokens: 3, outputTokens: 1, totalTokens: 4 } },
+            ],
+            usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+          },
+        }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+
+    expect(pricing).toHaveBeenCalledTimes(2)
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      calls: [
+        { cost: { usd: "0.4" }, model: "original" },
+        { cost: { usd: "0.2" }, model: "repair" },
+      ],
+      cost: { display: "~$0.6", estimated: true, source: "test", usd: "0.6" },
+    })
+  })
 })

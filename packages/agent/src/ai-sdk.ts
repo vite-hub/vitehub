@@ -11,8 +11,10 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentOutputInstructions, agentOutputJsonSchema, normalizeNativeAgentOutputError } from "./internal/agent-structured-output.ts"
+import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
+import { resolveAgentUsageRecord } from "./agent-output.ts"
+import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import {
@@ -55,6 +57,7 @@ import type {
   AgentModelInstrumentationContext,
   AgentRuntimeConfig,
   AgentToolSet,
+  AgentUsageRecord,
   AgentToolResolverWithWorkspace,
   MaybePromise,
 } from "./types.ts"
@@ -497,15 +500,17 @@ async function synthesizeWorkspaceFallback(
   context: AgentAdapterRunContext,
   result: { steps?: Array<{ content?: Array<{ type: string, output?: unknown }> }> },
   maxToolResults: number,
+  usageCapture?: ReturnType<typeof createUsageCapture>,
 ) {
   const evidence = collectToolResults(result, maxToolResults)
-  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence, usageCapture)
 }
 
 async function synthesizeWorkspaceFallbackFromEvidence(
   model: ToolLoopAgentSettings["model"],
   context: AgentAdapterRunContext,
   evidence: string[],
+  usageCapture?: ReturnType<typeof createUsageCapture>,
 ) {
   if (evidence.length === 0) return undefined
 
@@ -514,16 +519,25 @@ async function synthesizeWorkspaceFallbackFromEvidence(
     instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
+      agentOutputInstructions(context.output),
       resolveMessageChannelInstructions(context.context, context),
     ].filter(Boolean).join("\n"),
     model,
+    ...(usageCapture
+      ? {
+          onEnd: usageCapture.onEnd,
+          onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+          onStepEnd: usageCapture.onStepEnd,
+        }
+      : {}),
     prompt: [
       `User message:\n${getPromptText(context)}`,
       `Workspace tool results:\n${evidence.join("\n\n---\n\n")}`,
     ].join("\n\n"),
   })
 
-  return summary.text.trim() || undefined
+  const text = summary.text.trim()
+  return text ? { result: summary, text } : undefined
 }
 
 function createWorkspaceFallbackEvidenceCapture(maxToolResults: number) {
@@ -700,7 +714,7 @@ function withWorkspaceFallbackFullStream(
 
     const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence)
     if (synthesized) {
-      yield* workspaceFallbackTextEvents(synthesized)
+      yield* workspaceFallbackTextEvents(synthesized.text)
       yield workspaceFallbackFinishEvent(finishEvent)
       return
     }
@@ -842,12 +856,14 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
 function createUsageCapture() {
   let captured = false
   let capturedUsage: unknown
+  let metadataSource: unknown
 
   const capture = (event: unknown) => {
     const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
     const usage = record?.usage ?? record?.totalUsage
     if (usage === undefined) return
     capturedUsage = usage
+    metadataSource = event
     captured = true
   }
 
@@ -867,19 +883,41 @@ function createUsageCapture() {
     get usage() {
       return captured ? Promise.resolve(capturedUsage) : undefined
     },
+    get usageSource() {
+      return captured ? { ...(metadataSource as Record<string, unknown>), usage: capturedUsage } : undefined
+    },
   }
 }
 
-function withCapturedUsage(result: unknown, capture: ReturnType<typeof createUsageCapture>): unknown {
+async function combinedCapturedUsage(captures: ReturnType<typeof createUsageCapture>[]): Promise<unknown> {
+  const usages = await Promise.all(captures.flatMap(capture => capture.usage ? [capture.usage] : []))
+  if (usages.length < 2) return usages[0]
+  const add = (left: unknown, right: unknown): unknown => {
+    if (typeof left === "number" || typeof right === "number") {
+      return (typeof left === "number" ? left : 0) + (typeof right === "number" ? right : 0)
+    }
+    if (!left || typeof left !== "object") return right
+    if (!right || typeof right !== "object") return left
+    const leftRecord = left as Record<string, unknown>
+    const rightRecord = right as Record<string, unknown>
+    return Object.fromEntries([...new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)])]
+      .map(key => [key, add(leftRecord[key], rightRecord[key])]))
+  }
+  return usages.reduce(add)
+}
+
+function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUsageCapture> | ReturnType<typeof createUsageCapture>[]): unknown {
+  const captureList = Array.isArray(captures) ? captures : [captures]
+  const usage = captureList.some(capture => capture.captured) ? combinedCapturedUsage(captureList) : undefined
   if (result && typeof result === "object") {
     const record = result as Record<string, unknown>
-    const usage = record.usage
+    const resultUsage = record.usage
     const totalUsage = record.totalUsage
     Object.defineProperty(record, "usage", {
       configurable: true,
       enumerable: true,
       get() {
-        return capture.usage ?? usage
+        return usage ?? resultUsage
       },
     })
     if (totalUsage !== undefined) {
@@ -887,19 +925,44 @@ function withCapturedUsage(result: unknown, capture: ReturnType<typeof createUsa
         configurable: true,
         enumerable: true,
         get() {
-          return capture.usage ?? totalUsage
+          return usage ?? totalUsage
         },
       })
     }
     return result
   }
 
-  if (!capture.captured) return result
+  if (usage === undefined) return result
 
   return {
     raw: result,
     text: typeof result === "string" ? result : undefined,
-    usage: capture.usage,
+    usage,
+  }
+}
+
+async function combinedUsageRecord(
+  calls: Array<{ capture: ReturnType<typeof createUsageCapture>, result?: unknown }>,
+  usage: unknown,
+): Promise<AgentUsageRecord | undefined> {
+  const records = (await Promise.all(calls.map(({ capture, result }) => resolveAgentUsageRecord(
+    result === undefined ? capture.usageSource : withCapturedUsage(result, capture),
+  )))).filter((record): record is AgentUsageRecord => Boolean(record))
+  if (!records.length) return
+  if (records.length === 1) return records[0]
+  const shared = <K extends "credentialSource" | "model" | "transport">(key: K): AgentUsageRecord[K] | undefined => {
+    const value = records[0]![key]
+    return records.every(record => JSON.stringify(record[key]) === JSON.stringify(value)) ? value : undefined
+  }
+  const costs = records.flatMap(record => record.cost ? [record.cost] : [])
+  const cost = costs.length === records.length ? aggregateAgentUsageCosts(costs) : undefined
+  return {
+    calls: records,
+    ...(cost ? { cost } : {}),
+    ...(shared("credentialSource") ? { credentialSource: shared("credentialSource") } : {}),
+    ...(shared("model") ? { model: shared("model") } : {}),
+    ...(shared("transport") ? { transport: shared("transport") } : {}),
+    usage: await usage as AgentUsageRecord["usage"],
   }
 }
 
@@ -1044,6 +1107,45 @@ function mergeCallSettings(
   return settings
 }
 
+function withoutToolCallSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const {
+    activeTools: _activeTools,
+    experimental_refineToolInput: _experimentalRefineToolInput,
+    experimental_repairToolCall: _experimentalRepairToolCall,
+    onToolExecutionEnd: _onToolExecutionEnd,
+    onToolExecutionStart: _onToolExecutionStart,
+    prepareStep: _prepareStep,
+    repairToolCall: _repairToolCall,
+    toolApproval: _toolApproval,
+    toolChoice: _toolChoice,
+    toolOrder: _toolOrder,
+    tools: _tools,
+    ...rest
+  } = settings
+  return rest
+}
+
+function withoutRepairConversationSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const {
+    instructions: _instructions,
+    messages: _messages,
+    prompt: _prompt,
+    ...rest
+  } = withoutToolCallSettings(settings)
+  return rest
+}
+
+function outputRepairPrompt(text: string, error: Error, evidence: string[] = []): string {
+  const cause = error.cause instanceof Error ? error.cause.message : undefined
+  return [
+    "Correct the invalid final Agent output below.",
+    "Return only the corrected JSON value. Do not repeat completed work.",
+    `Validation error: ${cause || error.message}`,
+    `Invalid output: ${JSON.stringify(text)}`,
+    ...(evidence.length ? [`Completed tool results:\n${evidence.join("\n\n---\n\n")}`] : []),
+  ].join("\n\n")
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -1114,19 +1216,53 @@ async function createAgent(
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
+  const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
+  const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context), context)
+  const repairSettings = withoutToolCallSettings(commonSettings)
+  const prepareCall = commonSettings.prepareCall
+  const prepareRepairCall = typeof prepareCall === "function"
+    ? async (input: Record<string, unknown>) => ({
+        ...withoutRepairConversationSettings(await prepareCall(input as never) as Record<string, unknown>),
+        ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+      })
+    : undefined
+  const repairAgent = context.output && context.nativeStructuredOutput !== false
+    ? new ToolLoopAgent({
+        ...repairSettings,
+        instructions,
+        model: instrumentedModel as never,
+        ...(nativeOutput ? { output: nativeOutput } : {}),
+        ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
+        stopWhen: isStepCount(1),
+      } as never)
+    : undefined
+  const repairOutput = context.output && context.nativeStructuredOutput !== false
+    ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
+        const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = callInput
+        try {
+          return await repairAgent!.generate({
+            ...repairCallInput,
+            ...("options" in callInput ? { options: callInput.options } : {}),
+            prompt: outputRepairPrompt(failure.text, failure.error, failure.evidence),
+          } as never) as unknown as AgentAdapterResult
+        }
+        catch (repairError) {
+          return await normalizeNativeAgentOutputError(context.output, repairError)
+        }
+      }
+    : undefined
 
   return {
     agent: new ToolLoopAgent({
-      ...withRuntimeContext(withViteHubTelemetry(settings, context), context),
+      ...commonSettings,
       instructions,
       model: instrumentedModel as never,
-      ...(outputSchema
-        ? { output: aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) }
-        : {}),
+      ...(nativeOutput ? { output: nativeOutput } : {}),
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
     model: instrumentedModel,
+    repairOutput,
     tools: Object.keys(toolSet).length ? toolSet : undefined,
   }
 }
@@ -1140,37 +1276,128 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const execution = options.execution
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
       const fallback = getFallbackOptions(execution?.workspaceFallback)
-      const fallbackCapture = fallback.enabled
-        ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
+      const fallbackCapture = fallback.enabled || Boolean(context.output)
+        ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, tools } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, repairOutput, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
       const usageCapture = createUsageCapture()
+      const repairUsageCapture = createUsageCapture()
+      const fallbackUsageCapture = createUsageCapture()
+      const repairCallInput = {
+        ...callInput,
+        onEnd: repairUsageCapture.onEnd,
+        onLanguageModelCallEnd: repairUsageCapture.onLanguageModelCallEnd,
+        onStepEnd: repairUsageCapture.onStepEnd,
+      }
+      const captureOriginalStep = async (event: unknown) => {
+        await usageCapture.onStepEnd(event)
+        fallbackCapture?.collect(event)
+      }
+      const originalCallInput = {
+        ...callInput,
+        onEnd: usageCapture.onEnd,
+        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+        onStepEnd: captureOriginalStep,
+      }
       let generated: GenerateTextResult<ToolSet, never, never>
-      try {
-        generated = await agent.generate({
-          ...callInput,
-          onEnd: usageCapture.onEnd,
-          onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-          onStepEnd: usageCapture.onStepEnd,
-        } as never) as GenerateTextResult<ToolSet, never, never>
+      let originalGenerated: GenerateTextResult<ToolSet, never, never> | undefined
+      let repaired = false
+      const synthesizedOutput = async (synthesized: { result: unknown, text: string }, original?: unknown, repairResult?: unknown) => {
+        const captures = [usageCapture, repairUsageCapture, fallbackUsageCapture]
+        let usageRecord: AgentUsageRecord | undefined
+        if (fallbackUsageCapture.captured) {
+          const calls = [
+            { capture: usageCapture, result: originalGenerated ?? original },
+            { capture: fallbackUsageCapture, result: synthesized.result },
+            ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: repairResult }] : []),
+          ]
+          usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
+        }
+        const raw = withCapturedUsage(original, captures)
+        if (raw && typeof raw === "object" && usageRecord) {
+          Object.defineProperty(raw, "usageRecord", {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord,
+          })
+        }
+        const output = { raw, text: synthesized.text }
+        if (usageRecord) {
+          Object.defineProperty(output, "usageRecord", {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord,
+          })
+        }
+        Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
+        return output
       }
-      catch (error) {
-        return await normalizeNativeAgentOutputError(context.output, error)
-      }
-      const result = withResolvedModelMetadata(withCapturedUsage(generated, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
-      const text = result.text.trim()
-      if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
-        const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
-          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
-        if (synthesized) {
-          const output = { raw: result, text: synthesized }
-          Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
-          return output
+      const validatedSynthesizedOutput = async (synthesized: { result: unknown, text: string }, original?: unknown) => {
+        if (!repairOutput || !context.output) return await synthesizedOutput(synthesized, original)
+        try {
+          await validateAgentOutput(context.output, synthesized.result)
+          return await synthesizedOutput(synthesized, original)
+        }
+        catch (error) {
+          const repairResult = await repairOutput({
+            error: error instanceof Error ? error : new Error(String(error)),
+            evidence: fallbackCapture?.evidence(),
+            text: synthesized.text,
+          }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
+          return await synthesizedOutput({ ...synthesized, text: repairResult.text }, original, repairResult)
         }
       }
+      try {
+        generated = await agent.generate(originalCallInput as never) as GenerateTextResult<ToolSet, never, never>
+        originalGenerated = generated
+      }
+      catch (error) {
+        const failure = await nativeAgentOutputValidationFailure(context.output, error)
+        const synthesized = failure && fallback.enabled && !failure.text.trim()
+          ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
+          : undefined
+        if (synthesized) return await validatedSynthesizedOutput(synthesized)
+        const repairedOutput = failure && repairOutput
+          ? await repairOutput({ ...failure, evidence: fallbackCapture?.evidence() }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
+          : undefined
+        generated = repairedOutput ?? await normalizeNativeAgentOutputError(context.output, error)
+        repaired = Boolean(repairedOutput)
+      }
+      if (!repaired && fallback.enabled && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
+        const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
+          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
+        if (synthesized) return await validatedSynthesizedOutput(synthesized, generated)
+      }
+      if (!repaired && repairOutput && context.output) {
+        try {
+          await validateAgentOutput(context.output, generated)
+        }
+        catch (error) {
+          generated = await repairOutput({
+            error: error instanceof Error ? error : new Error(String(error)),
+            evidence: fallbackCapture?.evidence(),
+            text: generated.text,
+          }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
+        }
+      }
+      const usageRecord = repairUsageCapture.captured
+        ? await combinedUsageRecord([
+            { capture: usageCapture, result: originalGenerated },
+            { capture: repairUsageCapture, result: generated },
+          ], combinedCapturedUsage([usageCapture, repairUsageCapture]))
+        : undefined
+      const result = withResolvedModelMetadata(withCapturedUsage(generated, [usageCapture, repairUsageCapture]), model) as GenerateTextResult<ToolSet, never, never>
+      if (usageRecord) {
+        Object.defineProperty(result, "usageRecord", {
+          configurable: true,
+          enumerable: true,
+          value: usageRecord,
+        })
+      }
+      const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
       return result as unknown as AgentAdapterResult
