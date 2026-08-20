@@ -10357,7 +10357,7 @@ describe("server helpers", () => {
     expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
   })
 
-  it("replaces default progress with automatic output when cleanup fails", async () => {
+  it("posts automatic output separately when progress cleanup fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -10377,8 +10377,8 @@ describe("server helpers", () => {
 
       expect(response.status).toBe(200)
       expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
-      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Final answer" })
-      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final answer" })
     }
     finally {
       warn.mockRestore()
@@ -10435,8 +10435,8 @@ describe("server helpers", () => {
     const response = await handler(chatWebhookRequest(91_004_6), "telegram")
 
     expect(response.status).toBe(200)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Final reply" })
-    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final reply" })
   })
 
   it("preserves primary output before automatic finish replies when progress cleanup fails", async () => {
@@ -10459,19 +10459,18 @@ describe("server helpers", () => {
     const response = await handler(chatWebhookRequest(91_004_9), "telegram")
 
     expect(response.status).toBe(200)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Primary reply" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Primary reply" })
     expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", { markdown: "Finish reply" })
   })
 
-  it("bounds stalled automatic progress replacement before final output", async () => {
-    vi.useFakeTimers()
+  it("does not replace default progress with successful terminal output", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.deleteMessage.mockRejectedValue(new Error("delete failed"))
-    adapter.editMessage.mockImplementation(() => new Promise(() => undefined))
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
@@ -10481,15 +10480,44 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = handler(chatWebhookRequest(91_004_10), "telegram")
-      await vi.waitFor(() => expect(adapter.editMessage).toHaveBeenCalledOnce(), { interval: 0 })
-      await vi.advanceTimersByTimeAsync(1_000)
+      const response = await handler(chatWebhookRequest(91_004_10), "telegram")
 
-      await expect(response).resolves.toMatchObject({ status: 200 })
+      expect(response.status).toBe(200)
+      expect(adapter.editMessage).not.toHaveBeenCalled()
       expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", { markdown: "Final answer" })
     }
     finally {
       warn.mockRestore()
+    }
+  })
+
+  it("starts manual inline execution without waiting for default progress posting", async () => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementationOnce(() => new Promise(() => undefined))
+    const run = vi.fn(() => "Final answer")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", durable: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_004_11), "telegram")
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync(1_000)
+      await expect(response).resolves.toMatchObject({ status: 200 })
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+    }
+    finally {
       vi.useRealTimers()
     }
   })

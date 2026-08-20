@@ -17,7 +17,7 @@ import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities,
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
-import { messageChannelProgressContextKey, type MessageChannelProgressReference } from "../internal/message-channel-progress.ts"
+import { messageChannelProgressContextKey, type MessageChannelProgressReference, withinMessageChannelProgressDeadline } from "../internal/message-channel-progress.ts"
 import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
@@ -1498,6 +1498,7 @@ function createManualDeliveryProgressUpdater(
   manualDelivery: { placeholder?: unknown },
   waitUntil: AgentWaitUntil,
   abortSignal?: AbortSignal,
+  placeholderReady?: Promise<unknown>,
 ): {
   finish: () => Promise<void>
   update: (summary: string) => void
@@ -1519,6 +1520,9 @@ function createManualDeliveryProgressUpdater(
       draining = undefined
       if (active && latest && manualDelivery.placeholder) startDrain()
     })
+  }
+  if (placeholderReady) {
+    waitUntil(placeholderReady.then(() => startDrain()).catch(() => undefined))
   }
 
   return {
@@ -3026,29 +3030,6 @@ async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: A
   return true
 }
 
-async function replaceManualDeliveryPlaceholderWithin(
-  placeholder: unknown,
-  message: AgentChatMessage,
-  timeoutMs = 1_000,
-  onTimeout?: () => void,
-): Promise<boolean> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      replaceManualDeliveryPlaceholder(placeholder, message),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          onTimeout?.()
-          reject(new Error("Disposable chat progress replacement timed out."))
-        }, timeoutMs)
-      }),
-    ])
-  }
-  finally {
-    if (timeoutId) clearTimeout(timeoutId)
-  }
-}
-
 async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<void> {
   const message = "Manual chat delivery could not remove its placeholder."
   if (!placeholder || typeof placeholder !== "object" || !("delete" in placeholder) || typeof placeholder.delete !== "function") {
@@ -3064,24 +3045,13 @@ async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<vo
 
 async function deleteManualDeliveryPlaceholderWithin(
   placeholder: unknown,
-  timeoutMs = 1_000,
   onTimeout?: () => void,
 ): Promise<void> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    await Promise.race([
-      deleteManualDeliveryPlaceholder(placeholder),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          onTimeout?.()
-          reject(new Error("Disposable chat progress cleanup timed out."))
-        }, timeoutMs)
-      }),
-    ])
-  }
-  finally {
-    if (timeoutId) clearTimeout(timeoutId)
-  }
+  await withinMessageChannelProgressDeadline(
+    deleteManualDeliveryPlaceholder(placeholder),
+    "Disposable chat progress cleanup timed out.",
+    onTimeout,
+  )
 }
 
 async function postDisposableChatMessage(thread: Thread, message: string): Promise<unknown> {
@@ -3521,12 +3491,11 @@ async function handleChatSdkMessage(
         }
         return placeholder
       })
-      if (manualDelivery) {
-        manualDeliveryState.placeholder = await enforceChatInvocationTimeout(
-          placeholderDelivery,
-          maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
-          invocationDeadlineAbort,
-        )
+      if (durableDelivery) {
+        // Workflow custody needs a JSON-serializable concrete reference. Keep
+        // this settlement bounded; inline execution below can carry the pending
+        // reference and starts without waiting.
+        manualDeliveryState.placeholder = await settleAutomaticProgressMessage(placeholderDelivery, context.waitUntil)
       }
       else {
         automaticProgressSettlement = settleAutomaticProgressMessage(placeholderDelivery, context.waitUntil)
@@ -3575,8 +3544,13 @@ async function handleChatSdkMessage(
       return
     }
     const chatFinish = createChatFinishExtension(input, registration)
-    progress = manualDeliveryState.placeholder
-      ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal)
+    progress = manualDelivery && automaticProgressSettlement
+      ? createManualDeliveryProgressUpdater(
+          manualDeliveryState,
+          context.waitUntil,
+          invocationDeadlineAbort?.signal,
+          automaticProgressSettlement,
+        )
       : undefined
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined
       ? undefined
@@ -3627,7 +3601,7 @@ async function handleChatSdkMessage(
           invocationDeadlineAbort?.signal.throwIfAborted()
           const completedPlaceholder = !manualDelivery && manualDeliveryState.placeholder
           if (completedPlaceholder) {
-            const placeholderCleanup = deleteManualDeliveryPlaceholderWithin(completedPlaceholder, 1_000, () => {
+            const placeholderCleanup = deleteManualDeliveryPlaceholderWithin(completedPlaceholder, () => {
               if (progressReference) progressReference.reusable = false
             })
             manualDeliveryState.placeholderCleanup = placeholderCleanup
@@ -3638,21 +3612,9 @@ async function handleChatSdkMessage(
               }
             }
             catch (error) {
-              if (progressReference?.reusable === false) {
-                console.warn("[vitehub] Could not delete a progress message with unsettled updates; posting final output separately.", error)
-                if (manualDeliveryState.placeholder === completedPlaceholder) {
-                  manualDeliveryState.placeholder = undefined
-                }
-              }
-              else if (text) {
-                const replaced = await replaceManualDeliveryPlaceholderWithin(completedPlaceholder, { markdown: text }, 1_000, () => {
-                  if (progressReference) progressReference.reusable = false
-                }).catch(() => false)
-                if (manualDeliveryState.placeholder === completedPlaceholder) {
-                  manualDeliveryState.placeholder = undefined
-                }
-                if (replaced) text = ""
-                else console.warn("[vitehub] Could not replace a progress message; posting final output separately.", error)
+              console.warn("[vitehub] Could not delete a progress message; posting final output separately.", error)
+              if (manualDeliveryState.placeholder === completedPlaceholder) {
+                manualDeliveryState.placeholder = undefined
               }
             }
             finally {

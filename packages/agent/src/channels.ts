@@ -1261,11 +1261,8 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
         await clearMessageChannelProgress({ ...context, adapter })
       }
       catch {
-        if (progress.reusable !== false && adapter.editMessage && !attachments.length && !files.length) {
-          await adapter.editMessage(progress.threadId, progress.messageId, message)
-          context.context.set(messageChannelProgressClearedContextKey, true, { overwrite: true })
-          return
-        }
+        // Terminal replies are always new notifications. A failed disposable
+        // cleanup must not make progress-message reuse part of the success path.
       }
     }
     await adapter.postMessage(adapter.channelIdFromThreadId(context.run.threadId), message)

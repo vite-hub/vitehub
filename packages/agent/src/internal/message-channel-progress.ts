@@ -9,6 +9,28 @@ export const messageChannelProgressClearedContextKey = "agent.channel.progress.c
 export const messageChannelProgressUpdatesClosedContextKey = "agent.channel.progress.updates-closed"
 const messageChannelProgressCleanupTimeoutMs = 1_000
 
+export async function withinMessageChannelProgressDeadline<T>(
+  operation: Promise<T>,
+  message: string,
+  onTimeout?: () => void,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          onTimeout?.()
+          reject(new Error(message))
+        }, messageChannelProgressCleanupTimeoutMs)
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 export interface MessageChannelProgressReference {
   messageId: string
   ready?: Promise<MessageChannelProgressReference | undefined>
@@ -39,22 +61,16 @@ export async function clearMessageChannelProgress<TRuntimeConfig extends AgentRu
   if (!channel?.adapter || !progress || context.context.get<boolean>(messageChannelProgressClearedContextKey) === true) return false
   const adapter = context.adapter || await resolveRuntimeValue(channel.adapter, context as never) as Adapter | undefined
   if (!adapter?.deleteMessage) return false
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
-    await Promise.race([
+    await withinMessageChannelProgressDeadline(
       adapter.deleteMessage(progress.threadId, progress.messageId),
-      new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("[vitehub] Timed out clearing message Channel progress.")), messageChannelProgressCleanupTimeoutMs)
-      }),
-    ])
+      "[vitehub] Timed out clearing message Channel progress.",
+    )
   }
   catch (error) {
     const reference = context.context.get<MessageChannelProgressReference>(messageChannelProgressContextKey)
     if (reference) reference.reusable = false
     throw error
-  }
-  finally {
-    if (timeoutId) clearTimeout(timeoutId)
   }
   context.context.set(messageChannelProgressClearedContextKey, true, { overwrite: true })
   return true
