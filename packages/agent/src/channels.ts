@@ -3,7 +3,7 @@ import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { readPullRequestContext } from "./capabilities/repository-host-context.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
-import { messageChannelProgressClearedContextKey, messageChannelProgressContextKey, type MessageChannelProgressReference } from "./internal/message-channel-progress.ts"
+import { clearMessageChannelProgress, messageChannelProgressClearedContextKey, messageChannelProgressContextKey, type MessageChannelProgressReference } from "./internal/message-channel-progress.ts"
 import {
   deliveryArtifactAttachments,
   deliveryArtifactMarkdownReferencePaths,
@@ -1209,6 +1209,12 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
       ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
       : undefined
     if (adapter && context.run?.threadId) {
+      try {
+        await clearMessageChannelProgress({ ...context, adapter })
+      }
+      catch {
+        console.warn("[vitehub] failed to clear message Channel progress.")
+      }
       const threadId = adapter.channelIdFromThreadId(context.run.threadId)
       if (adapter.stream && await adapter.stream(threadId, stream) !== null) return
       let body = ""
@@ -1241,12 +1247,21 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   if (adapter && context.run?.threadId) {
     const progress = context.context.get<MessageChannelProgressReference>(messageChannelProgressContextKey)
     if (progress && context.context.get<boolean>(messageChannelProgressClearedContextKey) !== true) {
+      if (progress.reusable !== false && context.effect.intent === "chat.error-fallback" && adapter.editMessage && !attachments.length && !files.length) {
+        try {
+          await adapter.editMessage(progress.threadId, progress.messageId, message)
+          context.context.set(messageChannelProgressClearedContextKey, true, { overwrite: true })
+          return
+        }
+        catch {
+          // Fall through to delete-then-post so a failed edit does not suppress the fallback.
+        }
+      }
       try {
-        await adapter.deleteMessage(progress.threadId, progress.messageId)
-        context.context.set(messageChannelProgressClearedContextKey, true, { overwrite: true })
+        await clearMessageChannelProgress({ ...context, adapter })
       }
       catch {
-        if (adapter.editMessage && !attachments.length && !files.length) {
+        if (progress.reusable !== false && adapter.editMessage && !attachments.length && !files.length) {
           await adapter.editMessage(progress.threadId, progress.messageId, message)
           context.context.set(messageChannelProgressClearedContextKey, true, { overwrite: true })
           return

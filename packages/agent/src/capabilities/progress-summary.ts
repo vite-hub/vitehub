@@ -4,7 +4,7 @@ import { capabilityInvocationStartSymbol, defineCapability, eagerFinishExtension
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
-import { messageChannelProgressContextKey, updateMessageChannelProgress } from "../internal/message-channel-progress.ts"
+import { messageChannelProgressContextKey, messageChannelProgressUpdatesClosedContextKey, type MessageChannelProgressReference, updateMessageChannelProgress } from "../internal/message-channel-progress.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
@@ -593,10 +593,31 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   const states = new WeakMap<object, ProgressSummaryState>()
   const invocationStarts = new WeakMap<object, () => void>()
+  const generatedTasks = new WeakMap<object, Promise<void>>()
+  const generatedAborts = new WeakMap<object, AbortController>()
   return Object.assign(defineCapability({
-    close(context) {
+    async close(context) {
+      context.context.set(messageChannelProgressUpdatesClosedContextKey, true, { overwrite: true })
+      generatedAborts.get(context.context)?.abort(new DOMException("Progress summary closed.", "AbortError"))
+      generatedAborts.delete(context.context)
       states.get(context.context)?.close()
       states.delete(context.context)
+      const task = generatedTasks.get(context.context)
+      if (task) {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+        const settled = await Promise.race([
+          task.then(() => true),
+          new Promise<false>(resolve => {
+            timeoutId = setTimeout(() => resolve(false), 1_000)
+          }),
+        ])
+        if (timeoutId) clearTimeout(timeoutId)
+        if (!settled) {
+          const progress = context.context.get<MessageChannelProgressReference>(messageChannelProgressContextKey)
+          if (progress) progress.reusable = false
+        }
+      }
+      generatedTasks.delete(context.context)
       invocationStarts.delete(context.context)
     },
     id: options.id || "progress-summary",
@@ -606,6 +627,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
       let generatedPrevious: string | undefined
       const generatedCompletedTools: string[] = []
       const generatedStartedAt = Date.now()
+      let generatedLastAt = 0
       const getState = () => {
         if (state) return state
         const messages = context.input.messages()
@@ -618,37 +640,56 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
         if (context.invocation?.kind === "stream" && context.driver?.kind === "harness") getState()
       })
       if (context.invocation?.kind === "run") {
+        const generatedAbort = new AbortController()
+        generatedAborts.set(context.context, generatedAbort)
         context.modelExecution.instrument({
           callSettings({ callSettings }) {
-            const previous = typeof callSettings.onStepFinish === "function"
-              ? callSettings.onStepFinish as (event: unknown) => MaybePromise<void>
+            const previous = typeof callSettings.onStepEnd === "function"
+              ? callSettings.onStepEnd as (event: unknown) => MaybePromise<void>
+              : typeof callSettings.onStepFinish === "function"
+                ? callSettings.onStepFinish as (event: unknown) => MaybePromise<void>
               : undefined
             return {
-              async onStepFinish(event: unknown) {
+              async onStepEnd(event: unknown) {
                 await previous?.(event)
                 if (!context.context.get(messageChannelProgressContextKey)) return
                 const evidence = stepProgressEvidence(event)
+                if (!evidence.reasoning && !evidence.completedTools.length) return
                 generatedCompletedTools.push(...evidence.completedTools)
-                const messages = context.input.messages()
-                const inputValue = context.input.get()
-                try {
-                  const summary = await generateProgressSummary(context, options, {
-                    activeTools: [],
-                    completedTools: generatedCompletedTools.slice(-5),
-                    elapsedMs: Date.now() - generatedStartedAt,
-                    input: inputValue,
-                    messages,
-                    previous: generatedPrevious,
-                    reasoning: evidence.reasoning ? "Active" : undefined,
-                    userText: firstUserText(messages, inputValue),
-                  })
-                  if (!summary || summary === generatedPrevious) return
-                  generatedPrevious = summary
-                  await updateMessageChannelProgress(context, summary)
-                }
-                catch {
-                  console.warn("[vitehub] progressSummary() generation failed.")
-                }
+                const now = Date.now()
+                if (generatedLastAt && now - generatedLastAt < (options.intervalMs ?? 10_000)) return
+                generatedLastAt = now
+                const previousTask = generatedTasks.get(context.context) || Promise.resolve()
+                const task = previousTask.then(async () => {
+                  const messages = context.input.messages()
+                  const inputValue = context.input.get()
+                  const input = {
+                    ...inputValue,
+                    abortSignal: inputValue.abortSignal
+                      ? AbortSignal.any([inputValue.abortSignal, generatedAbort.signal])
+                      : generatedAbort.signal,
+                  }
+                  try {
+                    const summary = await generateProgressSummary(context, options, {
+                      activeTools: [],
+                      completedTools: generatedCompletedTools.slice(-5),
+                      elapsedMs: Date.now() - generatedStartedAt,
+                      input,
+                      messages,
+                      previous: generatedPrevious,
+                      reasoning: evidence.reasoning ? "Active" : undefined,
+                      userText: firstUserText(messages, input),
+                    })
+                    if (!summary || summary === generatedPrevious) return
+                    generatedPrevious = summary
+                    await updateMessageChannelProgress(context, summary)
+                  }
+                  catch {
+                    if (generatedAbort.signal.aborted) return
+                    console.warn("[vitehub] progressSummary() generation failed.")
+                  }
+                })
+                generatedTasks.set(context.context, task)
               },
             }
           },

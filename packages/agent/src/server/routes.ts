@@ -3053,6 +3053,27 @@ async function postDisposableChatMessage(thread: Thread, message: string): Promi
   }
 }
 
+async function settleAutomaticProgressMessage(
+  delivery: Promise<unknown>,
+  waitUntil: (task: Promise<unknown>) => void,
+): Promise<unknown> {
+  const pending = Symbol("pending")
+  const safeDelivery = delivery.catch(() => undefined)
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const settled = await Promise.race([
+    safeDelivery,
+    new Promise<typeof pending>(resolve => {
+      timeoutId = setTimeout(() => resolve(pending), 1_000)
+    }),
+  ])
+  if (timeoutId) clearTimeout(timeoutId)
+  if (settled !== pending) return settled
+  waitUntil(safeDelivery.then(async (placeholder) => {
+    if (!placeholder) return
+    await deleteManualDeliveryPlaceholder(placeholder)
+  }).catch(() => undefined))
+}
+
 function messageChannelProgressReference(placeholder: unknown): MessageChannelProgressReference | undefined {
   if (!placeholder || typeof placeholder !== "object") return
   const { id, threadId } = placeholder as { id?: unknown, threadId?: unknown }
@@ -3445,6 +3466,7 @@ async function handleChatSdkMessage(
     const resolvedInvocationInput = invocation.input as AgentRunInput
     const thinkingFallback = invocation.metadata?.thinkingFallback
     const ownsProgressMessage = typeof thinkingFallback === "string" && (manualDelivery || !streamsPhasedReplies)
+    let automaticProgressSettlement: Promise<unknown> | undefined
     if (ownsProgressMessage) {
       const placeholderDelivery = postDisposableChatMessage(thread, thinkingFallback).then(async (placeholder) => {
         if (invocationDeadlineAbort?.signal.aborted) {
@@ -3453,13 +3475,25 @@ async function handleChatSdkMessage(
         }
         return placeholder
       })
-      manualDeliveryState.placeholder = await enforceChatInvocationTimeout(
-        placeholderDelivery,
-        maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
-        invocationDeadlineAbort,
-      )
+      if (manualDelivery) {
+        manualDeliveryState.placeholder = await enforceChatInvocationTimeout(
+          placeholderDelivery,
+          maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
+          invocationDeadlineAbort,
+        )
+      }
+      else {
+        automaticProgressSettlement = settleAutomaticProgressMessage(placeholderDelivery, context.waitUntil)
+      }
     }
     const progressReference = messageChannelProgressReference(manualDeliveryState.placeholder)
+      || (automaticProgressSettlement
+        ? {
+            messageId: "",
+            ready: automaticProgressSettlement.then(messageChannelProgressReference),
+            threadId: thread.id,
+          }
+        : undefined)
     if (durableDelivery) {
       if (state.workflowCustodySupported === false) {
         throw new Error("[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider.")
@@ -3532,10 +3566,14 @@ async function handleChatSdkMessage(
       // framework-owned placeholder without exposing ordinary Agent text.
       await enforceChatInvocationTimeout(
         (async () => {
-          const result = manualDelivery
-            ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
-            : await runAgentInline(agent as never, runContext as never, invocationInput as never)
-          const text = await collectAgentOutput(result, progress?.update, toolResult => toolResults.push(toolResult))
+          const resultPromise = manualDelivery
+            ? streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
+            : runAgentInline(agent as never, runContext as never, invocationInput as never)
+          if (automaticProgressSettlement) {
+            manualDeliveryState.placeholder = await automaticProgressSettlement
+          }
+          const result = await resultPromise
+          let text = await collectAgentOutput(result, progress?.update, toolResult => toolResults.push(toolResult))
           await progress?.finish()
           invocationDeadlineAbort?.signal.throwIfAborted()
           const completedPlaceholder = !manualDelivery && manualDeliveryState.placeholder
@@ -3546,6 +3584,15 @@ async function handleChatSdkMessage(
               await placeholderCleanup
               if (manualDeliveryState.placeholder === completedPlaceholder) {
                 manualDeliveryState.placeholder = undefined
+              }
+            }
+            catch (error) {
+              if (progressReference?.reusable === false) {
+                console.warn("[vitehub] Could not delete a progress message with unsettled updates; posting final output separately.", error)
+              }
+              else {
+                if (!text || !await replaceManualDeliveryPlaceholder(completedPlaceholder, { markdown: text }).catch(() => false)) throw error
+                text = ""
               }
             }
             finally {

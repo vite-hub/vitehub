@@ -10349,6 +10349,64 @@ describe("server helpers", () => {
     expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
   })
 
+  it("replaces default progress with automatic output when cleanup fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockRejectedValueOnce(new Error("delete failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run: () => "Final answer" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(chatWebhookRequest(91_004_3), "telegram")
+
+      expect(response.status).toBe(200)
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Final answer" })
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+
+  it.each(["rejects", "stalls"])("starts automatic output when default progress posting $label", async (label) => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementationOnce(() => label === "rejects"
+      ? Promise.reject(new Error("post failed"))
+      : new Promise(() => undefined))
+    const run = vi.fn(() => "Final answer")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(label === "rejects" ? 91_004_4 : 91_004_5), "telegram")
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync(1_000)
+      await expect(response).resolves.toMatchObject({ status: 200 })
+      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", { markdown: "Final answer" })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("replaces default progress with the error fallback when automatic output fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -11800,7 +11858,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("reserves Cloudflare background time for manual error delivery", async () => {
+  it("replaces default automatic progress when the invocation times out", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -11816,9 +11874,8 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
-            delivery: "manual",
             errorFallbackText: "Please try again.",
-            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            stream: false,
             timeout: 50_000,
           },
           webhooks: { secretToken: false },
@@ -11834,6 +11891,7 @@ describe("server helpers", () => {
         waitUntil: () => undefined,
       })).rejects.toThrow("model timeout")
       expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it…")
       expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
     }
     finally {

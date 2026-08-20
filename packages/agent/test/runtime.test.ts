@@ -4999,6 +4999,7 @@ describe("agent message protocol", () => {
     })
 
     await runAgentInline(agent, {
+      [Symbol.for("vitehub.agent.workflow-execution")]: true,
       memo: vi.fn(),
       run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "run-1", threadId: "telegram:456" },
       runtime: "cloudflare-agents",
@@ -5014,6 +5015,113 @@ describe("agent message protocol", () => {
     expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final reply" })
     expect(calls).toEqual(["delete", "post"])
+  })
+
+  it("deletes durable channel progress before posting a streamed final reply", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const calls: string[] = []
+    const adapter = {
+      channelIdFromThreadId: (threadId: string) => threadId,
+      deleteMessage: vi.fn(async () => { calls.push("delete") }),
+      postMessage: vi.fn(async () => { calls.push("post") }),
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: defineChannel("telegram", { adapter: () => adapter as never }),
+      },
+      driver: { run: () => "internal" },
+      hooks: {
+        "agent:finish": event => event.reply((async function* () { yield "Final reply" })()),
+      },
+    })
+
+    await runAgentInline(agent, {
+      [Symbol.for("vitehub.agent.workflow-execution")]: true,
+      memo: vi.fn(),
+      run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "stream-run", threadId: "telegram:456" },
+      runtime: "cloudflare-agents",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        "agent.channel.progress": { messageId: "sent-1", threadId: "telegram:456" },
+      },
+      prompt: "hello",
+    })
+
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final reply" })
+    expect(calls).toEqual(["delete", "post"])
+  })
+
+  it.each([
+    { driver: { run: () => "internal" }, fails: false, label: "success without a reply" },
+    { driver: { run: () => { throw new Error("failed") } }, fails: true, label: "failure without a fallback" },
+  ])("deletes durable channel progress on $label", async ({ driver, fails }) => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const adapter = {
+      channelIdFromThreadId: (threadId: string) => threadId,
+      deleteMessage: vi.fn(),
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: defineChannel("telegram", { adapter: () => adapter as never }),
+      },
+      driver,
+      messages: { errorFallbackText: null },
+    })
+    const invocation = runAgentInline(agent, {
+      [Symbol.for("vitehub.agent.workflow-execution")]: true,
+      memo: vi.fn(),
+      run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "terminal-run", threadId: "telegram:456" },
+      runtime: "cloudflare-agents",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        "agent.channel.progress": { messageId: "sent-1", threadId: "telegram:456" },
+      },
+      prompt: "hello",
+    })
+
+    if (fails) await expect(invocation).rejects.toThrow("failed")
+    else await expect(invocation).resolves.toBe("internal")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+  })
+
+  it("deletes durable channel progress when finish processing throws", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const adapter = {
+      channelIdFromThreadId: (threadId: string) => threadId,
+      deleteMessage: vi.fn(),
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: defineChannel("telegram", { adapter: () => adapter as never }),
+      },
+      driver: { run: () => "internal" },
+      hooks: {
+        "agent:finish": () => { throw new Error("finish failed") },
+      },
+    })
+
+    await expect(runAgentInline(agent, {
+      [Symbol.for("vitehub.agent.workflow-execution")]: true,
+      memo: vi.fn(),
+      run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "failed-finish", threadId: "telegram:456" },
+      runtime: "cloudflare-agents",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        "agent.channel.progress": { messageId: "sent-1", threadId: "telegram:456" },
+      },
+      prompt: "hello",
+    })).rejects.toThrow("finish failed")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
   })
 
   it("rewrites durable channel progress from model steps without exposing reasoning", async () => {
@@ -5048,6 +5156,8 @@ describe("agent message protocol", () => {
       specificationVersion: "v3",
       supportedUrls: {},
     }
+    const summary = vi.fn(() => "Checking the meal.")
+    const onStepEnd = vi.fn()
     const agent = defineAgent({
       capabilities: [defineCapability({
         id: "meals",
@@ -5056,10 +5166,10 @@ describe("agent message protocol", () => {
       channels: {
         telegram: defineChannel("telegram", {
           adapter: () => adapter as never,
-          capabilities: [progressSummary({ execute: () => "Checking the meal." })],
+          capabilities: [progressSummary({ execute: summary })],
         }),
       },
-      driver: { model: model as never },
+      driver: { execution: { callSettings: { onStepEnd } }, model: model as never },
     })
 
     await runAgentInline(agent, {
@@ -5077,6 +5187,55 @@ describe("agent message protocol", () => {
 
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Checking the meal." })
     expect(JSON.stringify(adapter.editMessage.mock.calls)).not.toContain("PRIVATE_CHAIN_OF_THOUGHT")
+    expect(summary).toHaveBeenCalledOnce()
+    expect(onStepEnd).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not generate durable progress for a text-only model step", async () => {
+    const { progressSummary } = await import("../src/capabilities/progress-summary.ts")
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const summary = vi.fn(() => "Unnecessary progress.")
+    const model = {
+      async doGenerate() {
+        return {
+          content: [{ text: "Done", type: "text" }],
+          finishReason: { raw: "stop", unified: "stop" },
+          usage: {
+            inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+            outputTokens: { reasoning: 0, text: 1, total: 1 },
+          },
+          warnings: [],
+        }
+      },
+      modelId: "text-only-progress-test",
+      provider: "test",
+      specificationVersion: "v3",
+      supportedUrls: {},
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: defineChannel("telegram", {
+          capabilities: [progressSummary({ execute: summary })],
+        }),
+      },
+      driver: { model: model as never },
+    })
+
+    await runAgentInline(agent, {
+      memo: vi.fn(),
+      run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "text-only-run", threadId: "telegram:456" },
+      runtime: "cloudflare-agents",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        "agent.channel.progress": { messageId: "sent-1", threadId: "telegram:456" },
+      },
+      prompt: "hello",
+    })
+
+    expect(summary).not.toHaveBeenCalled()
   })
 
   it("exposes Agent Trigger metadata", async () => {
@@ -12078,6 +12237,8 @@ describe("agent message protocol", () => {
       const { telegram } = await import("../src/channels.ts")
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const postMessage = vi.fn(async () => undefined)
+      const editMessage = vi.fn(async () => undefined)
+      const deleteMessage = vi.fn(async () => undefined)
       const failure = Object.assign(new Error("provider unavailable"), {
         name: "AI_APICallError",
         statusCode: 503,
@@ -12105,6 +12266,8 @@ describe("agent message protocol", () => {
           telegram: telegram({
             adapter: () => ({
               channelIdFromThreadId: () => "telegram:123",
+              deleteMessage,
+              editMessage,
               postMessage,
             }) as never,
           }),
@@ -12125,7 +12288,10 @@ describe("agent message protocol", () => {
         name: "calories",
         payload: {
           input: {
-            context: { channel: { message: { text: "I ate skyr" } } },
+            context: {
+              "agent.channel.progress": { messageId: "progress-1", threadId: "telegram:123" },
+              channel: { message: { text: "I ate skyr" } },
+            },
             prompt: "I ate skyr",
           },
           run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
@@ -12134,9 +12300,11 @@ describe("agent message protocol", () => {
       }, runAgentInline)).rejects.toBe(failure)
 
       expect(fallback).toHaveBeenCalledOnce()
-      expect(postMessage).toHaveBeenCalledWith("telegram:123", {
+      expect(editMessage).toHaveBeenCalledWith("telegram:123", "progress-1", {
         markdown: "The meal was saved, but I could not finish the reply.",
       })
+      expect(deleteMessage).not.toHaveBeenCalled()
+      expect(postMessage).not.toHaveBeenCalled()
     })
 
     it("delivers durable failure fallbacks when Capability setup fails", async () => {

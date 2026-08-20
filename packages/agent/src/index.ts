@@ -24,7 +24,7 @@ import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getAgentChatContext, getChatCapabilityOptions, resolveDurableChatErrorFallbackText } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
-import { activeMessageChannelContextKey, messageChannelProgressContextKey } from "./internal/message-channel-progress.ts"
+import { activeMessageChannelContextKey, clearMessageChannelProgress, messageChannelProgressContextKey } from "./internal/message-channel-progress.ts"
 import { progressSummary } from "./capabilities/progress-summary.ts"
 import {
   bindMessageChannelInstructions,
@@ -3065,6 +3065,23 @@ async function finishAgentInvocation<
     throw finishError
   }
   finally {
+    if ((context.runtimeContext as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) {
+      try {
+        await clearMessageChannelProgress({
+          ...context.runtimeContext,
+          actor: context.actor,
+          channel: activeAgentChannel(context.channels, context.context, context.run)?.channel,
+          context: context.context,
+          input: context.input,
+          invoker: context.invoker,
+          run: context.run,
+          workspace: context.workspace,
+        })
+      }
+      catch {
+        console.warn("[vitehub] failed to clear message Channel progress.")
+      }
+    }
     scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent, context.telemetryInvocationId)
   }
 }
