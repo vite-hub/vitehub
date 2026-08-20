@@ -1,5 +1,7 @@
 ignorePatterns = []
 
+entry = ["tools/oxlint/anti-slop/index.ts"]
+
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
   "fixtures/consumer/vite-hub/runtime-smoke.mjs",

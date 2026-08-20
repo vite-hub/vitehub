@@ -2,6 +2,9 @@ packages:
   - "docs"
   - "packages/*"
 
+ignoredOptionalDependencies:
+  - fallow-type-aware
+
 catalogMode: prefer
 
 catalogs:
@@ -100,7 +103,7 @@ catalogs:
     "@types/picomatch": ^4.0.3
     "@oxlint/plugins": 1.61.0
     esbuild: ^0.28.1
-    fallow: 2.41.0
+    fallow: 3.17.0
     knip: 6.27.0
     local-pkg: ^1.2.1
     oxlint: ^1.74.0

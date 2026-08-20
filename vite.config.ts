@@ -13,21 +13,22 @@ export default defineConfig({
       },
     ],
     rules: {
-      "anti-slop/no-chained-type-assertions": "error",
-      "anti-slop/no-conditional-empty-object-spread": "error",
-      "anti-slop/no-known-value-widening": "error",
-      "anti-slop/no-module-mocking": "error",
-      "anti-slop/no-object-parameters": "error",
-      "anti-slop/no-reflect-apply": "error",
-      "anti-slop/no-reflect-get": "error",
-      "anti-slop/no-runtime-typeof": "error",
-      "anti-slop/no-shape-in-symbol-names": "error",
-      "anti-slop/no-unknown-parameters": "error",
-      "anti-slop/no-unknown-returns": "error",
-      "anti-slop/no-unknown-type-aliases": "error",
-      "anti-slop/no-unsafe-dictionary-type": "error",
-      "anti-slop/no-widen-then-assert": "error",
-      "anti-slop/require-safety-comment-for-type-assertion": "error",
+      // Ratchet the existing findings through the lint task's warning ceiling.
+      "anti-slop/no-chained-type-assertions": "warn",
+      "anti-slop/no-conditional-empty-object-spread": "warn",
+      "anti-slop/no-known-value-widening": "warn",
+      "anti-slop/no-module-mocking": "warn",
+      "anti-slop/no-object-parameters": "warn",
+      "anti-slop/no-reflect-apply": "warn",
+      "anti-slop/no-reflect-get": "warn",
+      "anti-slop/no-runtime-typeof": "warn",
+      "anti-slop/no-shape-in-symbol-names": "warn",
+      "anti-slop/no-unknown-parameters": "warn",
+      "anti-slop/no-unknown-returns": "warn",
+      "anti-slop/no-unknown-type-aliases": "warn",
+      "anti-slop/no-unsafe-dictionary-type": "warn",
+      "anti-slop/no-widen-then-assert": "warn",
+      "anti-slop/require-safety-comment-for-type-assertion": "warn",
     },
   },
   run: {
@@ -75,7 +76,8 @@ export default defineConfig({
       },
       "fallow:dead-code": {
         cache: false,
-        command: "vp exec fallow dead-code --summary --format markdown --fail-on-issues",
+        command:
+          "vp exec fallow dead-code --baseline .fallow-baseline.json --summary --format markdown --fail-on-issues",
       },
       "knip:catalog": {
         cache: false,
@@ -88,7 +90,8 @@ export default defineConfig({
       },
       lint: {
         cache: false,
-        command: "vp exec oxlint . --ignore-path .gitignore",
+        // 13,824 anti-slop findings plus 68 existing Oxlint warnings.
+        command: "vp lint --max-warnings=13892",
       },
       "playground:vite:build": {
         cache: false,
