@@ -58,4 +58,19 @@ describe("Browser Run actions", () => {
     expect(error?.code).toBe("BROWSER_PROVIDER_ERROR")
     expect(content).toBeUndefined()
   })
+
+  it("bounds stalled Browser Run actions", async () => {
+    vi.useFakeTimers()
+    try {
+      runtime.__env__ = { BROWSER: { quickAction: async () => await new Promise(() => {}) } }
+
+      const action = runBrowserAction("content", "https://example.com")
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await expect(action).resolves.toMatchObject([{ code: "BROWSER_PROVIDER_ERROR" }, undefined])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
 })

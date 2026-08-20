@@ -16,6 +16,8 @@ interface BrowserRunBinding {
   quickAction(action: BrowserAction, input: Record<string, unknown>): Promise<Response>
 }
 
+const DEFAULT_ACTION_TIMEOUT_MS = 30_000
+
 function normalizeInput(input: BrowserActionInput): Record<string, unknown> {
   return typeof input === "string" ? { url: input } : input
 }
@@ -50,6 +52,27 @@ async function readQuickActionText(response: Response, action: BrowserAction): P
   return await response.text()
 }
 
+async function runQuickAction(
+  binding: BrowserRunBinding,
+  action: BrowserAction,
+  input: Record<string, unknown>,
+): Promise<Response> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      binding.quickAction(action, input),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(browserProviderError("cloudflare", `run ${action} quick action`))
+        }, DEFAULT_ACTION_TIMEOUT_MS)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 export async function runBrowserAction(
   action: BrowserAction,
   input: BrowserActionInput,
@@ -57,7 +80,7 @@ export async function runBrowserAction(
   try {
     const binding = await resolveBinding()
     const normalized = normalizeInput(input)
-    return [null, await binding.quickAction(action, normalized)]
+    return [null, await runQuickAction(binding, action, normalized)]
   }
   catch (error) {
     return [toBrowserError(error), undefined]

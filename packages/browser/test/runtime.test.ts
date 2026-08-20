@@ -67,6 +67,25 @@ describe("Browser Definitions", () => {
     expect(quickAction).toHaveBeenCalledWith("screenshot", { url: "https://example.com" })
   })
 
+  it("bounds stalled Browser Definition quick actions", async () => {
+    vi.useFakeTimers()
+    try {
+      runtime.__env__ = { BROWSER: { quickAction: async () => await new Promise(() => {}) } }
+      const definition = defineBrowser(async (input: { url: string }, { browser }) => {
+        return await browser.content(input.url)
+      })
+
+      const invocation = executeBrowserDefinition(definition, { url: "https://example.com" })
+      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("closes definition-owned page sessions", async () => {
     const release = vi.fn(async () => {})
     const close = vi.fn(async () => {})
