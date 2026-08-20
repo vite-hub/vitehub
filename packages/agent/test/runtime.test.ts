@@ -12522,6 +12522,7 @@ describe("agent message protocol", () => {
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
         expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error).toMatchObject({ isRetryable: false })
       }
       finally {
         vi.useRealTimers()
@@ -12629,7 +12630,7 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors[1]).toMatchObject({ message: "Durable chat error fallback delivery timed out after 10ms." })
+        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
       }
       finally {
         vi.useRealTimers()

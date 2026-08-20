@@ -1099,7 +1099,7 @@ async function applyDurableErrorFallbackIntent<
       new Promise<never>((_resolve, reject) => {
         timeoutId = setTimeout(() => {
           timedOut = true
-          const error = new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`)
+          const error = Object.assign(new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`), { isRetryable: false as const })
           controller.abort(error)
           reject(error)
         }, timeout)
@@ -3407,7 +3407,7 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
       delivery,
       new Promise<never>((_resolve, reject) => {
         timeoutId = setTimeout(() => {
-          const timeoutError = new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`)
+          const timeoutError = Object.assign(new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`), { isRetryable: false as const })
           controller.abort(timeoutError)
           reject(timeoutError)
         }, timeout)
