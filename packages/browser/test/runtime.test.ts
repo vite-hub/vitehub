@@ -115,6 +115,43 @@ describe("Browser Definitions", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("shares concurrent definition-owned page session cleanup", async () => {
+    let finishRelease!: () => void
+    const release = vi.fn(async () => await new Promise<void>(resolve => {
+      finishRelease = resolve
+    }))
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async (method: string) => method === "Target.getTargets"
+              ? { targetInfos: [{ targetId: "page", type: "page" }] }
+              : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      const pageSession = await browser.open()
+      const first = pageSession.close()
+      const second = pageSession.close()
+      expect(release).toHaveBeenCalledOnce()
+      expect(close).not.toHaveBeenCalled()
+      finishRelease()
+      await Promise.all([first, second])
+    })
+
+    await executeBrowserDefinition(definition, undefined, { client })
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("bounds stalled controller release during definition cleanup", async () => {
     vi.useFakeTimers()
     try {

@@ -86,6 +86,7 @@ class ManagedBrowserPageSession<TConnection> implements BrowserPageSession {
   readonly id
   readonly page
   private closed = false
+  private closePromise?: Promise<void>
 
   constructor(
     private readonly providerSession: BrowserSession<TConnection>,
@@ -101,22 +102,32 @@ class ManagedBrowserPageSession<TConnection> implements BrowserPageSession {
   }
 
   async close(): Promise<void> {
+    if (this.closePromise) return await this.closePromise
     if (this.closed) return
-    const errors: unknown[] = []
+    const closing = (async () => {
+      const errors: unknown[] = []
+      try {
+        await boundedCleanup(this.control.release(), "release the browser controller during session cleanup")
+      }
+      catch (error) {
+        errors.push(error)
+      }
+      try {
+        await this.providerSession.close()
+      }
+      catch (error) {
+        errors.push(error)
+      }
+      if (errors.length === 0) this.closed = true
+      closeErrors(errors, "[vitehub:browser] Browser Session controller and provider cleanup failed.")
+    })()
+    this.closePromise = closing
     try {
-      await boundedCleanup(this.control.release(), "release the browser controller during session cleanup")
+      await closing
     }
-    catch (error) {
-      errors.push(error)
+    finally {
+      this.closePromise = undefined
     }
-    try {
-      await this.providerSession.close()
-    }
-    catch (error) {
-      errors.push(error)
-    }
-    if (errors.length === 0) this.closed = true
-    closeErrors(errors, "[vitehub:browser] Browser Session controller and provider cleanup failed.")
   }
 }
 
