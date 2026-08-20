@@ -77,7 +77,7 @@ find dist -maxdepth 4 -type f | sort
 
 Agent routes should come from generated Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
 
-Required secret Server Env declarations with one exact Env Source are written to `secrets.required` in the generated Wrangler configuration. Wrangler reuses an existing Worker secret and stops deployment when that binding is absent; ViteHub records only the binding name and never resolves or writes its value during build. Optional secrets, non-secret values, defaults, and alternative source lists remain runtime-only because Wrangler's required list cannot express fallback names.
+Required secret Server Env declarations with one exact Env Source are written to `secrets.required` in the generated Wrangler configuration, including each configured named Wrangler environment because secrets are not inherited. Wrangler reuses an existing Worker secret and stops deployment when that binding is absent; ViteHub records only the binding name and never resolves or writes its value during build. Optional secrets, non-secret values, defaults, and alternative source lists remain runtime-only because Wrangler's required list cannot express fallback names.
 
 ### Workers Builds
 

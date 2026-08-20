@@ -192,6 +192,20 @@ describe("ViteHub Nuxt integration", () => {
       existingPlugin,
       { name: "vite-hub/deployment-output" },
     ]])
+    mocks.outputHook.mockImplementationOnce((config: { nitro?: Record<string, unknown> }) => {
+      const cloudflare = config.nitro?.cloudflare as Record<string, unknown> | undefined
+      const wrangler = cloudflare?.wrangler as Record<string, unknown> | undefined
+      config.nitro = {
+        ...config.nitro,
+        cloudflare: {
+          ...cloudflare,
+          wrangler: {
+            ...wrangler,
+            secrets: { required: ["VITEHUB_TOKEN"] },
+          },
+        },
+      }
+    })
 
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
@@ -280,7 +294,7 @@ describe("ViteHub Nuxt integration", () => {
         mode: "development",
       },
     )
-    expect(mocks.outputHook).not.toHaveBeenCalled()
+    expect(mocks.outputHook).toHaveBeenCalledOnce()
     expect(nitroConfig).toEqual({
       alias: {
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
@@ -292,6 +306,7 @@ describe("ViteHub Nuxt integration", () => {
           d1_databases: [d1Binding, d1Binding],
           name: "vitehub-nuxt",
           observability: { enabled: true },
+          secrets: { required: ["VITEHUB_TOKEN"] },
         },
       },
       ownerPlugin: true,

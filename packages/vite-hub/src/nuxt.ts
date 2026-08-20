@@ -288,9 +288,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     })(undefined, nuxt)
   }
 
-  const plugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
-    .filter(plugin => plugin.name !== "vite-hub/deployment-output")
+  const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
+  const plugins = installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output")
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
   )
@@ -304,8 +304,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       .filter(plugin => plugin.name)
       .map(plugin => [plugin.name, plugin]),
   )
-  const installedPlugins = [
-    ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
+  const replayPlugins = [
+    ...installedPlugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
     ...flattenPlugins(existing).filter(plugin =>
       (plugin.name.startsWith("@vite-hub/") || plugin.name.startsWith("vite-hub/"))
       && !plugins.some(candidate => candidate.name === plugin.name),
@@ -338,7 +338,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...plugins.filter(plugin => !existingNames.has(plugin.name)),
     ...existing,
   ] as PluginOption[]
-  const envPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
+  const envPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
     api?: { resolveProjectRoot?: (viteRoot: string) => string }
   } | undefined
   const configuredEnvProjectRootOption = options.env && typeof options.env === "object"
@@ -358,7 +358,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
   }
   nuxt.hook?.("nitro:config", async (config) => {
-    await applyNitroConfig(installedPlugins, config, nuxt)
+    await applyNitroConfig(replayPlugins, config, nuxt)
     const alias = (config.alias ??= {}) as Record<string, string>
     for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
   })

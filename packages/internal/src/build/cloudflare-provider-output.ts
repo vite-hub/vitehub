@@ -32,6 +32,7 @@ interface CloudflareProviderOutputContribution {
   r2Buckets?: CloudflareR2Bucket[]
   rateLimits?: CloudflareRateLimit[]
   requiredSecrets?: string[]
+  requiredSecretsByEnvironment?: Record<string, string[]>
 }
 
 interface CloudflareProviderOutputCatalog {
@@ -90,8 +91,9 @@ function removeEntries(existing: unknown, entries: unknown[] | undefined): unkno
 function removeContribution(wrangler: Record<string, unknown>, contribution: CloudflareProviderOutputContribution): Record<string, unknown> {
   const queues = cloneProviderRecord(wrangler.queues)
   const secrets = cloneProviderRecord(wrangler.secrets)
+  const environments = cloneProviderRecord(wrangler.env)
   const hasQueues = Boolean(contribution.queues?.consumers?.length || contribution.queues?.producers?.length)
-  const hasSecrets = Boolean(contribution.requiredSecrets?.length)
+  const hasSecrets = Boolean(contribution.requiredSecrets?.length || Object.keys(contribution.requiredSecretsByEnvironment ?? {}).length)
   if (contribution.queues?.consumers?.length) {
     const consumers = removeEntries(queues.consumers, contribution.queues.consumers)
     if (consumers.length) queues.consumers = consumers
@@ -107,13 +109,25 @@ function removeContribution(wrangler: Record<string, unknown>, contribution: Clo
     if (required.length) secrets.required = required
     else delete secrets.required
   }
+  for (const [name, requiredSecrets] of Object.entries(contribution.requiredSecretsByEnvironment ?? {})) {
+    const environment = cloneProviderRecord(environments[name])
+    const environmentSecrets = cloneProviderRecord(environment.secrets)
+    const required = removeEntries(environmentSecrets.required, requiredSecrets)
+    if (required.length) environmentSecrets.required = required
+    else delete environmentSecrets.required
+    if (Object.keys(environmentSecrets).length) environment.secrets = environmentSecrets
+    else delete environment.secrets
+    environments[name] = environment
+  }
   const withoutOwned = { ...wrangler }
   if (hasQueues) delete withoutOwned.queues
   if (hasSecrets) delete withoutOwned.secrets
+  if (hasSecrets) delete withoutOwned.env
   return {
     ...withoutOwned,
     ...(hasQueues && Object.keys(queues).length ? { queues } : {}),
     ...(hasSecrets && Object.keys(secrets).length ? { secrets } : {}),
+    ...(hasSecrets && Object.keys(environments).length ? { env: environments } : {}),
     ...(contribution.r2Buckets?.length ? { r2_buckets: removeEntries(wrangler.r2_buckets, contribution.r2Buckets) } : {}),
     ...(contribution.rateLimits?.length ? { ratelimits: removeEntries(wrangler.ratelimits, contribution.rateLimits) } : {}),
   }
@@ -122,6 +136,7 @@ function removeContribution(wrangler: Record<string, unknown>, contribution: Clo
 function mergeContribution(wrangler: Record<string, unknown>, owner: string, contribution: CloudflareProviderOutputContribution): [Record<string, unknown>, CloudflareProviderOutputContribution] {
   const queues = cloneProviderRecord(wrangler.queues)
   const secrets = cloneProviderRecord(wrangler.secrets)
+  const environments = cloneProviderRecord(wrangler.env)
   const consumers = compatibleEntries(queues.consumers, contribution.queues?.consumers, "queue", [], owner)
   const producers = compatibleEntries(queues.producers, contribution.queues?.producers, "binding", ["queue"], owner)
   const r2Buckets = compatibleEntries(wrangler.r2_buckets, contribution.r2Buckets, "binding", ["bucket_name"], owner)
@@ -129,6 +144,19 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
   const currentRequiredSecrets = Array.isArray(secrets.required) ? secrets.required : []
   const requiredSecrets = (contribution.requiredSecrets ?? []).filter(name => !currentRequiredSecrets.includes(name))
   if (requiredSecrets.length) secrets.required = [...currentRequiredSecrets, ...requiredSecrets]
+  const requiredSecretsByEnvironment: Record<string, string[]> = {}
+  for (const [name, value] of Object.entries(environments)) {
+    const environment = cloneProviderRecord(value)
+    const environmentSecrets = cloneProviderRecord(environment.secrets)
+    const current = Array.isArray(environmentSecrets.required) ? environmentSecrets.required : []
+    const required = (contribution.requiredSecrets ?? []).filter(secret => !current.includes(secret))
+    if (required.length) {
+      environmentSecrets.required = [...current, ...required]
+      environment.secrets = environmentSecrets
+      environments[name] = environment
+      requiredSecretsByEnvironment[name] = required
+    }
+  }
   const nextQueues = mergeProviderOutputConfig(
     queues,
     {
@@ -149,6 +177,7 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
       ...(r2Buckets.length ? { r2_buckets: r2Buckets } : {}),
       ...(rateLimits.length ? { ratelimits: rateLimits } : {}),
       ...(Object.keys(secrets).length ? { secrets } : {}),
+      ...(Object.keys(environments).length ? { env: environments } : {}),
     },
     {
       arrays: {
@@ -161,6 +190,7 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
     r2Buckets,
     rateLimits,
     requiredSecrets,
+    requiredSecretsByEnvironment,
   }]
 }
 

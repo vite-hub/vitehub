@@ -90,6 +90,34 @@ describe("Cloudflare provider output", () => {
     )
   })
 
+  it("composes and removes required secrets independently in named environments", () => {
+    const config = {}
+    registerCloudflareProviderOutput(config, "env", {
+      requiredSecrets: ["EXISTING_SECRET", "VITEHUB_TOKEN"],
+    })
+
+    const first = composeNitroCloudflareProviderOutput(config, {
+      cloudflare: {
+        wrangler: {
+          secrets: { required: ["EXISTING_SECRET"] },
+          env: {
+            staging: { secrets: { required: ["VITEHUB_TOKEN"] } },
+            production: { name: "production-worker" },
+          },
+        },
+      },
+    })
+    expect(first).toHaveProperty("cloudflare.wrangler.env.staging.secrets.required", ["VITEHUB_TOKEN", "EXISTING_SECRET"])
+    expect(first).toHaveProperty("cloudflare.wrangler.env.production.secrets.required", ["EXISTING_SECRET", "VITEHUB_TOKEN"])
+
+    registerCloudflareProviderOutput(config, "env", {})
+    const second = composeNitroCloudflareProviderOutput(config, first)
+    expect(second).toHaveProperty("cloudflare.wrangler.secrets.required", ["EXISTING_SECRET"])
+    expect(second).toHaveProperty("cloudflare.wrangler.env.staging.secrets.required", ["VITEHUB_TOKEN"])
+    expect(second).not.toHaveProperty("cloudflare.wrangler.env.production.secrets")
+    expect(second).toHaveProperty("cloudflare.wrangler.env.production.name", "production-worker")
+  })
+
   it("replaces an owner's contribution without changing application policy", () => {
     const config = {}
     registerCloudflareProviderOutput(config, "queue", {
