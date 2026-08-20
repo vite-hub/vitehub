@@ -196,6 +196,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     let expired = false
     const barrier = clickQueue.then(async () => {
       if (expired) return
+      if (clickFailure) throw clickFailure
       await runClick(locator)
     })
     clickQueue = barrier.catch(() => {})

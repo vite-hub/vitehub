@@ -228,11 +228,14 @@ describe("CDP page", () => {
 
       const first = page.locator("a:first-child").click()
       const firstResult = expect(first).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
-      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(10_000)
+      const second = page.locator("a:last-child").click()
+      const secondResult = expect(second).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(20_000)
       await firstResult
-      await expect(page.locator("a:last-child").click()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
       resolveEvaluation({ result: { value: true } })
       await vi.advanceTimersByTimeAsync(0)
+      await secondResult
       expect(evaluations).toBe(1)
     }
     finally {
