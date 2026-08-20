@@ -5,13 +5,25 @@ import {
   runBrowserContent,
 } from "../src/actions.ts"
 
+const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
+vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig }))
+
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
 
 afterEach(() => {
   delete runtime.__env__
+  runtimeConfig.provider = "cloudflare"
 })
 
 describe("Browser Run actions", () => {
+  it("rejects actions when Browser is not configured", async () => {
+    runtimeConfig.provider = undefined
+    const [error, response] = await runBrowserAction("content", "https://example.com")
+
+    expect(error?.code).toBe("BROWSER_RUNTIME_NOT_CONFIGURED")
+    expect(response).toBeUndefined()
+  })
+
   it("runs Cloudflare Browser quick actions through the configured binding", async () => {
     const quickAction = vi.fn(async () => new Response("<html><title>ok</title></html>"))
     const binding = { quickAction }

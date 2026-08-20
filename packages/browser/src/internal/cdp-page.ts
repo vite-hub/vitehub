@@ -95,9 +95,12 @@ class CDPBrowserLocator implements BrowserLocator {
     private readonly send: AttachedPage["send"],
     private readonly locator: LocatorSpec,
     private readonly clickLocator: (locator: LocatorSpec) => Promise<void>,
+    private readonly assertPageUsable: () => void,
+    private readonly invalidatePage: (error: Error) => void,
   ) {}
 
   private async evaluate<TResult>(operation: Parameters<typeof locatorExpression>[0], value?: string): Promise<TResult> {
+    this.assertPageUsable()
     const operationName = `${operation} Browser locator ${JSON.stringify(this.locator.selector)}`
     const result = await withTimeout(this.send<{
       exceptionDetails?: unknown
@@ -106,7 +109,7 @@ class CDPBrowserLocator implements BrowserLocator {
       awaitPromise: true,
       expression: locatorExpression(operation, this.locator, value),
       returnByValue: true,
-    }), DEFAULT_TIMEOUT_MS, operationName)
+    }), DEFAULT_TIMEOUT_MS, operationName, this.invalidatePage)
     return evaluateResult(result, operationName)
   }
 
@@ -167,6 +170,13 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   )
   const mainFrameId = frameTree.frameTree?.frame?.id
 
+  let pageFailure: unknown
+  const assertPageUsable = () => {
+    if (pageFailure) throw pageFailure
+  }
+  const invalidatePage = (error: Error) => {
+    pageFailure ??= error
+  }
   let clickQueue = Promise.resolve()
   let clickFailure: unknown
   const runClick = async (locator: LocatorSpec) => {
@@ -202,6 +212,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     }
   }
   const clickLocator = (locator: LocatorSpec) => {
+    assertPageUsable()
     if (clickFailure) return Promise.reject(clickFailure)
     let expired = false
     const barrier = clickQueue.then(async () => {
@@ -223,6 +234,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
 
   const page: BrowserPage = {
     async goto(url, options = {}) {
+      assertPageUsable()
       let navigationLoaderId: string | undefined
       const loadedLoaderIds = new Set<string>()
       let resolveLoad = () => {}
@@ -250,13 +262,14 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       }
     },
     locator(selector: string, options: BrowserLocatorOptions = {}) {
-      return new CDPBrowserLocator(send, { selector, ...options }, clickLocator)
+      return new CDPBrowserLocator(send, { selector, ...options }, clickLocator, assertPageUsable, invalidatePage)
     },
     async press(key) {
+      assertPageUsable()
       await withTimeout((async () => {
-        await send("Input.dispatchKeyEvent", { key, type: "keyDown" })
+        await send("Input.dispatchKeyEvent", { key, text: key.length === 1 ? key : undefined, type: "keyDown" })
         await send("Input.dispatchKeyEvent", { key, type: "keyUp" })
-      })(), DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`)
+      })(), DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`, invalidatePage)
     },
   }
 

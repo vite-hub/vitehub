@@ -8,14 +8,19 @@ import {
 
 import type { BrowserClient } from "../src/types.ts"
 
+const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
+vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig }))
+
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
 
 afterEach(() => {
   delete runtime.__env__
+  runtimeConfig.provider = "cloudflare"
 })
 
 describe("Browser Definitions", () => {
   it("reports an unconfigured runtime before opening a default binding", async () => {
+    runtimeConfig.provider = undefined
     const definition = defineBrowser(async (_input, { browser }) => {
       await browser.open()
     })

@@ -297,6 +297,38 @@ describe("CDP page", () => {
     }
   })
 
+  it("invalidates the page after a direct locator timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveEvaluation!: (value: { result: { value: boolean } }) => void
+      const fake = fakeClient()
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Runtime.evaluate") {
+          return await new Promise<{ result: { value: boolean } }>(resolve => {
+            resolveEvaluation = resolve
+          })
+        }
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+
+      const first = page.locator("input").fill("late")
+      const firstResult = expect(first).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await firstResult
+      await expect(page.locator("input").fill("next")).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      resolveEvaluation({ result: { value: true } })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fake.send.mock.calls.filter(([method]) => method === "Runtime.evaluate")).toHaveLength(1)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("bounds page key dispatches", async () => {
     vi.useFakeTimers()
     try {
@@ -318,6 +350,25 @@ describe("CDP page", () => {
     finally {
       vi.useRealTimers()
     }
+  })
+
+  it("sends text for printable keys", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await page.press("a")
+
+    expect(fake.send).toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      { key: "a", text: "a", type: "keyDown" },
+      "page-session",
+    )
   })
 
   it("rejects failed page navigations", async () => {

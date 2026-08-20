@@ -33,6 +33,7 @@ async function runtimeBinding(name: string): Promise<unknown> {
 }
 
 async function resolveBinding(): Promise<BrowserRunBinding> {
+  if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
   const bindingOption = runtimeConfig.binding
   if (!bindingOption) throw browserRuntimeNotConfiguredError()
   const binding = await runtimeBinding(bindingOption)
