@@ -33,6 +33,8 @@ export const noUnknownTypeAliasesRule = defineRule({
 			if (type.type === "TSUnknownKeyword") return true;
 			if (type.type === "TSParenthesizedType")
 				return resolvesToUnknown(type.typeAnnotation, from, bindings, visited);
+			if (type.type === "TSUnionType")
+				return type.types.some((member) => resolvesToUnknown(member, from, bindings, visited));
 			if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return false;
 			const name = type.typeName.name;
 			const bound = bindings.get(name);
