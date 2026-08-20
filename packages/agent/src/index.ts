@@ -22,7 +22,7 @@ import {
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
-import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import {
   bindMessageChannelInstructions,
@@ -1072,43 +1072,6 @@ async function applyChannelDeliveryEffectIntents<
     if (titleDelivery && delivered) {
       context.context.set(messageChannelTitleDeliveredContextKey, true, { overwrite: true })
     }
-  }
-}
-
-async function applyDurableErrorFallbackIntent<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
-  intent: AgentChannelDeliveryEffectIntent,
-  timeout: number,
-  finish?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
-): Promise<void> {
-  const controller = new AbortController()
-  const parentSignal = context.input.abortSignal
-  const abortSignal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
-  const delivery = applyChannelDeliveryEffectIntents({
-    ...context,
-    input: { ...context.input, abortSignal },
-  }, [intent], finish)
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  let timedOut = false
-  try {
-    await Promise.race([
-      delivery,
-      new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => {
-          timedOut = true
-          const error = Object.assign(new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`), { isRetryable: false as const })
-          controller.abort(error)
-          reject(error)
-        }, timeout)
-      }),
-    ])
-  }
-  finally {
-    if (timeoutId) clearTimeout(timeoutId)
-    if (timedOut) void delivery.catch(() => undefined)
   }
 }
 
@@ -2905,6 +2868,49 @@ async function resolveFinishDeliveryEffectIntents<
   return intents
 }
 
+async function applyDurableFailureDeliveryEffects<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  providers: readonly AgentChannelDeliveryFinishEffect[],
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  timeout: number,
+): Promise<void> {
+  const fallbackProviders = providers.filter(isDurableChatErrorFallbackEffect)
+  const otherProviders = providers.filter(provider => !isDurableChatErrorFallbackEffect(provider))
+  const controller = new AbortController()
+  const parentSignal = context.input.abortSignal
+  const abortSignal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
+  const deliveryContext = { ...context, input: { ...context.input, abortSignal } }
+  const operation = (async () => {
+    for (const group of [fallbackProviders, otherProviders]) {
+      const intents = await resolveFinishDeliveryEffectIntents(group, event, deliveryContext)
+      for (const intent of intents) await applyChannelDeliveryEffectIntents(deliveryContext, [intent], event)
+    }
+  })()
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          const error = Object.assign(
+            new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
+            { isRetryable: false as const },
+          )
+          controller.abort(error)
+          reject(error)
+        }, timeout)
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+    void operation.catch(() => undefined)
+  }
+}
+
 function createFinishDeliveryEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -3112,12 +3118,12 @@ async function finishAgentInvocation<
         const extensions = await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
-        const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
-        for (const intent of finishIntents) {
-          if (intent.intent === "chat.error-fallback" && context.durableErrorFallbackTimeout !== undefined) {
-            await applyDurableErrorFallbackIntent(context, intent, context.durableErrorFallbackTimeout, finishEvent as never)
-          }
-          else {
+        if (failed && context.durableErrorFallbackTimeout !== undefined && activeDeliveryProviders.some(isDurableChatErrorFallbackEffect)) {
+          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, context.durableErrorFallbackTimeout)
+        }
+        else {
+          const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
+          for (const intent of finishIntents) {
             await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
           }
         }

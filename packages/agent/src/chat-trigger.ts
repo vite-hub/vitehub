@@ -77,6 +77,9 @@ const CHAT_WEBHOOK_DEFAULTS = {
 export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const durableChatErrorFallbackTimeoutMs = 30_000
+export function isDurableChatErrorFallbackEffect(effect: unknown): boolean {
+  return typeof effect === "function" && (effect as { kind?: string }).kind === "chat.error-fallback"
+}
 
 export function durableChatErrorFallbackTimeout(
   options: Pick<AgentChatOptions, "timeout"> | undefined,
@@ -170,7 +173,7 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   effect.active = context => context.error !== undefined
     && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
     && (Boolean(getAgentChatContext(context.context)) || context.context.has("channel"))
-  effect.kind = "reply"
+  effect.kind = "chat.error-fallback"
   return effect
 }
 
