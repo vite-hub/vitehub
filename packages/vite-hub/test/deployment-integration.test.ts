@@ -178,6 +178,45 @@ describe("built-in deployment preset integration", () => {
     }
   })
 
+  it("declares required secrets in named environments from later post hooks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-late-required-secrets-"))
+    try {
+      const config = await resolveConfig({
+        env: {
+          server: {
+            token: env({ secret: true, source: env.source("VITEHUB_TOKEN") }),
+          },
+        },
+        root,
+        plugins: [
+          vitehub({ preset: "cloudflare" }),
+          {
+            name: "app/cloudflare-environments",
+            enforce: "post",
+            config() {
+              return {
+                nitro: {
+                  cloudflare: {
+                    wrangler: {
+                      env: { staging: { name: "staging-worker" } },
+                    },
+                  },
+                },
+              }
+            },
+          },
+        ],
+      } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
+
+      expect((config as typeof config & {
+        nitro?: { cloudflare?: { wrangler?: { env?: { staging?: { secrets?: { required?: string[] } } } } } }
+      }).nitro?.cloudflare?.wrangler?.env?.staging?.secrets?.required).toEqual(["VITEHUB_TOKEN"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("keeps required Server Env secrets out of non-Cloudflare output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-node-required-secrets-"))
     try {
