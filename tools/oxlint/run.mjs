@@ -22,7 +22,10 @@ try {
 }
 
 const antiSlopDiagnostics = report.diagnostics.filter((diagnostic) =>
-  diagnostic.code.startsWith("anti-slop("),
+  diagnostic.code?.startsWith("anti-slop("),
+);
+const nativeErrors = report.diagnostics.filter(
+  (diagnostic) => !diagnostic.code?.startsWith("anti-slop(") && diagnostic.severity === "error",
 );
 const identity = (diagnostic) =>
   createHash("sha256")
@@ -69,6 +72,11 @@ if (newDiagnostics.length > 0) {
       : diagnostic.filename;
     console.error(`${location} ${diagnostic.code}: ${diagnostic.message}`);
   }
+}
+
+if (nativeErrors.length > 0) {
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
 }
 
 const resolvedCount = [...remaining.values()].reduce((total, count) => total + count, 0);
