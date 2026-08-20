@@ -113,7 +113,9 @@ const devPayloadMaxLength = 1200
 let devUsagePricing: AgentUsagePricing | undefined
 
 function defaultDevUsagePricing() {
-  return devUsagePricing ??= vercelAiGatewayPricing()
+  return devUsagePricing ??= vercelAiGatewayPricing({
+    fetch: (...args) => globalThis.fetch(...args),
+  })
 }
 
 function writeEvalUsage(context: AgentCliContext): void {
