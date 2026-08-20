@@ -175,6 +175,25 @@ describe("Browser Sessions", () => {
     await session.close()
   })
 
+  it("closes while controller attachment is pending and releases a late attachment", async () => {
+    const { close, connection, controller, provider, release } = fixture()
+    let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void
+    controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
+      resolveAttachment = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const attachment = session.attach(controller)
+    const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    await session.close()
+    resolveAttachment({ client: connection, release })
+
+    await result
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    expect(session.inspect().state).toBe("closed")
+  })
+
   it("keeps session ownership explicit", async () => {
     const { close, provider } = fixture()
     const browser = createBrowser({ provider })

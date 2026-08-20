@@ -132,6 +132,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
   readonly id: string
   private claimed: boolean
   private controller?: string
+  private attaching = false
   private lastControllerSupportsHandoff = true
   private state: BrowserSessionState = "released"
 
@@ -164,18 +165,26 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     controller: BrowserController<TClient, TConnection>,
   ): Promise<BrowserControl<TClient>> {
     this.assertState("attach a controller to", "released")
+    if (this.attaching) throw browserSessionStateError("attach a controller to", "controlled")
     if (this.claimed && !controller.features.attachExistingSession) {
       throw browserLiveHandoffUnsupportedError(this.owner.provider.name, controller.name)
     }
 
-    this.state = "controlled"
-    this.controller = controller.name
+    this.attaching = true
     let attached: Awaited<ReturnType<typeof controller.attach>> | undefined
     try {
       attached = await controller.attach(this.providerSession.connection, {
         provider: this.owner.provider,
         sessionId: this.id,
       })
+      this.attaching = false
+      if (this.state !== "released") {
+        await attached.release()
+        attached = undefined
+        throw browserSessionStateError("attach a controller to", this.state)
+      }
+      this.state = "controlled"
+      this.controller = controller.name
       this.lastControllerSupportsHandoff = controller.features.attachExistingSession
         && attached.preservesSessionOnRelease !== false
       await this.owner.emit("browser.controller.attach", this, { controller: controller.name })
@@ -198,6 +207,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       }
     }
     catch (error) {
+      this.attaching = false
       const errors = [error]
       if (attached) {
         try {

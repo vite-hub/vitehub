@@ -44,17 +44,12 @@ async function attachController<TConnection>(
   controller: BrowserController<CDPClient, TConnection>,
 ): Promise<BrowserControl<CDPClient>> {
   let timer: ReturnType<typeof setTimeout> | undefined
-  let timedOut = false
   const attachment = providerSession.attach(controller)
-  void attachment.then(async (control) => {
-    if (timedOut) await control.release()
-  }).catch(() => {})
   try {
     return await Promise.race([
       attachment,
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
-          timedOut = true
           reject(browserProviderError("cdp", "attach the browser controller"))
         }, CONTROLLER_ATTACH_TIMEOUT_MS)
       }),
