@@ -13,7 +13,7 @@ export default defineConfig({
       },
     ],
     rules: {
-      // Ratchet the existing findings through the lint task's warning ceiling.
+      // Preserve existing findings through the exact-diagnostic baseline.
       "anti-slop/no-chained-type-assertions": "warn",
       "anti-slop/no-conditional-empty-object-spread": "warn",
       "anti-slop/no-known-value-widening": "warn",
@@ -90,8 +90,7 @@ export default defineConfig({
       },
       lint: {
         cache: false,
-        // 13,824 anti-slop findings plus 68 existing Oxlint warnings.
-        command: "vp lint --max-warnings=13892",
+        command: "node tools/oxlint/run.mjs",
       },
       "playground:vite:build": {
         cache: false,
@@ -124,7 +123,8 @@ export default defineConfig({
       },
       release: {
         cache: false,
-        command: 'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',
+        command:
+          'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',
       },
       "sandbox:e2e": {
         cache: false,
@@ -164,11 +164,13 @@ export default defineConfig({
       },
       typecheck: {
         cache: false,
-        command: "vp run build && vp run --filter vitehub-docs --ignore-depends-on typecheck && node test/run-package-task.mjs typecheck",
+        command:
+          "vp run build && vp run --filter vitehub-docs --ignore-depends-on typecheck && node test/run-package-task.mjs typecheck",
       },
       verify: {
         cache: false,
-        command: "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+        command:
+          "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,
