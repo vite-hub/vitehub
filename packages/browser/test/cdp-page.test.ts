@@ -83,6 +83,34 @@ describe("CDP page", () => {
     })
   })
 
+  it("bounds locator evaluation", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Runtime.evaluate") return await new Promise(() => {})
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.locator("button").waitFor({ timeoutMs: 1 })).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+    })
+  })
+
+  it("bounds the download action", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.waitForDownload(async () => {
+      fake.emit("Page.downloadWillBegin", {
+        suggestedFilename: "export.png",
+        url: "data:image/png;base64,cG5n",
+      })
+      await new Promise(() => {})
+    }, { timeoutMs: 1 })).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+  })
+
   it("rejects failed page navigations", async () => {
     const fake = fakeClient()
     fake.send.mockImplementation(async (method: string) => {

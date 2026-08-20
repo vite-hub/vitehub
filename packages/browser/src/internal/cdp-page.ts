@@ -118,11 +118,13 @@ class CDPBrowserLocator implements BrowserLocator {
   async waitFor(options: BrowserLocatorWaitOptions = {}): Promise<void> {
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const deadline = Date.now() + timeoutMs
+    const operation = `wait for Browser locator ${JSON.stringify(this.locator.selector)}`
     do {
-      if (await this.evaluate<boolean>("visible")) return
-      await new Promise(resolve => setTimeout(resolve, 50))
+      const remainingMs = Math.max(0, deadline - Date.now())
+      if (await withTimeout(this.evaluate<boolean>("visible"), remainingMs, operation)) return
+      await new Promise(resolve => setTimeout(resolve, Math.min(50, Math.max(0, deadline - Date.now()))))
     } while (Date.now() < deadline)
-    throw browserProviderError("cdp", `wait for Browser locator ${JSON.stringify(this.locator.selector)}`)
+    throw browserProviderError("cdp", operation)
   }
 }
 
@@ -176,8 +178,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
       let stopPage = () => {}
       let stopBrowser = () => {}
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const download = new Promise<BrowserDownload>((resolve, reject) => {
+      const download = new Promise<BrowserDownload>((resolve) => {
         const receive = (params: unknown) => {
           const event = params as { suggestedFilename?: unknown, url?: unknown }
           if (typeof event.url !== "string" || typeof event.suggestedFilename !== "string") return
@@ -185,19 +186,18 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
         }
         stopPage = client.on("Page.downloadWillBegin", receive)
         stopBrowser = client.on("Browser.downloadWillBegin", receive)
-        timer = setTimeout(
-          () => reject(browserProviderError("cdp", "wait for the browser download")),
-          timeoutMs,
-        )
       })
       try {
-        await action()
-        return await download
+        const [, result] = await withTimeout(
+          Promise.all([action(), download]),
+          timeoutMs,
+          "wait for the browser download",
+        )
+        return result
       }
       finally {
         stopPage()
         stopBrowser()
-        if (timer) clearTimeout(timer)
       }
     },
   }
