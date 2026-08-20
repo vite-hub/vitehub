@@ -11,7 +11,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentOutputInstructions, agentOutputJsonSchema, normalizeNativeAgentOutputError } from "./internal/agent-structured-output.ts"
+import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
@@ -1044,6 +1044,34 @@ function mergeCallSettings(
   return settings
 }
 
+function withoutToolCallSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const {
+    activeTools: _activeTools,
+    experimental_refineToolInput: _experimentalRefineToolInput,
+    experimental_repairToolCall: _experimentalRepairToolCall,
+    onToolExecutionEnd: _onToolExecutionEnd,
+    onToolExecutionStart: _onToolExecutionStart,
+    prepareStep: _prepareStep,
+    repairToolCall: _repairToolCall,
+    toolApproval: _toolApproval,
+    toolChoice: _toolChoice,
+    toolOrder: _toolOrder,
+    tools: _tools,
+    ...rest
+  } = settings
+  return rest
+}
+
+function outputRepairPrompt(text: string, error: Error): string {
+  const cause = error.cause instanceof Error ? error.cause.message : undefined
+  return [
+    "Correct the invalid final Agent output below.",
+    "Return only the corrected JSON value. Do not repeat completed work.",
+    `Validation error: ${cause || error.message}`,
+    `Invalid output: ${JSON.stringify(text)}`,
+  ].join("\n\n")
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -1114,19 +1142,39 @@ async function createAgent(
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
+  const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
+  const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context), context)
+  const repairOutput = nativeOutput && context.output
+    ? async (failure: { error: Error, text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
+        const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = callInput
+        try {
+          return await aiSdk.generateText({
+            ...withoutToolCallSettings(commonSettings),
+            ...repairCallInput,
+            instructions,
+            model: instrumentedModel as never,
+            output: nativeOutput,
+            prompt: outputRepairPrompt(failure.text, failure.error),
+            stopWhen: isStepCount(1),
+          } as never) as unknown as AgentAdapterResult
+        }
+        catch (repairError) {
+          return await normalizeNativeAgentOutputError(context.output, repairError)
+        }
+      }
+    : undefined
 
   return {
     agent: new ToolLoopAgent({
-      ...withRuntimeContext(withViteHubTelemetry(settings, context), context),
+      ...commonSettings,
       instructions,
       model: instrumentedModel as never,
-      ...(outputSchema
-        ? { output: aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) }
-        : {}),
+      ...(nativeOutput ? { output: nativeOutput } : {}),
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
     model: instrumentedModel,
+    repairOutput,
     tools: Object.keys(toolSet).length ? toolSet : undefined,
   }
 }
@@ -1143,22 +1191,40 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
-      const { agent, model, tools } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, repairOutput, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
       const usageCapture = createUsageCapture()
+      const repairCallInput = {
+        ...callInput,
+        onEnd: usageCapture.onEnd,
+        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+        onStepEnd: usageCapture.onStepEnd,
+      }
       let generated: GenerateTextResult<ToolSet, never, never>
+      let repaired = false
       try {
-        generated = await agent.generate({
-          ...callInput,
-          onEnd: usageCapture.onEnd,
-          onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-          onStepEnd: usageCapture.onStepEnd,
-        } as never) as GenerateTextResult<ToolSet, never, never>
+        generated = await agent.generate(repairCallInput as never) as GenerateTextResult<ToolSet, never, never>
       }
       catch (error) {
-        return await normalizeNativeAgentOutputError(context.output, error)
+        const failure = await nativeAgentOutputValidationFailure(context.output, error)
+        const repairedOutput = failure && repairOutput
+          ? await repairOutput(failure, repairCallInput) as GenerateTextResult<ToolSet, never, never>
+          : undefined
+        generated = repairedOutput ?? await normalizeNativeAgentOutputError(context.output, error)
+        repaired = Boolean(repairedOutput)
+      }
+      if (!repaired && repairOutput && context.output) {
+        try {
+          await validateAgentOutput(context.output, generated)
+        }
+        catch (error) {
+          generated = await repairOutput({
+            error: error instanceof Error ? error : new Error(String(error)),
+            text: generated.text,
+          }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
+        }
       }
       const result = withResolvedModelMetadata(withCapturedUsage(generated, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()

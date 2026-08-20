@@ -77,6 +77,35 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
+function nativeSummarySchema() {
+  return {
+    "~standard": {
+      jsonSchema: {
+        input: () => ({
+          properties: { summary: { type: "string" }, title: { type: "string" } },
+          required: ["summary", "title"],
+          type: "object",
+        }),
+      },
+      validate: (value: unknown) => value
+        && typeof value === "object"
+        && typeof (value as { summary?: unknown }).summary === "string"
+        && typeof (value as { title?: unknown }).title === "string"
+        ? { value: value as { summary: string, title: string } }
+        : { issues: [{ message: "Expected a string", path: ["title"] }] },
+      vendor: "vitehub-test",
+      version: 1 as const,
+    },
+  }
+}
+
+function nativeOutputError(text: string) {
+  return Object.assign(new Error("No object generated"), {
+    name: "AI_NoObjectGeneratedError",
+    text,
+  })
+}
+
 async function failedTitleInvocation(options: {
   deliver?: (title: string) => Promise<void> | void
   execute: () => string
@@ -1733,6 +1762,87 @@ describe("agent message protocol", () => {
     })
     await expect(runAgent(scalarAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBeDefined()
     expect(agentSettings.at(-1)).not.toHaveProperty("output")
+  })
+
+  it("repairs invalid native output once without re-running tools", async () => {
+    const agentSettings: Record<string, unknown>[] = []
+    const dbExec = vi.fn(() => ({ id: "meal-1" }))
+    const generateText = vi.fn(async (settings: Record<string, unknown>) => {
+      await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 3 } })
+      return { finishReason: "stop", text: "{\"summary\":\"Saved\",\"title\":\"Skyr\"}" }
+    })
+    loadAiSdk.mockResolvedValue({
+      generateText,
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(options => options) },
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+          agentSettings.push(settings)
+        }
+
+        async generate() {
+          const tools = this.settings.tools as Record<string, { execute: (input: unknown) => unknown }>
+          await tools.db_exec!.execute({ sql: "INSERT" })
+          return { finishReason: "stop", text: "{\"summary\":\"Saved\",\"title\":42}" }
+        }
+      },
+    })
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "database",
+        tools: { db_exec: { execute: dbExec, name: "db_exec" } },
+      })],
+      driver: {
+        execution: { callSettings: { toolChoice: "auto" } },
+        model: {} as never,
+        output: { schema: nativeSummarySchema() },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({
+      summary: "Saved",
+      title: "Skyr",
+    })
+    expect(dbExec).toHaveBeenCalledOnce()
+    expect(generateText).toHaveBeenCalledOnce()
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("title: Expected a string"),
+    }))
+    expect(generateText.mock.calls[0]![0]).not.toHaveProperty("tools")
+    expect(generateText.mock.calls[0]![0]).not.toHaveProperty("toolChoice")
+    expect(agentSettings[0]).toHaveProperty("tools.db_exec")
+  })
+
+  it("keeps the ViteHub output error when the single repair remains invalid", async () => {
+    const generateText = vi.fn(async () => ({ finishReason: "stop", text: "{\"summary\":\"Saved\",\"title\":42}" }))
+    loadAiSdk.mockResolvedValue({
+      generateText,
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(options => options) },
+      ToolLoopAgent: class {
+        async generate() {
+          throw nativeOutputError("{\"summary\":\"Saved\",\"title\":42}")
+        }
+      },
+    })
+    const { ViteHubError } = await import("@vite-hub/runtime")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never, output: { schema: nativeSummarySchema() } }, runtime: false })
+
+    const error = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}).then(() => undefined, cause => cause as InstanceType<typeof ViteHubError>)
+    expect(generateText).toHaveBeenCalledOnce()
+    expect(error).toMatchObject({
+      code: "AGENT_OUTPUT_SCHEMA_INVALID",
+      message: "[vitehub] Agent output failed schema validation.",
+      name: "ViteHubError",
+    })
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
