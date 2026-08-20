@@ -78,6 +78,12 @@ export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const durableChatErrorFallbackTimeoutMs = 30_000
 
+export function durableChatErrorFallbackTimeout(
+  options: Pick<AgentChatOptions, "timeout"> | undefined,
+): number {
+  return Math.min(options?.timeout ?? durableChatErrorFallbackTimeoutMs, durableChatErrorFallbackTimeoutMs)
+}
+
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
 export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -106,7 +112,7 @@ export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends Agent
   args: AgentChatErrorHookArgs<TRuntimeConfig>,
   callbackDelivered?: () => boolean,
 ): Promise<string | undefined> {
-  const timeout = Math.min(options?.timeout ?? durableChatErrorFallbackTimeoutMs, durableChatErrorFallbackTimeoutMs)
+  const timeout = durableChatErrorFallbackTimeout(options)
   return resolveChatErrorFallbackText(options, args, callbackDelivered, async (resolution) => {
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {

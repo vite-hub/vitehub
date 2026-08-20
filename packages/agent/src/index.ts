@@ -22,7 +22,7 @@ import {
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
-import { defineChatCapability, getAgentChatContext, getChatCapabilityOptions, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import {
   bindMessageChannelInstructions,
@@ -3338,7 +3338,7 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   })
   if (!intents.length) return
   const invoker = createFallbackAgentInvoker(context.run)
-  await applyChannelDeliveryEffectIntents({
+  const delivery = applyChannelDeliveryEffectIntents({
     actor: invoker,
     channels: definition?.channels,
     context: invocationContext,
@@ -3348,6 +3348,19 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
     run: context.run,
     runtimeContext: createResolvedRuntimeContext(context),
   } as never, intents)
+  const timeout = durableChatErrorFallbackTimeout(options)
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      delivery,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`)), timeout)
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
 }
 
 async function createAgentInvocationContextWithWorkflowFailureDelivery<

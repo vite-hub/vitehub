@@ -12545,6 +12545,50 @@ describe("agent message protocol", () => {
       expect(fallback).not.toHaveBeenCalled()
     })
 
+    it("bounds durable setup fallback delivery", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+        const failure = new Error("Capability setup failed")
+        const agent = defineAgent({
+          capabilities: async () => { throw failure },
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage: () => new Promise(() => undefined),
+              }) as never,
+            }),
+          },
+          driver: { run: async () => ({ text: "unreachable" }) },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgent(agent, {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: { channelId: "telegram", origin: "telegram", runId: "stalled-setup-fallback", threadId: "telegram:123" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: { channel: { message: { text: "Hello" } } },
+          prompt: "Hello",
+        }).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors[1]).toMatchObject({ message: "Durable chat error fallback delivery timed out after 10ms." })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("delivers durable setup fallbacks for capacity-limited Agents", async () => {
       const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { telegram } = await import("../src/channels.ts")
