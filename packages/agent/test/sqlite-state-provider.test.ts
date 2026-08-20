@@ -118,6 +118,16 @@ describe("SQLite Agent State Provider", () => {
     })
     await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, "wrong-token", 30_000)).resolves.toBe(false)
     await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, first!.leaseToken, 30_000)).resolves.toBe(true)
+    await client.execute({
+      args: [first!.scope, first!.deliveryId],
+      sql: "UPDATE test_agent_state_webhook_queue SET lease_expires_at = 0 WHERE scope = ? AND delivery_id = ?",
+    })
+    const competingDelivery = { ...webhookDelivery("delivery-competing", "pr-competing"), scope: "webhook:review:linear:" }
+    await expect(queue.enqueueWebhookDelivery(competingDelivery)).resolves.toBe(true)
+    const competingLease = await queue.claimWebhookDelivery(competingDelivery.scope)
+    expect(competingLease?.deliveryId).toBe(competingDelivery.deliveryId)
+    await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, first!.leaseToken, 30_000)).resolves.toBe(false)
+    await queue.completeWebhookDelivery(competingLease!.scope, competingLease!.deliveryId, competingLease!.leaseToken)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
     await expect(client.execute({
