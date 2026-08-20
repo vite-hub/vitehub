@@ -1307,15 +1307,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       let repaired = false
       const synthesizedOutput = async (synthesized: { result: unknown, text: string }, original?: unknown, repairResult?: unknown) => {
         const captures = [usageCapture, repairUsageCapture, fallbackUsageCapture]
-        const raw = withCapturedUsage(original, captures)
         let usageRecord: AgentUsageRecord | undefined
-        if (raw && typeof raw === "object" && fallbackUsageCapture.captured) {
+        if (original && typeof original === "object" && fallbackUsageCapture.captured) {
           const calls = [
             { capture: usageCapture, result: originalGenerated ?? original },
             { capture: fallbackUsageCapture, result: synthesized.result },
             ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: repairResult }] : []),
           ]
           usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
+        }
+        const raw = withCapturedUsage(original, captures)
+        if (raw && typeof raw === "object" && usageRecord) {
           Object.defineProperty(raw, "usageRecord", {
             configurable: true,
             enumerable: true,
