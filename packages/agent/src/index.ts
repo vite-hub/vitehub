@@ -22,7 +22,7 @@ import {
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
-import { defineChatCapability, getAgentChatContext, getChatCapabilityOptions, resolveChatErrorFallbackText } from "./chat-trigger.ts"
+import { defineChatCapability, getAgentChatContext, getChatCapabilityOptions, resolveDurableChatErrorFallbackText } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import {
   bindMessageChannelInstructions,
@@ -2164,8 +2164,9 @@ async function createAgentInvocationContext<
       }
     }
     const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
-      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), toolStepReporter)
+      ? driverKind === "harness" ? preparedTools : withAgentToolStepReporting(preparedTools, toolStepReporter)
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
@@ -3272,7 +3273,7 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const invocationContext = createAgentInvocationContextStore(input.context)
   const chat = getAgentChatContext(invocationContext)
-  const fallback = await resolveChatErrorFallbackText(options, {
+  const fallback = await resolveDurableChatErrorFallbackText(options, {
     error,
     history: input.messages || [],
     message: chat?.message || { text: "" },
