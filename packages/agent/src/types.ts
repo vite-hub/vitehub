@@ -1744,6 +1744,7 @@ export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | (JSONSch
 
 export interface AgentToolExecutionContext {
   abortSignal?: AbortSignal
+  toolCallId?: string
 }
 
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {

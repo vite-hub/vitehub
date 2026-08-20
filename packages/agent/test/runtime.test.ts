@@ -12448,7 +12448,7 @@ describe("agent message protocol", () => {
           }),
         },
         driver: { run: ({ tools }) => (async function* () {
-          await tools!.save_meal!.execute!({ calories: 240 }, { toolCallId: "save-1" } as never)
+          await tools!.save_meal!.execute!({ calories: 240 }, { toolCallId: "save-1" })
           yield { id: "save-1", name: "save_meal", output: { id: "meal-1" }, type: "tool-result" }
           yield { id: "save-1", name: "save_meal", output: { id: "meal-1" }, type: "tool-result" }
           throw new Error("UI stream failed")
