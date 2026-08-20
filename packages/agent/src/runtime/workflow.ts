@@ -11,6 +11,7 @@ import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "../agent-error.ts"
 import { agentChannelDeliveryWorkflowContextKey, resumeWorkflowAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
 
 import type {
   AgentHostIdentity,
@@ -22,6 +23,7 @@ import type {
   AgentRuntimeContext,
   AgentRuntimeName,
 } from "../types.ts"
+
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
 import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 
@@ -245,6 +247,7 @@ export async function runAgentWorkflowDefinition<
       backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
     },
   } as never)
+  Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, { enumerable: true, value: true })
 
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)

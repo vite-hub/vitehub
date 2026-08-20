@@ -2,6 +2,7 @@ import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
 import { toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
+import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -16,6 +17,7 @@ import type {
   AgentInvocationContextStore,
   AgentRunMetadata,
   AgentRuntimeConfig,
+  AgentRuntimeContext,
   AgentTriggerDefinition,
   AgentWebhookRegistrationDefinition,
 } from "./types.ts"
@@ -80,12 +82,14 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
   options: AgentChatOptions<TRuntimeConfig> | undefined,
   args: AgentChatErrorHookArgs<TRuntimeConfig>,
   callbackDelivered?: () => boolean,
+  resolveFallback?: (fallback: Promise<unknown>) => Promise<unknown>,
 ): Promise<string | undefined> {
   const fallback = options?.errorFallbackText
   if (fallback === null) return
   if (typeof fallback === "function") {
     try {
-      return await fallback(args) || undefined
+      const resolution = Promise.resolve(fallback(args))
+      return await (resolveFallback ? resolveFallback(resolution) : resolution) as string || undefined
     }
     catch {
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
@@ -99,7 +103,7 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig>,
 ) {
   const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
-    if (context.error === undefined || !context.run?.origin?.startsWith("workflow:")) return
+    if (context.error === undefined || !(context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
     const replies: ReturnType<typeof createReplyDeliveryEffectIntent>[] = []
     const chat = getAgentChatContext(context.context)
     const fallback = await resolveChatErrorFallbackText(options, {
@@ -119,7 +123,7 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
     if (fallback) replies.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
     return replies
   })
-  effect.active = context => context.error !== undefined && Boolean(context.run?.origin?.startsWith("workflow:"))
+  effect.active = context => context.error !== undefined && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
   effect.kind = "reply"
   return effect
 }
