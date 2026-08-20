@@ -148,22 +148,23 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const frameTree = await send<{ frameTree?: { frame?: { id?: string } } }>("Page.getFrameTree")
   const mainFrameId = frameTree.frameTree?.frame?.id
 
-  const clickLocator = async (locator: LocatorSpec) => {
+  let clickQueue = Promise.resolve()
+  const runClick = async (locator: LocatorSpec) => {
     let navigationRequested = false
-    let loaded = false
-    let resolveLoaded = () => {}
-    const navigationLoaded = new Promise<void>((resolve) => {
-      resolveLoaded = resolve
+    let navigationStopped = false
+    let resolveStopped = () => {}
+    const stopped = new Promise<void>((resolve) => {
+      resolveStopped = resolve
     })
     const stopNavigation = client.on("Page.frameRequestedNavigation", (params, eventSessionId) => {
       const event = params as { frameId?: unknown }
       if (eventSessionId === sessionId && event.frameId === mainFrameId) navigationRequested = true
     })
-    const stopLoad = client.on("Page.lifecycleEvent", (params, eventSessionId) => {
-      const event = params as { frameId?: unknown, name?: unknown }
-      if (eventSessionId !== sessionId || event.frameId !== mainFrameId || event.name !== "load") return
-      loaded = true
-      resolveLoaded()
+    const stopLoading = client.on("Page.frameStoppedLoading", (params, eventSessionId) => {
+      const event = params as { frameId?: unknown }
+      if (eventSessionId !== sessionId || event.frameId !== mainFrameId || !navigationRequested) return
+      navigationStopped = true
+      resolveStopped()
     })
     try {
       const result = await send<{ exceptionDetails?: unknown, result?: { value?: boolean } }>("Runtime.evaluate", {
@@ -173,14 +174,19 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       })
       evaluateResult(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
       await new Promise(resolve => setTimeout(resolve, 0))
-      if (navigationRequested && !loaded) {
-        await withTimeout(navigationLoaded, DEFAULT_TIMEOUT_MS, `wait for navigation after clicking ${JSON.stringify(locator.selector)}`)
+      if (navigationRequested && !navigationStopped) {
+        await withTimeout(stopped, DEFAULT_TIMEOUT_MS, `wait for navigation after clicking ${JSON.stringify(locator.selector)}`)
       }
     }
     finally {
       stopNavigation()
-      stopLoad()
+      stopLoading()
     }
+  }
+  const clickLocator = (locator: LocatorSpec) => {
+    const click = clickQueue.then(() => runClick(locator))
+    clickQueue = click.catch(() => {})
+    return click
   }
 
   const page: BrowserPage = {

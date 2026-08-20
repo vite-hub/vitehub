@@ -97,7 +97,7 @@ describe("CDP page", () => {
     await first
   })
 
-  it("waits for navigation requested by a locator click", async () => {
+  it("waits for navigation requested by a locator click to stop", async () => {
     const fake = fakeClient()
     fake.send.mockImplementation(async (method: string) => {
       if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
@@ -121,8 +121,32 @@ describe("CDP page", () => {
       "page-session",
     ))
     expect(clicked).toBe(false)
-    fake.emit("Page.lifecycleEvent", { frameId: "main-frame", name: "load" })
+    fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
     await click
+  })
+
+  it("serializes locator click navigation waits", async () => {
+    const fake = fakeClient()
+    let evaluations = 0
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      if (method === "Runtime.evaluate") {
+        evaluations++
+        if (evaluations === 1) fake.emit("Page.frameRequestedNavigation", { frameId: "main-frame" })
+        return { result: { value: true } }
+      }
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    const first = page.locator("a:first-child").click()
+    const second = page.locator("a:last-child").click()
+    await vi.waitFor(() => expect(evaluations).toBe(1))
+    fake.emit("Page.frameStoppedLoading", { frameId: "main-frame" })
+    await Promise.all([first, second])
+    expect(evaluations).toBe(2)
   })
 
   it("bounds locator evaluation", async () => {
