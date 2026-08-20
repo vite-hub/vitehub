@@ -500,15 +500,17 @@ async function synthesizeWorkspaceFallback(
   context: AgentAdapterRunContext,
   result: { steps?: Array<{ content?: Array<{ type: string, output?: unknown }> }> },
   maxToolResults: number,
+  usageCapture?: ReturnType<typeof createUsageCapture>,
 ) {
   const evidence = collectToolResults(result, maxToolResults)
-  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence, usageCapture)
 }
 
 async function synthesizeWorkspaceFallbackFromEvidence(
   model: ToolLoopAgentSettings["model"],
   context: AgentAdapterRunContext,
   evidence: string[],
+  usageCapture?: ReturnType<typeof createUsageCapture>,
 ) {
   if (evidence.length === 0) return undefined
 
@@ -520,6 +522,13 @@ async function synthesizeWorkspaceFallbackFromEvidence(
       resolveMessageChannelInstructions(context.context, context),
     ].filter(Boolean).join("\n"),
     model,
+    ...(usageCapture
+      ? {
+          onEnd: usageCapture.onEnd,
+          onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+          onStepEnd: usageCapture.onStepEnd,
+        }
+      : {}),
     prompt: [
       `User message:\n${getPromptText(context)}`,
       `Workspace tool results:\n${evidence.join("\n\n---\n\n")}`,
@@ -1252,8 +1261,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const execution = options.execution
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
       const fallback = getFallbackOptions(execution?.workspaceFallback)
-      const fallbackCapture = fallback.enabled
-        ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
+      const fallbackCapture = fallback.enabled || Boolean(context.output)
+        ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
       const { agent, model, repairOutput, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
@@ -1261,6 +1270,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       const usageCapture = createUsageCapture()
       const repairUsageCapture = createUsageCapture()
+      const fallbackUsageCapture = createUsageCapture()
       const repairCallInput = {
         ...callInput,
         onEnd: repairUsageCapture.onEnd,
@@ -1276,6 +1286,25 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       let generated: GenerateTextResult<ToolSet, never, never>
       let originalGenerated: GenerateTextResult<ToolSet, never, never> | undefined
       let repaired = false
+      const synthesizedOutput = async (text: string, original?: unknown) => {
+        const captures = [usageCapture, repairUsageCapture, fallbackUsageCapture]
+        const raw = withCapturedUsage(original, captures)
+        if (raw && typeof raw === "object" && fallbackUsageCapture.captured) {
+          const calls = [
+            { capture: usageCapture, result: originalGenerated ?? original },
+            ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: original }] : []),
+            { capture: fallbackUsageCapture },
+          ]
+          Object.defineProperty(raw, "usageRecord", {
+            configurable: true,
+            enumerable: true,
+            value: await combinedUsageRecord(calls, combinedCapturedUsage(captures)),
+          })
+        }
+        const output = { raw, text }
+        Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
+        return output
+      }
       try {
         generated = await agent.generate(originalCallInput as never) as GenerateTextResult<ToolSet, never, never>
         originalGenerated = generated
@@ -1283,13 +1312,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       catch (error) {
         const failure = await nativeAgentOutputValidationFailure(context.output, error)
         const synthesized = failure && fallback.enabled && !failure.text.trim()
-          ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
+          ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
           : undefined
-        if (synthesized) {
-          const output = { raw: withCapturedUsage(undefined, usageCapture), text: synthesized }
-          Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
-          return output
-        }
+        if (synthesized) return await synthesizedOutput(synthesized)
         const repairedOutput = failure && repairOutput
           ? await repairOutput({ ...failure, evidence: fallbackCapture?.evidence() }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
           : undefined
@@ -1297,13 +1322,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         repaired = Boolean(repairedOutput)
       }
       if (!repaired && fallback.enabled && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
-        const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults)
-          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
-        if (synthesized) {
-          const output = { raw: withCapturedUsage(generated, usageCapture), text: synthesized }
-          Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
-          return output
-        }
+        const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
+          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
+        if (synthesized) return await synthesizedOutput(synthesized, generated)
       }
       if (!repaired && repairOutput && context.output) {
         try {
@@ -1333,13 +1354,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       const text = result.text.trim()
       if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
-        const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
-          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
-        if (synthesized) {
-          const output = { raw: result, text: synthesized }
-          Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
-          return output
-        }
+        const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults, fallbackUsageCapture)
+          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
+        if (synthesized) return await synthesizedOutput(synthesized, result)
       }
       if (text) return result as unknown as AgentAdapterResult
 

@@ -1820,7 +1820,7 @@ describe("agent message protocol", () => {
         execution: { callSettings: {
           prepareCall: (input: Record<string, unknown>) => ({ ...input, model: repairModel, providerOptions: { test: { route: "repair" } }, toolChoice: "required", tools: { repeat_write: {} } }),
           toolChoice: "auto",
-        } },
+        }, workspaceFallback: false },
         model: {} as never,
         output: { schema: nativeSummarySchema() },
       },
@@ -1885,7 +1885,10 @@ describe("agent message protocol", () => {
   })
 
   it("preserves evidence-backed fallback when structured tool output returns or throws without a final value", async () => {
-    const fallbackGenerate = vi.fn(async () => ({ text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}" }))
+    const fallbackGenerate = vi.fn(async (settings: Record<string, unknown>) => {
+      await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 2 } })
+      return { text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}" }
+    })
     const repairGenerate = vi.fn()
     let throwNativeOutput = false
     loadAiSdk.mockResolvedValue({
@@ -1914,11 +1917,13 @@ describe("agent message protocol", () => {
       },
     })
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [defineCapability({
         id: "database",
         tools: { db_exec: { execute: () => ({ id: "meal-1" }), name: "db_exec" } },
       })],
+      hooks: { "agent:finish": finish },
       driver: { model: {} as never, output: { schema: nativeSummarySchema() } },
       runtime: false,
     })
@@ -1940,6 +1945,7 @@ describe("agent message protocol", () => {
     })
     expect(repairGenerate).not.toHaveBeenCalled()
     expect(fallbackGenerate).toHaveBeenCalledTimes(2)
+    expect(finish.mock.calls.at(-1)![0].invocation.usage).toMatchObject({ usage: { totalTokens: 2 } })
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
