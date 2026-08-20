@@ -3046,6 +3046,7 @@ async function postDisposableChatMessage(thread: Thread, message: string): Promi
   const threadId = sent.threadId || thread.id
   return {
     ...sent,
+    threadId,
     delete: async () => await adapter.deleteMessage(threadId, sent.id),
     edit: adapter.editMessage
       ? async (value: unknown) => await adapter.editMessage!(threadId, sent.id, value as AdapterPostableMessage)
@@ -3589,9 +3590,12 @@ async function handleChatSdkMessage(
             catch (error) {
               if (progressReference?.reusable === false) {
                 console.warn("[vitehub] Could not delete a progress message with unsettled updates; posting final output separately.", error)
+                if (manualDeliveryState.placeholder === completedPlaceholder) {
+                  manualDeliveryState.placeholder = undefined
+                }
               }
-              else {
-                if (!text || !await replaceManualDeliveryPlaceholder(completedPlaceholder, { markdown: text }).catch(() => false)) throw error
+              else if (text) {
+                if (!await replaceManualDeliveryPlaceholder(completedPlaceholder, { markdown: text }).catch(() => false)) throw error
                 text = ""
               }
             }

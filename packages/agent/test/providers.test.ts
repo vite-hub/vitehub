@@ -10377,6 +10377,30 @@ describe("server helpers", () => {
     }
   })
 
+  it("preserves automatic finish replies when progress cleanup fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockRejectedValue(new Error("delete failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run: () => ({ text: "" }) },
+      hooks: {
+        "agent:finish": event => event.reply("Final reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_004_6), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Final reply" })
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+  })
+
   it.each(["rejects", "stalls"])("starts automatic output when default progress posting $label", async (label) => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
@@ -10520,6 +10544,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-default-workflow-state-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
+    adapter.postMessage.mockResolvedValue({ id: "sent-1", raw: {} })
     const waitUntilTasks: Array<Promise<unknown>> = []
     let observedTimeout: number | undefined | "not-run" = "not-run"
     let release!: () => void
