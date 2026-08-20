@@ -143,6 +143,32 @@ describe("Browser Definitions", () => {
     }
   })
 
+  it("bounds stalled cleanup after controller attachment times out", async () => {
+    vi.useFakeTimers()
+    try {
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => await new Promise(() => {})),
+          close: vi.fn(async () => await new Promise(() => {})),
+          inspect: vi.fn(() => ({ features: { liveHandoff: false }, id: "browser-1", provider: "test", state: "released" })),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toBeInstanceOf(AggregateError)
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("releases the controller before closing a session when page setup fails", async () => {
     const release = vi.fn(async () => {})
     const close = vi.fn(async () => {})

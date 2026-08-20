@@ -74,6 +74,22 @@ describe("Browser Run actions", () => {
     }
   })
 
+  it("bounds stalled Browser Run response bodies", async () => {
+    vi.useFakeTimers()
+    try {
+      const response = new Response(new ReadableStream({ start() {} }))
+      runtime.__env__ = { BROWSER: { quickAction: async () => response } }
+
+      const content = runBrowserContent("https://example.com")
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await expect(content).resolves.toMatchObject([{ code: "BROWSER_PROVIDER_ERROR" }, undefined])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("allows provider-supported actions to run longer than the default bound", async () => {
     vi.useFakeTimers()
     try {

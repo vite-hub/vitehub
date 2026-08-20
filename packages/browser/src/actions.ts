@@ -66,11 +66,28 @@ async function resolveBinding(): Promise<BrowserRunBinding> {
   return binding as BrowserRunBinding
 }
 
-async function readQuickActionText(response: Response, action: BrowserAction): Promise<string> {
+async function readQuickActionText(
+  response: Response,
+  action: BrowserAction,
+  input: Record<string, unknown>,
+): Promise<string> {
   if (!response.ok) {
     throw browserProviderError("cloudflare", `run ${action} quick action (${response.status})`)
   }
-  return await response.text()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      response.text(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(browserProviderError("cloudflare", `read ${action} quick action response`))
+        }, actionTimeoutMs(input))
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function runQuickAction(
@@ -114,7 +131,7 @@ export async function runBrowserContent(
   const [error, response] = await runBrowserAction("content", input)
   if (error) return [error, undefined]
   try {
-    return [null, await readQuickActionText(response, "content")]
+    return [null, await readQuickActionText(response, "content", normalizeInput(input))]
   }
   catch (error) {
     return [toBrowserError(error), undefined]

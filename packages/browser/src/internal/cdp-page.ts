@@ -39,6 +39,7 @@ function locatorExpression(
     }
     if (!(element instanceof HTMLElement)) throw new Error("Browser locator did not match an HTML element");
     if (${JSON.stringify(operation)} === "click") {
+      element.scrollIntoView({ block: "center", inline: "center" });
       const rect = element.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
@@ -221,6 +222,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     let started = false
     const barrier = clickQueue.then(async () => {
       if (expired) return
+      assertPageUsable()
       if (clickFailure) throw clickFailure
       started = true
       await runClick(locator)

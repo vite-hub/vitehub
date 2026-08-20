@@ -60,6 +60,22 @@ describe("Browser Sessions", () => {
     expect(session.inspect().state).toBe("closed")
   })
 
+  it("shares concurrent session closure", async () => {
+    const { close, provider } = fixture()
+    let resolveClose!: () => void
+    close.mockImplementation(async () => await new Promise<void>(resolve => {
+      resolveClose = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const first = session.close()
+    const second = session.close()
+    expect(close).toHaveBeenCalledOnce()
+    resolveClose()
+    await Promise.all([first, second])
+    expect(session.inspect().state).toBe("closed")
+  })
+
   it("keeps failed session cleanup retryable", async () => {
     const { close, provider } = fixture()
     close.mockRejectedValueOnce(new Error("temporary close failure"))

@@ -39,6 +39,23 @@ import type {
 
 const CONTROLLER_ATTACH_TIMEOUT_MS = 30_000
 
+async function boundedCleanup(cleanup: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      cleanup,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(browserProviderError("cdp", "close the browser after setup failure"))
+        }, CONTROLLER_ATTACH_TIMEOUT_MS)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 async function attachController<TConnection>(
   providerSession: BrowserSession<TConnection>,
   controller: BrowserController<CDPClient, TConnection>,
@@ -146,7 +163,7 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
         }
       }
       try {
-        await providerSession.close()
+        await boundedCleanup(providerSession.close())
       }
       catch (closeError) {
         errors.push(closeError)

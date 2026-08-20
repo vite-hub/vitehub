@@ -82,6 +82,10 @@ describe("CDP page", () => {
       { button: "left", clickCount: 1, type: "mousePressed", x: 10, y: 20 },
       "page-session",
     )
+    const clickEvaluation = fake.send.mock.calls.find((call) => {
+      return call[0] === "Runtime.evaluate" && String(call[1]?.expression).includes('"click" === "click"')
+    })
+    expect(String(clickEvaluation?.[1]?.expression)).toContain("element.scrollIntoView")
     expect(fake.send).toHaveBeenCalledWith(
       "Input.dispatchMouseEvent",
       { button: "left", clickCount: 1, type: "mouseReleased", x: 10, y: 20 },
