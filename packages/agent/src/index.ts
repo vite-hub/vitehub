@@ -3131,11 +3131,13 @@ async function finishAgentInvocation<
         ...(text !== undefined ? { text } : {}),
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      const provisionalEvent = provisionalFinishEvent(context, eventBase)
+      const provisionallyActiveDeliveryProviders = activeFinishDeliveryEffectProviders(context, provisionalEvent)
       const hasDurableFailureDelivery = failed
         && context.durableErrorFallbackTimeout !== undefined
-        && context.finishDeliveryEffectProviders.some(isDurableChatErrorFallbackEffect)
+        && provisionallyActiveDeliveryProviders.some(isDurableChatErrorFallbackEffect)
       const provisionalActiveDeliveryProviders = hasDurableFailureDelivery
-        ? activeFinishDeliveryEffectProviders(context, provisionalFinishEvent(context, eventBase))
+        ? provisionallyActiveDeliveryProviders
         : await prepareProvisionalTitleDeliverySupport(context, eventBase)
       const cleanupOnlyFailure = outcome.status === "success" && closeError !== undefined
       const outcomeHook = failed

@@ -12692,6 +12692,51 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("does not apply chat fallback deadlines to non-channel Workflow invocations", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const settled = vi.fn()
+        let releaseExtension!: () => void
+        const finishExtension = vi.fn(() => new Promise<{ ready: true }>((resolve) => {
+          releaseExtension = () => resolve({ ready: true })
+        }))
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "slow-finish-extension",
+            prepare(context) {
+              context.finish.provide(finishExtension)
+            },
+          })],
+          channels: { telegram: telegram({ adapter: vi.fn() as never }) },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "non-channel-workflow",
+          name: "failure",
+          payload: { input: { prompt: "scheduled work" }, run: { origin: "schedule" } },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error).then((error) => {
+          settled()
+          return error
+        })
+
+        await vi.waitFor(() => expect(finishExtension).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        expect(settled).not.toHaveBeenCalled()
+        releaseExtension()
+        expect(await result).toBe(failure)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("delivers durable failure fallbacks when Capability setup fails", async () => {
       const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { telegram } = await import("../src/channels.ts")
