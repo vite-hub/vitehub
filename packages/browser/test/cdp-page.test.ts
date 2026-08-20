@@ -385,6 +385,22 @@ describe("CDP page", () => {
     }
   })
 
+  it("invalidates the page after a partial pointer dispatch", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string, params?: { expression?: string, type?: string }) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      if (method === "Runtime.evaluate") return { result: { value: { x: 10, y: 20 } } }
+      if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") throw new Error("release failed")
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.locator("button").click()).rejects.toThrow("release failed")
+    await expect(page.locator("main").count()).rejects.toThrow("release failed")
+  })
+
   it("bounds a stalled locator click evaluation", async () => {
     vi.useFakeTimers()
     try {
@@ -559,7 +575,7 @@ describe("CDP page", () => {
     await page.press("Enter")
     expect(fake.send).toHaveBeenCalledWith(
       "Input.dispatchKeyEvent",
-      { code: "Enter", key: "Enter", nativeVirtualKeyCode: 13, text: undefined, type: "keyDown", windowsVirtualKeyCode: 13 },
+      { code: "Enter", key: "Enter", nativeVirtualKeyCode: 13, text: "\r", type: "keyDown", windowsVirtualKeyCode: 13 },
       "page-session",
     )
 
@@ -569,6 +585,22 @@ describe("CDP page", () => {
       { key: "😀", text: "😀", type: "keyDown" },
       "page-session",
     )
+  })
+
+  it("invalidates the page after a partial key dispatch", async () => {
+    const fake = fakeClient()
+    let keyEvents = 0
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      if (method === "Input.dispatchKeyEvent" && ++keyEvents === 2) throw new Error("key release failed")
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.press("Enter")).rejects.toThrow("key release failed")
+    await expect(page.locator("main").count()).rejects.toThrow("key release failed")
   })
 
   it("rejects failed page navigations", async () => {

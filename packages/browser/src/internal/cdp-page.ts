@@ -229,6 +229,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   let pageQueue = Promise.resolve()
   let clickFailure: unknown
   const runClick = async (locator: LocatorSpec) => {
+    let pointerDown = false
     let navigationRequested = false
     let navigationStopped = false
     let resolveStopped = () => {}
@@ -260,9 +261,15 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       const point = evaluateResult<{ x: number, y: number }>(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
       await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point })
       await send("Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mousePressed", ...point })
+      pointerDown = true
       await send("Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mouseReleased", ...point })
+      pointerDown = false
       await new Promise(resolve => setTimeout(resolve, 0))
       if (navigationRequested && !navigationStopped) await stopped
+    }
+    catch (error) {
+      if (pointerDown) invalidatePage(error instanceof Error ? error : browserProviderError("cdp", "release the Browser pointer"))
+      throw error
     }
     finally {
       stopNavigation()
@@ -344,8 +351,16 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       assertPageUsable()
       const metadata = keyEventMetadata(key)
       await withTimeout((async () => {
-        await send("Input.dispatchKeyEvent", { key, ...metadata, text: [...key].length === 1 ? key : undefined, type: "keyDown" })
-        await send("Input.dispatchKeyEvent", { key, ...metadata, type: "keyUp" })
+        let keyDown = false
+        try {
+          await send("Input.dispatchKeyEvent", { key, ...metadata, text: key === "Enter" ? "\r" : [...key].length === 1 ? key : undefined, type: "keyDown" })
+          keyDown = true
+          await send("Input.dispatchKeyEvent", { key, ...metadata, type: "keyUp" })
+        }
+        catch (error) {
+          if (keyDown) invalidatePage(error instanceof Error ? error : browserProviderError("cdp", "release the Browser key"))
+          throw error
+        }
       })(), DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`, invalidatePage)
     },
   }
