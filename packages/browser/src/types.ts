@@ -126,11 +126,6 @@ export interface CreateBrowserOptions<TConnection> {
   trace?: (event: TraceEvent) => MaybePromise<void>
 }
 
-export interface BrowserDownload {
-  readonly suggestedFilename: string
-  readonly url: string
-}
-
 export interface BrowserLocatorOptions {
   hasText?: string
 }
@@ -156,10 +151,6 @@ export interface BrowserPage {
   goto(url: string, options?: BrowserPageGotoOptions): Promise<void>
   locator(selector: string, options?: BrowserLocatorOptions): BrowserLocator
   press(key: string): Promise<void>
-  waitForDownload(
-    action: () => MaybePromise<void>,
-    options?: { timeoutMs?: number },
-  ): Promise<BrowserDownload>
 }
 
 export interface BrowserPageSession {

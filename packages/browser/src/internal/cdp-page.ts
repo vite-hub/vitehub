@@ -2,7 +2,6 @@ import { browserProviderError } from "../errors.ts"
 
 import type { CDPClient } from "../controllers/cdp.ts"
 import type {
-  BrowserDownload,
   BrowserLocator,
   BrowserLocatorOptions,
   BrowserLocatorWaitOptions,
@@ -10,7 +9,6 @@ import type {
 } from "../types.ts"
 
 const DEFAULT_TIMEOUT_MS = 30_000
-const downloadQueues = new WeakMap<CDPClient, Promise<void>>()
 
 interface AttachedPage {
   page: BrowserPage
@@ -180,66 +178,6 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     async press(key) {
       await send("Input.dispatchKeyEvent", { key, type: "keyDown" })
       await send("Input.dispatchKeyEvent", { key, type: "keyUp" })
-    },
-    async waitForDownload(action, options = {}) {
-      const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
-      const deadline = Date.now() + timeoutMs
-      try {
-        await withTimeout(
-          client.send("Browser.setDownloadBehavior", {
-            behavior: "default",
-            eventsEnabled: true,
-          }),
-          timeoutMs,
-          "enable browser downloads",
-        )
-      }
-      catch {
-        // Kitesurf may omit this command while still emitting download events.
-      }
-      let resolveResult = (_download: BrowserDownload) => {}
-      let rejectResult = (_error: unknown) => {}
-      const result = new Promise<BrowserDownload>((resolve, reject) => {
-        resolveResult = resolve
-        rejectResult = reject
-      })
-      const wait = async () => {
-        const remainingMs = deadline - Date.now()
-        if (remainingMs <= 0) {
-          rejectResult(browserProviderError("cdp", "wait for the browser download"))
-          return
-        }
-        let stopPage = () => {}
-        const download = new Promise<BrowserDownload>((resolve) => {
-          const receive = (params: unknown) => {
-            const event = params as { suggestedFilename?: unknown, url?: unknown }
-            if (typeof event.url !== "string" || typeof event.suggestedFilename !== "string") return
-            resolve({ suggestedFilename: event.suggestedFilename, url: event.url })
-          }
-          stopPage = client.on("Page.downloadWillBegin", (params, eventSessionId) => {
-            if (eventSessionId === sessionId) receive(params)
-          })
-        })
-        const actionPromise = Promise.resolve().then(action)
-        try {
-          const [, downloaded] = await withTimeout(
-            Promise.all([actionPromise, download]),
-            remainingMs,
-            "wait for the browser download",
-          )
-          resolveResult(downloaded)
-        }
-        catch (error) {
-          rejectResult(error)
-        }
-        finally {
-          stopPage()
-        }
-        await actionPromise.catch(() => {})
-      }
-      const queue = downloadQueues.get(client) ?? Promise.resolve()
-      downloadQueues.set(client, queue.then(wait, wait))
-      return await withTimeout(result, Math.max(0, deadline - Date.now()), "wait for the browser download")
     },
   }
 

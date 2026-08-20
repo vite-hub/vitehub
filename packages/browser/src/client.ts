@@ -49,7 +49,6 @@ export type {
   BrowserDefinitionContext,
   BrowserDefinitionHandler,
   BrowserDefinitionRegistry,
-  BrowserDownload,
   BrowserLocator,
   BrowserLocatorOptions,
   BrowserLocatorWaitOptions,

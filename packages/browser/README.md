@@ -53,17 +53,9 @@ export default defineConfig({
 
 ViteHub generates the Cloudflare Browser Run binding and uses its Quick Actions directly for `browser.content()` and `browser.run()`. The Kitesurf default applies only when `browser.open()` creates a full browser session. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`.
 
-Use a definition-owned page when the operation needs multiple interactions or a native download. ViteHub controls the page through CDP and closes it after the definition finishes:
+Use a definition-owned page when the operation needs multiple interactions. ViteHub controls the page through CDP and closes it after the definition finishes.
 
 Kitesurf sessions work with the Browser binding alone. When `browser: { engine: "chromium" }` opens a persistent Chromium session, install the optional `@cloudflare/playwright` and `playwright-core` peers used to acquire that session.
-
-```ts
-export default defineBrowser(async (_input, { browser }) => {
-  const { page } = await browser.open()
-  await page.goto("https://example.com/export")
-  return await page.waitForDownload(() => page.locator("button", { hasText: "Export" }).click())
-})
-```
 
 ## Low-level sessions
 

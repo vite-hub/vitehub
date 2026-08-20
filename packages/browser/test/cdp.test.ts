@@ -75,16 +75,16 @@ describe("cdp controller", () => {
       sessionId: "public-id",
     })
     const listener = vi.fn()
-    const stop = attached.client.on("Page.downloadWillBegin", listener)
+    const stop = attached.client.on("Page.lifecycleEvent", listener)
 
-    socket.emit("Page.downloadWillBegin", { suggestedFilename: "card.png", url: "data:image/png;base64,cG5n" })
+    socket.emit("Page.lifecycleEvent", { loaderId: "document-loader", name: "load" })
 
     expect(listener).toHaveBeenCalledWith(
-      { suggestedFilename: "card.png", url: "data:image/png;base64,cG5n" },
+      { loaderId: "document-loader", name: "load" },
       "page-session",
     )
     stop()
-    socket.emit("Page.downloadWillBegin", { suggestedFilename: "ignored.png" })
+    socket.emit("Page.lifecycleEvent", { loaderId: "ignored", name: "load" })
     expect(listener).toHaveBeenCalledOnce()
     await attached.release()
   })
