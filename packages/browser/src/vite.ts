@@ -218,8 +218,10 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
             ? {
                 wranglerConfig: {
                   browser: browserBinding(resolvedOptions),
-                  compatibility_date: defaultCloudflareCompatibilityDate,
                   compatibility_flags: ["nodejs_compat"],
+                },
+                wranglerConfigDefaults: {
+                  compatibility_date: defaultCloudflareCompatibilityDate,
                 },
               }
             : {}),
@@ -227,6 +229,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
             keys: ["browser"],
             arrays: {
               compatibility_flags: {
+                preserveOnCleanup: true,
                 values: ["nodejs_compat"],
               },
             },

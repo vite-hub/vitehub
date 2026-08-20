@@ -55,6 +55,8 @@ ViteHub generates the Cloudflare Browser Run binding and uses its Quick Actions 
 
 Use a definition-owned page when the operation needs multiple interactions or a native download. ViteHub controls the page through CDP and closes it after the definition finishes:
 
+Kitesurf sessions work with the Browser binding alone. When `browser: { engine: "chromium" }` opens a persistent Chromium session, install the optional `@cloudflare/playwright` and `playwright-core` peers used to acquire that session.
+
 ```ts
 export default defineBrowser(async (_input, { browser }) => {
   const { page } = await browser.open()

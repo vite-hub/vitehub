@@ -369,7 +369,29 @@ describe("hubBrowser", () => {
     await (disabledPlugin.closeBundle as { handler(): Promise<void> }).handler()
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toEqual({
       compatibility_date: "2026-04-20",
-      compatibility_flags: ["custom"],
+      compatibility_flags: ["custom", "nodejs_compat"],
+    })
+  })
+
+  it("preserves an existing standalone compatibility date", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-date-"))
+    roots.push(root)
+    const outputDir = join(root, "dist", root.split("/").at(-1)!.toLowerCase())
+    const outputFile = join(outputDir, "wrangler.json")
+    await mkdir(outputDir, { recursive: true })
+    await writeFile(outputFile, JSON.stringify({ compatibility_date: "2026-08-01" }))
+    const plugin = hubBrowser()
+    ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist" },
+      command: "build",
+      mode: "production",
+      nitro: {},
+      root,
+    })
+    await (plugin.closeBundle as { handler(): Promise<void> }).handler()
+
+    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
+      compatibility_date: "2026-08-01",
     })
   })
 

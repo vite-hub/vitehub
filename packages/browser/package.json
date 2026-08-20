@@ -68,9 +68,17 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@cloudflare/playwright": "catalog:browser",
+    "playwright-core": "catalog:browser",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@cloudflare/playwright": {
+      "optional": true
+    },
+    "playwright-core": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

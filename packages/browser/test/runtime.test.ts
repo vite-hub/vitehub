@@ -109,4 +109,35 @@ describe("Browser Definitions", () => {
     expect(close).toHaveBeenCalledOnce()
     expect(release.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0]!)
   })
+
+  it("does not retry session cleanup after a successful handler", async () => {
+    const release = vi.fn(async () => {
+      throw new Error("release failed")
+    })
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async (method: string) => method === "Target.getTargets"
+              ? { targetInfos: [{ targetId: "page", type: "page" }] }
+              : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await browser.open()
+      return "ok"
+    })
+
+    await expect(executeBrowserDefinition(definition, undefined, { client })).rejects.toThrow("release failed")
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+  })
 })

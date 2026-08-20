@@ -145,7 +145,10 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const page: BrowserPage = {
     async goto(url, options = {}) {
       await withTimeout((async () => {
-        await send("Page.navigate", { url })
+        const navigation = await send<{ errorText?: string }>("Page.navigate", { url })
+        if (navigation.errorText) {
+          throw browserProviderError("cdp", `navigate to ${JSON.stringify(url)} (${navigation.errorText})`)
+        }
         await send("Runtime.evaluate", {
           awaitPromise: true,
           expression: 'document.readyState === "complete" ? true : new Promise(resolve => addEventListener("load", () => resolve(true), { once: true }))',

@@ -192,10 +192,9 @@ export async function executeBrowserDefinition<TInput, TResult>(
   options: BrowserDefinitionRuntimeOptions = {},
 ): Promise<TResult> {
   const browser = new BrowserDefinitionBrowserImpl(options)
+  let result: TResult
   try {
-    const result = await definition.run(input, { browser })
-    await browser.close()
-    return result
+    result = await definition.run(input, { browser })
   }
   catch (error) {
     try {
@@ -209,6 +208,8 @@ export async function executeBrowserDefinition<TInput, TResult>(
     }
     throw error
   }
+  await browser.close()
+  return result
 }
 
 export function runBrowser<const TName extends BrowserDefinitionName>(

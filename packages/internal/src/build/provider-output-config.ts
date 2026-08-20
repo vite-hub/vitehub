@@ -8,7 +8,7 @@ interface ProviderJsonRecord {
 }
 
 export interface ProviderOutputConfigOwnership {
-  arrays?: Record<string, { key?: string, values?: ProviderJsonPrimitive[] }>
+  arrays?: Record<string, { key?: string, preserveOnCleanup?: boolean, values?: ProviderJsonPrimitive[] }>
   keys?: string[]
 }
 
@@ -89,10 +89,16 @@ async function readProviderJsonRecord(file: string): Promise<ProviderJsonRecord 
   }
 }
 
-function deleteOwnedFields(value: ProviderJsonRecord, ownership: ProviderOutputConfigOwnership): ProviderJsonRecord {
+function deleteOwnedFields(
+  value: ProviderJsonRecord,
+  ownership: ProviderOutputConfigOwnership,
+  cleanup = false,
+): ProviderJsonRecord {
   const next = { ...value }
   for (const key of ownership.keys ?? []) delete next[key]
-  for (const field of Object.keys(ownership.arrays ?? {})) delete next[field]
+  for (const [field, arrayOwnership] of Object.entries(ownership.arrays ?? {})) {
+    if (!cleanup || !arrayOwnership.preserveOnCleanup) delete next[field]
+  }
   return next
 }
 
@@ -156,10 +162,12 @@ export async function writeProviderOutputConfig(
   file: string,
   value: unknown,
   ownership: ProviderOutputConfigOwnership = {},
-  options: { removeIfEmpty?: boolean } = {},
+  options: { defaults?: unknown, removeIfEmpty?: boolean } = {},
 ): Promise<void> {
   const existing = await readProviderJsonRecord(file) ?? {}
-  const next = mergeProviderOutputConfig(existing, value, ownership)
+  const defaults = options.defaults ?? {}
+  assertProviderJsonRecord(defaults)
+  const next = mergeProviderOutputConfig({ ...defaults, ...existing }, value, ownership)
   await persistProviderJsonRecord(file, next, options.removeIfEmpty === true)
 }
 
@@ -186,9 +194,10 @@ export async function cleanProviderOutputConfig(file: string, ownership: Provide
   const existing = await readProviderJsonRecord(file)
   if (!existing) return
 
-  const next = deleteOwnedFields(existing, ownership)
+  const next = deleteOwnedFields(existing, ownership, true)
   let changed = (ownership.keys ?? []).some(key => key in existing)
   for (const [field, arrayOwnership] of Object.entries(ownership.arrays ?? {})) {
+    if (arrayOwnership.preserveOnCleanup) continue
     if (!(field in existing)) continue
     const current = existing[field]
     const preserved = preserveUnownedKeyedArrayEntries(current, arrayOwnership)

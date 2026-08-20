@@ -82,4 +82,20 @@ describe("CDP page", () => {
       code: "BROWSER_PROVIDER_ERROR",
     })
   })
+
+  it("rejects failed page navigations", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.navigate") return { errorText: "net::ERR_NAME_NOT_RESOLVED" }
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.goto("https://missing.invalid")).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+    })
+    expect(fake.send).not.toHaveBeenCalledWith("Runtime.evaluate", expect.anything(), "page-session")
+  })
 })
