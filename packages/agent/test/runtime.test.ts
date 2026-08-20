@@ -1769,7 +1769,12 @@ describe("agent message protocol", () => {
     const dbExec = vi.fn(() => ({ id: "meal-1" }))
     const repairGenerate = vi.fn(async (settings: Record<string, unknown>) => {
       await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 3 } })
-      return { finishReason: "stop", text: "{\"summary\":\"Saved\",\"title\":\"Skyr\"}" }
+      return {
+        finishReason: "stop",
+        modelId: "repair-route",
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+        text: "{\"summary\":\"Saved\",\"title\":\"Skyr\"}",
+      }
     })
     loadAiSdk.mockResolvedValue({
       isStepCount: vi.fn(count => ({ count })),
@@ -1788,7 +1793,12 @@ describe("agent message protocol", () => {
           if (tools) {
             await (input.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 7 } })
             await tools.db_exec!.execute({ sql: "INSERT" })
-            return { finishReason: "stop", text: "{\"summary\":\"Saved\",\"title\":42}" }
+            return {
+              finishReason: "stop",
+              modelId: "original-route",
+              providerMetadata: { test: { usage: { cost: 0.4 } } },
+              text: "{\"summary\":\"Saved\",\"title\":42}",
+            }
           }
           const prepared = typeof this.settings.prepareCall === "function"
             ? await this.settings.prepareCall({ ...this.settings, ...input }) as Record<string, unknown>
@@ -1831,7 +1841,15 @@ describe("agent message protocol", () => {
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("tools")
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("toolChoice")
     expect(agentSettings[1]).toHaveProperty("tools.db_exec")
-    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({ usage: { totalTokens: 10 } })
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      calls: [
+        { cost: { estimated: false, usd: "0.4" }, model: "original-route", usage: { totalTokens: 7 } },
+        { cost: { estimated: false, usd: "0.2" }, model: "repair-route", usage: { totalTokens: 3 } },
+      ],
+      usage: { totalTokens: 10 },
+    })
+    expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("model")
+    expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("cost")
   })
 
   it("keeps the ViteHub output error when the single repair remains invalid", async () => {

@@ -1891,6 +1891,7 @@ export interface AgentUsageCredentialSource {
 }
 
 export interface AgentUsageRecord {
+  calls?: AgentUsageRecord[]
   cost?: AgentUsageCost
   credentialSource?: AgentUsageCredentialSource
   latency?: {

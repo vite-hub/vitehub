@@ -13,6 +13,7 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
+import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import {
@@ -55,6 +56,7 @@ import type {
   AgentModelInstrumentationContext,
   AgentRuntimeConfig,
   AgentToolSet,
+  AgentUsageRecord,
   AgentToolResolverWithWorkspace,
   MaybePromise,
 } from "./types.ts"
@@ -842,12 +844,14 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
 function createUsageCapture() {
   let captured = false
   let capturedUsage: unknown
+  let metadataSource: unknown
 
   const capture = (event: unknown) => {
     const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
     const usage = record?.usage ?? record?.totalUsage
     if (usage === undefined) return
     capturedUsage = usage
+    metadataSource = event
     captured = true
   }
 
@@ -866,6 +870,9 @@ function createUsageCapture() {
     },
     get usage() {
       return captured ? Promise.resolve(capturedUsage) : undefined
+    },
+    get usageSource() {
+      return captured ? { ...(metadataSource as Record<string, unknown>), usage: capturedUsage } : undefined
     },
   }
 }
@@ -919,6 +926,28 @@ function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUs
     raw: result,
     text: typeof result === "string" ? result : undefined,
     usage,
+  }
+}
+
+async function combinedUsageRecord(
+  calls: Array<{ capture: ReturnType<typeof createUsageCapture>, result?: unknown }>,
+  usage: unknown,
+): Promise<AgentUsageRecord | undefined> {
+  const records = (await Promise.all(calls.map(({ capture, result }) => resolveAgentUsageRecord(
+    result === undefined ? capture.usageSource : withCapturedUsage(result, capture),
+  )))).filter((record): record is AgentUsageRecord => Boolean(record))
+  if (!records.length) return
+  if (records.length === 1) return records[0]
+  const shared = <K extends "credentialSource" | "model" | "transport">(key: K): AgentUsageRecord[K] | undefined => {
+    const value = records[0]![key]
+    return records.every(record => JSON.stringify(record[key]) === JSON.stringify(value)) ? value : undefined
+  }
+  return {
+    calls: records,
+    ...(shared("credentialSource") ? { credentialSource: shared("credentialSource") } : {}),
+    ...(shared("model") ? { model: shared("model") } : {}),
+    ...(shared("transport") ? { transport: shared("transport") } : {}),
+    usage: await usage as AgentUsageRecord["usage"],
   }
 }
 
@@ -1240,9 +1269,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onStepEnd: usageCapture.onStepEnd,
       }
       let generated: GenerateTextResult<ToolSet, never, never>
+      let originalGenerated: GenerateTextResult<ToolSet, never, never> | undefined
       let repaired = false
       try {
         generated = await agent.generate(originalCallInput as never) as GenerateTextResult<ToolSet, never, never>
+        originalGenerated = generated
       }
       catch (error) {
         const failure = await nativeAgentOutputValidationFailure(context.output, error)
@@ -1272,7 +1303,20 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
         }
       }
+      const usageRecord = repairUsageCapture.captured
+        ? await combinedUsageRecord([
+            { capture: usageCapture, result: originalGenerated },
+            { capture: repairUsageCapture, result: generated },
+          ], combinedCapturedUsage([usageCapture, repairUsageCapture]))
+        : undefined
       const result = withResolvedModelMetadata(withCapturedUsage(generated, [usageCapture, repairUsageCapture]), model) as GenerateTextResult<ToolSet, never, never>
+      if (usageRecord) {
+        Object.defineProperty(result, "usageRecord", {
+          configurable: true,
+          enumerable: true,
+          value: usageRecord,
+        })
+      }
       const text = result.text.trim()
       if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
