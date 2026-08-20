@@ -114,6 +114,7 @@ describe("schedule provider output", () => {
       workflow: {
         bundleAlias: {},
         importBase: "test-workflow",
+        native: true,
         registryFile: workflowRegistry,
       },
     })
@@ -123,6 +124,35 @@ describe("schedule provider output", () => {
     expect(output).toContain("__workflowModules")
     expect(output).toContain("__workflowConfig")
     expect(output).toContain("__workflowRegistry")
+  })
+
+  it("installs inline Workflow definitions without Workflow DevKit", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-inline-workflow-output-")
+    const workflowDir = join(rootDir, ".vitehub", "workflow")
+    await mkdir(workflowDir, { recursive: true })
+    const workflowRegistry = join(workflowDir, "registry.mjs")
+    const state = join(workflowDir, "state.mjs")
+    await writeFile(workflowRegistry, "export default { recap: async () => ({}) }\n")
+    await writeFile(state, "export function setWorkflowRuntimeConfig(value) { globalThis.__workflowConfig = value }\nexport function setWorkflowRuntimeRegistry(value) { globalThis.__workflowRegistry = value }\n")
+
+    await generateProviderOutputs({
+      bundleAlias: { "test-workflow/runtime/state": state },
+      clientOutDir: "dist/client",
+      rootDir,
+      workflow: {
+        bundleAlias: {},
+        importBase: "test-workflow",
+        native: false,
+        registryFile: workflowRegistry,
+      },
+    })
+
+    const output = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")
+    expect(output).toContain("__workflowConfig")
+    expect(output).toContain("__workflowRegistry")
+    expect(output).not.toContain("workflow/api")
+    expect(output).not.toContain("workflow/runtime")
+    expect(output).not.toContain("setVercelWorkflowRuntimeModules")
   })
 
   it("creates Netlify scheduled function output contributions", async () => {

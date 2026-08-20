@@ -66,6 +66,7 @@ interface GenerateProviderOutputsOptions {
 export interface ScheduleWorkflowRuntime {
   bundleAlias: Record<string, string>
   importBase: string
+  native: boolean
   registryFile: string
 }
 
@@ -140,13 +141,17 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
           `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/state`)}`,
-          `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
-          `import * as workflowApi from "workflow/api"`,
-          `import * as workflowRuntime from "workflow/runtime"`,
+          ...(workflowRuntime.native
+            ? [
+                `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
+                `import * as workflowApi from "workflow/api"`,
+                `import * as workflowRuntime from "workflow/runtime"`,
+              ]
+            : []),
         ]
       : []),
     "",
-    workflowRuntime ? "setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)" : "",
+    workflowRuntime?.native ? "setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)" : "",
     "async function loadScheduleDefinition(name) {",
     "  const loader = scheduleRegistry[name]",
     "  if (!loader) return undefined",

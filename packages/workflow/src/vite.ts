@@ -26,6 +26,7 @@ export type WorkflowVitePlugin = Plugin & {
       prepareScheduleRuntime?: () => Promise<{
         bundleAlias: Record<string, string>
         importBase: string
+        native: boolean
         registryFile: string
       } | undefined>
     }
@@ -105,17 +106,22 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     if (!artifacts.providerDefinitions.length) return
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(rootDir, "package.json"))
-    const workflowRequire = createRequire(import.meta.url)
-    const workflowApi = workflowRequire.resolve("workflow/api")
+    const workflowRequire = artifacts.vercelNativeFile ? createRequire(import.meta.url) : undefined
+    const workflowApi = workflowRequire?.resolve("workflow/api")
     return {
       bundleAlias: {
         [`${importBase}/runtime/state`]: projectRequire.resolve(`${importBase}/runtime/state`),
         [`${importBase}/runtime/vercel-vite`]: projectRequire.resolve(`${importBase}/runtime/vercel-vite`),
-        "@workflow/core/runtime/world-target": createRequire(workflowApi).resolve("@workflow/world-vercel"),
-        "workflow/api": workflowApi,
-        "workflow/runtime": workflowRequire.resolve("workflow/runtime"),
+        ...(workflowApi && workflowRequire
+          ? {
+              "@workflow/core/runtime/world-target": createRequire(workflowApi).resolve("@workflow/world-vercel"),
+              "workflow/api": workflowApi,
+              "workflow/runtime": workflowRequire.resolve("workflow/runtime"),
+            }
+          : {}),
       },
       importBase,
+      native: Boolean(artifacts.vercelNativeFile),
       registryFile: artifacts.registryFile,
     }
   }
