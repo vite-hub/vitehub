@@ -168,6 +168,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
 }
 
 async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, emailDefinitionFile: string): Promise<void> {
+  // WDK's Vercel builder emits step registrations and workflow orchestration in one combined flow function.
   const flowFile = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
   if (!existsSync(flowFile)) return
   const generatedDir = ensureGeneratedDir(rootDir, productName)
