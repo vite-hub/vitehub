@@ -191,6 +191,57 @@ function isEffectivelyEmptyInterface(
 	);
 }
 
+function lexicalDeclaration(
+	name: string,
+	from: ESTree.Node,
+): ESTree.TSTypeAliasDeclaration | readonly ESTree.TSInterfaceDeclaration[] | null | undefined {
+	let current: ESTree.Node | null = from;
+	while (current !== null && current.type !== "Program") {
+		if (current.type === "BlockStatement" || current.type === "TSModuleBlock") {
+			const interfaces: ESTree.TSInterfaceDeclaration[] = [];
+			for (const statement of current.body) {
+				const declaration = declaredStatement(statement as ESTree.Statement);
+				if (declaration?.type === "TSTypeAliasDeclaration" && declaration.id.name === name)
+					return declaration;
+				if (declaration?.type === "TSInterfaceDeclaration" && declaration.id.name === name)
+					interfaces.push(declaration);
+				else if (declaration !== null && declarationName(declaration) === name) return null;
+			}
+			if (interfaces.length > 0) return interfaces;
+		}
+		current = current.parent;
+	}
+	return undefined;
+}
+
+function aliasFor(
+	name: string,
+	from: ESTree.Node,
+	environment: TypeEnvironment,
+): ESTree.TSTypeAliasDeclaration | undefined {
+	const lexical = lexicalDeclaration(name, from);
+	if (lexical !== undefined) {
+		return (lexical as ESTree.Node | null)?.type === "TSTypeAliasDeclaration"
+			? (lexical as ESTree.TSTypeAliasDeclaration)
+			: undefined;
+	}
+	return environment.aliases.get(name);
+}
+
+function interfacesFor(
+	name: string,
+	from: ESTree.Node,
+	environment: TypeEnvironment,
+): readonly ESTree.TSInterfaceDeclaration[] | undefined {
+	const lexical = lexicalDeclaration(name, from);
+	if (lexical !== undefined) {
+		return Array.isArray(lexical)
+			? (lexical as readonly ESTree.TSInterfaceDeclaration[])
+			: undefined;
+	}
+	return environment.interfaces.get(name);
+}
+
 function resolvedSubstitutionArgument(
 	type: ESTree.TSType,
 	base: TypeAliasEnvironment,
@@ -266,11 +317,11 @@ function unsafeDirectValue(
 			? null
 			: unsafeDirectValue(substitution, environment, substitutions, resolvingAliases);
 	}
-	const interfaceDeclarations = environment.interfaces.get(name);
+	const interfaceDeclarations = interfacesFor(name, unwrapped, environment);
 	if (interfaceDeclarations !== undefined) {
 		return isEffectivelyEmptyInterface(interfaceDeclarations) ? "empty-object" : null;
 	}
-	const alias = environment.aliases.get(name);
+	const alias = aliasFor(name, unwrapped, environment);
 	if (alias === undefined || resolvingAliases.has(name)) return null;
 	const nextSubstitutions = aliasSubstitution(alias, unwrapped, substitutions);
 	if (nextSubstitutions === null) return null;
@@ -334,7 +385,7 @@ function dictionaryValueTypes(
 			: dictionaryValueTypes(source, environment, substitutions, resolvingAliases);
 	}
 
-	const alias = environment.aliases.get(name);
+	const alias = aliasFor(name, unwrapped, environment);
 	if (alias === undefined || resolvingAliases.has(name)) return [];
 	const nextSubstitutions = aliasSubstitution(alias, unwrapped, substitutions);
 	if (nextSubstitutions === null) return [];
@@ -400,7 +451,7 @@ export function classifyWideningTarget(
 	}
 	if (name === "Record" && isUnshadowedBuiltIn(name, environment, unwrapped))
 		return { kind: "open dictionary" };
-	const alias = environment.aliases.get(name);
+	const alias = aliasFor(name, unwrapped, environment);
 	if (alias === undefined) return null;
 	if ((alias.typeParameters?.params.length ?? 0) > 0) {
 		const substitutions = aliasSubstitution(alias, unwrapped, new Map());

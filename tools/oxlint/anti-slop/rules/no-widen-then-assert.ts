@@ -151,18 +151,28 @@ function isDefinitelyObjectType(type: ESTree.TSType): boolean {
   }
 }
 
-function isDefinitelyNarrowerRecordType(type: ESTree.TSType): boolean {
+function isDefinitelyNarrowerRecordType(
+  type: ESTree.TSType,
+  environment: TypeEnvironment,
+  from: ESTree.Node,
+): boolean {
   const unwrapped = unwrapTypeParentheses(type);
   if (unwrapped.type === "TSTypeLiteral") {
     return unwrapped.members.some((member) => member.type !== "TSIndexSignature");
   }
 
   if (unwrapped.type !== "TSTypeReference") return false;
-  if (typeReferenceName(unwrapped) === "Readonly") {
+  if (
+    typeReferenceName(unwrapped) === "Readonly" &&
+    isUnshadowedBuiltIn("Readonly", environment, from)
+  ) {
     const [inner] = unwrapped.typeArguments?.params ?? [];
-    return inner !== undefined && isDefinitelyNarrowerRecordType(inner);
+    return inner !== undefined && isDefinitelyNarrowerRecordType(inner, environment, from);
   }
-  if (typeReferenceName(unwrapped) !== "Record") return false;
+  if (
+    typeReferenceName(unwrapped) !== "Record" ||
+    !isUnshadowedBuiltIn("Record", environment, from)
+  ) return false;
 
   const parameters = unwrapped.typeArguments?.params ?? [];
   return (
@@ -336,7 +346,7 @@ function assertionIsNarrower(
   if (broadKind === "top") return true;
   if (typesHaveSameSyntax(sourceText, evidence.type, assertedType)) return true;
   if (broadKind === "object") return isDefinitelyObjectType(assertedType);
-  return isDefinitelyNarrowerRecordType(assertedType);
+  return isDefinitelyNarrowerRecordType(assertedType, environment, from);
 }
 
 /** Detect immutable local bindings that erase a known type and are later asserted back to a narrower type. */

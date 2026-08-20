@@ -19,8 +19,9 @@ export function collectTypeAliases(
 	visitorKeys: VisitorKeys,
 ): (name: string, from: ESTree.Node) => ESTree.TSTypeAliasDeclaration | undefined {
 	const aliases = new WeakMap<AliasScope, Map<string, ESTree.TSTypeAliasDeclaration | null>>();
+	const qualifiedAliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
 
-	const visit = (node: ESTree.Node, scope: AliasScope): void => {
+	const visit = (node: ESTree.Node, scope: AliasScope, namespace: string[] = []): void => {
 		const currentScope = isAliasScope(node) ? node : scope;
 		if (
 			node.type === "TSTypeAliasDeclaration" ||
@@ -32,21 +33,29 @@ export function collectTypeAliases(
 			const names = aliases.get(currentScope) ?? new Map();
 			if (node.id !== null) {
 				names.set(node.id.name, node.type === "TSTypeAliasDeclaration" ? node : null);
+				if (node.type === "TSTypeAliasDeclaration" && namespace.length > 0) {
+					qualifiedAliases.set([...namespace, node.id.name].join("."), node);
+				}
 			}
 			aliases.set(currentScope, names);
 		}
 		const record = node as unknown as Readonly<Record<string, unknown>>;
 		for (const key of visitorKeys[node.type] ?? []) {
 			const value = record[key];
-			if (isNode(value)) visit(value, currentScope);
+			const childNamespace =
+				node.type === "TSModuleDeclaration" && node.id.type === "Identifier"
+					? [...namespace, node.id.name]
+					: namespace;
+			if (isNode(value)) visit(value, currentScope, childNamespace);
 			else if (Array.isArray(value)) {
-				for (const child of value) if (isNode(child)) visit(child, currentScope);
+				for (const child of value) if (isNode(child)) visit(child, currentScope, childNamespace);
 			}
 		}
 	};
 
 	visit(program, program);
 	return (name, from) => {
+		if (name.includes(".")) return qualifiedAliases.get(name);
 		let current: ESTree.Node | null = from;
 		while (current !== null) {
 			if (isAliasScope(current)) {

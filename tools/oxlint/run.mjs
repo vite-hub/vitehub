@@ -41,7 +41,12 @@ const sourceContext = (diagnostic, label) => {
   const line = Math.max(0, label.span.line - 1);
   return lines.slice(Math.max(0, line - 2), line + 3).join("\n");
 };
-const identity = (diagnostic) =>
+const semanticOffset = (diagnostic, label) =>
+  sourceByFilename
+    .get(diagnostic.filename)
+    ?.slice(0, label.span.offset)
+    .replaceAll(/\s/gu, "").length;
+const baseIdentity = (diagnostic) =>
   createHash("sha256")
     .update(
       JSON.stringify({
@@ -53,11 +58,24 @@ const identity = (diagnostic) =>
             .get(diagnostic.filename)
             ?.slice(label.span.offset, label.span.offset + label.span.length),
           context: sourceContext(diagnostic, label),
+          semanticOffset: semanticOffset(diagnostic, label),
         })),
         message: diagnostic.message,
       }),
     )
     .digest("hex");
+const identityByDiagnostic = new Map();
+const occurrences = new Map();
+for (const diagnostic of antiSlopDiagnostics) {
+  const base = baseIdentity(diagnostic);
+  const occurrence = occurrences.get(base) ?? 0;
+  occurrences.set(base, occurrence + 1);
+  identityByDiagnostic.set(
+    diagnostic,
+    createHash("sha256").update(`${base}:${occurrence}`).digest("hex"),
+  );
+}
+const identity = (diagnostic) => identityByDiagnostic.get(diagnostic);
 
 if (process.argv.includes("--update-baseline")) {
   const hashes = antiSlopDiagnostics.map(identity).sort();

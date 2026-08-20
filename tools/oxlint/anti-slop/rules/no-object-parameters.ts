@@ -20,6 +20,12 @@ type TypeBinding = {
 	bindings: ReadonlyMap<string, TypeBinding>;
 };
 
+function typeName(type: ESTree.TSTypeName): string {
+	return type.type === "Identifier"
+		? type.name
+		: `${typeName(type.left)}.${type.right.name}`;
+}
+
 function parameterAnnotation(parameter: Parameter): ESTree.TSTypeAnnotation | null | undefined {
 	if (parameter.type === "TSParameterProperty") {
 		return parameterAnnotation(parameter.parameter);
@@ -70,18 +76,18 @@ export const noObjectParametersRule = defineRule({
 					resolvesToObject(member, shadowedAliases, from, bindings, visited),
 				);
 			}
-			if (
-				type.type !== "TSTypeReference" ||
-				type.typeName.type !== "Identifier" ||
-				visited.has(type.typeName.name) ||
-				(shadowedAliases.has(type.typeName.name) && !bindings.has(type.typeName.name))
-			) {
+			if (type.type !== "TSTypeReference") {
 				return false;
 			}
-			const bound = bindings.get(type.typeName.name);
+			const name = typeName(type.typeName);
+			if (
+				visited.has(name) ||
+				(shadowedAliases.has(name) && !bindings.has(name))
+			) return false;
+			const bound = bindings.get(name);
 			if (bound !== undefined)
 				return resolvesToObject(bound.type, shadowedAliases, from, bound.bindings, visited);
-			const alias = findAlias(type.typeName.name, from);
+			const alias = findAlias(name, from);
 			if (alias === undefined) return false;
 			const parameters = alias.typeParameters?.params ?? [];
 			const arguments_ = type.typeArguments?.params ?? [];
@@ -96,7 +102,7 @@ export const noObjectParametersRule = defineRule({
 				});
 			}
 			const nextVisited = new Set(visited);
-			nextVisited.add(type.typeName.name);
+			nextVisited.add(name);
 			return resolvesToObject(
 				alias.typeAnnotation,
 				shadowedAliases,
