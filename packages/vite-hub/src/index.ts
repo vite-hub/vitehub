@@ -404,6 +404,7 @@ function deploymentPlugins(
     if (subscribedEnvPlugins.has(plugin) || plan.preset !== "cloudflare") return
     subscribedEnvPlugins.add(plugin)
     plugin.api.onServerEnvRegistry((registry: EnvRuntimeRegistry, config: UserConfig) => {
+      if (cloneRecord((config as { vitehub?: unknown }).vitehub).preset !== plan.preset) return
       registerCloudflareProviderOutput(config, "env", {
         requiredSecrets: requiredCloudflareSecretNames(registry),
       })

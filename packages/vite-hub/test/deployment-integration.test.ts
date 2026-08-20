@@ -267,6 +267,29 @@ describe("built-in deployment preset integration", () => {
     }
   })
 
+  it("keeps standalone Env subscriptions scoped to their Cloudflare configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-reused-env-plugin-"))
+    try {
+      const envPlugin = hubEnv()
+      const server = { token: env({ secret: true, source: env.source("VITEHUB_TOKEN") }) }
+      await resolveConfig({
+        env: { server },
+        root,
+        plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+      } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
+      const nodeConfig = await resolveConfig({
+        env: { server },
+        root,
+        plugins: [vitehub({ env: false, preset: "node" }), envPlugin],
+      } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
+
+      expect((nodeConfig as typeof nodeConfig & { nitro?: { cloudflare?: unknown } }).nitro?.cloudflare).toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("declares required secrets in named environments from later post hooks", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-late-required-secrets-"))
     try {
