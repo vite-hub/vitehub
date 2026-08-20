@@ -147,16 +147,20 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
     if (context.error === undefined || !(context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
     const chat = getAgentChatContext(context.context)
+    const channel = context.context.get<AgentChannelContext>("channel")
+    if (!chat && !channel) return
     return await resolveDurableChatErrorFallbackIntents(options, {
       error: context.error,
       history: context.input.messages || [],
-      message: chat?.message || { text: "" },
+      message: chat?.message || channel?.message || { text: "" },
       publicError: toAgentPublicError(context.error, "http"),
       run: context.run,
       toolResults: context.event.toolResults,
     })
   })
-  effect.active = context => context.error !== undefined && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+  effect.active = context => context.error !== undefined
+    && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+    && (Boolean(getAgentChatContext(context.context)) || context.context.has("channel"))
   effect.kind = "reply"
   return effect
 }

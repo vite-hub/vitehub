@@ -175,6 +175,7 @@ import type {
   AgentInvocationSnapshot,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
+import type { AgentChannelContext } from "./chat-trigger.ts"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
@@ -3325,10 +3326,12 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   if (!options) return
   const invocationContext = createAgentInvocationContextStore(input.context)
   const chat = getAgentChatContext(invocationContext)
+  const channel = invocationContext.get<AgentChannelContext>("channel")
+  if (!chat && !channel) return
   const intents = await resolveDurableChatErrorFallbackIntents(options, {
     error,
     history: input.messages || [],
-    message: chat?.message || { text: "" },
+    message: chat?.message || channel?.message || { text: "" },
     publicError: toAgentPublicError(error, "http"),
     run: context.run,
     toolResults: [],
@@ -3998,7 +4001,7 @@ async function executeAgentInvocationWithCapacityLease<
         cancelOnAbort: options.holdCapacity === true
           ? async reason => { await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(reason))) }
           : undefined,
-        ...(collectToolResult ? { onWrappedChunk: collectToolResult } : {}),
+        ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
         projection,
       })
     }
@@ -4111,7 +4114,7 @@ async function executeAgentInvocationWithCapacityLease<
             }
           }, {
             abortSignal: invocation.input.abortSignal,
-            ...(collectToolResult ? { onWrappedChunk: collectToolResult } : {}),
+            ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
             projection,
           })
           const headers = new Headers(response.headers)

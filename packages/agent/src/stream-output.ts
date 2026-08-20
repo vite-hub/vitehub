@@ -334,6 +334,7 @@ export function normalizeUiMessageStream(
   stream: ReadableStream<unknown>,
   options: {
     omitUsageEvents?: boolean
+    onChunk?: (chunk: unknown) => void
     onUsageRecord?: (usageRecord: AgentUsageRecord) => void
   } = {},
 ): ReadableStream<unknown> {
@@ -342,7 +343,9 @@ export function normalizeUiMessageStream(
       const usageRecord = usageRecordFromStreamChunk(chunk, stream)
       if (usageRecord) options.onUsageRecord?.(usageRecord)
       if (options.omitUsageEvents && streamEventType(chunk) === "usage" && usageRecord) return
-      controller.enqueue(normalizeUiMessageStreamChunk(chunk))
+      const normalized = normalizeUiMessageStreamChunk(chunk)
+      options.onChunk?.(normalized)
+      controller.enqueue(normalized)
     },
   }))
 }
@@ -485,11 +488,11 @@ export async function finalizeUiMessageStreamOutput(
   options: {
     abortSignal?: AbortSignal
     cancelOnAbort?: (reason: unknown) => Promise<void>
-    onWrappedChunk?: (chunk: unknown) => void
+    onNormalizedChunk?: (chunk: unknown) => void
     projection?: AgentUIMessageStreamProjection
   } = {},
 ): Promise<FinalizedStreamOutput<unknown>> {
-  const { abortSignal, cancelOnAbort, onWrappedChunk, projection } = options
+  const { abortSignal, cancelOnAbort, onNormalizedChunk, projection } = options
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
   const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
@@ -517,6 +520,7 @@ export async function finalizeUiMessageStreamOutput(
         },
   }), {
     omitUsageEvents: true,
+    onChunk: onNormalizedChunk,
     onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
   }), projection)
   let streamedText = ""
@@ -528,7 +532,6 @@ export async function finalizeUiMessageStreamOutput(
           abortSignal,
           cancelOnAbort,
           onChunk(chunk) {
-            onWrappedChunk?.(chunk)
             streamedText += uiMessageTextDelta(chunk) || ""
             streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
           },

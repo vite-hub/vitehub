@@ -12454,6 +12454,7 @@ describe("agent message protocol", () => {
           throw new Error("UI stream failed")
         })() },
         messages: { errorFallbackText: fallback },
+        uiMessageStream: { tools: "hidden" },
       })
 
       const stream = await streamAgent(agent, {
@@ -12520,6 +12521,28 @@ describe("agent message protocol", () => {
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
       expect(postMessage).toHaveBeenCalledOnce()
+    })
+
+    it("does not resolve chat fallbacks for non-chat Workflow invocations", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+      const failure = new Error("Scheduled Capability setup failed")
+      const fallback = vi.fn(() => "Please try again.")
+      const agent = defineAgent({
+        capabilities: async () => { throw failure },
+        driver: { run: async () => ({ text: "unreachable" }) },
+        messages: { errorFallbackText: fallback },
+      })
+
+      await expect(runAgent(agent, {
+        [agentWorkflowExecutionContextKey]: true,
+        memo: vi.fn(),
+        run: { origin: "schedule", runId: "scheduled-setup-failure" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, { prompt: "Run the scheduled task" })).rejects.toBe(failure)
+
+      expect(fallback).not.toHaveBeenCalled()
     })
 
     it("delivers durable setup fallbacks for capacity-limited Agents", async () => {
