@@ -12737,6 +12737,54 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("does not apply fallback deadlines when durable error fallbacks are disabled", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        let releaseExtension!: () => void
+        const finishExtension = vi.fn(() => new Promise<{ ready: true }>((resolve) => {
+          releaseExtension = () => resolve({ ready: true })
+        }))
+        const settled = vi.fn()
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "slow-finish-extension",
+            prepare(context) {
+              context.finish.provide(finishExtension)
+            },
+          })],
+          channels: { telegram: telegram({ adapter: vi.fn() as never }) },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: null, timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "disabled-error-fallback",
+          name: "failure",
+          payload: {
+            input: { context: { channel: { message: { text: "Hello" } } }, prompt: "Hello" },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error).then((error) => {
+          settled()
+          return error
+        })
+
+        await vi.waitFor(() => expect(finishExtension).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        expect(settled).not.toHaveBeenCalled()
+        releaseExtension()
+        expect(await result).toBe(failure)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("delivers durable failure fallbacks when Capability setup fails", async () => {
       const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { telegram } = await import("../src/channels.ts")

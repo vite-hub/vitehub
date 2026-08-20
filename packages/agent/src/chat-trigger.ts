@@ -170,7 +170,8 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
       toolResults: context.event.toolResults,
     })
   })
-  effect.active = context => context.error !== undefined
+  effect.active = context => options.errorFallbackText !== null
+    && context.error !== undefined
     && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
     && (Boolean(getAgentChatContext(context.context)) || context.context.has("channel"))
   effect.kind = "chat.error-fallback"
