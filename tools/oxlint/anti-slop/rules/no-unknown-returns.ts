@@ -14,6 +14,11 @@ type FunctionWithReturnType =
   | ESTree.TSFunctionType
   | ESTree.TSMethodSignature;
 
+type TypeBinding = {
+  type: ESTree.TSType;
+  bindings: ReadonlyMap<string, TypeBinding>;
+};
+
 /** Ban function contracts that return unknown instead of a parsed domain type. */
 export const noUnknownReturnsRule = defineRule({
   meta: {
@@ -34,7 +39,7 @@ export const noUnknownReturnsRule = defineRule({
       type: ESTree.TSType,
       shadowedAliases: ReadonlySet<string>,
       from: ESTree.Node,
-      bindings = new Map<string, ESTree.TSType>(),
+      bindings: ReadonlyMap<string, TypeBinding> = new Map(),
       visited = new Set<string>(),
     ): boolean => {
       if (type.type === "TSUnknownKeyword") return true;
@@ -58,11 +63,7 @@ export const noUnknownReturnsRule = defineRule({
       const name = type.typeName.name;
       const bound = bindings.get(name);
       if (bound !== undefined) {
-        const bindingKey = `binding:${name}`;
-        if (visited.has(bindingKey)) return false;
-        const nextVisited = new Set(visited);
-        nextVisited.add(bindingKey);
-        return resolvesToUnknown(bound, shadowedAliases, from, bindings, nextVisited);
+        return resolvesToUnknown(bound.type, shadowedAliases, from, bound.bindings, visited);
       }
       if (visited.has(name) || shadowedAliases.has(name)) return false;
       const alias = findAlias(name, from);
@@ -71,7 +72,9 @@ export const noUnknownReturnsRule = defineRule({
       const arguments_ = type.typeArguments?.params ?? [];
       if (parameters.length !== arguments_.length) return false;
       const nextBindings = new Map(bindings);
-      parameters.forEach((parameter, index) => nextBindings.set(parameter.name.name, arguments_[index]));
+      parameters.forEach((parameter, index) =>
+        nextBindings.set(parameter.name.name, { type: arguments_[index], bindings }),
+      );
       const nextVisited = new Set(visited);
       nextVisited.add(name);
       return resolvesToUnknown(alias.typeAnnotation, shadowedAliases, alias, nextBindings, nextVisited);
