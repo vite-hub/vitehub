@@ -101,12 +101,14 @@ export default defineConfig({
 | Shape | Description |
 | --- | --- |
 | `browser: true` | Enables Browser Run with the `BROWSER` binding. |
-| `browser: { binding?, remote? }` | Customizes the Cloudflare binding; `remote: true` connects local Wrangler development to Browser Run. |
+| `browser: { binding?, engine?, remote? }` | Customizes the Cloudflare binding; `engine: 'chromium'` selects a persistent Chromium session, and `remote: true` connects local Wrangler development to Browser Run. |
 | `browser: false` | Disables Browser Provider Output. |
 
 The Cloudflare preset writes the Browser Run binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag to Nitro's generated Provider Output.
 
 Cloudflare's Worker `quickAction()` currently requires remote mode during local development. Set `remote: true` when local Wrangler development must call Browser Run. Both the root integration and direct `hubBrowser()` output write the Browser binding and required compatibility fields while preserving unrelated Wrangler fields.
+
+Install `@cloudflare/playwright` and `playwright-core` when `browser.open()` uses `engine: 'chromium'`. Stateless Browser actions and the default Kitesurf session path do not require those optional peers.
 
 ## Browser actions
 

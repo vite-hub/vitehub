@@ -51,6 +51,7 @@ function locatorExpression(
     if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
       throw new Error("Browser locator does not support fill() for this element");
     }
+    element.focus();
     const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
     if (!setter) throw new Error("Browser locator could not set the element value");
@@ -84,6 +85,7 @@ class CDPBrowserLocator implements BrowserLocator {
   constructor(
     private readonly send: AttachedPage["send"],
     private readonly locator: LocatorSpec,
+    private readonly clickLocator: (locator: LocatorSpec) => Promise<void>,
   ) {}
 
   private async evaluate<TResult>(operation: Parameters<typeof locatorExpression>[0], value?: string): Promise<TResult> {
@@ -99,7 +101,7 @@ class CDPBrowserLocator implements BrowserLocator {
   }
 
   async click(): Promise<void> {
-    await this.evaluate("click")
+    await this.clickLocator(this.locator)
   }
 
   async count(): Promise<number> {
@@ -143,6 +145,43 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const send = <TResult>(method: string, params: object = {}) => client.send<TResult>(method, params, sessionId)
   await send("Page.enable")
   await send("Page.setLifecycleEventsEnabled", { enabled: true })
+  const frameTree = await send<{ frameTree?: { frame?: { id?: string } } }>("Page.getFrameTree")
+  const mainFrameId = frameTree.frameTree?.frame?.id
+
+  const clickLocator = async (locator: LocatorSpec) => {
+    let navigationRequested = false
+    let loaded = false
+    let resolveLoaded = () => {}
+    const navigationLoaded = new Promise<void>((resolve) => {
+      resolveLoaded = resolve
+    })
+    const stopNavigation = client.on("Page.frameRequestedNavigation", (params, eventSessionId) => {
+      const event = params as { frameId?: unknown }
+      if (eventSessionId === sessionId && event.frameId === mainFrameId) navigationRequested = true
+    })
+    const stopLoad = client.on("Page.lifecycleEvent", (params, eventSessionId) => {
+      const event = params as { frameId?: unknown, name?: unknown }
+      if (eventSessionId !== sessionId || event.frameId !== mainFrameId || event.name !== "load") return
+      loaded = true
+      resolveLoaded()
+    })
+    try {
+      const result = await send<{ exceptionDetails?: unknown, result?: { value?: boolean } }>("Runtime.evaluate", {
+        awaitPromise: true,
+        expression: locatorExpression("click", locator),
+        returnByValue: true,
+      })
+      evaluateResult(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
+      await new Promise(resolve => setTimeout(resolve, 0))
+      if (navigationRequested && !loaded) {
+        await withTimeout(navigationLoaded, DEFAULT_TIMEOUT_MS, `wait for navigation after clicking ${JSON.stringify(locator.selector)}`)
+      }
+    }
+    finally {
+      stopNavigation()
+      stopLoad()
+    }
+  }
 
   const page: BrowserPage = {
     async goto(url, options = {}) {
@@ -173,7 +212,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       }
     },
     locator(selector: string, options: BrowserLocatorOptions = {}) {
-      return new CDPBrowserLocator(send, { selector, ...options })
+      return new CDPBrowserLocator(send, { selector, ...options }, clickLocator)
     },
     async press(key) {
       await send("Input.dispatchKeyEvent", { key, type: "keyDown" })

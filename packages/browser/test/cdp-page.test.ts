@@ -9,6 +9,7 @@ function fakeClient() {
   const send = vi.fn(async (method: string, params?: { expression?: string }) => {
     if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
     if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
     if (method === "Page.navigate") return { loaderId: "document-loader" }
     if (method !== "Runtime.evaluate") return {}
     if (params?.expression?.includes('"count" === "count"')) return { result: { value: 1 } }
@@ -51,6 +52,7 @@ describe("CDP page", () => {
       return call[0] === "Runtime.evaluate" && String(call[1]?.expression).includes('new Event("input"')
     })
     expect(fill).toBeDefined()
+    expect(String(fill?.[1]?.expression)).toContain("element.focus()")
 
     await page.locator("button", { hasText: "Export Image" }).click()
     expect(fake.send).toHaveBeenCalledWith("Page.navigate", { url: "https://ray.so/" }, "page-session")
@@ -93,6 +95,34 @@ describe("CDP page", () => {
     expect(firstDone).toBe(false)
     fake.emit("Page.lifecycleEvent", { loaderId: "loader-1", name: "load" })
     await first
+  })
+
+  it("waits for navigation requested by a locator click", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      if (method === "Runtime.evaluate") {
+        fake.emit("Page.frameRequestedNavigation", { frameId: "main-frame" })
+        return { result: { value: true } }
+      }
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+    let clicked = false
+
+    const click = page.locator("a").click().then(() => {
+      clicked = true
+    })
+    await vi.waitFor(() => expect(fake.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining('"click" === "click"') }),
+      "page-session",
+    ))
+    expect(clicked).toBe(false)
+    fake.emit("Page.lifecycleEvent", { frameId: "main-frame", name: "load" })
+    await click
   })
 
   it("bounds locator evaluation", async () => {
