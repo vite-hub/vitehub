@@ -3396,7 +3396,6 @@ async function handleChatSdkMessage(
 
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
-    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
@@ -3429,6 +3428,7 @@ async function handleChatSdkMessage(
       return
     }
 
+    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     assertChatDeliveryOptions(options || {})
     run = invocation.run
     await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: run?.runId })

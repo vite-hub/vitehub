@@ -9031,7 +9031,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("starts typing before chat context resolves", async () => {
+  it("starts typing only after chat context is accepted", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -9064,12 +9064,9 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram")
     await contextStartedPromise
-    try {
-      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    }
-    finally {
-      releaseContext()
-    }
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+    releaseContext()
+    await vi.waitFor(() => expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined))
     await expect(responsePromise).resolves.toMatchObject({ status: 200 })
   })
 
