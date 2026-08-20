@@ -97,6 +97,8 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
       if (!envConfig) {
+        serverRegistry = {}
+        for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
         return
       }
 

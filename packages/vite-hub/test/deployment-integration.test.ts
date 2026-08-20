@@ -277,12 +277,19 @@ describe("built-in deployment preset integration", () => {
         root,
         plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
+      const emptyCloudflareConfig = await resolveConfig({
+        root,
+        plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+      } as Parameters<typeof resolveConfig>[0], "build")
       const nodeConfig = await resolveConfig({
         env: { server },
         root,
         plugins: [vitehub({ env: false, preset: "node" }), envPlugin],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
 
+      expect((emptyCloudflareConfig as typeof emptyCloudflareConfig & {
+        nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
+      }).nitro?.cloudflare?.wrangler?.secrets?.required).toBeUndefined()
       expect((nodeConfig as typeof nodeConfig & { nitro?: { cloudflare?: unknown } }).nitro?.cloudflare).toBeUndefined()
     }
     finally {
