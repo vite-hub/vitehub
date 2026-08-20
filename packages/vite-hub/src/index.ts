@@ -556,10 +556,7 @@ function deploymentPlugins(
       config(config) {
         deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
         if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
-        if (plan.preset !== "cloudflare" || typeof deploymentEnvPlugin.current?.api?.getServerEnvRegistry !== "function") return
-        registerCloudflareProviderOutput(config, "env", {
-          requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.getServerEnvRegistry()),
-        })
+        if (plan.preset !== "cloudflare") return
         if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
           const viteConfig = config as { nitro?: unknown }
           viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
@@ -569,13 +566,8 @@ function deploymentPlugins(
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
           if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
-          if (typeof deploymentEnvPlugin.current?.api?.getServerEnvRegistry === "function") {
-            registerCloudflareProviderOutput(config, "env", {
-              requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.getServerEnvRegistry()),
-            })
-            const viteConfig = config as typeof config & { nitro?: unknown }
-            viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
-          }
+          const viteConfig = config as typeof config & { nitro?: unknown }
+          viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
         }
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"

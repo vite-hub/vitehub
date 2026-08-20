@@ -291,6 +291,24 @@ describe("built-in deployment preset integration", () => {
         nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
       }).nitro?.cloudflare?.wrangler?.secrets?.required).toBeUndefined()
       expect((nodeConfig as typeof nodeConfig & { nitro?: { cloudflare?: unknown } }).nitro?.cloudflare).toBeUndefined()
+
+      const [first, second] = await Promise.all([
+        resolveConfig({
+          env: { server: { first: env({ secret: true, source: env.source("FIRST_TOKEN") }) } },
+          root,
+          plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+        } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build"),
+        resolveConfig({
+          env: { server: { second: env({ secret: true, source: env.source("SECOND_TOKEN") }) } },
+          root,
+          plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+        } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build"),
+      ])
+      const required = (config: typeof first) => (config as typeof config & {
+        nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
+      }).nitro?.cloudflare?.wrangler?.secrets?.required
+      expect(required(first)).toEqual(["FIRST_TOKEN"])
+      expect(required(second)).toEqual(["SECOND_TOKEN"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
