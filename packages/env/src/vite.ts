@@ -49,6 +49,7 @@ export interface EnvVitePluginAPI {
   createServerEnvRegistry: (declarations: EnvRuntimeConfigOptions | undefined) => EnvRuntimeRegistry
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
+  onServerEnvRegistry: (handler: (registry: EnvRuntimeRegistry, config: UserConfig) => void) => void
   resolveProjectRoot: (viteRoot: string) => string
 }
 
@@ -76,6 +77,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   let diagnosticsText: string | undefined
+  const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
   const getPublicEnv = () => buildPublicConfig
   const getServerEnvRegistry = () => serverRegistry
   const createServerEnvRegistry = (declarations: EnvRuntimeConfigOptions | undefined) => createRuntimeRegistry(declarations, { prefix: options.prefix })
@@ -84,7 +86,13 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
-    api: { createServerEnvRegistry, getPublicEnv, getServerEnvRegistry, resolveProjectRoot },
+    api: {
+      createServerEnvRegistry,
+      getPublicEnv,
+      getServerEnvRegistry,
+      onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),
+      resolveProjectRoot,
+    },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
@@ -117,6 +125,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 
       buildPublicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
       serverRegistry = createServerEnvRegistry(envConfig.server)
+      for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
       diagnosticsText = formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics)
 
       return {

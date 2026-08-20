@@ -47,7 +47,7 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { Plugin, PluginOption } from "vite"
+import type { Plugin, PluginOption, UserConfig } from "vite"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 
@@ -398,6 +398,20 @@ function deploymentPlugins(
 ): Plugin[] {
   let deployCommandOwned = false
   const deploymentEnvPlugin = { current: envPlugin }
+  const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
+  const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
+    deploymentEnvPlugin.current = plugin
+    if (subscribedEnvPlugins.has(plugin) || plan.preset !== "cloudflare") return
+    subscribedEnvPlugins.add(plugin)
+    plugin.api.onServerEnvRegistry((registry: EnvRuntimeRegistry, config: UserConfig) => {
+      registerCloudflareProviderOutput(config, "env", {
+        requiredSecrets: requiredCloudflareSecretNames(registry),
+      })
+      const viteConfig = config as typeof config & { nitro?: unknown }
+      viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
+    })
+  }
+  if (envPlugin) subscribeEnvPlugin(envPlugin)
   const nitroPreset = plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
   return [
     {
@@ -517,6 +531,7 @@ function deploymentPlugins(
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
           if (deploymentEnvPlugin.current) {
+            subscribeEnvPlugin(deploymentEnvPlugin.current)
             const envConfig = (config as { env?: { server?: Parameters<EnvVitePlugin["api"]["createServerEnvRegistry"]>[0] } }).env
             registerCloudflareProviderOutput(config, "env", {
               requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.createServerEnvRegistry(envConfig?.server)),
@@ -533,12 +548,13 @@ function deploymentPlugins(
       vitehub: {
         deploymentOutput: {
           useEnvPlugin(plugin: EnvVitePlugin) {
-            deploymentEnvPlugin.current = plugin
+            subscribeEnvPlugin(plugin)
           },
         },
       },
       config(config) {
         deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
+        if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
         if (plan.preset !== "cloudflare" || typeof deploymentEnvPlugin.current?.api?.getServerEnvRegistry !== "function") return
         registerCloudflareProviderOutput(config, "env", {
           requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.getServerEnvRegistry()),
@@ -551,6 +567,7 @@ function deploymentPlugins(
       configResolved(config) {
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
+          if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
           if (typeof deploymentEnvPlugin.current?.api?.getServerEnvRegistry === "function") {
             registerCloudflareProviderOutput(config, "env", {
               requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.getServerEnvRegistry()),

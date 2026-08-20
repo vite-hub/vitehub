@@ -17,6 +17,7 @@ const integrationMocks = vi.hoisted(() => ({
     api: {
       createServerEnvRegistry: () => ({}),
       getServerEnvRegistry: () => ({}),
+      onServerEnvRegistry: () => {},
     },
     name: "@vite-hub/env/vite",
   })),

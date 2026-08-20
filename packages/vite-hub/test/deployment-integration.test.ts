@@ -209,6 +209,39 @@ describe("built-in deployment preset integration", () => {
     }
   }, 30_000)
 
+  it("emits secrets contributed by later pre hooks through Nitro", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-late-pre-secrets-build-"))
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [
+          vitehub({ preset: "cloudflare" }),
+          {
+            name: "app/server-env",
+            enforce: "pre",
+            config: () => ({ env: { server: { token: env({ secret: true, source: env.source("LATE_TOKEN") }) } } }),
+          },
+          nitro() as never,
+        ],
+      } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
+      await builder.buildApp()
+
+      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
+        secrets?: { required?: string[] }
+      }
+      expect(wrangler.secrets?.required).toEqual(["LATE_TOKEN"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 30_000)
+
   it("declares required secrets from a standalone Env plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-standalone-required-secrets-"))
     try {
