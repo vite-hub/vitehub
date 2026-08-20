@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
       sandbox: config[VITEHUB_NITRO_CONFIG_CONTEXT],
     },
   })),
+  useEnvPlugin: vi.fn(),
   vitehub: vi.fn(),
   workflowNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
@@ -102,6 +103,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
+    mocks.useEnvPlugin.mockClear()
     mocks.workflowNitroConfig.mockClear()
     mocks.vitehub.mockReset()
     mocks.vitehub.mockReturnValue([
@@ -167,6 +169,11 @@ describe("ViteHub Nuxt integration", () => {
         name: "vite-hub/deployment-output",
         enforce: "post",
         config: mocks.outputHook,
+        vitehub: {
+          deploymentOutput: {
+            useEnvPlugin: mocks.useEnvPlugin,
+          },
+        },
       },
       {
         name: "@vite-hub/env/vite",
@@ -315,6 +322,9 @@ describe("ViteHub Nuxt integration", () => {
     )
     expect(mocks.outputHook).toHaveBeenCalledOnce()
     expect(mocks.envHook).toHaveBeenCalledOnce()
+    expect(mocks.useEnvPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "@vite-hub/env/vite" }),
+    )
     expect(nitroConfig).toEqual({
       alias: {
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
@@ -339,6 +349,20 @@ describe("ViteHub Nuxt integration", () => {
       sandbox: true,
       workflows: true,
     })
+  })
+
+  it("binds deployment output to an existing Env plugin selected for replay", async () => {
+    const existingEnvPlugin = {
+      name: "@vite-hub/env/vite",
+      api: { resolveProjectRoot: (root: string) => resolveViteHubProjectRoot(root) },
+      config: vi.fn(),
+    }
+    const { nuxt } = createNuxt(false, [existingEnvPlugin])
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(mocks.useEnvPlugin).toHaveBeenCalledWith(existingEnvPlugin)
+    expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toContain(existingEnvPlugin)
   })
 
   it("replays configured Nuxt Vite options into Nitro hooks", async () => {

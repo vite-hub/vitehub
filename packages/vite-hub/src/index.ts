@@ -381,6 +381,7 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
+  const deploymentEnvPlugin = { current: envPlugin }
   const nitroPreset = plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
   return [
     {
@@ -503,10 +504,17 @@ function deploymentPlugins(
     {
       name: "vite-hub/deployment-output",
       enforce: "post",
+      vitehub: {
+        deploymentOutput: {
+          useEnvPlugin(plugin: EnvVitePlugin) {
+            deploymentEnvPlugin.current = plugin
+          },
+        },
+      },
       config(config) {
-        if (plan.preset !== "cloudflare" || !envPlugin) return
+        if (plan.preset !== "cloudflare" || !deploymentEnvPlugin.current) return
         registerCloudflareProviderOutput(config, "env", {
-          requiredSecrets: requiredCloudflareSecretNames(envPlugin.api.getServerEnvRegistry()),
+          requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.getServerEnvRegistry()),
         })
         const viteConfig = config as { nitro?: unknown }
         viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
@@ -518,7 +526,7 @@ function deploymentPlugins(
           throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(nitroPreset) + ".")
         }
       },
-    },
+    } as Plugin,
   ]
 }
 
