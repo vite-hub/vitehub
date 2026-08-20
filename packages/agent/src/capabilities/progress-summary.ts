@@ -113,16 +113,18 @@ function eventToolId(value: unknown): string {
   return typeof id === "string" ? id : ""
 }
 
-function stepProgressEvidence(value: unknown): { completedTools: string[], reasoning: boolean } {
-  if (!isRecord(value)) return { completedTools: [], reasoning: false }
-  const parts = [
-    ...(Array.isArray(value.content) ? value.content : []),
-    ...(Array.isArray(value.toolCalls) ? value.toolCalls : []),
-    ...(Array.isArray(value.toolResults) ? value.toolResults : []),
-  ]
+function stepProgressEvidence(value: unknown): { activeTools: string[], completedTools: string[], reasoning: boolean } {
+  if (!isRecord(value)) return { activeTools: [], completedTools: [], reasoning: false }
+  const content = Array.isArray(value.content) ? value.content : []
+  const toolCalls = [...content, ...(Array.isArray(value.toolCalls) ? value.toolCalls : [])]
+    .filter(part => eventType(part).includes("tool-call"))
+  const toolResults = [...content, ...(Array.isArray(value.toolResults) ? value.toolResults : [])]
+    .filter(part => eventType(part).includes("tool-result") || eventType(part).includes("tool-output"))
+  const completedIds = new Set(toolResults.map(eventToolId).filter(Boolean))
   return {
-    completedTools: [...new Set(parts.map(eventToolName).filter(Boolean))],
-    reasoning: parts.some(part => eventType(part).includes("reasoning")),
+    activeTools: [...new Set(toolCalls.filter(part => !completedIds.has(eventToolId(part))).map(eventToolName).filter(Boolean))],
+    completedTools: [...new Set(toolResults.map(eventToolName).filter(Boolean))],
+    reasoning: content.some(part => eventType(part).includes("reasoning")),
   }
 }
 
@@ -657,7 +659,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
                 await previous?.(event)
                 if (!context.context.get(messageChannelProgressContextKey)) return
                 const evidence = stepProgressEvidence(event)
-                if (!evidence.reasoning && !evidence.completedTools.length) return
+                if (!evidence.reasoning && !evidence.activeTools.length && !evidence.completedTools.length) return
                 generatedCompletedTools.push(...evidence.completedTools)
                 const now = Date.now()
                 if (generatedLastAt && now - generatedLastAt < (options.intervalMs ?? 10_000)) return
@@ -674,7 +676,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
                   }
                   try {
                     const summary = await generateProgressSummary(context, options, {
-                      activeTools: [],
+                      activeTools: evidence.activeTools,
                       completedTools: generatedCompletedTools.slice(-5),
                       elapsedMs: Date.now() - generatedStartedAt,
                       input,

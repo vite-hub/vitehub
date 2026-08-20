@@ -3644,8 +3644,9 @@ async function handleChatSdkMessage(
           await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
           const unusedPlaceholder = manualDeliveryState.placeholder
           if (unusedPlaceholder) {
-            await deleteManualDeliveryPlaceholderWithin(unusedPlaceholder).catch(error => {
+            await deleteManualDeliveryPlaceholderWithin(unusedPlaceholder).catch((error) => {
               console.warn("[vitehub] Could not delete an unused progress message.", error)
+              throw error
             })
             if (manualDeliveryState.placeholder === unusedPlaceholder) {
               manualDeliveryState.placeholder = undefined
