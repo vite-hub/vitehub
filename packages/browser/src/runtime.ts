@@ -113,7 +113,7 @@ class ManagedBrowserPageSession<TConnection> implements BrowserPageSession {
         errors.push(error)
       }
       try {
-        await this.providerSession.close()
+        await boundedCleanup(this.providerSession.close(), "close the browser provider during session cleanup")
       }
       catch (error) {
         errors.push(error)
