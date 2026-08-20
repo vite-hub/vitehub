@@ -11,7 +11,7 @@ import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail } from "@vite-hub/email/vite"
-import { createRuntimeEnvRegistry, hubEnv } from "@vite-hub/env/vite"
+import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
@@ -517,10 +517,9 @@ function deploymentPlugins(
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
           if (deploymentEnvPlugin.current) {
-            const envConfig = (config as { env?: { server?: Parameters<typeof createRuntimeEnvRegistry>[0] } }).env
-            const prefix = options.env && typeof options.env === "object" ? options.env.prefix : undefined
+            const envConfig = (config as { env?: { server?: Parameters<EnvVitePlugin["api"]["createServerEnvRegistry"]>[0] } }).env
             registerCloudflareProviderOutput(config, "env", {
-              requiredSecrets: requiredCloudflareSecretNames(createRuntimeEnvRegistry(envConfig?.server, { prefix })),
+              requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.createServerEnvRegistry(envConfig?.server)),
             })
             nitro = composeNitroCloudflareProviderOutput(config, nitro)
           }

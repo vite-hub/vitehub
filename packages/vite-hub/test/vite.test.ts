@@ -13,7 +13,13 @@ const integrationMocks = vi.hoisted(() => ({
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
-  hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
+  hubEnv: vi.fn(() => ({
+    api: {
+      createServerEnvRegistry: () => ({}),
+      getServerEnvRegistry: () => ({}),
+    },
+    name: "@vite-hub/env/vite",
+  })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
   hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
