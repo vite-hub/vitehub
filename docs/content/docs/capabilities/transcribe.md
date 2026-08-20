@@ -39,6 +39,34 @@ export default defineAgent({
 })
 ```
 
+### OpenRouter
+
+Use `openRouterTranscriptionModel()` to keep OpenRouter authentication, audio encoding, request shape, and provider errors behind the AI SDK transcription model interface.
+
+```ts [server/agents/voice.ts]
+import { defineAgent } from '@vite-hub/agent'
+import {
+  openRouterTranscriptionModel,
+  transcribe,
+} from '@vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: [
+    transcribe({
+      model: openRouterTranscriptionModel({
+        apiKey: () => env.OPENROUTER_API_KEY,
+        model: 'openai/gpt-4o-transcribe',
+      }),
+    }),
+  ],
+})
+```
+
+The adapter uses OpenRouter's base64 JSON request with `response_format: 'json'`. This avoids provider-specific multipart handling in Agent Definitions and does not request `verbose_json`, which OpenRouter only supports for some upstream providers.
+
+AI SDK `providerOptions.openrouter` values for `language`, `temperature`, and `provider` routing are forwarded to OpenRouter. Unsupported OpenRouter transcription options fail explicitly instead of being silently ignored.
+
 ## Runtime behavior
 
 `transcribe()` runs before model execution.
@@ -184,6 +212,8 @@ When artifacts are enabled, inspect the Workspace for transcript files and the f
 | `client.submit({ source, metadata, abortSignal })` | `submitted` operation | Submits a remote HTTP(S) source and returns the provider operation ID. |
 | `client.receive(payload)` | `completed \| failed` completion | Normalizes an already-authenticated provider completion payload. |
 | `elevenLabsScribe(options)` | `TranscriptionDriver` | Maps remote Scribe v2 submission and callback payloads without exposing provider types. |
+
+`openRouterTranscriptionModel({ apiKey, model })` returns an AI SDK transcription model for synchronous `transcribe({ model })` usage.
 
 Without `artifacts.directory`, transcripts use `transcripts/<date>/<stem>.txt` and audio is placed beside the transcript. If transcripts are disabled, audio uses `audio/<date>/<stem>.<extension>`.
 
