@@ -39,8 +39,8 @@ function locatorExpression(
     }
     if (!(element instanceof HTMLElement)) throw new Error("Browser locator did not match an HTML element");
     if (${JSON.stringify(operation)} === "click") {
-      element.click();
-      return true;
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
     if (${JSON.stringify(operation)} === "inputValue") {
       if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) {
@@ -197,12 +197,15 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       resolveStopped()
     })
     try {
-      const result = await send<{ exceptionDetails?: unknown, result?: { value?: boolean } }>("Runtime.evaluate", {
+      const result = await send<{ exceptionDetails?: unknown, result?: { value?: { x: number, y: number } } }>("Runtime.evaluate", {
         awaitPromise: true,
         expression: locatorExpression("click", locator),
         returnByValue: true,
       })
-      evaluateResult(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
+      const point = evaluateResult<{ x: number, y: number }>(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point })
+      await send("Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mousePressed", ...point })
+      await send("Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mouseReleased", ...point })
       await new Promise(resolve => setTimeout(resolve, 0))
       if (navigationRequested && !navigationStopped) await stopped
     }

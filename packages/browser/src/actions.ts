@@ -18,6 +18,7 @@ interface BrowserRunBinding {
 
 const DEFAULT_ACTION_TIMEOUT_MS = 30_000
 const MAX_PROVIDER_TIMEOUT_MS = 300_000
+const MAX_PROVIDER_LIFECYCLE_TIMEOUT_MS = 360_000
 const PROVIDER_TIMEOUT_GRACE_MS = 30_000
 
 function normalizeInput(input: BrowserActionInput): Record<string, unknown> {
@@ -30,7 +31,7 @@ function actionTimeoutMs(input: Record<string, unknown>): number {
     if (!value || typeof value !== "object") return
     for (const [key, nestedValue] of Object.entries(value)) {
       if ((key === "timeout" || key.endsWith("Timeout")) && typeof nestedValue === "number" && nestedValue > 0) {
-        requestedTimeoutMs = Math.max(requestedTimeoutMs, nestedValue)
+        requestedTimeoutMs += Math.min(nestedValue, MAX_PROVIDER_TIMEOUT_MS)
       }
       else {
         visit(nestedValue)
@@ -39,7 +40,7 @@ function actionTimeoutMs(input: Record<string, unknown>): number {
   }
   visit(input)
   if (requestedTimeoutMs <= DEFAULT_ACTION_TIMEOUT_MS) return DEFAULT_ACTION_TIMEOUT_MS
-  return Math.min(requestedTimeoutMs, MAX_PROVIDER_TIMEOUT_MS) + PROVIDER_TIMEOUT_GRACE_MS
+  return Math.min(requestedTimeoutMs, MAX_PROVIDER_LIFECYCLE_TIMEOUT_MS) + PROVIDER_TIMEOUT_GRACE_MS
 }
 
 async function runtimeBinding(name: string): Promise<unknown> {

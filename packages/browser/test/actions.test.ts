@@ -91,4 +91,22 @@ describe("Browser Run actions", () => {
       vi.useRealTimers()
     }
   })
+
+  it("allows cumulative provider navigation and action timeout phases", async () => {
+    vi.useFakeTimers()
+    try {
+      runtime.__env__ = { BROWSER: { quickAction: async () => {
+        await new Promise(resolve => setTimeout(resolve, 331_000))
+        return new Response("complete")
+      } } }
+
+      const action = runBrowserContent({ actionTimeout: 300_000, goToOptions: { timeout: 60_000 }, url: "https://example.com" })
+      await vi.advanceTimersByTimeAsync(331_000)
+
+      await expect(action).resolves.toEqual([null, "complete"])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
 })

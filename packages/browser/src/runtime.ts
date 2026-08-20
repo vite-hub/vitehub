@@ -3,6 +3,7 @@ import runtimeConfig from "#vitehub/browser/runtime"
 
 import {
   browserDefinitionNotFoundError,
+  browserProviderError,
   browserRuntimeNotConfiguredError,
   toBrowserError,
 } from "./errors.ts"
@@ -35,6 +36,34 @@ import type {
   BrowserDefinitionResult,
   BrowserRegistryDefinition,
 } from "./registry-types.ts"
+
+const CONTROLLER_ATTACH_TIMEOUT_MS = 30_000
+
+async function attachController<TConnection>(
+  providerSession: BrowserSession<TConnection>,
+  controller: BrowserController<CDPClient, TConnection>,
+): Promise<BrowserControl<CDPClient>> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
+  const attachment = providerSession.attach(controller)
+  void attachment.then(async (control) => {
+    if (timedOut) await control.release()
+  }).catch(() => {})
+  try {
+    return await Promise.race([
+      attachment,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true
+          reject(browserProviderError("cdp", "attach the browser controller"))
+        }, CONTROLLER_ATTACH_TIMEOUT_MS)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 function closeErrors(errors: unknown[], message: string): void {
   if (errors.length === 1) throw errors[0]
@@ -105,7 +134,7 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
     const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
     let control: BrowserControl<CDPClient> | undefined
     try {
-      control = await providerSession.attach(this.options.controller ?? cdp())
+      control = await attachController(providerSession, this.options.controller ?? cdp())
       const { page } = await attachCDPPage(control.client)
       const session = new ManagedBrowserPageSession(providerSession, control, page)
       this.sessions.push(session)

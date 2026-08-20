@@ -15,6 +15,7 @@ function fakeClient() {
     if (params?.expression?.includes('"count" === "count"')) return { result: { value: 1 } }
     if (params?.expression?.includes('"visible" === "visible"')) return { result: { value: true } }
     if (params?.expression?.includes('"inputValue" === "inputValue"')) return { result: { value: "typescript" } }
+    if (params?.expression?.includes('"click" === "click"')) return { result: { value: { x: 10, y: 20 } } }
     return { result: { value: true } }
   })
   const client: CDPClient = {
@@ -76,6 +77,16 @@ describe("CDP page", () => {
     expect(String(fill?.[1]?.expression)).toContain("element.focus()")
 
     await page.locator("button", { hasText: "Export Image" }).click()
+    expect(fake.send).toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      { button: "left", clickCount: 1, type: "mousePressed", x: 10, y: 20 },
+      "page-session",
+    )
+    expect(fake.send).toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      { button: "left", clickCount: 1, type: "mouseReleased", x: 10, y: 20 },
+      "page-session",
+    )
     expect(fake.send).toHaveBeenCalledWith("Page.navigate", { url: "https://ray.so/" }, "page-session")
   })
 
