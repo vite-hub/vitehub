@@ -391,10 +391,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         : {}
       return {
         ...(cloudflare || vercel
-          ? { resolve: { alias: Object.entries(emailTemplatePaths).map(([name, replacement]) => ({
-              find: exactIdPattern(`${emailTemplatePrefix}${name}`),
-              replacement,
-            })) } }
+          ? { resolve: { alias: [
+              { find: EMAIL_DEFINITION_ID, replacement: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs") },
+              ...Object.entries(emailTemplatePaths).map(([name, replacement]) => ({
+                find: exactIdPattern(`${emailTemplatePrefix}${name}`),
+                replacement,
+              })),
+            ] } }
           : {}),
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }

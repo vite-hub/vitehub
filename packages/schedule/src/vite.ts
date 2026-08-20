@@ -190,8 +190,9 @@ function mergeNitroVercelCrons(
   const nitro = cloneNitroConfig(value)
   const vercel = isRecord(nitro.vercel) ? { ...nitro.vercel } : {}
   const config = isRecord(vercel.config) ? { ...vercel.config } : {}
+  const generatedPaths = new Set(definitions.map(definition => getVercelSchedulePath(definition.name)))
   const existing = Array.isArray(config.crons)
-    ? config.crons.filter(cron => isRecord(cron) && typeof cron.path === "string" && !cron.path.startsWith("/api/vitehub/schedules/vercel/"))
+    ? config.crons.filter(cron => isRecord(cron) && typeof cron.path === "string" && !generatedPaths.has(cron.path))
     : []
   config.crons = [
     ...existing,

@@ -571,7 +571,11 @@ describe("Vite schedule integration", () => {
     const userConfig: Record<string, unknown> = {
       nitro: {
         preset: "vercel",
-        vercel: { config: { crons: [{ path: "/api/user", schedule: "5 0 * * *" }] } },
+        vercel: { config: { crons: [
+          { path: "/api/user", schedule: "5 0 * * *" },
+          { path: "/api/vitehub/schedules/vercel/authored", schedule: "10 0 * * *" },
+          { path: "/api/vitehub/schedules/vercel/cleanup", schedule: "15 0 * * *" },
+        ] } },
       },
       root,
     }
@@ -587,6 +591,7 @@ describe("Vite schedule integration", () => {
           config: {
             crons: [
               { path: "/api/user", schedule: "5 0 * * *" },
+              { path: "/api/vitehub/schedules/vercel/authored", schedule: "10 0 * * *" },
               { path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" },
             ],
           },

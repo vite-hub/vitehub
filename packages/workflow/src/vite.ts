@@ -80,15 +80,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
 
   function providerImportAliases(): Record<string, string> {
     if (!resolved) return { ...internalOptions?.providerImportAliases }
-    const aliases = {
+    return {
       ...resolveStringAliases(resolved),
       ...internalOptions?.providerImportAliases,
     }
-    const emailDefinition = (resolved.plugins as Array<Plugin & {
-      api?: { getDefinition?: () => { handler?: string } }
-    }>).find(plugin => plugin.name === "@vite-hub/email/vite")?.api?.getDefinition?.()?.handler
-    if (emailDefinition) aliases["#vitehub/email/definition"] = emailDefinition
-    return aliases
   }
 
   async function prepareScheduleRuntime() {
@@ -102,7 +97,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, serverDirs, internalOptions?.includeUserAppEntry, (resolved.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry, providerImportAliases())
+      ?.vitehub?.agent?.transformWorkflowRegistry)
     if (!artifacts.providerDefinitions.length) return
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(rootDir, "package.json"))

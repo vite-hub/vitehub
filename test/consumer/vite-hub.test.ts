@@ -1109,7 +1109,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
       expect(nativeWorkflow).toContain('"use workflow"')
       expect(nativeWorkflow).toContain('"use step"')
-      expect(nativeWorkflow).toContain('globalThis[Symbol.for("vitehub.email.definition")]')
+      expect(nativeWorkflow).not.toContain("vitehub.email.definition")
       expect(scheduleFunction).toContain("setWorkflowRuntimeRegistry")
       expect(flowBundle).toContain("vitehub.email.definition")
       expect(flowBundle).toContain("RESEND_API_KEY")

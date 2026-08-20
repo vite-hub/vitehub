@@ -209,10 +209,13 @@ describe("hubEmail", () => {
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
 
-    expect(await config({ root })).toMatchObject({ resolve: { alias: [{
-      find: /^#vitehub\/emails\/monthly-recap$/,
-      replacement: join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
-    }] } })
+    expect(await config({ root })).toMatchObject({ resolve: { alias: [
+      { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
+      {
+        find: /^#vitehub\/emails\/monthly-recap$/,
+        replacement: join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
+      },
+    ] } })
     await resolvePlugin(plugin, root)
 
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
@@ -275,10 +278,13 @@ describe("hubEmail", () => {
     await writeFile(join(root, "server", "emails", "welcome.md"), "Welcome")
     const plugin = hubEmail({ driver: "unemail/driver/resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
-    await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [{
-      find: /^#vitehub\/emails\/welcome$/,
-      replacement: join(root, ".vitehub", "email", "templates", "welcome.mjs"),
-    }] } })
+    await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [
+      { find: EMAIL_DEFINITION_ID, replacement: join(appRoot, ".vitehub", "email", "definition.mjs") },
+      {
+        find: /^#vitehub\/emails\/welcome$/,
+        replacement: join(root, ".vitehub", "email", "templates", "welcome.mjs"),
+      },
+    ] } })
   })
 
   it("serializes development refreshes and watches imported templates", async () => {

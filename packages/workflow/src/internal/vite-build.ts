@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
@@ -166,6 +167,32 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
   return hasNativeEntry
 }
 
+async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, emailDefinitionFile: string): Promise<void> {
+  const flowFile = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
+  if (!existsSync(flowFile)) return
+  const generatedDir = ensureGeneratedDir(rootDir, productName)
+  const bootstrapEntry = resolve(generatedDir, "email-workflow-bootstrap.entry.mjs")
+  const workflowBundle = resolve(generatedDir, "email-workflow-bootstrap.source.mjs")
+  try {
+    await writeFile(workflowBundle, await readFile(flowFile, "utf8"), "utf8")
+    await writeFile(bootstrapEntry, [
+      `import viteHubEmailDefinition from ${JSON.stringify(createImportPath(bootstrapEntry, emailDefinitionFile))}`,
+      `globalThis[Symbol.for("vitehub.email.definition")] = viteHubEmailDefinition`,
+      `export * from ${JSON.stringify(createImportPath(bootstrapEntry, workflowBundle))}`,
+      "",
+    ].join("\n"), "utf8")
+    await bundleEsmEntry(bootstrapEntry, flowFile, {
+      format: "esm",
+      platform: "node",
+      rootDir,
+    })
+  }
+  finally {
+    await rm(bootstrapEntry, { force: true })
+    await rm(workflowBundle, { force: true })
+  }
+}
+
 async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): Promise<void> {
   if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) return
   const builders = await loadVercelWorkflowBuilders()
@@ -189,6 +216,8 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     workingDir: rootDir,
   })
   await withVercelWorkflowPackageLink(rootDir, async () => await builder.build())
+  const emailDefinitionFile = aliases["#vitehub/email/definition"]
+  if (emailDefinitionFile) await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
   const workflowConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[], [key: string]: unknown }
   await writeFile(outputConfigFile, `${JSON.stringify({
     ...workflowConfig,
@@ -478,14 +507,9 @@ function getGeneratedVercelWorkflowExport(definition: DiscoveredWorkflowDefiniti
 function createVercelNativeWorkflowContents(
   nativeFile: string,
   definitions: DiscoveredWorkflowDefinition[],
-  emailDefinitionFile?: string,
 ): string {
-  const imports = emailDefinitionFile
-    ? [`import viteHubEmailDefinition from ${JSON.stringify(createImportPath(nativeFile, emailDefinitionFile))}`]
-    : []
-  const workflows = emailDefinitionFile
-    ? [`globalThis[Symbol.for("vitehub.email.definition")] = viteHubEmailDefinition`]
-    : []
+  const imports: string[] = []
+  const workflows: string[] = []
   for (const definition of definitions) {
     const workflowExport = getGeneratedVercelWorkflowExport(definition)
     const steps = definition.steps
@@ -708,7 +732,6 @@ export async function writeProviderEntries(
   serverDirs?: string[],
   includeUserAppEntry = true,
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
-  providerImportAliases: Record<string, string> = {},
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
@@ -727,7 +750,6 @@ export async function writeProviderEntries(
       createVercelNativeWorkflowContents(
         vercelNativeFile,
         definitions,
-        providerImportAliases["#vitehub/email/definition"],
       ),
       "utf8",
     )
@@ -877,7 +899,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.providerImportAliases)
+  }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
