@@ -35,6 +35,7 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityMode,
   AgentDefinition,
+  AgentInspectionCapabilityMetadata,
   AgentInspectionConfigMetadata,
   AgentInspectionConfigValue,
   AgentInspectionDriverMetadata,
@@ -45,6 +46,7 @@ import type {
   AgentInspectionModelMetadata,
   AgentInspectionToolDefinition,
   AgentInspectionWarning,
+  AgentInspectionValue,
   AgentDriver,
   AgentDriverKind,
   AgentInvocationContextStore,
@@ -147,6 +149,7 @@ export interface AgentInspectionMetadataResolutionOptions<
   Name extends WorkspaceName = WorkspaceName,
 > extends WorkspaceAgentDefaults<Name> {
   input?: AgentRunInput
+  resolveSources?: boolean
   runtime?: Partial<ResolvedAgentRuntimeContext<TRuntimeConfig>>
 }
 
@@ -620,6 +623,54 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
         ...(workspaceFallback ? { workspaceFallback } : {}),
       }
     : undefined
+}
+
+function secretInspectionMetadataKey(key: string): boolean {
+  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|credentials?|passwords?|secrets?|tokens?)(?:$|[-_])/i
+    .test(key.replace(/([a-z0-9])([A-Z])/g, "$1-$2"))
+}
+
+function inspectionMetadataValue(
+  value: unknown,
+  key = "",
+  depth = 0,
+  seen = new WeakSet<object>(),
+): AgentInspectionValue | undefined {
+  if (secretInspectionMetadataKey(key)) return "[redacted]"
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined
+  if (!value || typeof value !== "object" || depth >= 8 || seen.has(value)) return
+
+  seen.add(value)
+  const resolved = Array.isArray(value)
+    ? value.flatMap((item) => {
+        const entry = inspectionMetadataValue(item, "", depth + 1, seen)
+        return entry === undefined ? [] : [entry]
+      })
+    : Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null
+      ? Object.fromEntries(Object.entries(value)
+          .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+          .flatMap(([entryKey, item]) => {
+            const entry = inspectionMetadataValue(item, entryKey, depth + 1, seen)
+            return entry === undefined ? [] : [[entryKey, entry]]
+          }))
+      : undefined
+  seen.delete(value)
+  if (!Array.isArray(resolved) && resolved && Object.keys(resolved).length === 0) return
+  return resolved
+}
+
+function capabilityInspectionMetadata(
+  capabilities: readonly AgentCapabilityDefinition[],
+): AgentInspectionCapabilityMetadata[] {
+  return normalizeCapabilities(capabilities)
+    .flatMap((capability) => {
+      const metadata = inspectionMetadataValue(capability.metadata)
+      return isRecord(metadata) && Object.keys(metadata).length
+        ? [{ id: capability.id, metadata: metadata as Record<string, AgentInspectionValue> }]
+        : []
+    })
+    .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
 }
 
 function providerMetadata(driver: { model?: string, permissions?: AgentInspectionProviderMetadata["permissions"], provider: string }): AgentInspectionProviderMetadata {
@@ -1485,7 +1536,9 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       },
       ...(uiMessageStream ? { uiMessageStream } : {}),
     }
+    const capabilityMetadata = capabilityInspectionMetadata(selection.capabilities)
     return {
+      ...(capabilityMetadata.length ? { capabilities: capabilityMetadata } : {}),
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition as never),
@@ -1513,7 +1566,11 @@ export function createAgentInspectionMetadata<
   }
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  const capabilityMetadata = Array.isArray(options.capabilities)
+    ? capabilityInspectionMetadata(options.capabilities)
+    : []
   return {
+    ...(capabilityMetadata.length ? { capabilities: capabilityMetadata } : {}),
     files: workspaceMetadataFiles(options),
     instructions: [...workspaceMetadataInstructions(options), ...channelInstructions],
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
@@ -1562,15 +1619,21 @@ export async function resolveAgentInspectionMetadata<
       capabilityContext.metadataContext.context,
     )
 
+    const capabilityMetadata = capabilityInspectionMetadata(capabilityContext.options.capabilities as AgentCapabilityDefinition[])
     return {
-      files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
+      ...(capabilityMetadata.length ? { capabilities: capabilityMetadata } : {}),
+      files: defaultsOverride.resolveSources === false
+        ? workspaceMetadataFiles(capabilityContext.options as never)
+        : await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,
         ...agentChannelMetadataInstructions(workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>),
       ],
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
-      tools: await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
+      tools: defaultsOverride.resolveSources === false
+        ? workspaceMetadataTools(capabilityContext.options as never)
+        : await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
       ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),
     }
   })

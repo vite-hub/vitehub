@@ -966,6 +966,19 @@ describe("agent Vite plugin", () => {
     ])
   })
 
+  it("registers an opt-in custom inspection route with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { inspection: "/internal/agents/[agent]/status" } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+      : undefined
+
+    expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
+      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      route: "/internal/agents/:agent/status",
+    })
+  })
+
   it("does not register agent routes without hosted Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
@@ -1651,8 +1664,8 @@ export default defineAgent({
 
       for (const stateProvider of ["cloudflare", "libsql"] as const) {
         const plugin = hubAgent(stateProvider === "libsql"
-          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } }
-          : undefined)
+          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } }, routes: { inspection: true } }
+          : { routes: { inspection: true } })
         if (typeof plugin.configResolved === "function") {
           await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
         }

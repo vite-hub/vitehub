@@ -88,6 +88,8 @@ This bridge is not yet a complete Eve runtime. Tool and approval contexts do not
 | Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
 | Metadata | Inspectable configuration for runtime diagnostics and CLI inspection. |
 
+Capability metadata appears under the Capability id in Agent inspection output. ViteHub keeps JSON values, sorts object keys and Capability ids, drops unsupported or cyclic values, and redacts keys shaped like auth, API keys, credentials, passwords, secrets, or tokens. Metadata must describe configuration or an explicit check result; it must not include Env values, authentication material, or credentials.
+
 Use `defineCapability({ finish })` for metadata that evals, finish hooks, or channel delivery code should read after an invocation.
 Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
 

@@ -294,6 +294,9 @@ describe("agent public types", () => {
   })
 
   it("keeps chat and webhook route ownership out of hubAgent options", () => {
+    const inspectionRoute: AgentModuleOptions = {
+      routes: { inspection: "/internal/agents/[agent]" },
+    }
     const chatRoute: AgentModuleOptions = {
       routes: {
         // @ts-expect-error Chat route ownership belongs to webChat().
@@ -307,6 +310,7 @@ describe("agent public types", () => {
       },
     }
     void chatRoute
+    void inspectionRoute
     void webhookRoute
   })
 

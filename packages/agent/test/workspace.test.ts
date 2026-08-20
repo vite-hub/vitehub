@@ -2908,6 +2908,64 @@ describe("defineAgent workspace option", () => {
     ])
   })
 
+  it("returns stable redacted metadata from inspection-selected Capabilities and cleans them up", async () => {
+    const { defineAgent, defineCapability, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const close = vi.fn()
+    const prepare = vi.fn()
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    const inspectable = defineCapability({
+      close,
+      id: "alpha",
+      metadata: {
+        zeta: true,
+        auth: "auth-value",
+        apiKey: "api-key-value",
+        array: [1, undefined, Number.POSITIVE_INFINITY, "ok"],
+        authorizationHeader: "authorization-value",
+        circular,
+        credentialSource: "credential-value",
+        nested: { token: "token-value", visible: "yes" },
+        unsupported: new Date(),
+      },
+      prepare,
+    })
+    const agent = defineAgent({
+      capabilities: ({ actor }) => {
+        expect(actor.kind).toBe("inspection")
+        return [defineCapability({ id: "zeta", metadata: { status: "ready" } }), inspectable]
+      },
+      driver: { run: () => "ok" },
+    })
+
+    const metadata = await resolveAgentInspectionMetadata(agent, {
+      input: { context: { invoker: { id: "inspection", kind: "inspection" } } },
+    })
+
+    expect(metadata.capabilities?.map(capability => capability.id)).toEqual(["alpha", "zeta"])
+    expect(Object.keys(metadata.capabilities?.[0]?.metadata || {})).toEqual([
+      "apiKey",
+      "array",
+      "auth",
+      "authorizationHeader",
+      "credentialSource",
+      "nested",
+      "zeta",
+    ])
+    expect(metadata.capabilities?.[0]?.metadata).toMatchObject({
+      apiKey: "[redacted]",
+      array: [1, "ok"],
+      auth: "[redacted]",
+      authorizationHeader: "[redacted]",
+      credentialSource: "[redacted]",
+      nested: { token: "[redacted]", visible: "yes" },
+    })
+    expect(metadata.capabilities?.[0]?.metadata).not.toHaveProperty("circular")
+    expect(metadata.capabilities?.[0]?.metadata).not.toHaveProperty("unsupported")
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("rejects impossible invocation-selected Capabilities in non-Workspace Agent inspection metadata", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
@@ -2946,6 +3004,14 @@ describe("defineAgent workspace option", () => {
       executionAuthority: noExecutionAuthority,
       kind: "provider",
     })
+  })
+
+  it("preserves configured provider models in Agent inspection metadata", async () => {
+    const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { kind: "codex", model: "gpt-5.6-sol" } })
+
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider?.model).toBe("gpt-5.6-sol")
+    expect((await resolveAgentInspectionMetadata(agent)).config?.driver.provider?.model).toBe("gpt-5.6-sol")
   })
 
   it("reports unknown authority for an opaque custom Agent definition", async () => {
@@ -3021,8 +3087,10 @@ describe("defineAgent workspace option", () => {
       },
     }), { workspace: "support" })
 
-    await expect(resolveAgentInspectionMetadata(agent)).resolves.toBeDefined()
+    await expect(resolveAgentInspectionMetadata(agent, { resolveSources: false })).resolves.toBeDefined()
     expect(resolveCapabilities).toHaveBeenCalledOnce()
+    expect(list).not.toHaveBeenCalled()
+    expect(readFile).not.toHaveBeenCalled()
     expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
     expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledWith(
       expect.any(Object),

@@ -25,6 +25,7 @@ describe("agent config", () => {
       },
       routes: {
         discordGateway: false,
+        inspection: false,
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "auto",
@@ -41,6 +42,7 @@ describe("agent config", () => {
       providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       routes: {
         discordGateway: false,
+        inspection: false,
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "cloudflare-agents",
@@ -66,6 +68,16 @@ describe("agent config", () => {
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
+  })
+
+  it("normalizes the optional inspection route", () => {
+    expect(normalizeAgentOptions({ routes: { inspection: true } })).toMatchObject({
+      routes: { inspection: "/api/_vitehub/agents/[agent]/inspection" },
+    })
+    expect(normalizeAgentOptions({ routes: { inspection: "/internal/agents/[agent]" } })).toMatchObject({
+      routes: { inspection: "/internal/agents/[agent]" },
+    })
+    expect(normalizeAgentOptions({ routes: { inspection: false } })).toMatchObject({ routes: { inspection: false } })
   })
 
   it("preserves Deno runtime selection", () => {
