@@ -107,7 +107,12 @@ class CDPBrowserLocator implements BrowserLocator {
     private readonly invalidatePage: (error: Error) => void,
   ) {}
 
-  private async evaluate<TResult>(operation: Parameters<typeof locatorExpression>[0], value?: string): Promise<TResult> {
+  private async evaluate<TResult>(
+    operation: Parameters<typeof locatorExpression>[0],
+    value?: string,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    invalidateOnTimeout = true,
+  ): Promise<TResult> {
     this.assertPageUsable()
     const operationName = `${operation} Browser locator ${JSON.stringify(this.locator.selector)}`
     const result = await withTimeout(this.send<{
@@ -117,7 +122,7 @@ class CDPBrowserLocator implements BrowserLocator {
       awaitPromise: true,
       expression: locatorExpression(operation, this.locator, value),
       returnByValue: true,
-    }), DEFAULT_TIMEOUT_MS, operationName, this.invalidatePage)
+    }), timeoutMs, operationName, invalidateOnTimeout ? this.invalidatePage : undefined)
     return evaluateResult(result, operationName)
   }
 
@@ -143,7 +148,7 @@ class CDPBrowserLocator implements BrowserLocator {
     const operation = `wait for Browser locator ${JSON.stringify(this.locator.selector)}`
     do {
       const remainingMs = Math.max(0, deadline - Date.now())
-      if (await withTimeout(this.evaluate<boolean>("visible"), remainingMs, operation)) return
+      if (await this.evaluate<boolean>("visible", undefined, remainingMs, false)) return
       await new Promise(resolve => setTimeout(resolve, Math.min(50, Math.max(0, deadline - Date.now()))))
     } while (Date.now() < deadline)
     throw browserProviderError("cdp", operation)

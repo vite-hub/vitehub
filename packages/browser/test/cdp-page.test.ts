@@ -148,6 +148,37 @@ describe("CDP page", () => {
     )
   })
 
+  it("does not invalidate a reusable page after a short locator wait timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      let visibleEvaluations = 0
+      fake.send.mockImplementation(async (method: string, params?: { expression?: string }) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method !== "Runtime.evaluate") return {}
+        if (params?.expression?.includes('"visible" === "visible"') && visibleEvaluations++ === 0) {
+          return await new Promise(() => {})
+        }
+        if (params?.expression?.includes('"count" === "count"')) return { result: { value: 1 } }
+        return { result: { value: true } }
+      })
+      const { page } = await attachCDPPage(fake.client)
+
+      const wait = page.locator("main").waitFor({ timeoutMs: 10 })
+      const result = expect(wait).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(10)
+      await result
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await expect(page.locator("main").count()).resolves.toBe(1)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("allows SVG elements through the pointer click path", async () => {
     const fake = fakeClient()
     const { page } = await attachCDPPage(fake.client)
