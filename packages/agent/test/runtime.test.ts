@@ -1836,7 +1836,7 @@ describe("agent message protocol", () => {
     expect(repairGenerate).toHaveBeenCalledWith(expect.objectContaining({
       model: repairModel,
       providerOptions: { test: { route: "repair" } },
-      prompt: expect.stringContaining("title: Expected a string"),
+      prompt: expect.stringMatching(/title: Expected a string[\s\S]*meal-1/),
     }))
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("tools")
     expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("toolChoice")

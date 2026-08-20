@@ -1114,13 +1114,14 @@ function withoutToolCallSettings(settings: Record<string, unknown>): Record<stri
   return rest
 }
 
-function outputRepairPrompt(text: string, error: Error): string {
+function outputRepairPrompt(text: string, error: Error, evidence: string[] = []): string {
   const cause = error.cause instanceof Error ? error.cause.message : undefined
   return [
     "Correct the invalid final Agent output below.",
     "Return only the corrected JSON value. Do not repeat completed work.",
     `Validation error: ${cause || error.message}`,
     `Invalid output: ${JSON.stringify(text)}`,
+    ...(evidence.length ? [`Completed tool results:\n${evidence.join("\n\n---\n\n")}`] : []),
   ].join("\n\n")
 }
 
@@ -1212,13 +1213,13 @@ async function createAgent(
       } as never)
     : undefined
   const repairOutput = nativeOutput && context.output
-    ? async (failure: { error: Error, text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
+    ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
         const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = callInput
         try {
           return await repairAgent!.generate({
             ...repairCallInput,
             ...("options" in callInput ? { options: callInput.options } : {}),
-            prompt: outputRepairPrompt(failure.text, failure.error),
+            prompt: outputRepairPrompt(failure.text, failure.error, failure.evidence),
           } as never) as unknown as AgentAdapterResult
         }
         catch (repairError) {
@@ -1290,7 +1291,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           return output
         }
         const repairedOutput = failure && repairOutput
-          ? await repairOutput(failure, repairCallInput) as GenerateTextResult<ToolSet, never, never>
+          ? await repairOutput({ ...failure, evidence: fallbackCapture?.evidence() }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
           : undefined
         generated = repairedOutput ?? await normalizeNativeAgentOutputError(context.output, error)
         repaired = Boolean(repairedOutput)
@@ -1311,6 +1312,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         catch (error) {
           generated = await repairOutput({
             error: error instanceof Error ? error : new Error(String(error)),
+            evidence: fallbackCapture?.evidence(),
             text: generated.text,
           }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
         }
