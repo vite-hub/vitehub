@@ -110,6 +110,20 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("does not request another provider event after the turn completes", async () => {
+    const threadId = "thread-terminal-event"
+    let requestedAfterTerminal = false
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      afterEvents: async () => {
+        requestedAfterTerminal = true
+      },
+    })
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+    expect(requestedAfterTerminal).toBe(false)
+  })
+
   it("runs provider sessions in the resolved trusted-host Box", async () => {
     const threadId = "thread-box"
     const checkout = `/tmp/vitehub-provider-box-${crypto.randomUUID()}`

@@ -1015,8 +1015,10 @@ async function* runProvider(
       }
       const current = raced.provider
       if (current.done) throw new Error("[vitehub] Provider Agent Driver event stream ended before the turn completed.")
-      nextEvent = events.next()
-      if (current.value.threadId && current.value.threadId !== threadId) continue
+      if (current.value.threadId && current.value.threadId !== threadId) {
+        nextEvent = events.next()
+        continue
+      }
       const normalized = providerEvent(current.value, context.tools)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)
@@ -1034,6 +1036,7 @@ async function* runProvider(
       for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
+      nextEvent = events.next()
     }
   }
   catch (error) {
