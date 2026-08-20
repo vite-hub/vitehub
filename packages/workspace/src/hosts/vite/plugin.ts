@@ -638,9 +638,7 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 function configureCloudflareNitroRuntime(nitro: NitroConfig): void {
   nitro.cloudflare ??= {}
   nitro.cloudflare.wrangler ??= {}
-  const compatibilityFlags = nitro.cloudflare.wrangler.compatibility_flags || []
-  if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
-  nitro.cloudflare.wrangler.compatibility_flags = compatibilityFlags
+  nitro.cloudflare.nodeCompat = true
   const rollupConfig = isRecord(nitro.rollupConfig) ? { ...nitro.rollupConfig } : {}
   nitro.rollupConfig = { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }
 }

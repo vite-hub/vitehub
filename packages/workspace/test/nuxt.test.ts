@@ -116,12 +116,12 @@ describe("Workspace Nuxt module", () => {
 
     expect(nitroConfig).toMatchObject({
       cloudflare: {
+        nodeCompat: true,
         wrangler: {
           artifacts: [
             { binding: "EXISTING_ARTIFACTS", namespace: "existing" },
             { binding: "WORKSPACE_ARTIFACTS", namespace: "vitehub" },
           ],
-          compatibility_flags: ["nodejs_compat"],
           observability: { enabled: true },
         },
       },

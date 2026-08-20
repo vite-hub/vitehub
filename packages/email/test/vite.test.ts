@@ -86,7 +86,7 @@ describe("hubEmail", () => {
     expect(config(cloudflareConfig)).not.toHaveProperty("nitro")
     expect(cloudflareConfig).toMatchObject({
       nitro: {
-        cloudflare: { wrangler: { compatibility_flags: ["custom", "nodejs_compat"] } },
+        cloudflare: { nodeCompat: true, wrangler: { compatibility_flags: ["custom"] } },
         rollupConfig: { external: ["cloudflare:workers"] },
       },
     })

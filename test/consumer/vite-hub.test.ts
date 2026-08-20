@@ -742,7 +742,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it("publishes Browser types and Cloudflare adapter without consumer-owned Playwright", async () => {
+  it("publishes Browser actions without installing Playwright by default", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -758,9 +758,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ]))
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
-          import type { BrowserDownload } from "@vite-hub/browser"
-          declare const download: BrowserDownload
-          download.url()
+          import { runBrowserContent } from "@vite-hub/browser/actions"
+          export async function load() {
+            return await runBrowserContent("https://example.com")
+          }
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
@@ -776,11 +777,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/browser"])
-      await run(process.execPath, ["--input-type=module", "--eval", `
-        import { createRequire } from "node:module"
-        const browserRequire = createRequire(import.meta.resolve("@vite-hub/browser/package.json"))
-        browserRequire.resolve("@cloudflare/playwright")
-      `], appDir)
+      const { stdout: prodDependencies } = await run("pnpm", ["list", "--depth", "Infinity", "--prod", "--json"], appDir)
+      expect(prodDependencies).not.toContain("@cloudflare/playwright")
+      expect(prodDependencies).not.toContain("playwright-core")
       await run(process.execPath, [
         resolve(repoRoot, "node_modules/typescript/bin/tsc"),
         "--module",

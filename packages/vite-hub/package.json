@@ -80,6 +80,7 @@
     "./blob/content-type": "./dist/blob/content-type.js",
     "./box": "./dist/box.js",
     "./browser": "./dist/browser.js",
+    "./browser/actions": "./dist/browser/actions.js",
     "./browser/controllers/cdp": "./dist/browser/controllers/cdp.js",
     "./browser/controllers/playwright": "./dist/browser/controllers/playwright.js",
     "./browser/providers/cloudflare": "./dist/browser/providers/cloudflare.js",

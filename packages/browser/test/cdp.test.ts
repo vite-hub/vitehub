@@ -16,6 +16,12 @@ class FakeSocket extends EventTarget {
       data: JSON.stringify({ id: request.id, result: { method: request.method } }),
     }))
   }
+
+  emit(method: string, params: unknown) {
+    this.dispatchEvent(new MessageEvent("message", {
+      data: JSON.stringify({ method, params, sessionId: "page-session" }),
+    }))
+  }
 }
 
 describe("cdp controller", () => {
@@ -56,5 +62,30 @@ describe("cdp controller", () => {
     await attached.release()
     expect(socket.close).toHaveBeenCalledOnce()
     await expect(attached.client.send("Target.getTargets")).rejects.toThrow("after release")
+  })
+
+  it("forwards protocol events to subscribers", async () => {
+    const socket = new FakeSocket()
+    const attached = await cdp({ connect: async () => socket }).attach({
+      binding: { fetch: vi.fn() },
+      kind: "cloudflare-binding",
+      sessionId: "provider-secret",
+    }, {
+      provider: { features: { liveHandoff: true }, isolation: "provider", name: "cloudflare" },
+      sessionId: "public-id",
+    })
+    const listener = vi.fn()
+    const stop = attached.client.on("Page.lifecycleEvent", listener)
+
+    socket.emit("Page.lifecycleEvent", { loaderId: "document-loader", name: "load" })
+
+    expect(listener).toHaveBeenCalledWith(
+      { loaderId: "document-loader", name: "load" },
+      "page-session",
+    )
+    stop()
+    socket.emit("Page.lifecycleEvent", { loaderId: "ignored", name: "load" })
+    expect(listener).toHaveBeenCalledOnce()
+    await attached.release()
   })
 })

@@ -1,7 +1,11 @@
 import { normalize, resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
+import {
+  createDefaultCloudflareOutputRoot,
+  defaultCloudflareCompatibilityDate,
+  writeCloudflareWranglerConfig,
+} from "@vite-hub/internal/build/cloudflare"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import {
   createNoExternalMerger,
@@ -36,12 +40,12 @@ const mergeNoExternal = createNoExternalMerger("@vite-hub/browser")
 
 function resolveOptions(options: BrowserModuleOptions | false | undefined): Required<BrowserModuleOptions> {
   const binding = options && options.binding || "BROWSER"
+  const engine = !options ? "kitesurf" : options.engine ?? "kitesurf"
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
     throw new TypeError("[vitehub:browser] Browser binding must be a valid Cloudflare binding name.")
   }
-  const engine = options ? options.engine ?? "kitesurf" : "kitesurf"
   if (engine !== "chromium" && engine !== "kitesurf") {
-    throw new TypeError("[vitehub:browser] Browser engine must be chromium or kitesurf.")
+    throw new TypeError("[vitehub:browser] Browser engine must be \"chromium\" or \"kitesurf\".")
   }
   return { binding, engine, remote: Boolean(options && options.remote) }
 }
@@ -76,18 +80,14 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
     delete wrangler.browser
     return { ...nitro, cloudflare: { ...cloudflare, wrangler } }
   }
-  const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
-  for (const flag of ["nodejs_compat", "no_websocket_standard_binary_type"]) {
-    if (!flags.includes(flag)) flags.push(flag)
-  }
   return {
     ...nitro,
     cloudflare: {
       ...cloudflare,
+      nodeCompat: true,
       wrangler: {
         ...wrangler,
         browser: browserBinding(options),
-        compatibility_flags: flags,
       },
     },
     rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
@@ -219,7 +219,10 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
             ? {
                 wranglerConfig: {
                   browser: browserBinding(resolvedOptions),
-                  compatibility_flags: ["nodejs_compat", "no_websocket_standard_binary_type"],
+                  compatibility_flags: ["nodejs_compat"],
+                },
+                wranglerConfigDefaults: {
+                  compatibility_date: defaultCloudflareCompatibilityDate,
                 },
               }
             : {}),
@@ -227,7 +230,8 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
             keys: ["browser"],
             arrays: {
               compatibility_flags: {
-                values: ["no_websocket_standard_binary_type"],
+                preserveOnCleanup: true,
+                values: ["nodejs_compat"],
               },
             },
           },

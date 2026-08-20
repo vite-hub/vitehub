@@ -1,28 +1,35 @@
 import browserRegistry from "#vitehub/browser/registry"
 import runtimeConfig from "#vitehub/browser/runtime"
 
-import type { PlaywrightClient } from "./controllers/playwright.ts"
 import {
   browserDefinitionNotFoundError,
+  browserProviderError,
   browserRuntimeNotConfiguredError,
   toBrowserError,
 } from "./errors.ts"
 import { createBrowser } from "./client.ts"
-import { cloudflarePlaywright } from "./internal/cloudflare-playwright.ts"
+import { cdp } from "./controllers/cdp.ts"
+import { runBrowserAction, runBrowserContent } from "./actions.ts"
+import { attachCDPPage } from "./internal/cdp-page.ts"
 import { cloudflareBrowser } from "./providers/cloudflare.ts"
 
 import type {
+  BrowserAction,
+  BrowserActionInput,
   BrowserClient,
   BrowserControl,
   BrowserController,
   BrowserDefinition,
   BrowserDefinitionBrowser,
   BrowserDefinitionHandler,
+  BrowserPage,
   BrowserPageSession,
   BrowserProviderOpenOptions,
   BrowserRunResult,
   BrowserSession,
 } from "./types.ts"
+import type { CDPClient } from "./controllers/cdp.ts"
+import type { PlaywrightBrowserConnection } from "./internal/connections.ts"
 import type {
   BrowserDefinitionInputArgs,
   BrowserDefinitionName,
@@ -30,26 +37,64 @@ import type {
   BrowserRegistryDefinition,
 } from "./registry-types.ts"
 
+const CONTROLLER_ATTACH_TIMEOUT_MS = 30_000
+
+async function boundedCleanup(cleanup: Promise<void>, operation = "close the browser after setup failure"): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      cleanup,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(browserProviderError("cdp", operation))
+        }, CONTROLLER_ATTACH_TIMEOUT_MS)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function attachController<TConnection>(
+  providerSession: BrowserSession<TConnection>,
+  controller: BrowserController<CDPClient, TConnection>,
+): Promise<BrowserControl<CDPClient>> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const attachment = providerSession.attach(controller)
+  try {
+    return await Promise.race([
+      attachment,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(browserProviderError("cdp", "attach the browser controller"))
+        }, CONTROLLER_ATTACH_TIMEOUT_MS)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function closeErrors(errors: unknown[], message: string): void {
   if (errors.length === 1) throw errors[0]
   if (errors.length > 1) throw new AggregateError(errors, message)
 }
 
 class ManagedBrowserPageSession<TConnection> implements BrowserPageSession {
-  readonly browser
-  readonly context
   readonly id
   readonly page
   private closed = false
+  private closePromise?: Promise<void>
 
   constructor(
     private readonly providerSession: BrowserSession<TConnection>,
-    private readonly control: BrowserControl<PlaywrightClient>,
+    private readonly control: BrowserControl<CDPClient>,
+    page: BrowserPage,
   ) {
-    this.browser = control.client.browser
-    this.context = control.client.context
     this.id = providerSession.id
-    this.page = control.client.page
+    this.page = page
   }
 
   inspect() {
@@ -57,54 +102,88 @@ class ManagedBrowserPageSession<TConnection> implements BrowserPageSession {
   }
 
   async close(): Promise<void> {
+    if (this.closePromise) return await this.closePromise
     if (this.closed) return
-    const errors: unknown[] = []
+    const closing = (async () => {
+      const errors: unknown[] = []
+      try {
+        await boundedCleanup(this.control.release(), "release the browser controller during session cleanup")
+      }
+      catch (error) {
+        errors.push(error)
+      }
+      try {
+        await boundedCleanup(this.providerSession.close(), "close the browser provider during session cleanup")
+      }
+      catch (error) {
+        errors.push(error)
+      }
+      if (errors.length === 0) this.closed = true
+      closeErrors(errors, "[vitehub:browser] Browser Session controller and provider cleanup failed.")
+    })()
+    this.closePromise = closing
     try {
-      await this.control.release()
+      await closing
     }
-    catch (error) {
-      errors.push(error)
+    finally {
+      this.closePromise = undefined
     }
-    try {
-      await this.providerSession.close()
-    }
-    catch (error) {
-      errors.push(error)
-    }
-    if (errors.length === 0) this.closed = true
-    closeErrors(errors, "[vitehub:browser] Browser Session controller and provider cleanup failed.")
   }
 }
 
-class BrowserDefinitionBrowserImpl<TConnection> implements BrowserDefinitionBrowser {
-  private readonly sessions: Array<ManagedBrowserPageSession<TConnection>> = []
+interface BrowserDefinitionRuntimeOptions {
+  client?: BrowserClient<PlaywrightBrowserConnection>
+  controller?: BrowserController<CDPClient, PlaywrightBrowserConnection>
+}
 
-  constructor(
-    private readonly client: BrowserClient<TConnection>,
-    private readonly controller: BrowserController<PlaywrightClient, TConnection>,
-  ) {}
+class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
+  private readonly sessions: Array<ManagedBrowserPageSession<PlaywrightBrowserConnection>> = []
+
+  constructor(private readonly options: BrowserDefinitionRuntimeOptions) {}
+
+  async content(input: BrowserActionInput): Promise<string> {
+    const [error, content] = await runBrowserContent(input)
+    if (error) throw error
+    return content
+  }
+
+  async run(action: BrowserAction, input: BrowserActionInput): Promise<Response> {
+    const [error, response] = await runBrowserAction(action, input)
+    if (error) throw error
+    return response
+  }
 
   async open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession> {
-    const providerSession = await this.client.open(options)
-    let control: BrowserControl<PlaywrightClient>
+    const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
+    let control: BrowserControl<CDPClient> | undefined
     try {
-      control = await providerSession.attach(this.controller)
+      control = await attachController(providerSession, this.options.controller ?? cdp())
+      const { page } = await attachCDPPage(control.client)
+      const session = new ManagedBrowserPageSession(providerSession, control, page)
+      this.sessions.push(session)
+      return session
     }
     catch (error) {
+      const errors = [error]
+      if (control) {
+        try {
+          await boundedCleanup(control.release(), "release the browser controller after setup failure")
+        }
+        catch (releaseError) {
+          errors.push(releaseError)
+        }
+      }
       try {
-        await providerSession.close()
+        await boundedCleanup(providerSession.close())
       }
       catch (closeError) {
-        throw new AggregateError(
-          [error, closeError],
-          "[vitehub:browser] Browser Session setup failed and provider cleanup also failed.",
-        )
+        errors.push(closeError)
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "[vitehub:browser] Browser Session setup failed and provider cleanup also failed.")
       }
       throw error
     }
-    const session = new ManagedBrowserPageSession(providerSession, control)
-    this.sessions.push(session)
-    return session
   }
 
   async close(): Promise<void> {
@@ -121,13 +200,16 @@ class BrowserDefinitionBrowserImpl<TConnection> implements BrowserDefinitionBrow
   }
 }
 
-let configuredClient: BrowserClient | undefined
+let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
 
-function resolveConfiguredClient(): BrowserClient {
+function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
   if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
   configuredClient = createBrowser({
-    provider: cloudflareBrowser({ binding: runtimeConfig.binding, engine: runtimeConfig.engine }),
+    provider: cloudflareBrowser({
+      binding: runtimeConfig.binding,
+      engine: runtimeConfig.engine,
+    }),
   })
   return configuredClient
 }
@@ -156,18 +238,12 @@ export function defineBrowser<TInput = unknown, TResult = unknown>(
   return { run }
 }
 
-export async function executeBrowserDefinition<TInput, TResult, TConnection>(
+export async function executeBrowserDefinition<TInput, TResult>(
   definition: BrowserDefinition<TInput, TResult>,
   input: TInput,
-  options: {
-    client: BrowserClient<TConnection>
-    controller?: BrowserController<PlaywrightClient, TConnection>
-  },
+  options: BrowserDefinitionRuntimeOptions = {},
 ): Promise<TResult> {
-  const browser = new BrowserDefinitionBrowserImpl(
-    options.client,
-    options.controller ?? cloudflarePlaywright() as BrowserController<PlaywrightClient, TConnection>,
-  )
+  const browser = new BrowserDefinitionBrowserImpl(options)
   let result: TResult
   try {
     result = await definition.run(input, { browser })
@@ -199,9 +275,7 @@ export function runBrowser<TName extends string>(
 export async function runBrowser(name: string, input?: unknown): Promise<BrowserRunResult<unknown>> {
   try {
     const definition = await resolveBrowserDefinition(name)
-    return [null, await executeBrowserDefinition(definition, input, {
-      client: resolveConfiguredClient(),
-    })]
+    return [null, await executeBrowserDefinition(definition, input)]
   }
   catch (error) {
     return [toBrowserError(error), undefined]

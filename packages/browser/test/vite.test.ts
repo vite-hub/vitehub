@@ -18,6 +18,12 @@ afterEach(async () => {
 })
 
 describe("hubBrowser", () => {
+  it("rejects an explicitly empty Browser engine", () => {
+    expect(() => hubBrowser({ engine: "" as "chromium" })).toThrow(
+      'Browser engine must be "chromium" or "kitesurf"',
+    )
+  })
+
   it("composes the Cloudflare binding into Nitro config", () => {
     const config: Record<string, unknown> = {
       nitro: {
@@ -30,11 +36,8 @@ describe("hubBrowser", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER", remote: true })
-    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", [
-      "existing",
-      "nodejs_compat",
-      "no_websocket_standard_binary_type",
-    ])
+    expect(config).toHaveProperty("nitro.cloudflare.nodeCompat", true)
+    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["existing"])
     expect(config).toHaveProperty("nitro.rollupConfig.external", ["existing-module", "cloudflare:workers"])
   })
 
@@ -81,7 +84,6 @@ describe("hubBrowser", () => {
 
     expect(registry).toContain('"code-image": async () => import(')
     expect(registry).toContain("server/browsers/code-image.ts")
-    expect(runtime).toContain('"provider": "cloudflare"')
     expect(runtime).toContain('"binding": "CODE_BROWSER"')
     expect(runtime).toContain('"engine": "kitesurf"')
     expect(types).toContain("interface ViteHubBrowserDefinitionModules")
@@ -241,8 +243,9 @@ describe("hubBrowser", () => {
       [
         `import { defineBrowser } from "@vite-hub/browser"`,
         `export default defineBrowser(async (_input, { browser }) => {`,
-        `  const session = await browser.open()`,
-        `  return await session.page.title()`,
+        `  const { page } = await browser.open()`,
+        `  await page.goto(_input.url)`,
+        `  return await page.locator("title").count()`,
         `})`,
         "",
       ].join("\n"),
@@ -287,7 +290,51 @@ describe("hubBrowser", () => {
       .join("\n")
     expect(output).toContain("code-image")
     expect(output).toContain("CODE_BROWSER")
+    expect(output).toContain("Target.getTargets")
     expect(output).not.toContain("@vite-hub/browser/providers/cloudflare")
+    expect(output).not.toContain("playwright-core")
+  })
+
+  it("bundles Browser Run actions without Playwright", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-action-build-"))
+    roots.push(root)
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }), "utf8")
+    await writeFile(
+      join(root, "server.ts"),
+      [
+        `import { runBrowserContent } from "@vite-hub/browser/actions"`,
+        `export async function render() { return await runBrowserContent("https://example.com") }`,
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const buildResult = await build({
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          external: ["cloudflare:workers"],
+        },
+        ssr: "server.ts",
+      },
+      logLevel: "silent",
+      plugins: [hubBrowser({ binding: "CODE_BROWSER", engine: "chromium" })],
+      resolve: {
+        alias: {
+          "@vite-hub/browser/actions": join(import.meta.dirname, "../dist/actions.js"),
+        },
+      },
+      root,
+    })
+
+    const results = Array.isArray(buildResult) ? buildResult : [buildResult]
+    const output = results
+      .flatMap(result => "output" in result ? result.output : [])
+      .flatMap(chunk => chunk.type === "chunk" ? [chunk.code] : [])
+      .join("\n")
+    expect(output).toContain("quickAction")
+    expect(output).toContain("CODE_BROWSER")
+    expect(output).not.toContain("@cloudflare/playwright")
     expect(output).not.toContain("playwright-core")
   })
 
@@ -312,7 +359,8 @@ describe("hubBrowser", () => {
     const output = JSON.parse(await readFile(outputFile, "utf8"))
     expect(output).toEqual({
       browser: { binding: "BROWSER", remote: true },
-      compatibility_flags: ["custom", "nodejs_compat", "no_websocket_standard_binary_type"],
+      compatibility_date: "2026-04-20",
+      compatibility_flags: ["custom", "nodejs_compat"],
     })
 
     const disabledPlugin = hubBrowser(false)
@@ -326,16 +374,35 @@ describe("hubBrowser", () => {
     })
     await (disabledPlugin.closeBundle as { handler(): Promise<void> }).handler()
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      compatibility_date: "2026-04-20",
       compatibility_flags: ["custom", "nodejs_compat"],
     })
   })
 
-  it("validates binding names", () => {
-    expect(() => hubBrowser({ binding: "bad-binding" })).toThrow("valid Cloudflare binding name")
+  it("preserves an existing standalone compatibility date", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-date-"))
+    roots.push(root)
+    const outputDir = join(root, "dist", root.split("/").at(-1)!.toLowerCase())
+    const outputFile = join(outputDir, "wrangler.json")
+    await mkdir(outputDir, { recursive: true })
+    await writeFile(outputFile, JSON.stringify({ compatibility_date: "2026-08-01" }))
+    const plugin = hubBrowser()
+    ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist" },
+      command: "build",
+      mode: "production",
+      nitro: {},
+      root,
+    })
+    await (plugin.closeBundle as { handler(): Promise<void> }).handler()
+
+    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
+      compatibility_date: "2026-08-01",
+    })
   })
 
-  it("validates engine names", () => {
-    expect(() => hubBrowser({ engine: "webkit" as never })).toThrow("engine must be chromium or kitesurf")
-    expect(() => hubBrowser({ engine: "" as never })).toThrow("engine must be chromium or kitesurf")
+  it("validates Browser options", () => {
+    expect(() => hubBrowser({ binding: "bad-binding" })).toThrow("valid Cloudflare binding name")
+    expect(() => hubBrowser({ engine: "webkit" as "kitesurf" })).toThrow("Browser engine")
   })
 })

@@ -3,10 +3,9 @@ import { describe, expectTypeOf, it } from "vitest"
 import {
   createBrowser,
   defineBrowser,
-  type BrowserDownload,
-  type BrowserPageSession,
   type BrowserRunResult,
   type BrowserSessionRef,
+  runBrowserContent,
 } from "../src/index.ts"
 import { playwright, type PlaywrightClient } from "../src/controllers/playwright.ts"
 import { cloudflareBrowser } from "../src/providers/cloudflare.ts"
@@ -24,15 +23,17 @@ describe("published Browser types", () => {
     expectTypeOf((await cloudflareSession.attach(playwright())).client).toEqualTypeOf<PlaywrightClient>()
   })
 
-  it("types imperative definition-scoped sessions", () => {
+  it("types provider-neutral Browser Definition actions", () => {
     defineBrowser(async (input: { url: string }, { browser }) => {
-      expectTypeOf(browser.open()).resolves.toEqualTypeOf<BrowserPageSession>()
+      expectTypeOf(browser.content(input.url)).resolves.toEqualTypeOf<string>()
+      expectTypeOf(browser.run("screenshot", input)).resolves.toEqualTypeOf<Response>()
+      expectTypeOf(browser.open()).resolves.toEqualTypeOf<import("../src/types.ts").BrowserPageSession>()
       return input.url
     })
   })
 
-  it("exports the complete Browser Download event type", () => {
-    expectTypeOf<BrowserDownload>().toEqualTypeOf<import("playwright-core").Download>()
+  it("types Browser actions", () => {
+    expectTypeOf(runBrowserContent("https://example.com")).resolves.toEqualTypeOf<BrowserRunResult<string>>()
   })
 
   it("types error-first Browser Definition results", () => {
@@ -47,6 +48,6 @@ describe("published Browser types", () => {
     const session = await browser.open()
     expectTypeOf(session.handoff({ audience: "run-1", mode: "live" })).resolves.toEqualTypeOf<BrowserSessionRef>()
     expectTypeOf(hubBrowser()).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
-    expectTypeOf(hubBrowser({ engine: "chromium" })).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
+    expectTypeOf(hubBrowser({ remote: true })).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
   })
 })
