@@ -77,13 +77,15 @@ describe("Browser Run actions", () => {
   it("bounds stalled Browser Run response bodies", async () => {
     vi.useFakeTimers()
     try {
-      const response = new Response(new ReadableStream({ start() {} }))
+      const cancel = vi.fn()
+      const response = new Response(new ReadableStream({ cancel, start() {} }))
       runtime.__env__ = { BROWSER: { quickAction: async () => response } }
 
       const content = runBrowserContent("https://example.com")
       await vi.advanceTimersByTimeAsync(30_000)
 
       await expect(content).resolves.toMatchObject([{ code: "BROWSER_PROVIDER_ERROR" }, undefined])
+      expect(cancel).toHaveBeenCalledOnce()
     }
     finally {
       vi.useRealTimers()

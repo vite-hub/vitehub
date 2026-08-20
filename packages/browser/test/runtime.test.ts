@@ -169,6 +169,37 @@ describe("Browser Definitions", () => {
     }
   })
 
+  it("continues to provider cleanup when controller release stalls", async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn(async () => {})
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => ({
+            client: { on: vi.fn(() => () => {}), send: vi.fn(async () => ({ targetInfos: [] })) },
+            release: vi.fn(async () => await new Promise(() => {})),
+          })),
+          close,
+          inspect: vi.fn(() => ({ features: { liveHandoff: false }, id: "browser-1", provider: "test", state: "released" })),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toBeInstanceOf(AggregateError)
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+      expect(close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("releases the controller before closing a session when page setup fails", async () => {
     const release = vi.fn(async () => {})
     const close = vi.fn(async () => {})

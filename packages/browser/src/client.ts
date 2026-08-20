@@ -166,7 +166,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     controller: BrowserController<TClient, TConnection>,
   ): Promise<BrowserControl<TClient>> {
     this.assertState("attach a controller to", "released")
-    if (this.attaching) throw browserSessionStateError("attach a controller to", "controlled")
+    if (this.attaching || this.closePromise) throw browserSessionStateError("attach a controller to", "controlled")
     if (this.claimed && !controller.features.attachExistingSession) {
       throw browserLiveHandoffUnsupportedError(this.owner.provider.name, controller.name)
     }

@@ -74,19 +74,42 @@ async function readQuickActionText(
   if (!response.ok) {
     throw browserProviderError("cloudflare", `run ${action} quick action (${response.status})`)
   }
+  if (!response.body) return ""
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let timeoutError: Error | undefined
+  const read = async () => {
+    let text = ""
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        if (timeoutError) throw timeoutError
+        return text + decoder.decode()
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+  }
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      response.text(),
+      read(),
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          reject(browserProviderError("cloudflare", `read ${action} quick action response`))
+        timer = setTimeout(async () => {
+          const error = browserProviderError("cloudflare", `read ${action} quick action response`)
+          timeoutError = error
+          try {
+            await reader.cancel(error)
+          }
+          finally {
+            reject(error)
+          }
         }, actionTimeoutMs(input))
       }),
     ])
   }
   finally {
     if (timer) clearTimeout(timer)
+    reader.releaseLock()
   }
 }
 

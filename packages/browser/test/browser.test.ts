@@ -61,7 +61,7 @@ describe("Browser Sessions", () => {
   })
 
   it("shares concurrent session closure", async () => {
-    const { close, provider } = fixture()
+    const { close, controller, provider } = fixture()
     let resolveClose!: () => void
     close.mockImplementation(async () => await new Promise<void>(resolve => {
       resolveClose = resolve
@@ -71,6 +71,7 @@ describe("Browser Sessions", () => {
     const first = session.close()
     const second = session.close()
     expect(close).toHaveBeenCalledOnce()
+    await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
     resolveClose()
     await Promise.all([first, second])
     expect(session.inspect().state).toBe("closed")
