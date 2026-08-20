@@ -213,7 +213,7 @@ function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, host
   return normalizeWorkflowOptions(workflow, { hosting }) ?? false
 }
 
-export interface GeneratedWorkflowArtifacts {
+interface GeneratedWorkflowArtifacts {
   cloudflareWorkerFile: string
   cloudflareWorkflowConfig: false | ResolvedWorkflowOptions
   definitions: DiscoveredWorkflowDefinition[]
