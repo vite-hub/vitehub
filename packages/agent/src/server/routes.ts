@@ -3592,6 +3592,9 @@ async function handleChatSdkMessage(
           const resultPromise = manualDelivery
             ? streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
             : runAgentInline(agent as never, runContext as never, invocationInput as never)
+          // Progress delivery is best-effort, but observing the primary rejection
+          // cannot wait for its bounded settlement without risking an unhandled rejection.
+          void resultPromise.catch(() => {})
           if (automaticProgressSettlement) {
             manualDeliveryState.placeholder = await automaticProgressSettlement
           }

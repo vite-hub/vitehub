@@ -5166,7 +5166,7 @@ describe("agent message protocol", () => {
       channels: {
         telegram: defineChannel("telegram", {
           adapter: () => adapter as never,
-          capabilities: [progressSummary({ execute: summary })],
+          capabilities: [progressSummary({ execute: summary, id: "custom-progress" })],
         }),
       },
       driver: { execution: { callSettings: { onStepEnd } }, model: model as never },

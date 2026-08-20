@@ -10469,6 +10469,35 @@ describe("server helpers", () => {
     }
   })
 
+  it("observes automatic invocation failures while progress posting stalls", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementationOnce(() => new Promise(() => undefined))
+    const run = vi.fn(() => { throw new Error("model failed") })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = expect(handler(chatWebhookRequest(91_004_8), "telegram")).rejects.toThrow("model failed")
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync(1_000)
+      await response
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("replaces default progress with the error fallback when automatic output fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")

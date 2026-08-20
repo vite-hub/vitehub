@@ -25,7 +25,7 @@ import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasT
 import { defineChatCapability, getAgentChatContext, getChatCapabilityOptions, resolveDurableChatErrorFallbackText } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { activeMessageChannelContextKey, clearMessageChannelProgress, messageChannelProgressContextKey } from "./internal/message-channel-progress.ts"
-import { progressSummary } from "./capabilities/progress-summary.ts"
+import { progressSummary, progressSummaryCapabilityMetadataKey } from "./capabilities/progress-summary.ts"
 import {
   bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
@@ -2068,7 +2068,8 @@ async function createAgentInvocationContext<
     if (invocationContext.get(messageChannelProgressContextKey)
       && activeChannel?.messages !== false
       && activeChannel?.messages?.fallbackStreamingPlaceholderText !== null
-      && !capabilityDefinitions.some(capability => capability.id === "progress-summary")) {
+      && !capabilityDefinitions.some(capability => capability.id === "progress-summary"
+        || capability.metadata?.[progressSummaryCapabilityMetadataKey] === true)) {
       capabilityDefinitions.push(progressSummary<TRuntimeConfig>())
     }
     const resolvedCapabilityDefinitions = normalizeCapabilities(capabilityDefinitions) as AgentCapabilityDefinition<TRuntimeConfig>[]

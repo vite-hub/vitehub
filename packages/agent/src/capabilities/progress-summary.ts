@@ -38,6 +38,8 @@ export interface ProgressSummarySnapshot {
   userText: string
 }
 
+export const progressSummaryCapabilityMetadataKey = "vitehub.progress-summary"
+
 export interface ProgressSummaryExecuteInput extends ProgressSummarySnapshot {
   input: AgentRunInput
   messages: Message[]
@@ -621,6 +623,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
       invocationStarts.delete(context.context)
     },
     id: options.id || "progress-summary",
+    metadata: { [progressSummaryCapabilityMetadataKey]: true },
     output(context) {
       context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
       let state: ProgressSummaryState | undefined

@@ -7,6 +7,7 @@ export const activeMessageChannelContextKey = "agent.channel.active"
 export const messageChannelProgressContextKey = "agent.channel.progress"
 export const messageChannelProgressClearedContextKey = "agent.channel.progress.cleared"
 export const messageChannelProgressUpdatesClosedContextKey = "agent.channel.progress.updates-closed"
+const messageChannelProgressCleanupTimeoutMs = 1_000
 
 export interface MessageChannelProgressReference {
   messageId: string
@@ -38,7 +39,23 @@ export async function clearMessageChannelProgress<TRuntimeConfig extends AgentRu
   if (!channel?.adapter || !progress || context.context.get<boolean>(messageChannelProgressClearedContextKey) === true) return false
   const adapter = context.adapter || await resolveRuntimeValue(channel.adapter, context as never) as Adapter | undefined
   if (!adapter?.deleteMessage) return false
-  await adapter.deleteMessage(progress.threadId, progress.messageId)
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      adapter.deleteMessage(progress.threadId, progress.messageId),
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("[vitehub] Timed out clearing message Channel progress.")), messageChannelProgressCleanupTimeoutMs)
+      }),
+    ])
+  }
+  catch (error) {
+    const reference = context.context.get<MessageChannelProgressReference>(messageChannelProgressContextKey)
+    if (reference) reference.reusable = false
+    throw error
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
   context.context.set(messageChannelProgressClearedContextKey, true, { overwrite: true })
   return true
 }
