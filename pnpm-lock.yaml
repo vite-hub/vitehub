@@ -232,7 +232,7 @@ catalogs:
       specifier: ^10.0.0
       version: 10.6.2
     unstorage:
-      specifier: ^2.0.0-alpha.7
+      specifier: 2.0.0-alpha.7
       version: 2.0.0-alpha.7
     uploadthing:
       specifier: ^7.7.4
