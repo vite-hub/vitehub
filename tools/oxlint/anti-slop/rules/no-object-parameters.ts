@@ -105,7 +105,7 @@ export const noObjectParametersRule = defineRule({
 			nextVisited.add(name);
 			return resolvesToObject(
 				alias.typeAnnotation,
-				shadowedAliases,
+				lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys),
 				alias,
 				nextBindings,
 				nextVisited,

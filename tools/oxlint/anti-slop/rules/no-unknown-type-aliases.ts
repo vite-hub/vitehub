@@ -35,19 +35,22 @@ export const noUnknownTypeAliasesRule = defineRule({
 			from: ESTree.Node,
 			bindings: ReadonlyMap<string, TypeBinding> = new Map(),
 			visited = new Set<string>(),
+			shadowed = new Set<string>(),
 		): boolean => {
 			if (type.type === "TSUnknownKeyword") return true;
 			if (type.type === "TSParenthesizedType")
-				return resolvesToUnknown(type.typeAnnotation, from, bindings, visited);
+				return resolvesToUnknown(type.typeAnnotation, from, bindings, visited, shadowed);
 			if (type.type === "TSUnionType")
-				return type.types.some((member) => resolvesToUnknown(member, from, bindings, visited));
+				return type.types.some((member) =>
+					resolvesToUnknown(member, from, bindings, visited, shadowed),
+				);
 			if (type.type !== "TSTypeReference") return false;
 			const name = typeName(type.typeName);
 			const bound = bindings.get(name);
 			if (bound !== undefined) {
-				return resolvesToUnknown(bound.type, from, bound.bindings, visited);
+				return resolvesToUnknown(bound.type, from, bound.bindings, visited, shadowed);
 			}
-			if (visited.has(name)) return false;
+			if (visited.has(name) || shadowed.has(name)) return false;
 			const alias = findAlias(name, from);
 			if (alias === undefined) return false;
 			const parameters = alias.typeParameters?.params ?? [];
@@ -64,7 +67,7 @@ export const noUnknownTypeAliasesRule = defineRule({
 			}
 			const nextVisited = new Set(visited);
 			nextVisited.add(name);
-			return resolvesToUnknown(alias.typeAnnotation, alias, nextBindings, nextVisited);
+			return resolvesToUnknown(alias.typeAnnotation, alias, nextBindings, nextVisited, new Set());
 		};
 
 		return {
@@ -72,7 +75,10 @@ export const noUnknownTypeAliasesRule = defineRule({
 				findAlias = collectTypeAliases(node, context.sourceCode.visitorKeys);
 			},
 			TSTypeAliasDeclaration(alias) {
-				if (!resolvesToUnknown(alias.typeAnnotation, alias, new Map(), new Set([alias.id.name]))) return;
+				const shadowed = new Set(
+					(alias.typeParameters?.params ?? []).map((parameter) => parameter.name.name),
+				);
+				if (!resolvesToUnknown(alias.typeAnnotation, alias, new Map(), new Set([alias.id.name]), shadowed)) return;
 					context.report({
 						node: alias.id,
 						messageId: "unknownAlias",

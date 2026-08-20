@@ -88,7 +88,13 @@ export const noUnknownReturnsRule = defineRule({
       }
       const nextVisited = new Set(visited);
       nextVisited.add(name);
-      return resolvesToUnknown(alias.typeAnnotation, shadowedAliases, alias, nextBindings, nextVisited);
+      return resolvesToUnknown(
+        alias.typeAnnotation,
+        lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys),
+        alias,
+        nextBindings,
+        nextVisited,
+      );
     };
 
     const checkReturnType = (node: FunctionWithReturnType) => {

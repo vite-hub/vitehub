@@ -208,6 +208,10 @@ function lexicalDeclaration(
 ): ESTree.TSTypeAliasDeclaration | readonly ESTree.TSInterfaceDeclaration[] | null | undefined {
 	let current: ESTree.Node | null = from;
 	while (current !== null && current.type !== "Program") {
+		if (
+			"typeParameters" in current &&
+			(current.typeParameters?.params ?? []).some((parameter) => parameter.name.name === name)
+		) return null;
 		if (current.type === "BlockStatement" || current.type === "TSModuleBlock") {
 			const interfaces: ESTree.TSInterfaceDeclaration[] = [];
 			for (const statement of current.body) {

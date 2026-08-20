@@ -103,7 +103,13 @@ export const noUnknownParametersRule = defineRule({
       }
       const nextVisited = new Set(visited);
       nextVisited.add(name);
-      return containsUnknown(alias.typeAnnotation, alias, shadowedAliases, nextBindings, nextVisited);
+      return containsUnknown(
+        alias.typeAnnotation,
+        alias,
+        lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys),
+        nextBindings,
+        nextVisited,
+      );
     };
 
     const checkParameters = (node: ParameterOwner) => {
