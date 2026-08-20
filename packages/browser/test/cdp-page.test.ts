@@ -87,6 +87,23 @@ describe("CDP page", () => {
     await expect(page.goto("https://example.com", { timeoutMs: 1 })).rejects.toMatchObject({
       code: "BROWSER_PROVIDER_ERROR",
     })
+    await expect(page.locator("main").count()).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+    })
+    expect(fake.send).not.toHaveBeenCalledWith("Runtime.evaluate", expect.anything(), "page-session")
+  })
+
+  it("treats visible SVG elements as locator matches", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+
+    await page.locator("svg").waitFor()
+
+    expect(fake.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining("element instanceof Element") }),
+      "page-session",
+    )
   })
 
   it("correlates concurrent navigation lifecycle events", async () => {

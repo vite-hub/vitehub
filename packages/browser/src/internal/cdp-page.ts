@@ -32,7 +32,7 @@ function locatorExpression(
     const element = elements[0];
     if (${JSON.stringify(operation)} === "count") return elements.length;
     if (${JSON.stringify(operation)} === "visible") {
-      if (!(element instanceof HTMLElement)) return false;
+      if (!(element instanceof Element)) return false;
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
@@ -255,7 +255,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
           }
           navigationLoaderId = navigation.loaderId
           if (navigationLoaderId && !loadedLoaderIds.has(navigationLoaderId)) await loaded
-        })(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS, `navigate to ${JSON.stringify(url)}`)
+        })(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS, `navigate to ${JSON.stringify(url)}`, invalidatePage)
       }
       finally {
         stopLoad()
