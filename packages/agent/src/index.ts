@@ -162,6 +162,7 @@ import type {
   AgentSettings,
   AgentStaticCapabilitiesList,
   AgentTelemetry,
+  AgentToolStepItem,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -732,7 +733,7 @@ async function getAgentWorkflowHandle<
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
-      })
+      }, { rootStep: false })
   agentWorkflowNames.add(name)
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
   agentWorkflowHandles.set(agent as object, handles)
@@ -1773,6 +1774,7 @@ type AgentInvocationContext<
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
+  toolResults: AgentToolStepItem[]
   driverContributions: AgentDriverContribution[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
@@ -1997,6 +1999,11 @@ async function createAgentInvocationContext<
   const resolvedContext = createResolvedRuntimeContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
   const telemetryInvocationId = createTraceId()
+  const toolResults: AgentToolStepItem[] = []
+  const toolStepReporter: NonNullable<AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]> = async (step) => {
+    if (step.toolResults?.length) toolResults.push(...step.toolResults)
+    await context.toolStepReporter?.(step)
+  }
   invocationContext.set(agentInvocationTraceIdContextKey, telemetryInvocationId, { overwrite: true })
   const tracedRuntimeContextBase = resolvedContext.trace && resolvedContext.traceLog
     ? resolvedContext
@@ -2157,7 +2164,7 @@ async function createAgentInvocationContext<
     }
     const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
-      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.toolStepReporter)
+      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), toolStepReporter)
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
@@ -2181,7 +2188,8 @@ async function createAgentInvocationContext<
       close: capabilities.close,
       context: invocationContext,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
-      toolStepReporter: context.toolStepReporter,
+      toolStepReporter,
+      toolResults,
       driverContributions: capabilities.driverContributions,
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
@@ -2279,6 +2287,7 @@ type InvocationRunContext<
   telemetry?: AgentTelemetry<TRuntimeConfig>
   telemetryAgent: { name?: string, version?: string }
   telemetryInvocationId: string
+  toolResults: AgentToolStepItem[]
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
@@ -2337,6 +2346,7 @@ function withEagerStreamUsageExtensions<
         },
         result,
         runtime: context.runtimeContext,
+        toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       await createAgentInvocationExtensions(eventBase as never, providers)
       if (chunk && typeof chunk === "object") {
@@ -2995,6 +3005,7 @@ async function finishAgentInvocation<
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
         ...(text !== undefined ? { text } : {}),
+        toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
       const outcomeHook = failed ? context.errorHook : context.finishHook
