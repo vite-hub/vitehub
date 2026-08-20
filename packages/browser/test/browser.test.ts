@@ -78,16 +78,37 @@ describe("Browser Sessions", () => {
   })
 
   it("keeps failed session cleanup retryable", async () => {
-    const { close, provider } = fixture()
+    const { close, controller, provider } = fixture()
     close.mockRejectedValueOnce(new Error("temporary close failure"))
     const session = await createBrowser({ provider }).open()
 
     await expect(session.close()).rejects.toThrow("temporary close failure")
     expect(session.inspect().state).toBe("released")
+    await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
 
     await session.close()
     expect(close).toHaveBeenCalledTimes(2)
     expect(session.inspect().state).toBe("closed")
+  })
+
+  it("releases a late attachment after failed provider cleanup", async () => {
+    const { close, connection, controller, provider, release } = fixture()
+    let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void
+    close.mockRejectedValueOnce(new Error("temporary close failure"))
+    controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
+      resolveAttachment = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const attachment = session.attach(controller)
+    const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    await expect(session.close()).rejects.toThrow("temporary close failure")
+    resolveAttachment({ client: connection, release })
+
+    await result
+    expect(release).toHaveBeenCalledOnce()
+    await session.close()
+    expect(close).toHaveBeenCalledTimes(2)
   })
 
   it("retries failed cleanup for an expired handoff", async () => {

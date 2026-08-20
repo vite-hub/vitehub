@@ -86,6 +86,7 @@ describe("CDP page", () => {
       return call[0] === "Runtime.evaluate" && String(call[1]?.expression).includes('"click" === "click"')
     })
     expect(String(clickEvaluation?.[1]?.expression)).toContain("element.scrollIntoView")
+    expect(String(clickEvaluation?.[1]?.expression)).toContain("document.elementFromPoint")
     expect(fake.send).toHaveBeenCalledWith(
       "Input.dispatchMouseEvent",
       { button: "left", clickCount: 1, type: "mouseReleased", x: 10, y: 20 },
@@ -478,6 +479,13 @@ describe("CDP page", () => {
     expect(fake.send).toHaveBeenCalledWith(
       "Input.dispatchKeyEvent",
       { key: "a", text: "a", type: "keyDown" },
+      "page-session",
+    )
+
+    await page.press("😀")
+    expect(fake.send).toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      { key: "😀", text: "😀", type: "keyDown" },
       "page-session",
     )
   })

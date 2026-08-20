@@ -41,7 +41,13 @@ function locatorExpression(
       if (!(element instanceof Element)) throw new Error("Browser locator did not match an element");
       element.scrollIntoView({ block: "center", inline: "center" });
       const rect = element.getBoundingClientRect();
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      if (rect.width <= 0 || rect.height <= 0) throw new Error("Browser locator matched a non-actionable element");
+      const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      const hit = document.elementFromPoint(point.x, point.y);
+      if (!hit || (hit !== element && !element.contains(hit))) {
+        throw new Error("Browser locator target is covered by another element");
+      }
+      return point;
     }
     if (!(element instanceof HTMLElement)) throw new Error("Browser locator did not match an HTML element");
     if (${JSON.stringify(operation)} === "inputValue") {
@@ -289,7 +295,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     async press(key) {
       assertPageUsable()
       await withTimeout((async () => {
-        await send("Input.dispatchKeyEvent", { key, text: key.length === 1 ? key : undefined, type: "keyDown" })
+        await send("Input.dispatchKeyEvent", { key, text: [...key].length === 1 ? key : undefined, type: "keyDown" })
         await send("Input.dispatchKeyEvent", { key, type: "keyUp" })
       })(), DEFAULT_TIMEOUT_MS, `press Browser key ${JSON.stringify(key)}`, invalidatePage)
     },
