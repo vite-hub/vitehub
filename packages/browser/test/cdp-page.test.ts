@@ -45,7 +45,7 @@ describe("CDP page", () => {
 
       const attached = attachCDPPage(fake.client)
       const result = expect(attached).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
-      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(30_100)
       await result
     }
     finally {
@@ -187,6 +187,40 @@ describe("CDP page", () => {
       expect.objectContaining({ expression: expect.stringContaining('"click" === "click"') }),
       "page-session",
     )
+  })
+
+  it("keeps later clicks usable when a queued click expires", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      const { page } = await attachCDPPage(fake.client)
+
+      const navigation = page.goto("https://example.com/slow", { timeoutMs: 60_000 })
+      await vi.waitFor(() => expect(fake.send).toHaveBeenCalledWith(
+        "Page.navigate",
+        { url: "https://example.com/slow" },
+        "page-session",
+      ))
+      const expiredClick = page.locator("a.expired").click()
+      const expiredResult = expect(expiredClick).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await expiredResult
+
+      fake.emit("Page.lifecycleEvent", { loaderId: "document-loader", name: "load" })
+      await navigation
+      const currentClick = page.locator("a.current").click()
+      await vi.advanceTimersByTimeAsync(0)
+      await currentClick
+
+      const clickExpressions = fake.send.mock.calls.filter((call) => {
+        return call[0] === "Runtime.evaluate" && String(call[1]?.expression).includes('"click" === "click"')
+      })
+      expect(clickExpressions).toHaveLength(1)
+      expect(String(clickExpressions[0]?.[1]?.expression)).toContain("a.current")
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("waits for navigation requested by a locator click to stop", async () => {

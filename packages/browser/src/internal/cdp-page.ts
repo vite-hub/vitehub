@@ -235,8 +235,10 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       `click Browser locator ${JSON.stringify(locator.selector)}`,
       (error) => {
         expired = true
-        clickFailure ??= error
-        if (started) invalidatePage(error)
+        if (started) {
+          clickFailure ??= error
+          invalidatePage(error)
+        }
       },
     )
   }
