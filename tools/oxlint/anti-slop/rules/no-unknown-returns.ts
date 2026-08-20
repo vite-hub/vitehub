@@ -19,6 +19,12 @@ type TypeBinding = {
   bindings: ReadonlyMap<string, TypeBinding>;
 };
 
+function typeName(type: ESTree.TSTypeName): string {
+  return type.type === "Identifier"
+    ? type.name
+    : `${typeName(type.left)}.${type.right.name}`;
+}
+
 /** Ban function contracts that return unknown instead of a parsed domain type. */
 export const noUnknownReturnsRule = defineRule({
   meta: {
@@ -59,8 +65,8 @@ export const noUnknownReturnsRule = defineRule({
         const value = type.typeArguments?.params[0];
         return value !== undefined && resolvesToUnknown(value, shadowedAliases, from, bindings, visited);
       }
-      if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return false;
-      const name = type.typeName.name;
+      if (type.type !== "TSTypeReference") return false;
+      const name = typeName(type.typeName);
       const bound = bindings.get(name);
       if (bound !== undefined) {
         return resolvesToUnknown(bound.type, shadowedAliases, from, bound.bindings, visited);

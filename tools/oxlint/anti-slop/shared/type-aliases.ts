@@ -55,7 +55,22 @@ export function collectTypeAliases(
 
 	visit(program, program);
 	return (name, from) => {
-		if (name.includes(".")) return qualifiedAliases.get(name);
+		if (name.includes(".")) {
+			const namespaces: string[] = [];
+			let current: ESTree.Node | null = from;
+			while (current !== null) {
+				if (current.type === "TSModuleDeclaration" && current.id.type === "Identifier") {
+					namespaces.unshift(current.id.name);
+				}
+				current = current.parent;
+			}
+			for (let index = namespaces.length; index >= 0; index--) {
+				const candidate = [...namespaces.slice(0, index), name].join(".");
+				const alias = qualifiedAliases.get(candidate);
+				if (alias !== undefined) return alias;
+			}
+			return undefined;
+		}
 		let current: ESTree.Node | null = from;
 		while (current !== null) {
 			if (isAliasScope(current)) {

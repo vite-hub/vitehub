@@ -8,6 +8,12 @@ type TypeBinding = {
 	bindings: ReadonlyMap<string, TypeBinding>;
 };
 
+function typeName(type: ESTree.TSTypeName): string {
+	return type.type === "Identifier"
+		? type.name
+		: `${typeName(type.left)}.${type.right.name}`;
+}
+
 /** Ban named aliases that merely conceal TypeScript's unknown top type. */
 export const noUnknownTypeAliasesRule = defineRule({
 	meta: {
@@ -35,8 +41,8 @@ export const noUnknownTypeAliasesRule = defineRule({
 				return resolvesToUnknown(type.typeAnnotation, from, bindings, visited);
 			if (type.type === "TSUnionType")
 				return type.types.some((member) => resolvesToUnknown(member, from, bindings, visited));
-			if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return false;
-			const name = type.typeName.name;
+			if (type.type !== "TSTypeReference") return false;
+			const name = typeName(type.typeName);
 			const bound = bindings.get(name);
 			if (bound !== undefined) {
 				return resolvesToUnknown(bound.type, from, bound.bindings, visited);

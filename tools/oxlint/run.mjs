@@ -34,13 +34,6 @@ const sourceByFilename = new Map(
     ),
   ),
 );
-const sourceContext = (diagnostic, label) => {
-  const source = sourceByFilename.get(diagnostic.filename);
-  if (source === undefined) return undefined;
-  const lines = source.split("\n");
-  const line = Math.max(0, label.span.line - 1);
-  return lines.slice(Math.max(0, line - 2), line + 3).join("\n");
-};
 const baseIdentity = (diagnostic) =>
   createHash("sha256")
     .update(
@@ -52,7 +45,6 @@ const baseIdentity = (diagnostic) =>
           source: sourceByFilename
             .get(diagnostic.filename)
             ?.slice(label.span.offset, label.span.offset + label.span.length),
-          context: sourceContext(diagnostic, label),
         })),
         message: diagnostic.message,
       }),
