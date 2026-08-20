@@ -17,6 +17,8 @@ type FunctionWithReturnType =
 type TypeBinding = {
   type: ESTree.TSType;
   bindings: ReadonlyMap<string, TypeBinding>;
+  from: ESTree.Node;
+  shadowedAliases: ReadonlySet<string>;
 };
 
 function typeName(type: ESTree.TSTypeName): string {
@@ -60,7 +62,9 @@ export const noUnknownReturnsRule = defineRule({
       if (
         type.type === "TSTypeReference" &&
         type.typeName.type === "Identifier" &&
-        (type.typeName.name === "Promise" || type.typeName.name === "PromiseLike")
+        (type.typeName.name === "Promise" || type.typeName.name === "PromiseLike") &&
+        !shadowedAliases.has(type.typeName.name) &&
+        !findAlias.isDeclared(type.typeName.name, from)
       ) {
         const value = type.typeArguments?.params[0];
         return value !== undefined && resolvesToUnknown(value, shadowedAliases, from, bindings, visited);
@@ -69,7 +73,7 @@ export const noUnknownReturnsRule = defineRule({
       const name = typeName(type.typeName);
       const bound = bindings.get(name);
       if (bound !== undefined) {
-        return resolvesToUnknown(bound.type, shadowedAliases, from, bound.bindings, visited);
+        return resolvesToUnknown(bound.type, bound.shadowedAliases, bound.from, bound.bindings, visited);
       }
       if (visited.has(name) || shadowedAliases.has(name)) return false;
       const alias = findAlias(name, from);
@@ -84,6 +88,10 @@ export const noUnknownReturnsRule = defineRule({
         nextBindings.set(parameter.name.name, {
           type: argument,
           bindings: arguments_[index] === undefined ? nextBindings : bindings,
+          from: arguments_[index] === undefined ? alias : from,
+          shadowedAliases: arguments_[index] === undefined
+            ? lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys)
+            : shadowedAliases,
         });
       }
       const nextVisited = new Set(visited);

@@ -399,7 +399,7 @@ export const noWidenThenAssertRule = defineRule({
     return {
       Program(node) {
         scopes = context.sourceCode.scopeManager.scopes;
-        environment = createTypeEnvironment(node);
+        environment = createTypeEnvironment(node, context.sourceCode.visitorKeys);
       },
       TSAsExpression: checkAssertion,
       TSTypeAssertion: checkAssertion,

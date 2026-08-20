@@ -18,6 +18,8 @@ type ParameterOwner =
 type TypeBinding = {
 	type: ESTree.TSType;
 	bindings: ReadonlyMap<string, TypeBinding>;
+	from: ESTree.Node;
+	shadowedAliases: ReadonlySet<string>;
 };
 
 function typeName(type: ESTree.TSTypeName): string {
@@ -86,7 +88,7 @@ export const noObjectParametersRule = defineRule({
 			) return false;
 			const bound = bindings.get(name);
 			if (bound !== undefined)
-				return resolvesToObject(bound.type, shadowedAliases, from, bound.bindings, visited);
+				return resolvesToObject(bound.type, bound.shadowedAliases, bound.from, bound.bindings, visited);
 			const alias = findAlias(name, from);
 			if (alias === undefined) return false;
 			const parameters = alias.typeParameters?.params ?? [];
@@ -99,6 +101,10 @@ export const noObjectParametersRule = defineRule({
 				nextBindings.set(parameter.name.name, {
 					type: argument,
 					bindings: arguments_[index] === undefined ? nextBindings : bindings,
+					from: arguments_[index] === undefined ? alias : from,
+					shadowedAliases: arguments_[index] === undefined
+						? lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys)
+						: shadowedAliases,
 				});
 			}
 			const nextVisited = new Set(visited);

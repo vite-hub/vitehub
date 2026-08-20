@@ -3,6 +3,11 @@ import type { ESTree } from "@oxlint/plugins";
 type AliasScope = ESTree.Program | ESTree.BlockStatement | ESTree.TSModuleBlock;
 type VisitorKeys = Readonly<Record<string, readonly string[]>>;
 
+export type TypeAliasFinder = {
+	(name: string, from: ESTree.Node): ESTree.TSTypeAliasDeclaration | undefined;
+	isDeclared(name: string, from: ESTree.Node): boolean;
+};
+
 function isNode(value: unknown): value is ESTree.Node {
 	return typeof value === "object" && value !== null && "type" in value;
 }
@@ -17,7 +22,7 @@ function isAliasScope(node: ESTree.Node): node is AliasScope {
 export function collectTypeAliases(
 	program: ESTree.Program,
 	visitorKeys: VisitorKeys,
-): (name: string, from: ESTree.Node) => ESTree.TSTypeAliasDeclaration | undefined {
+): TypeAliasFinder {
 	const aliases = new WeakMap<AliasScope, Map<string, ESTree.TSTypeAliasDeclaration | null>>();
 	const qualifiedAliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
 
@@ -54,8 +59,21 @@ export function collectTypeAliases(
 	};
 
 	visit(program, program);
-	return (name, from) => {
+	const declaration = (name: string, from: ESTree.Node) => {
+		let current: ESTree.Node | null = from;
+		while (current !== null) {
+			if (isAliasScope(current)) {
+				const names = aliases.get(current);
+				if (names?.has(name) === true) return { found: true, alias: names.get(name) ?? undefined };
+			}
+			current = current.parent;
+		}
+		return { found: false, alias: undefined };
+	};
+	const find = ((name: string, from: ESTree.Node) => {
 		if (name.includes(".")) {
+			const [root] = name.split(".");
+			if (root !== undefined && declaration(root, from).found) return undefined;
 			const namespaces: string[] = [];
 			let current: ESTree.Node | null = from;
 			while (current !== null) {
@@ -71,14 +89,8 @@ export function collectTypeAliases(
 			}
 			return undefined;
 		}
-		let current: ESTree.Node | null = from;
-		while (current !== null) {
-			if (isAliasScope(current)) {
-				const names = aliases.get(current);
-				if (names?.has(name) === true) return names.get(name) ?? undefined;
-			}
-			current = current.parent;
-		}
-		return undefined;
-	};
+		return declaration(name, from).alias;
+	}) as TypeAliasFinder;
+	find.isDeclared = (name, from) => declaration(name, from).found;
+	return find;
 }

@@ -1,6 +1,7 @@
 import { defineRule } from "@oxlint/plugins";
 
 import type { ESTree } from "@oxlint/plugins";
+import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
 import { collectTypeAliases } from "../shared/type-aliases.ts";
 
 type TypeBinding = {
@@ -75,9 +76,7 @@ export const noUnknownTypeAliasesRule = defineRule({
 				findAlias = collectTypeAliases(node, context.sourceCode.visitorKeys);
 			},
 			TSTypeAliasDeclaration(alias) {
-				const shadowed = new Set(
-					(alias.typeParameters?.params ?? []).map((parameter) => parameter.name.name),
-				);
+				const shadowed = lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys);
 				if (!resolvesToUnknown(alias.typeAnnotation, alias, new Map(), new Set([alias.id.name]), shadowed)) return;
 					context.report({
 						node: alias.id,

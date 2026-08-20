@@ -1,4 +1,5 @@
 import type { ESTree } from "@oxlint/plugins";
+import { collectTypeAliases, type TypeAliasFinder } from "./type-aliases.ts";
 
 const BUILT_INS = new Set([
 	"Record",
@@ -37,6 +38,7 @@ export type WideningTarget = {
 
 export type TypeEnvironment = {
 	readonly aliases: ReadonlyMap<string, ESTree.TSTypeAliasDeclaration>;
+	readonly findAlias: TypeAliasFinder;
 	readonly interfaces: ReadonlyMap<string, readonly ESTree.TSInterfaceDeclaration[]>;
 	readonly shadowedBuiltIns: ReadonlySet<string>;
 };
@@ -48,7 +50,10 @@ function declaredStatement(statement: ESTree.Statement): ESTree.Node | null {
 		: statement;
 }
 
-export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment {
+export function createTypeEnvironment(
+	program: ESTree.Program,
+	visitorKeys: Readonly<Record<string, readonly string[]>>,
+): TypeEnvironment {
 	const aliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
 	const interfaces = new Map<string, ESTree.TSInterfaceDeclaration[]>();
 	const shadowedBuiltIns = new Set<string>();
@@ -97,11 +102,15 @@ export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment 
 		}
 	}
 
-	return { aliases, interfaces, shadowedBuiltIns };
+	return { aliases, findAlias: collectTypeAliases(program, visitorKeys), interfaces, shadowedBuiltIns };
 }
 
-function typeReferenceName(type: ESTree.TSTypeReference): string | null {
-	return type.typeName.type === "Identifier" ? type.typeName.name : null;
+function typeName(type: ESTree.TSTypeName): string {
+	return type.type === "Identifier" ? type.name : `${typeName(type.left)}.${type.right.name}`;
+}
+
+function typeReferenceName(type: ESTree.TSTypeReference): string {
+	return typeName(type.typeName);
 }
 
 function isBuiltIn(name: string, environment: TypeEnvironment): boolean {
@@ -130,7 +139,7 @@ function isLexicallyShadowed(name: string, from: ESTree.Node): boolean {
 			current.typeParameters !== null &&
 			current.typeParameters !== undefined &&
 			current.typeParameters.params.some((parameter) => parameter.name.name === name)
-		) return null;
+		) return true;
 		if (current.type === "BlockStatement" || current.type === "TSModuleBlock") {
 			for (const statement of current.body) {
 				const declaration = declaredStatement(statement);
@@ -240,7 +249,7 @@ function aliasFor(
 			? (lexical as ESTree.TSTypeAliasDeclaration)
 			: undefined;
 	}
-	return environment.aliases.get(name);
+	return environment.findAlias(name, from) ?? environment.aliases.get(name);
 }
 
 function interfacesFor(
