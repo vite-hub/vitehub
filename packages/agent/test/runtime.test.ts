@@ -2028,6 +2028,18 @@ describe("agent message protocol", () => {
       cost: { usd: "0.6" },
       usage: { totalTokens: 7 },
     })
+
+    fallbackGenerate.mockResolvedValueOnce({
+      modelId: "fallback-route",
+      providerMetadata: { test: { usage: { cost: 0.2 } } },
+      text: "{\"summary\":\"Saved meal-1\",\"title\":42}",
+    })
+    repairGenerate.mockResolvedValueOnce({ text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}" })
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Save breakfast" })).resolves.toEqual({
+      summary: "Saved meal-1",
+      title: "Skyr",
+    })
+    expect(repairGenerate).toHaveBeenCalledOnce()
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
