@@ -200,7 +200,9 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   const transformWorkflowRegistry = plugins.map(agentWorkflowRegistryTransform).find(Boolean)
 
   const orderedPlugins = [...plugins].sort((left, right) => {
-    const order = (plugin: Plugin): number => plugin.enforce === "pre" ? -1 : plugin.enforce === "post" ? 1 : 0
+    const order = (plugin: Plugin): number => plugin.name === "vite-hub/deployment-output"
+      ? 2
+      : plugin.enforce === "pre" ? -1 : plugin.enforce === "post" ? 1 : 0
     return order(left) - order(right)
   })
   for (const plugin of orderedPlugins) {

@@ -384,6 +384,39 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("finalizes deployment output after later ViteHub post hooks", async () => {
+    const lateCloudflarePlugin = {
+      name: "vite-hub/custom-cloudflare",
+      enforce: "post" as const,
+      config() {
+        return {
+          nitro: {
+            cloudflare: {
+              wrangler: {
+                env: { staging: { name: "staging-worker" } },
+              },
+            },
+          },
+        }
+      },
+    }
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [lateCloudflarePlugin])
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook({})
+
+    expect(mocks.outputHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nitro: expect.objectContaining({
+          cloudflare: expect.objectContaining({
+            wrangler: expect.objectContaining({ env: { staging: { name: "staging-worker" } } }),
+          }),
+        }),
+      }),
+      expect.anything(),
+    )
+  })
+
   it("adds generated and Cloudflare types to Nuxt and Nitro", async () => {
     const { nuxt } = createNuxt()
 
