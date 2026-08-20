@@ -24,6 +24,8 @@ import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getAgentChatContext, getChatCapabilityOptions, resolveDurableChatErrorFallbackText } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
+import { activeMessageChannelContextKey, messageChannelProgressContextKey } from "./internal/message-channel-progress.ts"
+import { progressSummary } from "./capabilities/progress-summary.ts"
 import {
   bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
@@ -2024,10 +2026,9 @@ async function createAgentInvocationContext<
       ? { ...tracedRuntimeContext, runEvents: boundRunEvents }
       : tracedRuntimeContext
     const callbackContext = createAgentCallbackContext(runtimeContext)
-    bindMessageChannelInstructions(
-      invocationContext,
-      activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
-    )
+    const invocationChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
+    bindMessageChannelInstructions(invocationContext, invocationChannel)
+    if (invocationChannel) invocationContext.set(activeMessageChannelContextKey, invocationChannel, { overwrite: true })
     invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
     invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
     const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
@@ -2059,11 +2060,18 @@ async function createAgentInvocationContext<
       : []
     const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
     const channelCapabilities = activeChannel?.capabilities || []
-    const resolvedCapabilityDefinitions = normalizeCapabilities([
+    const capabilityDefinitions = [
       ...invocationResolvedCapabilities,
       ...(definition?.capabilities || []),
       ...channelCapabilities,
-    ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
+    ]
+    if (invocationContext.get(messageChannelProgressContextKey)
+      && activeChannel?.messages !== false
+      && activeChannel?.messages?.fallbackStreamingPlaceholderText !== null
+      && !capabilityDefinitions.some(capability => capability.id === "progress-summary")) {
+      capabilityDefinitions.push(progressSummary<TRuntimeConfig>())
+    }
+    const resolvedCapabilityDefinitions = normalizeCapabilities(capabilityDefinitions) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
       hasBox: Boolean(definition?.box),

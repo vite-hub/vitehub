@@ -17,6 +17,7 @@ import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities,
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
+import { messageChannelProgressContextKey, type MessageChannelProgressReference } from "../internal/message-channel-progress.ts"
 import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
@@ -3038,6 +3039,27 @@ async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<vo
   }
 }
 
+async function postDisposableChatMessage(thread: Thread, message: string): Promise<unknown> {
+  const adapter = thread.adapter
+  const sent = await adapter.postMessage(thread.id, message)
+  if (!sent?.id) return sent
+  const threadId = sent.threadId || thread.id
+  return {
+    ...sent,
+    delete: async () => await adapter.deleteMessage(threadId, sent.id),
+    edit: adapter.editMessage
+      ? async (value: unknown) => await adapter.editMessage!(threadId, sent.id, value as AdapterPostableMessage)
+      : undefined,
+  }
+}
+
+function messageChannelProgressReference(placeholder: unknown): MessageChannelProgressReference | undefined {
+  if (!placeholder || typeof placeholder !== "object") return
+  const { id, threadId } = placeholder as { id?: unknown, threadId?: unknown }
+  if ((typeof id !== "string" && typeof id !== "number") || typeof threadId !== "string") return
+  return { messageId: String(id), threadId }
+}
+
 async function deliverToManualDeliveryPlaceholder(
   placeholder: unknown,
   message: AgentChatMessage,
@@ -3403,7 +3425,9 @@ async function handleChatSdkMessage(
       return
     }
 
-    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
+    typing = streamsPhasedReplies || manualDelivery || options?.fallbackStreamingPlaceholderText !== undefined
+      ? startChatTypingRefresh(thread, context)
+      : undefined
     assertChatDeliveryOptions(options || {})
     run = invocation.run
     await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: run?.runId })
@@ -3419,6 +3443,23 @@ async function handleChatSdkMessage(
       && await hasActiveWorkflowRuntime(agent as never, runContext as never, true)
     )
     const resolvedInvocationInput = invocation.input as AgentRunInput
+    const thinkingFallback = invocation.metadata?.thinkingFallback
+    const ownsProgressMessage = typeof thinkingFallback === "string" && (manualDelivery || !streamsPhasedReplies)
+    if (ownsProgressMessage) {
+      const placeholderDelivery = postDisposableChatMessage(thread, thinkingFallback).then(async (placeholder) => {
+        if (invocationDeadlineAbort?.signal.aborted) {
+          await deleteManualDeliveryPlaceholder(placeholder)
+          invocationDeadlineAbort.signal.throwIfAborted()
+        }
+        return placeholder
+      })
+      manualDeliveryState.placeholder = await enforceChatInvocationTimeout(
+        placeholderDelivery,
+        maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
+        invocationDeadlineAbort,
+      )
+    }
+    const progressReference = messageChannelProgressReference(manualDeliveryState.placeholder)
     if (durableDelivery) {
       if (state.workflowCustodySupported === false) {
         throw new Error("[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider.")
@@ -3438,6 +3479,7 @@ async function handleChatSdkMessage(
               state: "chat",
             },
             [finalChannelOutputContextKey]: true,
+            ...(progressReference ? { [messageChannelProgressContextKey]: progressReference } : {}),
             [requireAgentWorkflowContextKey]: true,
           },
         }, invoker) as never)
@@ -3452,23 +3494,8 @@ async function handleChatSdkMessage(
       }
       return
     }
-    const thinkingFallback = invocation.metadata?.thinkingFallback
-    if (manualDelivery && typeof thinkingFallback === "string") {
-      const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
-        if (invocationDeadlineAbort?.signal.aborted) {
-          await deleteManualDeliveryPlaceholder(placeholder)
-          invocationDeadlineAbort.signal.throwIfAborted()
-        }
-        return placeholder
-      })
-      manualDeliveryState.placeholder = await enforceChatInvocationTimeout(
-        placeholderDelivery,
-        maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
-        invocationDeadlineAbort,
-      )
-    }
     const chatFinish = createChatFinishExtension(input, registration)
-    progress = manualDelivery
+    progress = manualDeliveryState.placeholder
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal)
       : undefined
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined
@@ -3493,6 +3520,7 @@ async function handleChatSdkMessage(
                 const summary = progressSummaryFromEvent(event)
                 if (summary) progress?.update(summary)
               },
+              ...(progressReference ? { [messageChannelProgressContextKey]: progressReference } : {}),
             }
           : {}),
         ...(options?.stream === false || manualDelivery ? { [finalChannelOutputContextKey]: true } : {}),
@@ -3508,20 +3536,9 @@ async function handleChatSdkMessage(
             ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
             : await runAgentInline(agent as never, runContext as never, invocationInput as never)
           const text = await collectAgentOutput(result, progress?.update, toolResult => toolResults.push(toolResult))
-          if (!manualDelivery && text) {
-            invocationDeadlineAbort?.signal.throwIfAborted()
-            if (!await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal)) {
-              const sent = await thread.post({ markdown: text })
-              if (invocationDeadlineAbort?.signal.aborted) {
-                await deleteManualDeliveryPlaceholder(sent)
-                invocationDeadlineAbort.signal.throwIfAborted()
-              }
-            }
-          }
           await progress?.finish()
-          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
           invocationDeadlineAbort?.signal.throwIfAborted()
-          const completedPlaceholder = manualDeliveryState.placeholder
+          const completedPlaceholder = !manualDelivery && manualDeliveryState.placeholder
           if (completedPlaceholder) {
             const placeholderCleanup = deleteManualDeliveryPlaceholder(completedPlaceholder)
             manualDeliveryState.placeholderCleanup = placeholderCleanup
@@ -3535,6 +3552,24 @@ async function handleChatSdkMessage(
               if (manualDeliveryState.placeholderCleanup === placeholderCleanup) {
                 manualDeliveryState.placeholderCleanup = undefined
               }
+            }
+          }
+          if (!manualDelivery && text) {
+            invocationDeadlineAbort?.signal.throwIfAborted()
+            if (!await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal)) {
+              const sent = await thread.post({ markdown: text })
+              if (invocationDeadlineAbort?.signal.aborted) {
+                await deleteManualDeliveryPlaceholder(sent)
+                invocationDeadlineAbort.signal.throwIfAborted()
+              }
+            }
+          }
+          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
+          const unusedPlaceholder = manualDeliveryState.placeholder
+          if (unusedPlaceholder) {
+            await deleteManualDeliveryPlaceholder(unusedPlaceholder)
+            if (manualDeliveryState.placeholder === unusedPlaceholder) {
+              manualDeliveryState.placeholder = undefined
             }
           }
         })(),

@@ -154,7 +154,9 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
       }
       return Response.json({ ok: true })
     }),
-    deleteMessage: vi.fn(async () => {}),
+    deleteMessage: vi.fn(async (threadId: string, messageId: string) => {
+      cachedMessages.set(threadId, (cachedMessages.get(threadId) ?? []).filter(message => message.id !== messageId))
+    }),
     initialize: vi.fn(async (chat: ChatInstance) => {
       chatInstance = chat
     }),
@@ -4335,7 +4337,7 @@ describe("server helpers", () => {
     expect(deliveryKinds).toEqual(["direct", "mention", "subscribed", "mention"])
   })
 
-  it("defaults adapter-backed Channels to final-only delivery", async () => {
+  it("defaults adapter-backed Channels to disposable progress and final-only delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram, webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler, createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -4368,9 +4370,10 @@ describe("server helpers", () => {
     await expect(response.json()).resolves.toEqual({ ok: true })
     await Promise.all(waitUntilTasks)
     expect(agent.chat).toMatchObject({ stream: false })
-    expect(adapter.startTyping).not.toHaveBeenCalled()
-    expect(adapter.postMessage).toHaveBeenCalledOnce()
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "final answer" })
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "final answer" })
     expect(adapter.editMessage).not.toHaveBeenCalled()
 
     const streamResponse = await createChannelChatRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -4385,7 +4388,7 @@ describe("server helpers", () => {
     await expect(streamResponse.text()).resolves.toContain("final answer")
   })
 
-  it("posts only the final Discord reply without a progress edit after harness tool events", async () => {
+  it("uses fallback progress for Discord harness tool events without a summary model", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -4443,8 +4446,9 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await Promise.all(waitUntilTasks)
     expect(agent.chat).toMatchObject({ stream: false })
-    expect(adapter.postMessage).toHaveBeenCalledOnce()
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "The image shows a dental X-ray." })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "The image shows a dental X-ray." })
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
@@ -4530,8 +4534,8 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await Promise.all(waitUntilTasks)
     await vi.waitFor(() => {
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "...")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Working on it…")
     })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Checking the image." })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", { markdown: "The image shows a dental X-ray." })
@@ -4558,7 +4562,7 @@ describe("server helpers", () => {
       channels: {
         discord: discord({
           adapter: () => adapter as never,
-          messages: { commentary: "message" },
+          messages: { commentary: "message", fallbackStreamingPlaceholderText: null },
         }),
       },
       driver: {
@@ -4587,7 +4591,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(adapter.postMessage).toHaveBeenCalledTimes(2)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final answer." })
   })
 
   it("does not block non-Cloudflare webhooks on stalled commentary delivery", async () => {
@@ -4600,7 +4604,7 @@ describe("server helpers", () => {
       channels: {
         discord: discord({
           adapter: () => adapter as never,
-          messages: { commentary: "message" },
+          messages: { commentary: "message", fallbackStreamingPlaceholderText: null },
         }),
       },
       driver: {
@@ -4618,7 +4622,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(adapter.postMessage).toHaveBeenCalledTimes(2)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:999", expect.any(String), { markdown: "Final answer." })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:999", { markdown: "Final answer." })
   })
 
   it("delivers unphased final output when commentary is configured", async () => {
@@ -4842,12 +4846,13 @@ describe("server helpers", () => {
     })
 
     await handler(request(1), "progressive")
-    expect(progressiveAdapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(progressiveAdapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it…")
     expect(progressiveAdapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "channel reply" })
 
     await handler(request(2), "final")
-    expect(finalAdapter.postMessage).toHaveBeenCalledOnce()
-    expect(finalAdapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "channel reply" })
+    expect(finalAdapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
+    expect(finalAdapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(finalAdapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "channel reply" })
     expect(finalAdapter.editMessage).not.toHaveBeenCalled()
   })
 
@@ -4907,7 +4912,7 @@ describe("server helpers", () => {
     const shortResponse = await handler(request(7), "discord")
 
     expect(shortResponse.status).toBe(200)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "short reply" })
 
@@ -4919,7 +4924,7 @@ describe("server helpers", () => {
     const longResponse = await handler(request(8), "discord")
 
     expect(longResponse.status).toBe(200)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
     expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-2", { markdown: replyText })
     expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-2", {
       attachments: [],
@@ -4985,13 +4990,15 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(adapter.editMessage).not.toHaveBeenCalled()
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", {
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
       raw: expect.stringMatching(/ \(1\/2\)$/),
     })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(3, "telegram:456", {
       raw: expect.stringMatching(/ \(2\/2\)$/),
     })
-    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(3)
   })
 
   it("maps audio mime file attachments by default without resolving bytes", async () => {
@@ -10159,8 +10166,12 @@ describe("server helpers", () => {
       releaseFirst()
       await expect(firstResponse).resolves.toMatchObject({ status: 200 })
 
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "ok" })
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "ok" })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "ok" })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(3, "telegram:789", "Working on it…")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(4, "telegram:789", { markdown: "ok" })
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:789", "sent-3")
     }
     finally {
       releaseFirst()
@@ -10298,7 +10309,7 @@ describe("server helpers", () => {
       channels: {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
-          messages: { delivery: "automatic" },
+          messages: { delivery: "automatic", fallbackStreamingPlaceholderText: null },
         }),
       },
       driver: { run: () => "Agent output" },
@@ -10314,6 +10325,55 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "Agent output" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Explicit reply" })
     expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("uses one disposable progress message by default before automatic output", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run: () => "Final answer" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_004_1), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it…")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final answer" })
+    expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
+  })
+
+  it("replaces default progress with the error fallback when automatic output fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { errorFallbackText: "Please try again." },
+        }),
+      },
+      driver: { run: () => { throw new Error("model failed") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_004_2), "telegram")).rejects.toThrow("model failed")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it…")
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
   })
 
   it("delivers only explicit manual replies after deleting the placeholder", async () => {
@@ -10441,13 +10501,14 @@ describe("server helpers", () => {
       expect(response).not.toBe("blocked")
       if (response === "blocked") throw new Error("Durable chat delivery waited for Workflow completion.")
       expect(response.status).toBe(200)
-      expect(adapter.postMessage).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it…")
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
       release()
       await Promise.all(waitUntilTasks)
       await vi.waitFor(() => {
         expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Durable reply" })
       })
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
       await expect(handler.deliveries(chatWebhookRequest(91_100), "telegram", {
         agentIdentity: { name: "calories" },
       })).resolves.toEqual([
@@ -10553,7 +10614,7 @@ describe("server helpers", () => {
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
-    let workflowPayload: { input?: { timeout?: number } } | undefined
+    let workflowPayload: { input?: { context?: Record<string, unknown>, timeout?: number } } | undefined
     const create = vi.fn(async ({ id, params }: { id: string, params: typeof workflowPayload }) => {
       workflowPayload = params
       return { id, status: async () => ({ status: "queued" }) }
@@ -10585,6 +10646,11 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       expect(create).toHaveBeenCalledOnce()
       expect(workflowPayload?.input?.timeout).toBeUndefined()
+      expect(workflowPayload?.input?.context?.["agent.channel.progress"]).toEqual({
+        messageId: "sent-1",
+        threadId: "telegram:456",
+      })
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it…")
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
       expect(run).not.toHaveBeenCalled()
       await Promise.all(waitUntilTasks)
@@ -11852,6 +11918,7 @@ describe("server helpers", () => {
           },
           messages: {
             errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: null,
             timeout: 50_000,
           },
           webhooks: { secretToken: false },
@@ -11914,6 +11981,7 @@ describe("server helpers", () => {
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: null,
             timeout: 50_000,
           },
           webhooks: { secretToken: false },
@@ -11971,6 +12039,7 @@ describe("server helpers", () => {
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: null,
             stream: false,
             timeout: 50_000,
           },
@@ -12039,6 +12108,7 @@ describe("server helpers", () => {
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: null,
             stream: false,
             timeout: 50_000,
           },
@@ -12091,6 +12161,7 @@ describe("server helpers", () => {
             errorFallbackText: async ({ thread }) => {
               await thread.post("Tailored fallback.")
             },
+            fallbackStreamingPlaceholderText: null,
           },
           webhooks: { secretToken: false },
         }),
@@ -12130,6 +12201,7 @@ describe("server helpers", () => {
             errorFallbackText: () => new Promise<string>((resolve) => {
               resolveFallback = resolve
             }),
+            fallbackStreamingPlaceholderText: null,
           },
           webhooks: { secretToken: false },
         }),
@@ -12180,6 +12252,7 @@ describe("server helpers", () => {
             errorFallbackText: async ({ thread }) => {
               await thread.post("Tailored fallback.")
             },
+            fallbackStreamingPlaceholderText: null,
           },
           webhooks: { secretToken: false },
         }),
@@ -13367,6 +13440,7 @@ describe("server helpers", () => {
       channels: {
         support: testTelegram(telegram, {
           adapter: () => adapter as never,
+          messages: { fallbackStreamingPlaceholderText: null },
         }),
       },
       driver: { run: () => "agent answer" },
@@ -13423,6 +13497,7 @@ describe("server helpers", () => {
       channels: {
         support: testTelegram(telegram, {
           adapter: () => adapter as never,
+          messages: { fallbackStreamingPlaceholderText: null },
         }),
       },
       driver: { run: () => "agent answer" },
@@ -13483,6 +13558,7 @@ describe("server helpers", () => {
       channels: {
         support: testTelegram(telegram, {
           adapter: () => adapter as never,
+          messages: { fallbackStreamingPlaceholderText: null },
         }),
       },
       driver: {

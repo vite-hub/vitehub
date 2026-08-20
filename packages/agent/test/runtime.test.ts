@@ -4978,6 +4978,107 @@ describe("agent message protocol", () => {
     expect(event).toHaveBeenCalledWith(expect.objectContaining({ type: "outbound.completed" }))
   })
 
+  it("deletes durable channel progress before posting the final reply", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const calls: string[] = []
+    const adapter = {
+      channelIdFromThreadId: (threadId: string) => threadId,
+      deleteMessage: vi.fn(async () => { calls.push("delete") }),
+      editMessage: vi.fn(),
+      postMessage: vi.fn(async () => { calls.push("post") }),
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: defineChannel("telegram", { adapter: () => adapter as never }),
+      },
+      driver: { run: () => "internal" },
+      hooks: {
+        "agent:finish": event => event.reply("Final reply"),
+      },
+    })
+
+    await runAgentInline(agent, {
+      memo: vi.fn(),
+      run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "run-1", threadId: "telegram:456" },
+      runtime: "cloudflare-agents",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        "agent.channel.progress": { messageId: "sent-1", threadId: "telegram:456" },
+      },
+      prompt: "hello",
+    })
+
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final reply" })
+    expect(calls).toEqual(["delete", "post"])
+  })
+
+  it("rewrites durable channel progress from model steps without exposing reasoning", async () => {
+    const { progressSummary } = await import("../src/capabilities/progress-summary.ts")
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    let calls = 0
+    const adapter = {
+      channelIdFromThreadId: (threadId: string) => threadId,
+      editMessage: vi.fn(),
+    }
+    const model = {
+      async doGenerate() {
+        calls++
+        return {
+          content: calls === 1
+            ? [
+                { text: "PRIVATE_CHAIN_OF_THOUGHT", type: "reasoning" },
+                { input: "{}", toolCallId: "save-1", toolName: "save_meal", type: "tool-call" },
+              ]
+            : [{ text: "Saved", type: "text" }],
+          finishReason: { raw: calls === 1 ? "tool_calls" : "stop", unified: calls === 1 ? "tool-calls" : "stop" },
+          usage: {
+            inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+            outputTokens: { reasoning: 0, text: 1, total: 1 },
+          },
+          warnings: [],
+        }
+      },
+      modelId: "progress-test",
+      provider: "test",
+      specificationVersion: "v3",
+      supportedUrls: {},
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "meals",
+        tools: { save_meal: { execute: () => ({ id: "meal-1" }), name: "save_meal" } },
+      })],
+      channels: {
+        telegram: defineChannel("telegram", {
+          adapter: () => adapter as never,
+          capabilities: [progressSummary({ execute: () => "Checking the meal." })],
+        }),
+      },
+      driver: { model: model as never },
+    })
+
+    await runAgentInline(agent, {
+      memo: vi.fn(),
+      run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "run-2", threadId: "telegram:456" },
+      runtime: "cloudflare-agents",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        "agent.channel.progress": { messageId: "sent-1", threadId: "telegram:456" },
+      },
+      prompt: "save meal",
+    })
+
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Checking the meal." })
+    expect(JSON.stringify(adapter.editMessage.mock.calls)).not.toContain("PRIVATE_CHAIN_OF_THOUGHT")
+  })
+
   it("exposes Agent Trigger metadata", async () => {
     const { defineChannel } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")

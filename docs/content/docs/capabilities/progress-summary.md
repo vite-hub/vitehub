@@ -7,7 +7,9 @@ navigation.group: Decisions and output
 icon: i-lucide-message-circle-more
 ---
 
-`progressSummary()` observes reasoning and tool lifecycle events while an Agent works, then emits a replaceable one-sentence status as transient `data-progress-summary` stream data.
+`progressSummary()` observes reasoning presence and tool lifecycle events while an Agent works, then emits a replaceable one-sentence status as transient `data-progress-summary` stream data.
+
+Adapter-backed message Channels enable it by default. ViteHub posts `Working on it…`, replaces that message with safe progress summaries when the Driver exposes useful events, deletes it on completion, and posts the final reply as a new message. GitHub Channels are not message Channels, so they keep their single final delivery.
 
 ## Add progress summaries
 
@@ -50,7 +52,7 @@ Listen for `data-progress-summary` parts and replace the currently displayed sen
 
 The part is transient, so it does not become conversation history. Keep structured reasoning and tool logs separate when your interface exposes them.
 
-With manual chat delivery, ViteHub edits the current placeholder as summaries arrive. When the Agent finishes, ViteHub deletes that placeholder and posts the final reply as a new message so chat platforms can deliver their normal notification.
+With adapter-backed message delivery, ViteHub edits the current placeholder as summaries arrive. When the Agent finishes, ViteHub deletes that placeholder and posts the final reply as a new message so chat platforms can deliver their normal notification. Set `messages.fallbackStreamingPlaceholderText` to `null` on a Channel to opt out.
 
 ## Understand the runtime behavior
 
@@ -64,7 +66,7 @@ The Capability stops its cadence and aborts every in-flight generation when the 
 
 ## Requirements
 
-The primary Agent Driver must expose a compatible async stream or UI message stream. With a positive interval, the Capability attempts a summary on every tick and suppresses unchanged output. With `intervalMs: 0`, it remains silent after the first-chunk summary until reasoning or tool lifecycle events provide new activity.
+Streaming Drivers expose progress through their async or UI message stream. Model-backed non-streaming Drivers use AI SDK step-finish events. With a positive interval, the Capability attempts a summary on every tick and suppresses unchanged output. With `intervalMs: 0`, it remains silent after the first event until reasoning presence or tool lifecycle events provide new activity.
 
 Configure a `driver`, `model`, or `execute` option for summary generation. Without one of those options, the Capability uses the Agent model when available.
 

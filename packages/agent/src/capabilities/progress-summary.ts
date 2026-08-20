@@ -4,6 +4,7 @@ import { capabilityInvocationStartSymbol, defineCapability, eagerFinishExtension
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
+import { messageChannelProgressContextKey, updateMessageChannelProgress } from "../internal/message-channel-progress.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
@@ -108,6 +109,19 @@ function eventToolId(value: unknown): string {
   if (!isRecord(value)) return ""
   const id = value.toolCallId ?? value.id
   return typeof id === "string" ? id : ""
+}
+
+function stepProgressEvidence(value: unknown): { completedTools: string[], reasoning: boolean } {
+  if (!isRecord(value)) return { completedTools: [], reasoning: false }
+  const parts = [
+    ...(Array.isArray(value.content) ? value.content : []),
+    ...(Array.isArray(value.toolCalls) ? value.toolCalls : []),
+    ...(Array.isArray(value.toolResults) ? value.toolResults : []),
+  ]
+  return {
+    completedTools: [...new Set(parts.map(eventToolName).filter(Boolean))],
+    reasoning: parts.some(part => eventType(part).includes("reasoning")),
+  }
 }
 
 function firstUserText(messages: Message[], input: AgentRunInput): string {
@@ -589,6 +603,9 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
     output(context) {
       context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
       let state: ProgressSummaryState | undefined
+      let generatedPrevious: string | undefined
+      const generatedCompletedTools: string[] = []
+      const generatedStartedAt = Date.now()
       const getState = () => {
         if (state) return state
         const messages = context.input.messages()
@@ -600,6 +617,43 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
       invocationStarts.set(context.context, () => {
         if (context.invocation?.kind === "stream" && context.driver?.kind === "harness") getState()
       })
+      if (context.invocation?.kind === "run") {
+        context.modelExecution.instrument({
+          callSettings({ callSettings }) {
+            const previous = typeof callSettings.onStepFinish === "function"
+              ? callSettings.onStepFinish as (event: unknown) => MaybePromise<void>
+              : undefined
+            return {
+              async onStepFinish(event: unknown) {
+                await previous?.(event)
+                if (!context.context.get(messageChannelProgressContextKey)) return
+                const evidence = stepProgressEvidence(event)
+                generatedCompletedTools.push(...evidence.completedTools)
+                const messages = context.input.messages()
+                const inputValue = context.input.get()
+                try {
+                  const summary = await generateProgressSummary(context, options, {
+                    activeTools: [],
+                    completedTools: generatedCompletedTools.slice(-5),
+                    elapsedMs: Date.now() - generatedStartedAt,
+                    input: inputValue,
+                    messages,
+                    previous: generatedPrevious,
+                    reasoning: evidence.reasoning ? "Active" : undefined,
+                    userText: firstUserText(messages, inputValue),
+                  })
+                  if (!summary || summary === generatedPrevious) return
+                  generatedPrevious = summary
+                  await updateMessageChannelProgress(context, summary)
+                }
+                catch {
+                  console.warn("[vitehub] progressSummary() generation failed.")
+                }
+              },
+            }
+          },
+        })
+      }
       context.output.render((result) => {
         if (isStreamResult(result)) {
           const state = getState()

@@ -83,7 +83,7 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope used for message locks. |
 | `dedupeTtlMs` | `number` | inherited | Time-to-live for Chat SDK duplicate-message keys. |
 | `userName` | `string` | `"vitehub"` | Agent username used by adapter-backed Chat SDK delivery. |
-| `fallbackStreamingPlaceholderText` | `string \| string[] \| null \| function` | inherited | Placeholder text while streaming starts. Arrays pick one entry per Agent Invocation; empty arrays skip the placeholder. |
+| `fallbackStreamingPlaceholderText` | `string \| string[] \| null \| function` | message Channels: `"Working on it…"`; otherwise inherited | Disposable progress message. ViteHub safely updates it when progress is available, deletes it on completion, then posts the final reply separately. Arrays pick one entry per Agent Invocation; `null` and empty arrays disable it. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Fallback message when chat handling fails. |
 
 ## Reference

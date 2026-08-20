@@ -278,6 +278,9 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
   }
 
   if (!hasMessageChannel) return undefined
+  if (options.fallbackStreamingPlaceholderText === undefined) {
+    options.fallbackStreamingPlaceholderText = "Working on it…"
+  }
   if (channelIdentities.length) {
     if (messageChannelCount > 1) {
       throw new TypeError("[vitehub] Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel. Move shared identity to defineAgent({ messages: { identity } }) until Channel-scoped chat triggers land.")
