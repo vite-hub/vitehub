@@ -278,6 +278,29 @@ describe("agent message protocol", () => {
     )
   })
 
+  it("reports Harness capability tool results once", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const toolStepReporter = vi.fn()
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockImplementationOnce(async () => {
+      const tools = harnessAgentSettings.at(-1)?.tools as Record<string, { execute: (input: unknown) => Promise<unknown> }>
+      await tools.selected!.execute({ value: 1 })
+      return { text: "ok" }
+    })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "selected",
+        tools: { selected: { execute: (input: unknown) => input, name: "selected" } },
+      })],
+      driver: { harness: { provider: "codex" } },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", toolStepReporter, waitUntil: vi.fn() }, { prompt: "hello" })
+
+    expect(toolStepReporter).toHaveBeenCalledTimes(2)
+    expect(toolStepReporter.mock.calls.filter(([step]) => step.toolResults?.length)).toHaveLength(1)
+  })
+
   it("rejects definition-time contributions from invocation-resolved Capabilities", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
@@ -12055,6 +12078,26 @@ describe("agent message protocol", () => {
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
       expect(postMessage).toHaveBeenCalledOnce()
+    })
+
+    it("bounds durable error fallback callbacks", async () => {
+      vi.useFakeTimers()
+      const { resolveDurableChatErrorFallbackText } = await import("../src/chat-trigger.ts")
+      const resolution = resolveDurableChatErrorFallbackText({
+        errorFallbackText: () => new Promise(() => undefined),
+        timeout: 10,
+      }, {
+        error: new Error("provider failed"),
+        history: [],
+        message: { text: "hello" },
+        publicError: { code: "INTERNAL", error: "Internal error" },
+        thread: { post: async () => undefined },
+        toolResults: [],
+      })
+
+      await vi.advanceTimersByTimeAsync(10)
+      await expect(resolution).resolves.toBe("Sorry, I couldn't process that message.")
+      vi.useRealTimers()
     })
 
     it.each([

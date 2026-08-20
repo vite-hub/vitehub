@@ -75,6 +75,7 @@ const CHAT_WEBHOOK_DEFAULTS = {
 
 export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
+const durableChatErrorFallbackTimeoutMs = 30_000
 
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
@@ -99,6 +100,28 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
   return typeof fallback === "string" ? fallback : defaultChatErrorFallbackText
 }
 
+export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig> | undefined,
+  args: AgentChatErrorHookArgs<TRuntimeConfig>,
+  callbackDelivered?: () => boolean,
+): Promise<string | undefined> {
+  const timeout = Math.min(options?.timeout ?? durableChatErrorFallbackTimeoutMs, durableChatErrorFallbackTimeoutMs)
+  return resolveChatErrorFallbackText(options, args, callbackDelivered, async (resolution) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        resolution,
+        new Promise<never>((_resolve, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`Durable chat error fallback timed out after ${timeout}ms.`)), timeout)
+        }),
+      ])
+    }
+    finally {
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  })
+}
+
 function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig>,
 ) {
@@ -106,7 +129,7 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
     if (context.error === undefined || !(context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
     const replies: ReturnType<typeof createReplyDeliveryEffectIntent>[] = []
     const chat = getAgentChatContext(context.context)
-    const fallback = await resolveChatErrorFallbackText(options, {
+    const fallback = await resolveDurableChatErrorFallbackText(options, {
       error: context.error,
       history: context.input.messages || [],
       message: chat?.message || { text: "" },
