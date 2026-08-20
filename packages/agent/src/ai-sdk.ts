@@ -1308,7 +1308,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const synthesizedOutput = async (synthesized: { result: unknown, text: string }, original?: unknown, repairResult?: unknown) => {
         const captures = [usageCapture, repairUsageCapture, fallbackUsageCapture]
         let usageRecord: AgentUsageRecord | undefined
-        if (original && typeof original === "object" && fallbackUsageCapture.captured) {
+        if (fallbackUsageCapture.captured) {
           const calls = [
             { capture: usageCapture, result: originalGenerated ?? original },
             { capture: fallbackUsageCapture, result: synthesized.result },
