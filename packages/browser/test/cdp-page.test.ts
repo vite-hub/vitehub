@@ -67,4 +67,19 @@ describe("CDP page", () => {
     })
     expect(fake.send).toHaveBeenCalledWith("Page.navigate", { url: "https://ray.so/" }, "page-session")
   })
+
+  it("bounds page navigation", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Runtime.evaluate") return await new Promise(() => {})
+      return {}
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.goto("https://example.com", { timeoutMs: 1 })).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+    })
+  })
 })

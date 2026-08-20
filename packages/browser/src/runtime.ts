@@ -103,7 +103,7 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
 
   async open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession> {
     const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
-    let control: BrowserControl<CDPClient>
+    let control: BrowserControl<CDPClient> | undefined
     try {
       control = await providerSession.attach(this.options.controller ?? cdp())
       const { page } = await attachCDPPage(control.client)
@@ -112,14 +112,23 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
       return session
     }
     catch (error) {
+      const errors = [error]
+      if (control) {
+        try {
+          await control.release()
+        }
+        catch (releaseError) {
+          errors.push(releaseError)
+        }
+      }
       try {
         await providerSession.close()
       }
       catch (closeError) {
-        throw new AggregateError(
-          [error, closeError],
-          "[vitehub:browser] Browser Session setup failed and provider cleanup also failed.",
-        )
+        errors.push(closeError)
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "[vitehub:browser] Browser Session setup failed and provider cleanup also failed.")
       }
       throw error
     }

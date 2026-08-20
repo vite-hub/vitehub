@@ -80,4 +80,33 @@ describe("Browser Definitions", () => {
     expect(release).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
   })
+
+  it("releases the controller before closing a session when page setup fails", async () => {
+    const release = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async () => ({ targetInfos: [] })),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await browser.open()
+    })
+
+    await expect(executeBrowserDefinition(definition, undefined, { client })).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+    })
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0]!)
+  })
 })

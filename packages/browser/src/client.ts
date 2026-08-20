@@ -54,6 +54,7 @@ export type {
   BrowserLocatorOptions,
   BrowserLocatorWaitOptions,
   BrowserPage,
+  BrowserPageGotoOptions,
   BrowserPageSession,
   BrowserRunResult,
 } from "./types.ts"

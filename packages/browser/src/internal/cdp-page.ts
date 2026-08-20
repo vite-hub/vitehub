@@ -66,6 +66,21 @@ function evaluateResult<TResult>(result: { exceptionDetails?: unknown, result?: 
   return result.result?.value as TResult
 }
 
+async function withTimeout<TResult>(promise: Promise<TResult>, timeoutMs: number, operation: string): Promise<TResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(browserProviderError("cdp", operation)), timeoutMs)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 class CDPBrowserLocator implements BrowserLocator {
   constructor(
     private readonly send: AttachedPage["send"],
@@ -128,13 +143,15 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   await send("Page.enable")
 
   const page: BrowserPage = {
-    async goto(url) {
-      await send("Page.navigate", { url })
-      await send("Runtime.evaluate", {
-        awaitPromise: true,
-        expression: 'document.readyState === "complete" ? true : new Promise(resolve => addEventListener("load", () => resolve(true), { once: true }))',
-        returnByValue: true,
-      })
+    async goto(url, options = {}) {
+      await withTimeout((async () => {
+        await send("Page.navigate", { url })
+        await send("Runtime.evaluate", {
+          awaitPromise: true,
+          expression: 'document.readyState === "complete" ? true : new Promise(resolve => addEventListener("load", () => resolve(true), { once: true }))',
+          returnByValue: true,
+        })
+      })(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS, `navigate to ${JSON.stringify(url)}`)
     },
     locator(selector: string, options: BrowserLocatorOptions = {}) {
       return new CDPBrowserLocator(send, { selector, ...options })

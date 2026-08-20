@@ -300,6 +300,10 @@ describe("vitehub", () => {
     })
   })
 
+  it("rejects the Cloudflare Email default on other presets", () => {
+    expect(() => vitehub({ email: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
+  })
+
   it("uses framework subpaths in generated Env modules", () => {
     vitehub({ preset: "node" })
 

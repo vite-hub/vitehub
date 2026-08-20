@@ -615,6 +615,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.browser && plan.preset !== "cloudflare") {
     throw new Error("[vitehub] Browser currently requires the Cloudflare deployment preset.")
   }
+  if (options.email === true && plan.preset !== "cloudflare") {
+    throw new Error("[vitehub] email: true currently requires the Cloudflare deployment preset; configure an explicit Email driver for other presets.")
+  }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)

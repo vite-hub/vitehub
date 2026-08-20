@@ -148,8 +148,12 @@ export interface BrowserLocator {
   waitFor(options?: BrowserLocatorWaitOptions): Promise<void>
 }
 
+export interface BrowserPageGotoOptions {
+  timeoutMs?: number
+}
+
 export interface BrowserPage {
-  goto(url: string): Promise<void>
+  goto(url: string, options?: BrowserPageGotoOptions): Promise<void>
   locator(selector: string, options?: BrowserLocatorOptions): BrowserLocator
   press(key: string): Promise<void>
   waitForDownload(
