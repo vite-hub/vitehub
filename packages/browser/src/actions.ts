@@ -17,9 +17,29 @@ interface BrowserRunBinding {
 }
 
 const DEFAULT_ACTION_TIMEOUT_MS = 30_000
+const MAX_PROVIDER_TIMEOUT_MS = 300_000
+const PROVIDER_TIMEOUT_GRACE_MS = 30_000
 
 function normalizeInput(input: BrowserActionInput): Record<string, unknown> {
   return typeof input === "string" ? { url: input } : input
+}
+
+function actionTimeoutMs(input: Record<string, unknown>): number {
+  let requestedTimeoutMs = 0
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if ((key === "timeout" || key.endsWith("Timeout")) && typeof nestedValue === "number" && nestedValue > 0) {
+        requestedTimeoutMs = Math.max(requestedTimeoutMs, nestedValue)
+      }
+      else {
+        visit(nestedValue)
+      }
+    }
+  }
+  visit(input)
+  if (requestedTimeoutMs <= DEFAULT_ACTION_TIMEOUT_MS) return DEFAULT_ACTION_TIMEOUT_MS
+  return Math.min(requestedTimeoutMs, MAX_PROVIDER_TIMEOUT_MS) + PROVIDER_TIMEOUT_GRACE_MS
 }
 
 async function runtimeBinding(name: string): Promise<unknown> {
@@ -64,7 +84,7 @@ async function runQuickAction(
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           reject(browserProviderError("cloudflare", `run ${action} quick action`))
-        }, DEFAULT_ACTION_TIMEOUT_MS)
+        }, actionTimeoutMs(input))
       }),
     ])
   }

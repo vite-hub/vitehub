@@ -73,4 +73,22 @@ describe("Browser Run actions", () => {
       vi.useRealTimers()
     }
   })
+
+  it("allows provider-supported actions to run longer than the default bound", async () => {
+    vi.useFakeTimers()
+    try {
+      runtime.__env__ = { BROWSER: { quickAction: async () => {
+        await new Promise(resolve => setTimeout(resolve, 31_000))
+        return new Response("complete")
+      } } }
+
+      const action = runBrowserContent({ actionTimeout: 60_000, url: "https://example.com" })
+      await vi.advanceTimersByTimeAsync(31_000)
+
+      await expect(action).resolves.toEqual([null, "complete"])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
 })
