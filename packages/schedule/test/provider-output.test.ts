@@ -98,7 +98,7 @@ describe("schedule provider output", () => {
     const workflowRuntime = join(workflowDir, "workflow-runtime.mjs")
     await writeFile(workflowRegistry, "export default { recap: async () => ({}) }\n")
     await writeFile(state, "export function setWorkflowRuntimeConfig(value) { globalThis.__workflowConfig = value }\nexport function setWorkflowRuntimeRegistry(value) { globalThis.__workflowRegistry = value }\n")
-    await writeFile(vercelRuntime, "export function setVercelWorkflowRuntimeModules() { globalThis.__workflowModules = true }\n")
+    await writeFile(vercelRuntime, "export function setVercelWorkflowRuntimeModules() { globalThis.__workflowModules = true }\nexport async function runWithVercelWorkflowRuntimeEvent(req, res, run) { globalThis.__workflowEvent = { req, res }; return await run() }\n")
     await writeFile(workflowApi, "export const api = true\n")
     await writeFile(workflowRuntime, "export const runtime = true\n")
 
@@ -124,6 +124,7 @@ describe("schedule provider output", () => {
     expect(output).toContain("__workflowModules")
     expect(output).toContain("__workflowConfig")
     expect(output).toContain("__workflowRegistry")
+    expect(output).toContain("__workflowEvent")
   })
 
   it("installs inline Workflow definitions without Workflow DevKit", async () => {
@@ -133,10 +134,12 @@ describe("schedule provider output", () => {
     const workflowRegistry = join(workflowDir, "registry.mjs")
     const state = join(workflowDir, "state.mjs")
     await writeFile(workflowRegistry, "export default { recap: async () => ({}) }\n")
+    const vercelRuntime = join(workflowDir, "vercel-runtime.mjs")
     await writeFile(state, "export function setWorkflowRuntimeConfig(value) { globalThis.__workflowConfig = value }\nexport function setWorkflowRuntimeRegistry(value) { globalThis.__workflowRegistry = value }\n")
+    await writeFile(vercelRuntime, "export async function runWithVercelWorkflowRuntimeEvent(req, res, run) { globalThis.__workflowEvent = { req, res }; return await run() }\n")
 
     await generateProviderOutputs({
-      bundleAlias: { "test-workflow/runtime/state": state },
+      bundleAlias: { "test-workflow/runtime/state": state, "test-workflow/runtime/vercel-vite": vercelRuntime },
       clientOutDir: "dist/client",
       rootDir,
       workflow: {
@@ -150,6 +153,7 @@ describe("schedule provider output", () => {
     const output = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")
     expect(output).toContain("__workflowConfig")
     expect(output).toContain("__workflowRegistry")
+    expect(output).toContain("__workflowEvent")
     expect(output).not.toContain("workflow/api")
     expect(output).not.toContain("workflow/runtime")
     expect(output).not.toContain("setVercelWorkflowRuntimeModules")

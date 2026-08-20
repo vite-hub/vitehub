@@ -110,9 +110,8 @@ async function withVercelWorkflowPackageLink<T>(rootDir: string, run: () => Prom
   }
 }
 
-async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): Promise<void> {
-  const builders = await loadVercelWorkflowBuilders()
-  if (!definitions.length) return
+export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): boolean {
+  if (!definitions.length) return false
   const definitionDirs = [...new Set([
     ...definitions.map(definition => dirname(definition.handler)),
     ...nativeFiles.map(file => dirname(file)),
@@ -164,13 +163,22 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   }
   for (const definition of definitions) visit(definition.handler)
   for (const file of nativeFiles) visit(file)
-  if (!hasNativeEntry) return
+  return hasNativeEntry
+}
+
+async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): Promise<void> {
+  if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) return
+  const builders = await loadVercelWorkflowBuilders()
   if (!builders) {
     throw new Error("Native Vercel workflows require the optional workflow and @workflow/builders peer dependencies.")
   }
 
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
   const viteHubConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[] }
+  const definitionDirs = [...new Set([
+    ...definitions.map(definition => dirname(definition.handler)),
+    ...nativeFiles.map(file => dirname(file)),
+  ])]
   const builder = new builders.VercelBuildOutputAPIBuilder({
     buildTarget: "vercel-build-output-api",
     dirs: definitionDirs,

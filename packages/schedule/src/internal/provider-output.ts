@@ -141,6 +141,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
           `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/state`)}`,
+          `import { runWithVercelWorkflowRuntimeEvent } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
           ...(workflowRuntime.native
             ? [
                 `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
@@ -209,7 +210,9 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
                 "  setWorkflowRuntimeRegistry(workflowRegistry)",
               ]
             : []),
-          "  await runSchedule(name, definition.cron, new Date())",
+          workflowRuntime
+            ? "  await runWithVercelWorkflowRuntimeEvent(req, res, () => runSchedule(name, definition.cron, new Date()))"
+            : "  await runSchedule(name, definition.cron, new Date())",
           "  res.statusCode = 204",
           "  res.end()",
           "}",

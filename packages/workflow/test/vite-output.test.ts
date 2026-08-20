@@ -7,12 +7,24 @@ import { promisify } from "node:util"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
+import { hasVercelNativeWorkflowEntry } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const buildOutputTestTimeout = 60_000
 const tempNodeModuleBuildDirs = new Set([".vite-temp"])
 const tempDirs: string[] = []
+
+it("detects user-authored native Vercel workflow entries", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-entry-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native: durable })\n`)
+  await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
+})
 
 function resolvePlaygroundNodeModules() {
   const nodeModules = join(playgroundDir, "node_modules")

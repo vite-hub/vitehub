@@ -6,7 +6,7 @@ import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProvi
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
@@ -106,7 +106,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     if (!artifacts.providerDefinitions.length) return
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(rootDir, "package.json"))
-    const workflowRequire = artifacts.vercelNativeFile ? createRequire(import.meta.url) : undefined
+    const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, providerImportAliases(), artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
+    const workflowRequire = native ? createRequire(import.meta.url) : undefined
     const workflowApi = workflowRequire?.resolve("workflow/api")
     return {
       bundleAlias: {
@@ -121,7 +122,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
           : {}),
       },
       importBase,
-      native: Boolean(artifacts.vercelNativeFile),
+      native,
       registryFile: artifacts.registryFile,
     }
   }
