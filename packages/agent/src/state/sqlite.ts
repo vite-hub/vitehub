@@ -398,7 +398,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         WHERE candidate.scope = ? AND candidate.delivery_id = ? AND candidate.status IN ('running', 'steering')
           AND candidate.lease_token = ?
           AND (
-            candidate.lease_expires_at > ? OR (
+            candidate.status = 'steering' OR candidate.lease_expires_at > ? OR (
               (
                 SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
                 WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?

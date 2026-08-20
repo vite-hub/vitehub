@@ -144,6 +144,31 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("renews delayed steering ownership after its execution lease renews", async () => {
+    const { state, url } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    const execution = webhookDelivery("delivery-execution", "pr-1")
+    const steering = webhookDelivery("delivery-steering", "pr-1")
+
+    await queue.enqueueWebhookDelivery(execution)
+    const executionLease = await queue.claimWebhookDelivery(execution.scope)
+    expect(executionLease?.deliveryId).toBe(execution.deliveryId)
+    await expect(queue.claimWebhookSteering(steering, "steering-token", Date.now() + 1_000)).resolves.toBe(true)
+
+    const client = createClient({ url })
+    await client.execute({
+      args: [execution.deliveryId, steering.deliveryId],
+      sql: "UPDATE test_agent_state_webhook_queue SET lease_expires_at = 0 WHERE delivery_id IN (?, ?)",
+    })
+    await expect(queue.extendWebhookDeliveryLease(execution.scope, execution.deliveryId, executionLease!.leaseToken, 30_000)).resolves.toBe(true)
+    await expect(queue.extendWebhookDeliveryLease(steering.scope, steering.deliveryId, "wrong-token", 30_000)).resolves.toBe(false)
+    await expect(queue.extendWebhookDeliveryLease(steering.scope, steering.deliveryId, "steering-token", 30_000)).resolves.toBe(true)
+
+    client.close()
+    await state.disconnect()
+  })
+
   it("retries transient SQLite contention while persisting webhook deliveries", async () => {
     const client = createClient({ url: ":memory:" })
     let busyCompletion = true
