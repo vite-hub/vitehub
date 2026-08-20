@@ -3181,6 +3181,7 @@ async function finishAgentInvocation<
           }
         }
         const runOutcomeHook = async (hookContext: typeof context) => {
+          const hookFinishEvent = { ...finishEvent, input: hookContext.input }
           let outcomeHookResult: void | AgentChannelDeliveryFinishEffectResult
           await runObservedAgentHook(context.hooks, {
             ids: { runId: context.run?.runId },
@@ -3189,13 +3190,13 @@ async function finishAgentInvocation<
             phase: failed ? "error" : "finish",
           }, async () => {
             outcomeHookResult = failed
-              ? await outcomeHook?.(createAgentErrorHookEvent(finishEvent, hookContext) as never)
-              : await outcomeHook?.(createAgentFinishHookEvent(finishEvent, hookContext) as never)
+              ? await outcomeHook?.(createAgentErrorHookEvent(hookFinishEvent, hookContext) as never)
+              : await outcomeHook?.(createAgentFinishHookEvent(hookFinishEvent, hookContext) as never)
           })
-          if (outcomeHookResult) {
+          if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
             const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
             appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
-            await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, finishEvent)
+            await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, hookFinishEvent)
           }
         }
         if (durableFailureDeadline) {
@@ -3447,18 +3448,19 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   const chat = getAgentChatContext(invocationContext)
   const channel = invocationContext.get<AgentChannelContext>("channel")
   if (!chat && !channel) return
-  const intents = await resolveDurableChatErrorFallbackIntents(options, {
-    error,
-    history: input.messages || [],
-    message: chat?.message || channel?.message || { text: "" },
-    publicError: toAgentPublicError(error, "http"),
-    run: context.run,
-    toolResults: [],
-  })
-  if (!intents.length) return
   const invoker = createFallbackAgentInvoker(context.run)
   const timeout = durableChatErrorFallbackTimeout(options)
-  await runWithinDurableFailureDeadline(createDurableFailureDeadline(timeout), async (abortSignal) => {
+  const deadline = createDurableFailureDeadline(timeout)
+  await runWithinDurableFailureDeadline(deadline, async (abortSignal) => {
+    const intents = await resolveDurableChatErrorFallbackIntents(options, {
+      error,
+      history: input.messages || [],
+      message: chat?.message || channel?.message || { text: "" },
+      publicError: toAgentPublicError(error, "http"),
+      run: context.run,
+      toolResults: [],
+    }, async resolution => await resolution)
+    if (!intents.length) return
     await applyChannelDeliveryEffectIntents({
       actor: invoker,
       channels: definition?.channels,

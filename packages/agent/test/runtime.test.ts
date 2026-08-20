@@ -10,7 +10,7 @@ import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
-import type { AgentChannelDeliveryFinishEffectCallback, AgentFinishEvent } from "../src/index.ts"
+import type { AgentChannelDeliveryFinishEffectCallback, AgentChannelDeliveryFinishEffectResult, AgentFinishEvent } from "../src/index.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -12537,7 +12537,10 @@ describe("agent message protocol", () => {
         const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
         const failure = new Error("provider failed")
         const postMessage = vi.fn(async () => undefined)
-        const errorHook = vi.fn(() => new Promise<void>(() => undefined))
+        let releaseErrorHook!: () => void
+        const errorHook = vi.fn((event: { input: { abortSignal?: AbortSignal }, reply: (message: string) => AgentChannelDeliveryFinishEffectResult }) => new Promise<AgentChannelDeliveryFinishEffectResult>((resolve) => {
+          releaseErrorHook = () => resolve(event.reply("Too late."))
+        }))
         const agent = defineAgent({
           channels: {
             telegram: telegram({
@@ -12577,6 +12580,10 @@ describe("agent message protocol", () => {
           message: "Durable chat error fallback delivery timed out after 10ms.",
         }))
         expect(error).toMatchObject({ isRetryable: false })
+        expect(errorHook.mock.calls[0]?.[0].input.abortSignal).toMatchObject({ aborted: true })
+        releaseErrorHook()
+        await vi.runAllTimersAsync()
+        expect(postMessage).toHaveBeenCalledOnce()
       }
       finally {
         vi.useRealTimers()
@@ -12936,6 +12943,59 @@ describe("agent message protocol", () => {
         }).catch(error => error)
 
         await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("shares the durable setup fallback deadline across resolution and delivery", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+        const failure = new Error("Capability setup failed")
+        const postMessage = vi.fn(() => new Promise(() => undefined))
+        const agent = defineAgent({
+          capabilities: async () => { throw failure },
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => ({ text: "unreachable" }) },
+          messages: {
+            errorFallbackText: async () => {
+              await new Promise(resolve => setTimeout(resolve, 8))
+              return "Please try again."
+            },
+            timeout: 10,
+          },
+        })
+
+        const result = runAgent(agent, {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: { channelId: "telegram", origin: "telegram", runId: "shared-setup-deadline", threadId: "telegram:123" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: { channel: { message: { text: "Hello" } } },
+          prompt: "Hello",
+        }).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(8)
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(2)
         const error = await result
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error

@@ -135,6 +135,7 @@ export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends Agent
 export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig> | undefined,
   args: Omit<AgentChatErrorHookArgs<TRuntimeConfig>, "thread">,
+  resolveFallback?: (fallback: Promise<unknown>) => Promise<unknown>,
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
   let acceptingIntents = true
@@ -147,7 +148,9 @@ export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig exte
       },
     },
   } as AgentChatErrorHookArgs<TRuntimeConfig>
-  const fallback = await resolveDurableChatErrorFallbackText(options, hookArgs, () => intents.length > 0)
+  const fallback = resolveFallback
+    ? await resolveChatErrorFallbackText(options, hookArgs, () => intents.length > 0, resolveFallback)
+    : await resolveDurableChatErrorFallbackText(options, hookArgs, () => intents.length > 0)
   acceptingIntents = false
   if (!intents.length && fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
   return intents
