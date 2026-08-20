@@ -46,11 +46,16 @@ export const noUnknownTypeAliasesRule = defineRule({
 			if (alias === undefined) return false;
 			const parameters = alias.typeParameters?.params ?? [];
 			const arguments_ = type.typeArguments?.params ?? [];
-			if (parameters.length !== arguments_.length) return false;
+			if (arguments_.length > parameters.length) return false;
 			const nextBindings = new Map(bindings);
-			parameters.forEach((parameter, index) =>
-				nextBindings.set(parameter.name.name, { type: arguments_[index], bindings }),
-			);
+			for (const [index, parameter] of parameters.entries()) {
+				const argument = arguments_[index] ?? parameter.default;
+				if (argument === null || argument === undefined) return false;
+				nextBindings.set(parameter.name.name, {
+					type: argument,
+					bindings: arguments_[index] === undefined ? nextBindings : bindings,
+				});
+			}
 			const nextVisited = new Set(visited);
 			nextVisited.add(name);
 			return resolvesToUnknown(alias.typeAnnotation, alias, nextBindings, nextVisited);

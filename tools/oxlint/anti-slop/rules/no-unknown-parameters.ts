@@ -90,7 +90,10 @@ export const noUnknownParametersRule = defineRule({
       for (const [index, parameter] of parameters.entries()) {
         const argument = arguments_[index] ?? parameter.default;
         if (argument === null || argument === undefined) return false;
-        nextBindings.set(parameter.name.name, { type: argument, bindings });
+        nextBindings.set(parameter.name.name, {
+          type: argument,
+          bindings: arguments_[index] === undefined ? nextBindings : bindings,
+        });
       }
       const nextVisited = new Set(visited);
       nextVisited.add(name);

@@ -18,13 +18,21 @@ export function collectTypeAliases(
 	program: ESTree.Program,
 	visitorKeys: VisitorKeys,
 ): (name: string, from: ESTree.Node) => ESTree.TSTypeAliasDeclaration | undefined {
-	const aliases = new WeakMap<AliasScope, Map<string, ESTree.TSTypeAliasDeclaration>>();
+	const aliases = new WeakMap<AliasScope, Map<string, ESTree.TSTypeAliasDeclaration | null>>();
 
 	const visit = (node: ESTree.Node, scope: AliasScope): void => {
 		const currentScope = isAliasScope(node) ? node : scope;
-		if (node.type === "TSTypeAliasDeclaration") {
+		if (
+			node.type === "TSTypeAliasDeclaration" ||
+			node.type === "TSInterfaceDeclaration" ||
+			node.type === "TSEnumDeclaration" ||
+			node.type === "TSImportEqualsDeclaration" ||
+			node.type === "ClassDeclaration"
+		) {
 			const names = aliases.get(currentScope) ?? new Map();
-			names.set(node.id.name, node);
+			if (node.id !== null) {
+				names.set(node.id.name, node.type === "TSTypeAliasDeclaration" ? node : null);
+			}
 			aliases.set(currentScope, names);
 		}
 		const record = node as unknown as Readonly<Record<string, unknown>>;
@@ -42,8 +50,8 @@ export function collectTypeAliases(
 		let current: ESTree.Node | null = from;
 		while (current !== null) {
 			if (isAliasScope(current)) {
-				const alias = aliases.get(current)?.get(name);
-				if (alias !== undefined) return alias;
+				const names = aliases.get(current);
+				if (names?.has(name) === true) return names.get(name) ?? undefined;
 			}
 			current = current.parent;
 		}

@@ -131,7 +131,7 @@ function isLexicallyShadowed(name: string, from: ESTree.Node): boolean {
 	return false;
 }
 
-function isUnshadowedBuiltIn(
+export function isUnshadowedBuiltIn(
 	name: string,
 	environment: TypeEnvironment,
 	from: ESTree.Node,
