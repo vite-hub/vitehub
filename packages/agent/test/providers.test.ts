@@ -10325,6 +10325,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "Agent output" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Explicit reply" })
     expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.startTyping).not.toHaveBeenCalled()
   })
 
   it("uses one disposable progress message by default before automatic output", async () => {
@@ -11426,6 +11427,42 @@ describe("server helpers", () => {
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "Private model output" })
   })
 
+  it("updates an automatic placeholder from streamed progress summaries", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { stream: false },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Reviewing the request.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { delta: "Final answer", phase: "final", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_013_1), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Reviewing the request." })
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", { markdown: "Final answer" })
+  })
+
   it("does not block manual completion on a hanging progress edit", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -11914,6 +11951,46 @@ describe("server helpers", () => {
     }
     finally {
       consoleError.mockRestore()
+    }
+  })
+
+  it("keeps a successful no-reply invocation successful when progress cleanup times out", async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 2_000))
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+          },
+        }),
+      },
+      driver: { run: () => ({ text: "" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_028_1), "telegram")
+      await vi.waitFor(() => expect(adapter.deleteMessage).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await expect(response).resolves.toMatchObject({ status: 200 })
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+    }
+    finally {
+      warn.mockRestore()
+      vi.useRealTimers()
     }
   })
 

@@ -5091,6 +5091,41 @@ describe("agent message protocol", () => {
     expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
   })
 
+  it("deletes durable channel progress when Capability setup fails without a fallback", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const adapter = {
+      channelIdFromThreadId: (threadId: string) => threadId,
+      deleteMessage: vi.fn(),
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "setup-failure",
+        resolve: () => { throw new Error("setup failed") },
+      })],
+      channels: {
+        telegram: defineChannel("telegram", { adapter: () => adapter as never }),
+      },
+      driver: { run: () => "internal" },
+      messages: { errorFallbackText: null },
+    })
+
+    await expect(runAgentInline(agent, {
+      [Symbol.for("vitehub.agent.workflow-execution")]: true,
+      memo: vi.fn(),
+      run: { channelId: "telegram", origin: "workflow:cloudflare", runId: "setup-failure", threadId: "telegram:456" },
+      runtime: "cloudflare-agents",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        "agent.channel.progress": { messageId: "sent-1", threadId: "telegram:456" },
+      },
+      prompt: "hello",
+    })).rejects.toThrow("setup failed")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+  })
+
   it("deletes durable channel progress when finish processing throws", async () => {
     const { defineAgent, runAgentInline } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

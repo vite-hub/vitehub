@@ -3294,35 +3294,54 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   error: unknown,
 ): Promise<void> {
   if (!(context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
-  const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
-  if (!options) return
-  const intents: AgentChannelDeliveryEffectIntent[] = []
   const invocationContext = createAgentInvocationContextStore(input.context)
-  const chat = getAgentChatContext(invocationContext)
-  const fallback = await resolveDurableChatErrorFallbackText(options, {
-    error,
-    history: input.messages || [],
-    message: chat?.message || { text: "" },
-    publicError: toAgentPublicError(error, "http"),
-    run: context.run,
-    thread: {
-      post: async message => intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" })),
-    },
-    toolResults: [],
-  }, () => intents.length > 0)
-  if (!intents.length && fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
-  if (!intents.length) return
   const invoker = createFallbackAgentInvoker(context.run)
-  await applyChannelDeliveryEffectIntents({
-    actor: invoker,
-    channels: definition?.channels,
-    context: invocationContext,
-    hooks: definition?.hooks as AgentHookObserverHooks | undefined,
-    input,
-    invoker,
-    run: context.run,
-    runtimeContext: createResolvedRuntimeContext(context),
-  } as never, intents)
+  const runtimeContext = createResolvedRuntimeContext(context)
+  try {
+    const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
+    if (!options) return
+    const intents: AgentChannelDeliveryEffectIntent[] = []
+    const chat = getAgentChatContext(invocationContext)
+    const fallback = await resolveDurableChatErrorFallbackText(options, {
+      error,
+      history: input.messages || [],
+      message: chat?.message || { text: "" },
+      publicError: toAgentPublicError(error, "http"),
+      run: context.run,
+      thread: {
+        post: async message => intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" })),
+      },
+      toolResults: [],
+    }, () => intents.length > 0)
+    if (!intents.length && fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
+    if (!intents.length) return
+    await applyChannelDeliveryEffectIntents({
+      actor: invoker,
+      channels: definition?.channels,
+      context: invocationContext,
+      hooks: definition?.hooks as AgentHookObserverHooks | undefined,
+      input,
+      invoker,
+      run: context.run,
+      runtimeContext,
+    } as never, intents)
+  }
+  finally {
+    try {
+      await clearMessageChannelProgress({
+        ...runtimeContext,
+        actor: invoker,
+        channel: activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
+        context: invocationContext,
+        input,
+        invoker,
+        run: context.run,
+      })
+    }
+    catch {
+      console.warn("[vitehub] failed to clear message Channel progress.")
+    }
+  }
 }
 
 async function executeAgentInvocationWithCapacityLease<

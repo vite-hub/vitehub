@@ -3470,9 +3470,6 @@ async function handleChatSdkMessage(
       return
     }
 
-    typing = streamsPhasedReplies || manualDelivery || options?.fallbackStreamingPlaceholderText !== undefined
-      ? startChatTypingRefresh(thread, context)
-      : undefined
     assertChatDeliveryOptions(options || {})
     run = invocation.run
     await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: run?.runId })
@@ -3490,6 +3487,9 @@ async function handleChatSdkMessage(
     const resolvedInvocationInput = invocation.input as AgentRunInput
     const thinkingFallback = invocation.metadata?.thinkingFallback
     const ownsProgressMessage = typeof thinkingFallback === "string" && (manualDelivery || !streamsPhasedReplies)
+    typing = streamsPhasedReplies || manualDelivery || ownsProgressMessage
+      ? startChatTypingRefresh(thread, context)
+      : undefined
     let automaticProgressSettlement: Promise<unknown> | undefined
     if (ownsProgressMessage) {
       const placeholderDelivery = postDisposableChatMessage(thread, thinkingFallback).then(async (placeholder) => {
@@ -3552,7 +3552,7 @@ async function handleChatSdkMessage(
       return
     }
     const chatFinish = createChatFinishExtension(input, registration)
-    progress = manualDelivery && automaticProgressSettlement
+    progress = automaticProgressSettlement
       ? createManualDeliveryProgressUpdater(
           manualDeliveryState,
           context.waitUntil,
@@ -3644,9 +3644,15 @@ async function handleChatSdkMessage(
           await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
           const unusedPlaceholder = manualDeliveryState.placeholder
           if (unusedPlaceholder) {
-            await deleteManualDeliveryPlaceholderWithin(unusedPlaceholder).catch((error) => {
+            let cleanupTimedOut = false
+            await deleteManualDeliveryPlaceholderWithin(unusedPlaceholder, () => {
+              cleanupTimedOut = true
+              if (manualDeliveryState.placeholder === unusedPlaceholder) {
+                manualDeliveryState.placeholder = undefined
+              }
+            }).catch((error) => {
               console.warn("[vitehub] Could not delete an unused progress message.", error)
-              throw error
+              if (!cleanupTimedOut) throw error
             })
             if (manualDeliveryState.placeholder === unusedPlaceholder) {
               manualDeliveryState.placeholder = undefined
