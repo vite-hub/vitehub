@@ -89,6 +89,7 @@ function deploymentRuntimeModules(): Map<string, string> {
 async function createDeploymentRuntimeFixture(
   adapter: "deno" | "netlify" | "nitro" = "nitro",
   supportName = "support",
+  inspectionRoute: true | string = true,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -160,7 +161,7 @@ async function createDeploymentRuntimeFixture(
             url: "file:catalog.sqlite",
           },
         },
-        routes: { inspection: true },
+        routes: { inspection: inspectionRoute },
         ...(adapter === "deno" ? { runtime: "deno" } : {}),
       }),
       {
@@ -199,12 +200,21 @@ async function createDeploymentRuntimeFixture(
     }
   }
 
-  const route = await server.ssrLoadModule(join(
-    root,
-    ".vitehub",
-    "agent",
-    adapter === "deno" ? "deno-server.ts" : adapter === "netlify" ? "netlify-function.mjs" : "chat-webhook-route.ts",
-  )) as { default: (input: Record<string, unknown> | Request, context?: Record<string, unknown>) => Promise<Response> }
+  let route: { default: (input: Record<string, unknown> | Request, context?: Record<string, unknown>) => Promise<Response> }
+  try {
+    route = await server.ssrLoadModule(join(
+      root,
+      ".vitehub",
+      "agent",
+      adapter === "deno" ? "deno-server.ts" : adapter === "netlify" ? "netlify-function.mjs" : "chat-webhook-route.ts",
+    )) as typeof route
+  }
+  catch (error) {
+    await server.close()
+    delete scope[runtimeCaptureKey]
+    await rm(root, { force: true, recursive: true })
+    throw error
+  }
   const waitUntilTasks: Promise<unknown>[] = []
 
   return {
@@ -337,6 +347,14 @@ describe("generated Agent deployment catalog", () => {
     const broken = await runtime!.request("broken", "inspection")
     expect(broken.status).toBe(500)
     expect(await broken.json()).toEqual({ message: "Agent inspection failed.", status: 500 })
+  })
+
+  it("rejects inspection routes without an Agent parameter for multi-Agent deployments", async () => {
+    await runtime!.close()
+    runtime = undefined
+
+    await expect(createDeploymentRuntimeFixture("nitro", "support", "/internal/status"))
+      .rejects.toThrow("Multi-Agent inspection routes require an [agent] parameter.")
   })
 
   it("passes the configured state adapter and waitUntil to route handlers", async () => {

@@ -2796,6 +2796,24 @@ describe("defineAgent workspace option", () => {
     ]))
   })
 
+  it("keeps Capability metadata in static non-Workspace and materialized Workspace inspection", async () => {
+    const { defineAgent, defineCapability, createAgentInspectionMetadata, materializeAgentInspectionSourceMetadata } = await import("../src/index.ts")
+    const capability = defineCapability({ id: "inspectable", metadata: { status: "ready" } })
+    const plainAgent = defineAgent({ capabilities: [capability], driver: { run: () => "ok" } })
+    const workspaceAgent = withExplicitWorkspaceName(defineAgent({
+      capabilities: [capability],
+      driver: { model: {} as never },
+      workspace: {},
+    }), { workspace: "support" })
+
+    expect(createAgentInspectionMetadata(plainAgent).capabilities).toEqual([
+      { id: "inspectable", metadata: { status: "ready" } },
+    ])
+    expect((await materializeAgentInspectionSourceMetadata(workspaceAgent)).capabilities).toEqual([
+      { id: "inspectable", metadata: { status: "ready" } },
+    ])
+  })
+
   it("includes skill sources in Agent inspection file metadata", async () => {
     const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
@@ -3099,6 +3117,21 @@ describe("defineAgent workspace option", () => {
         selectedWorkspaceScope: expect.objectContaining({ all: true, name: "all", role: "admin" }),
       }),
     )
+  })
+
+  it("does not resolve Workspace-backed instructions when Source resolution is disabled", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("docs/AGENTS.md"))
+    const agent = withExplicitWorkspaceName(defineAgent({
+      driver: { instructions: readInstructions, model: {} as never },
+      workspace: { sources: { docs: { name: "docs" } as never } },
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentInspectionMetadata(agent, { resolveSources: false })
+
+    expect(readInstructions).not.toHaveBeenCalled()
+    expect(readFile).not.toHaveBeenCalled()
+    expect(metadata.instructions).toEqual(["Dynamic system instructions resolver configured."])
   })
 
   it("resolves dynamic model metadata for Agent inspection", async () => {

@@ -673,6 +673,13 @@ function capabilityInspectionMetadata(
     .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
 }
 
+function capabilityInspectionMetadataProjection(
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+): Pick<AgentInspectionMetadata, "capabilities"> | Record<string, never> {
+  const metadata = capabilityInspectionMetadata(capabilities || [])
+  return metadata.length ? { capabilities: metadata } : {}
+}
+
 function providerMetadata(driver: { model?: string, permissions?: AgentInspectionProviderMetadata["permissions"], provider: string }): AgentInspectionProviderMetadata {
   return {
     ...(driver.model ? { model: driver.model } : {}),
@@ -1536,9 +1543,8 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       },
       ...(uiMessageStream ? { uiMessageStream } : {}),
     }
-    const capabilityMetadata = capabilityInspectionMetadata(selection.capabilities)
     return {
-      ...(capabilityMetadata.length ? { capabilities: capabilityMetadata } : {}),
+      ...capabilityInspectionMetadataProjection(selection.capabilities),
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition as never),
@@ -1557,7 +1563,9 @@ export function createAgentInspectionMetadata<
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   const channelInstructions = agentChannelMetadataInstructions(definition)
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
+    const capabilities = agentSettings(definition)?.capabilities
     return {
+      ...capabilityInspectionMetadataProjection(Array.isArray(capabilities) ? capabilities : undefined),
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition),
@@ -1566,11 +1574,8 @@ export function createAgentInspectionMetadata<
   }
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
-  const capabilityMetadata = Array.isArray(options.capabilities)
-    ? capabilityInspectionMetadata(options.capabilities)
-    : []
   return {
-    ...(capabilityMetadata.length ? { capabilities: capabilityMetadata } : {}),
+    ...capabilityInspectionMetadataProjection(Array.isArray(options.capabilities) ? options.capabilities : undefined),
     files: workspaceMetadataFiles(options),
     instructions: [...workspaceMetadataInstructions(options), ...channelInstructions],
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
@@ -1611,17 +1616,18 @@ export async function resolveAgentInspectionMetadata<
       workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
       capabilityContext.metadataContext,
     )
-    const instructionMetadata = await resolveWorkspaceMetadataInstructions(
-      capabilityContext.options as never,
-      capabilityContext.workspace as never,
-      defaultsOverride,
-      capabilityContext.definition,
-      capabilityContext.metadataContext.context,
-    )
+    const instructionMetadata = defaultsOverride.resolveSources === false
+      ? { instructions: workspaceMetadataInstructions(capabilityContext.options as never), warnings: [] }
+      : await resolveWorkspaceMetadataInstructions(
+          capabilityContext.options as never,
+          capabilityContext.workspace as never,
+          defaultsOverride,
+          capabilityContext.definition,
+          capabilityContext.metadataContext.context,
+        )
 
-    const capabilityMetadata = capabilityInspectionMetadata(capabilityContext.options.capabilities as AgentCapabilityDefinition[])
     return {
-      ...(capabilityMetadata.length ? { capabilities: capabilityMetadata } : {}),
+      ...capabilityInspectionMetadataProjection(capabilityContext.options.capabilities as AgentCapabilityDefinition[]),
       files: defaultsOverride.resolveSources === false
         ? workspaceMetadataFiles(capabilityContext.options as never)
         : await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
@@ -1699,6 +1705,7 @@ export async function materializeAgentInspectionSourceMetadata<
     )
 
     return {
+      ...capabilityInspectionMetadataProjection(capabilityContext.options.capabilities as AgentCapabilityDefinition[]),
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,

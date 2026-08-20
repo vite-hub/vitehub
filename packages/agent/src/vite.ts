@@ -1644,7 +1644,7 @@ async function generateAgentDeploymentCatalog(
   options: {
     agentImportBase: string
     channelHandlers?: boolean
-    inspection?: boolean
+    inspection?: false | string
     typescript?: boolean
     workspaceImportBase: string
     workspaceRuntimeImport?: string
@@ -1652,6 +1652,9 @@ async function generateAgentDeploymentCatalog(
 ): Promise<GeneratedAgentDeploymentCatalog> {
   const channelHandlers = options.channelHandlers !== false
   const typescript = options.typescript === true
+  if (options.inspection && definitions.length > 1 && !options.inspection.includes("[agent]")) {
+    throw new TypeError("[vitehub] Multi-Agent inspection routes require an [agent] parameter.")
+  }
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
@@ -1765,7 +1768,7 @@ async function generateAgentWebhookRouteHandler(
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
-    inspection: Boolean(options.inspectionRoute),
+    inspection: options.inspectionRoute,
     typescript: true,
     workspaceImportBase,
     workspaceRuntimeImport: subpath(workspaceImportBase, "runtime"),
@@ -1916,7 +1919,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
-    inspection: Boolean(options.inspectionRoute),
+    inspection: options.inspectionRoute,
     workspaceImportBase,
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
@@ -2182,7 +2185,7 @@ async function generateAgentDenoServer(
   const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
-    inspection: Boolean(options.inspectionRoute),
+    inspection: options.inspectionRoute,
     typescript: true,
     workspaceImportBase,
     workspaceRuntimeImport: definitions.some(definition => definition.workspace)
