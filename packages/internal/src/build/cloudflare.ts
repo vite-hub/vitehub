@@ -12,6 +12,7 @@ interface CloudflareWranglerConfigOptions {
   outputRoot?: string
   rootDir: string
   wranglerConfig?: object
+  wranglerConfigDefaults?: object
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
 }
 
@@ -32,6 +33,6 @@ export async function writeCloudflareWranglerConfig(options: CloudflareWranglerC
     configFile,
     options.wranglerConfig,
     options.wranglerConfigOwnership,
-    { removeIfEmpty: true },
+    { defaults: options.wranglerConfigDefaults, removeIfEmpty: true },
   )
 }

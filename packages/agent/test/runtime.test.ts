@@ -77,6 +77,35 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
+function nativeSummarySchema() {
+  return {
+    "~standard": {
+      jsonSchema: {
+        input: () => ({
+          properties: { summary: { type: "string" }, title: { type: "string" } },
+          required: ["summary", "title"],
+          type: "object",
+        }),
+      },
+      validate: (value: unknown) => value
+        && typeof value === "object"
+        && typeof (value as { summary?: unknown }).summary === "string"
+        && typeof (value as { title?: unknown }).title === "string"
+        ? { value: value as { summary: string, title: string } }
+        : { issues: [{ message: "Expected a string", path: ["title"] }] },
+      vendor: "vitehub-test",
+      version: 1 as const,
+    },
+  }
+}
+
+function nativeOutputError(text: string) {
+  return Object.assign(new Error("No object generated"), {
+    name: "AI_NoObjectGeneratedError",
+    text,
+  })
+}
+
 async function failedTitleInvocation(options: {
   deliver?: (title: string) => Promise<void> | void
   execute: () => string
@@ -1733,6 +1762,309 @@ describe("agent message protocol", () => {
     })
     await expect(runAgent(scalarAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBeDefined()
     expect(agentSettings.at(-1)).not.toHaveProperty("output")
+  })
+
+  it("repairs invalid native output once without re-running tools", async () => {
+    const agentSettings: Record<string, unknown>[] = []
+    const dbExec = vi.fn(() => ({ id: "meal-1" }))
+    const repairGenerate = vi.fn(async (settings: Record<string, unknown>) => {
+      await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 3 } })
+      return {
+        finishReason: "stop",
+        modelId: "repair-route",
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+        text: "{\"summary\":\"Saved\",\"title\":\"Skyr\"}",
+      }
+    })
+    loadAiSdk.mockResolvedValue({
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(options => options) },
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+          agentSettings.push(settings)
+        }
+
+        async generate(input: Record<string, unknown>) {
+          const tools = this.settings.tools as Record<string, { execute: (input: unknown) => unknown }>
+          if (tools) {
+            await (input.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({ usage: { totalTokens: 7 } })
+            await (input.onStepEnd as ((event: unknown) => Promise<void>) | undefined)?.({
+              content: [{ output: { id: "provider-meal-1" }, type: "tool-result" }],
+            })
+            await tools.db_exec!.execute({ sql: "INSERT" })
+            return {
+              finishReason: "stop",
+              modelId: "original-route",
+              providerMetadata: { test: { usage: { cost: 0.4 } } },
+              text: "{\"summary\":\"Saved\",\"title\":42}",
+            }
+          }
+          const prepared = typeof this.settings.prepareCall === "function"
+            ? await this.settings.prepareCall({ ...this.settings, ...input }) as Record<string, unknown>
+            : { ...this.settings, ...input }
+          return await repairGenerate(prepared)
+        }
+      },
+    })
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const repairModel = { modelId: "repair-route" }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "database",
+        tools: { db_exec: { execute: dbExec, name: "db_exec" } },
+      })],
+      hooks: { "agent:finish": finish },
+      driver: {
+        execution: { callSettings: {
+          prepareCall: (input: Record<string, unknown>) => ({
+            ...input,
+            instructions: "Repeat the original task.",
+            messages: [{ content: "Repeat the original task.", role: "user" }],
+            model: repairModel,
+            prompt: "Repeat the original task.",
+            providerOptions: { test: { route: "repair" } },
+            toolChoice: "required",
+            tools: { repeat_write: {} },
+          }),
+          toolChoice: "auto",
+        }, workspaceFallback: false },
+        model: {} as never,
+        output: { schema: nativeSummarySchema() },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({
+      summary: "Saved",
+      title: "Skyr",
+    })
+    expect(dbExec).toHaveBeenCalledOnce()
+    expect(repairGenerate).toHaveBeenCalledOnce()
+    expect(repairGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      model: repairModel,
+      providerOptions: { test: { route: "repair" } },
+      prompt: expect.stringMatching(/title: Expected a string[\s\S]*provider-meal-1/),
+    }))
+    expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("tools")
+    expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("toolChoice")
+    expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("messages")
+    expect(repairGenerate.mock.calls[0]![0]).not.toHaveProperty("instructions")
+    expect(agentSettings[1]).toHaveProperty("tools.db_exec")
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      calls: [
+        { cost: { estimated: false, usd: "0.4" }, model: "original-route", usage: { totalTokens: 7 } },
+        { cost: { estimated: false, usd: "0.2" }, model: "repair-route", usage: { totalTokens: 3 } },
+      ],
+      cost: { estimated: false, source: "provider", usd: "0.6" },
+      usage: { totalTokens: 10 },
+    })
+    expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("model")
+  })
+
+  it("repairs structured output when the schema root is not an object", async () => {
+    const repairGenerate = vi.fn(async () => ({ finishReason: "stop", text: '"fixed"' }))
+    loadAiSdk.mockResolvedValue({
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(options => options) },
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+        }
+
+        async generate() {
+          return (this.settings.stopWhen as { count?: number }).count === 1
+            ? await repairGenerate()
+            : { finishReason: "stop", text: "42" }
+        }
+      },
+    })
+    const { defineAgent, runAgent, runAgentInline } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        model: {} as never,
+        output: {
+          schema: {
+            "~standard": {
+              jsonSchema: { input: () => ({ type: "string" }) },
+              validate: (value: unknown) => typeof value === "string"
+                ? { value }
+                : { issues: [{ message: "Expected a string" }] },
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          } as never,
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("fixed")
+    expect(repairGenerate).toHaveBeenCalledOnce()
+
+    await expect(runAgentInline(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "raw" })).resolves.toMatchObject({ text: "42" })
+    expect(repairGenerate).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the ViteHub output error when the single repair remains invalid", async () => {
+    const repairGenerate = vi.fn(async () => ({ finishReason: "stop", text: "{\"summary\":\"Saved\",\"title\":42}" }))
+    loadAiSdk.mockResolvedValue({
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(options => options) },
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+        }
+
+        async generate() {
+          if ((this.settings.stopWhen as { count?: number }).count === 1) return await repairGenerate()
+          throw nativeOutputError("{\"summary\":\"Saved\",\"title\":42}")
+        }
+      },
+    })
+    const { ViteHubError } = await import("@vite-hub/runtime")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never, output: { schema: nativeSummarySchema() } }, runtime: false })
+
+    const error = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}).then(() => undefined, cause => cause as InstanceType<typeof ViteHubError>)
+    expect(repairGenerate).toHaveBeenCalledOnce()
+    expect(error).toMatchObject({
+      code: "AGENT_OUTPUT_SCHEMA_INVALID",
+      message: "[vitehub] Agent output failed schema validation.",
+      name: "ViteHubError",
+    })
+  })
+
+  it("preserves evidence-backed fallback when structured tool output returns or throws without a final value", async () => {
+    const fallbackGenerate = vi.fn(async (settings: Record<string, unknown>) => {
+      await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({
+        usage: { totalTokens: 2 },
+      })
+      return {
+        modelId: "fallback-route",
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+        text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}",
+      }
+    })
+    const repairGenerate = vi.fn()
+    let throwNativeOutput = false
+    loadAiSdk.mockResolvedValue({
+      generateText: fallbackGenerate,
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(options => options) },
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+        }
+
+        async generate(input: Record<string, unknown>) {
+          const tools = this.settings.tools as Record<string, { execute: (input: unknown) => unknown }> | undefined
+          if (!tools) return await repairGenerate(input)
+          await (input.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({
+            modelId: "original-route",
+            providerMetadata: { test: { usage: { cost: 0.4 } } },
+            usage: { totalTokens: 5 },
+          })
+          const output = await tools.db_exec!.execute({ sql: "INSERT" })
+          if (throwNativeOutput) throw nativeOutputError("")
+          return {
+            finishReason: "tool-calls",
+            modelId: "original-route",
+            providerMetadata: { test: { usage: { cost: 0.4 } } },
+            steps: [{ content: [{ output, type: "tool-result" }] }],
+            text: "",
+          }
+        }
+      },
+    })
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "database",
+        tools: { db_exec: { execute: () => ({ id: "meal-1" }), name: "db_exec" } },
+      })],
+      hooks: { "agent:finish": finish },
+      driver: { model: {} as never, output: { schema: nativeSummarySchema() } },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Save breakfast" })).resolves.toEqual({
+      summary: "Saved meal-1",
+      title: "Skyr",
+    })
+    expect(repairGenerate).not.toHaveBeenCalled()
+    expect(fallbackGenerate).toHaveBeenCalledOnce()
+    expect(fallbackGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      instructions: expect.stringContaining('"title"'),
+      prompt: expect.stringContaining("meal-1"),
+    }))
+
+    throwNativeOutput = true
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Save breakfast" })).resolves.toEqual({
+      summary: "Saved meal-1",
+      title: "Skyr",
+    })
+    expect(repairGenerate).not.toHaveBeenCalled()
+    expect(fallbackGenerate).toHaveBeenCalledTimes(2)
+    expect(finish.mock.calls.at(-1)![0].invocation.usage).toMatchObject({
+      calls: [
+        { cost: { usd: "0.4" }, model: "original-route", usage: { totalTokens: 5 } },
+        { cost: { usd: "0.2" }, model: "fallback-route", usage: { totalTokens: 2 } },
+      ],
+      cost: { usd: "0.6" },
+      usage: { totalTokens: 7 },
+    })
+
+    fallbackGenerate.mockResolvedValueOnce({
+      modelId: "fallback-route",
+      providerMetadata: { test: { usage: { cost: 0.2 } } },
+      text: "{\"summary\":\"Saved meal-1\",\"title\":42}",
+    })
+    repairGenerate.mockResolvedValueOnce({ text: "{\"summary\":\"Saved meal-1\",\"title\":\"Skyr\"}" })
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Save breakfast" })).resolves.toEqual({
+      summary: "Saved meal-1",
+      title: "Skyr",
+    })
+    expect(repairGenerate).toHaveBeenCalledOnce()
+  })
+
+  it("attempts an unsuccessful Workspace fallback only once", async () => {
+    const fallbackGenerate = vi.fn(async () => ({ text: "" }))
+    loadAiSdk.mockResolvedValue({
+      generateText: fallbackGenerate,
+      isStepCount: vi.fn(count => ({ count })),
+      ToolLoopAgent: class {
+        async generate() {
+          return {
+            finishReason: "tool-calls",
+            steps: [{ content: [{ output: { id: "meal-1" }, type: "tool-result" }] }],
+            text: "",
+          }
+        }
+      },
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never }, runtime: false })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({
+      finishReason: "tool-calls",
+      text: undefined,
+    })
+    expect(fallbackGenerate).toHaveBeenCalledOnce()
   })
 
   it("rejects malformed JSON from structured harness results", async () => {

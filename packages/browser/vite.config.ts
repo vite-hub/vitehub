@@ -9,6 +9,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/actions.ts",
       "src/index.ts",
       "src/internal/runtime/empty-registry.ts",
       "src/internal/runtime/unconfigured.ts",
