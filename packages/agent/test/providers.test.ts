@@ -11930,7 +11930,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const responseError = handler(chatWebhookRequest(91_023), "telegram", {
+      const responseError = handler(chatWebhookRequest(91_023, 457), "telegram", {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
@@ -11946,7 +11946,7 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 28000ms.",
       })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
     }
     finally {
       consoleError.mockRestore()
