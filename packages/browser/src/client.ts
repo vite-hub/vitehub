@@ -131,6 +131,7 @@ async function releaseResource<TConnection>(record: {
 class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
   readonly id: string
   private claimed: boolean
+  private closing = false
   private controller?: string
   private attaching = false
   private lastControllerSupportsHandoff = true
@@ -178,7 +179,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
         sessionId: this.id,
       })
       this.attaching = false
-      if (this.state !== "released") {
+      if (this.closing || this.state !== "released") {
         await attached.release()
         attached = undefined
         throw browserSessionStateError("attach a controller to", this.state)
@@ -236,6 +237,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
 
   async handoff(options: BrowserHandoffOptions): Promise<BrowserSessionRef> {
     this.assertState("handoff", "released")
+    if (this.attaching || this.closing) throw browserSessionStateError("handoff", "controlled")
     if (options?.mode !== "live") {
       throw new TypeError('[vitehub:browser] handoff({ mode }) currently requires "live".')
     }
@@ -270,11 +272,14 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     if (this.state === "closed") return
     if (this.state === "handed-off") throw browserSessionStateError("close", this.state)
     if (this.state === "controlled") throw browserSessionStateError("close", this.state)
+    if (this.closing) throw browserSessionStateError("close", "controlled")
+    this.closing = true
     try {
       await releaseResource({ lease: this.lease, providerSession: this.providerSession })
       this.state = "closed"
     }
     finally {
+      this.closing = false
       await this.owner.emit("browser.session.close", this)
     }
   }

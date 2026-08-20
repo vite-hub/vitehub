@@ -178,6 +178,10 @@ describe("Browser Sessions", () => {
   it("closes while controller attachment is pending and releases a late attachment", async () => {
     const { close, connection, controller, provider, release } = fixture()
     let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void
+    let resolveClose!: () => void
+    close.mockImplementation(async () => await new Promise<void>(resolve => {
+      resolveClose = resolve
+    }))
     controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
       resolveAttachment = resolve
     }))
@@ -185,13 +189,33 @@ describe("Browser Sessions", () => {
 
     const attachment = session.attach(controller)
     const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
-    await session.close()
+    const closing = session.close()
     resolveAttachment({ client: connection, release })
 
     await result
     expect(release).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
+    resolveClose()
+    await closing
     expect(session.inspect().state).toBe("closed")
+  })
+
+  it("rejects handoff while controller attachment is pending", async () => {
+    const { connection, controller, provider, release } = fixture()
+    let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void
+    controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
+      resolveAttachment = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const attachment = session.attach(controller)
+    await expect(session.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({
+      code: "BROWSER_SESSION_STATE",
+    })
+    resolveAttachment({ client: connection, release })
+    const control = await attachment
+    await control.release()
+    await session.close()
   })
 
   it("keeps session ownership explicit", async () => {
