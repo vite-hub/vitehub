@@ -535,7 +535,8 @@ async function synthesizeWorkspaceFallbackFromEvidence(
     ].join("\n\n"),
   })
 
-  return summary.text.trim() || undefined
+  const text = summary.text.trim()
+  return text ? { result: summary, text } : undefined
 }
 
 function createWorkspaceFallbackEvidenceCapture(maxToolResults: number) {
@@ -712,7 +713,7 @@ function withWorkspaceFallbackFullStream(
 
     const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence)
     if (synthesized) {
-      yield* workspaceFallbackTextEvents(synthesized)
+      yield* workspaceFallbackTextEvents(synthesized.text)
       yield workspaceFallbackFinishEvent(finishEvent)
       return
     }
@@ -1286,7 +1287,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       let generated: GenerateTextResult<ToolSet, never, never>
       let originalGenerated: GenerateTextResult<ToolSet, never, never> | undefined
       let repaired = false
-      const synthesizedOutput = async (text: string, original?: unknown) => {
+      const synthesizedOutput = async (synthesized: { result: unknown, text: string }, original?: unknown) => {
         const captures = [usageCapture, repairUsageCapture, fallbackUsageCapture]
         const raw = withCapturedUsage(original, captures)
         let usageRecord: AgentUsageRecord | undefined
@@ -1294,7 +1295,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           const calls = [
             { capture: usageCapture, result: originalGenerated ?? original },
             ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: original }] : []),
-            { capture: fallbackUsageCapture },
+            { capture: fallbackUsageCapture, result: synthesized.result },
           ]
           usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
           Object.defineProperty(raw, "usageRecord", {
@@ -1303,7 +1304,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             value: usageRecord,
           })
         }
-        const output = { raw, text }
+        const output = { raw, text: synthesized.text }
         if (usageRecord) {
           Object.defineProperty(output, "usageRecord", {
             configurable: true,

@@ -1934,8 +1934,6 @@ describe("agent message protocol", () => {
   it("preserves evidence-backed fallback when structured tool output returns or throws without a final value", async () => {
     const fallbackGenerate = vi.fn(async (settings: Record<string, unknown>) => {
       await (settings.onLanguageModelCallEnd as ((event: unknown) => Promise<void>) | undefined)?.({
-        modelId: "fallback-route",
-        providerMetadata: { test: { usage: { cost: 0.2 } } },
         usage: { totalTokens: 2 },
       })
       return {
