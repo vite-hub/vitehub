@@ -94,22 +94,21 @@ async function readQuickActionText(
     return await Promise.race([
       read(),
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(async () => {
+        timer = setTimeout(() => {
           const error = browserProviderError("cloudflare", `read ${action} quick action response`)
           timeoutError = error
-          try {
-            await reader.cancel(error)
-          }
-          finally {
-            reject(error)
-          }
+          void reader.cancel(error).catch(() => {})
+          reject(error)
         }, actionTimeoutMs(input))
       }),
     ])
   }
   finally {
     if (timer) clearTimeout(timer)
-    reader.releaseLock()
+    try {
+      reader.releaseLock()
+    }
+    catch {}
   }
 }
 

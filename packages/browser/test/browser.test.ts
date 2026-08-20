@@ -192,6 +192,22 @@ describe("Browser Sessions", () => {
     await session.close()
   })
 
+  it("allows provider cleanup while controller release is stalled", async () => {
+    const { close, controller, provider } = fixture()
+    controller.attach = vi.fn(async (connection: TestConnection) => ({
+      client: connection,
+      release: async () => await new Promise<void>(() => {}),
+    }))
+    const session = await createBrowser({ provider }).open()
+    const control = await session.attach(controller)
+
+    void control.release()
+    await session.close()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(session.inspect().state).toBe("closed")
+  })
+
   it("closes while controller attachment is pending and releases a late attachment", async () => {
     const { close, connection, controller, provider, release } = fixture()
     let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void

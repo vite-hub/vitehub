@@ -126,6 +126,20 @@ describe("CDP page", () => {
     )
   })
 
+  it("allows SVG elements through the pointer click path", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+
+    await page.locator("svg[role=button]").click()
+
+    const clickEvaluation = fake.send.mock.calls.find((call) => {
+      return call[0] === "Runtime.evaluate" && String(call[1]?.expression).includes('"click" === "click"')
+    })
+    expect(String(clickEvaluation?.[1]?.expression)).toContain("element instanceof Element")
+    expect(String(clickEvaluation?.[1]?.expression).indexOf("element instanceof Element"))
+      .toBeLessThan(String(clickEvaluation?.[1]?.expression).indexOf("element instanceof HTMLElement"))
+  })
+
   it("serializes overlapping page navigations", async () => {
     const fake = fakeClient()
     let navigation = 0

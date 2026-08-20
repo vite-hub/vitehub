@@ -134,6 +134,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
   private closePromise?: Promise<void>
   private controller?: string
   private attaching = false
+  private detaching = false
   private lastControllerSupportsHandoff = true
   private state: BrowserSessionState = "released"
 
@@ -196,10 +197,12 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
         release: async () => {
           if (released) return
           released = true
+          this.detaching = true
           try {
             await control.release()
           }
           finally {
+            this.detaching = false
             if (this.state === "controlled") this.state = "released"
             this.controller = undefined
             await this.owner.emit("browser.controller.detach", this, { controller: controller.name })
@@ -272,7 +275,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     if (this.closePromise) return await this.closePromise
     if (this.state === "closed") return
     if (this.state === "handed-off") throw browserSessionStateError("close", this.state)
-    if (this.state === "controlled") throw browserSessionStateError("close", this.state)
+    if (this.state === "controlled" && !this.detaching) throw browserSessionStateError("close", this.state)
     const closing = (async () => {
       try {
         await releaseResource({ lease: this.lease, providerSession: this.providerSession })

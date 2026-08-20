@@ -104,7 +104,7 @@ class ManagedBrowserPageSession<TConnection> implements BrowserPageSession {
     if (this.closed) return
     const errors: unknown[] = []
     try {
-      await this.control.release()
+      await boundedCleanup(this.control.release(), "release the browser controller during session cleanup")
     }
     catch (error) {
       errors.push(error)

@@ -37,12 +37,13 @@ function locatorExpression(
       const rect = element.getBoundingClientRect();
       return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
     }
-    if (!(element instanceof HTMLElement)) throw new Error("Browser locator did not match an HTML element");
     if (${JSON.stringify(operation)} === "click") {
+      if (!(element instanceof Element)) throw new Error("Browser locator did not match an element");
       element.scrollIntoView({ block: "center", inline: "center" });
       const rect = element.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
+    if (!(element instanceof HTMLElement)) throw new Error("Browser locator did not match an HTML element");
     if (${JSON.stringify(operation)} === "inputValue") {
       if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) {
         throw new Error("Browser locator does not support inputValue() for this element");

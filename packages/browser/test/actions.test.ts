@@ -92,6 +92,28 @@ describe("Browser Run actions", () => {
     }
   })
 
+  it("does not wait for or leak rejecting response cancellation", async () => {
+    vi.useFakeTimers()
+    try {
+      const response = new Response(new ReadableStream({
+        cancel: async () => {
+          throw new Error("cancel failed")
+        },
+        start() {},
+      }))
+      runtime.__env__ = { BROWSER: { quickAction: async () => response } }
+
+      const content = runBrowserContent("https://example.com")
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await expect(content).resolves.toMatchObject([{ code: "BROWSER_PROVIDER_ERROR" }, undefined])
+      await vi.runAllTimersAsync()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("allows provider-supported actions to run longer than the default bound", async () => {
     vi.useFakeTimers()
     try {

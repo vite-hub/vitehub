@@ -115,6 +115,42 @@ describe("Browser Definitions", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("bounds stalled controller release during definition cleanup", async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn(async () => {})
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => ({
+            client: {
+              on: vi.fn(() => () => {}),
+              send: vi.fn(async (method: string) => method === "Target.getTargets"
+                ? { targetInfos: [{ targetId: "page", type: "page" }] }
+                : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+            },
+            release: vi.fn(async () => await new Promise(() => {})),
+          })),
+          close,
+          inspect: vi.fn(),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+      expect(close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("bounds stalled controller attachment and closes the provider session", async () => {
     vi.useFakeTimers()
     try {
