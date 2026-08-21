@@ -148,6 +148,7 @@ describe("agent message protocol", () => {
       },
     })
     const resolveCapabilities = vi.fn(async (context) => {
+      expect(context.abortSignal).toBe(abortController.signal)
       expect(context.actor).toBe(context.invoker)
       expect(context.driver.kind).toBe("run")
       expect(context.input.prompt).toBe("hello")
@@ -166,15 +167,18 @@ describe("agent message protocol", () => {
       runtime: "unknown" as const,
       waitUntil: vi.fn(),
     }
+    const abortController = new AbortController()
 
     expect(resolveCapabilities).not.toHaveBeenCalled()
     await expect(runAgent(agent, runtime, {
+      abortSignal: abortController.signal,
       context: { enableSelected: true },
       prompt: "hello",
     })).resolves.toEqual(["selected"])
     expect(prepare).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
     await expect(runAgent(agent, runtime, {
+      abortSignal: abortController.signal,
       context: { enableSelected: false },
       prompt: "hello",
     })).resolves.toEqual([])

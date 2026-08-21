@@ -2944,6 +2944,8 @@ describe("defineAgent workspace option", () => {
         circular,
         credentialSource: "credential-value",
         nested: { token: "token-value", visible: "yes" },
+        privateKey: "private-key-value",
+        signingKey: "signing-key-value",
         unsupported: new Date(),
       },
       prepare,
@@ -2968,6 +2970,8 @@ describe("defineAgent workspace option", () => {
       "authorizationHeader",
       "credentialSource",
       "nested",
+      "privateKey",
+      "signingKey",
       "zeta",
     ])
     expect(metadata.capabilities?.[0]?.metadata).toMatchObject({
@@ -2977,6 +2981,8 @@ describe("defineAgent workspace option", () => {
       authorizationHeader: "[redacted]",
       credentialSource: "[redacted]",
       nested: { token: "[redacted]", visible: "yes" },
+      privateKey: "[redacted]",
+      signingKey: "[redacted]",
     })
     expect(metadata.capabilities?.[0]?.metadata).not.toHaveProperty("circular")
     expect(metadata.capabilities?.[0]?.metadata).not.toHaveProperty("unsupported")

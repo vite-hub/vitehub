@@ -626,7 +626,7 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
 }
 
 function secretInspectionMetadataKey(key: string): boolean {
-  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|credentials?|passwords?|secrets?|tokens?)(?:$|[-_])/i
+  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|credentials?|passwords?|private[-_]?key|secrets?|signing[-_]?key|tokens?)(?:$|[-_])/i
     .test(key.replace(/([a-z0-9])([A-Z])/g, "$1-$2"))
 }
 

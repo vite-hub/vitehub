@@ -1993,6 +1993,7 @@ async function createAgentInvocationContext<
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
           ...callbackContext,
+          abortSignal: input.abortSignal,
           actor: invoker,
           context: invocationContext,
           driver: { kind: driverKind },
