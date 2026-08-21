@@ -12223,6 +12223,13 @@ describe("agent message protocol", () => {
 
     it("continues Workflow recovery after terminal journal retries exhaust", async () => {
       vi.useFakeTimers()
+      const retryTimerScheduled = deferred<void>()
+      const fakeSetTimeout = globalThis.setTimeout
+      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, timeout, ...args) => {
+        const timer = fakeSetTimeout(handler, timeout, ...args)
+        if (timeout === 1_000) retryTimerScheduled.resolve()
+        return timer
+      })
       const { defineAgent } = await import("../src/index.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
@@ -12269,7 +12276,7 @@ describe("agent message protocol", () => {
           await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "pending" })
         })
         await vi.waitFor(() => expect(terminalAttempts).toBeGreaterThan(0))
-        await vi.advanceTimersByTimeAsync(0)
+        await retryTimerScheduled.promise
         vi.setSystemTime(Date.now() + 61_000)
         await vi.advanceTimersByTimeAsync(1_000)
         storeAvailable = true
@@ -12278,6 +12285,7 @@ describe("agent message protocol", () => {
         await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "completed" })
       }
       finally {
+        setTimeoutSpy.mockRestore()
         vi.useRealTimers()
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
