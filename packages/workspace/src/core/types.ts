@@ -153,6 +153,7 @@ export interface WorkspaceSessionOptions {
 }
 
 export interface WorkspaceSessionHostFileEntry {
+  executable?: boolean
   path: string
   size?: number
   type: "directory" | "file" | "symlink"

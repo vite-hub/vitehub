@@ -632,6 +632,27 @@ describe("Provider Agent Driver", () => {
     await rm(heartbeatFile, { force: true })
   })
 
+  it("reports executable modes while listing local Workspace files", async () => {
+    const root = `/tmp/vitehub-provider-file-modes-${crypto.randomUUID()}`
+    await mkdir(root, { recursive: true })
+    try {
+      await writeFile(`${root}/README.md`, "docs")
+      await writeFile(`${root}/group.sh`, "#!/bin/sh\n")
+      await writeFile(`${root}/run.sh`, "#!/bin/sh\n")
+      await chmod(`${root}/group.sh`, 0o010)
+      await chmod(`${root}/run.sh`, 0o755)
+
+      await expect(localWorkspaceHost().files.list(root)).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ executable: false, path: `${root}/group.sh`, type: "file" }),
+        expect.objectContaining({ executable: false, path: `${root}/README.md`, type: "file" }),
+        expect.objectContaining({ executable: true, path: `${root}/run.sh`, type: "file" }),
+      ]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("binds Workspace command directory variables to the active root", async () => {
     const cwd = new URL("fixtures/workspace-source-root", import.meta.url).pathname
     const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ INIT_CWD: process.env.INIT_CWD, OLDPWD: process.env.OLDPWD, PWD: process.env.PWD, cwd: process.cwd() }))"], {
