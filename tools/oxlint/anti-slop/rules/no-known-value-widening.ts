@@ -3,6 +3,7 @@ import { defineRule } from "@oxlint/plugins";
 import {
 	classifyWideningTarget,
 	createTypeEnvironment,
+	typeEnvironmentAt,
 	isKnownEvidenceExpression,
 	type TypeEnvironment,
 	type WideningTarget,
@@ -167,11 +168,13 @@ export const noKnownValueWideningRule = defineRule({
 		};
 
 		const targetFromAnnotation = (annotation: ESTree.TSTypeAnnotation | null | undefined) =>
-			environment === null ? null : annotationTarget(annotation, environment);
+			environment === null || annotation === null || annotation === undefined
+				? null
+				: annotationTarget(annotation, typeEnvironmentAt(environment, annotation));
 
 		return {
 			Program(node) {
-				environment = createTypeEnvironment(node);
+				environment = createTypeEnvironment(node, context.sourceCode.visitorKeys);
 			},
 			VariableDeclarator(node) {
 				if (node.init === null || node.id.type !== "Identifier") return;

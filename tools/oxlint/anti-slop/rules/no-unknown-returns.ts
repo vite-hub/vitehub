@@ -3,6 +3,11 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
 import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
+import {
+  collectTypeBindings,
+  visibleTypeBinding,
+  type TypeBinding,
+} from "../shared/lexical-type-bindings.ts";
 
 type FunctionWithReturnType =
   | ESTree.ArrowFunctionExpression
@@ -37,12 +42,12 @@ export const noUnknownReturnsRule = defineRule({
     },
   },
   createOnce(context) {
-    const aliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
+    const bindings: TypeBinding[] = [];
 
     const resolvesToUnknown = (
       type: ESTree.TSType,
       shadowedAliases: ReadonlySet<string>,
-      visited = new Set<string>(),
+      visited = new Set<ESTree.TSTypeAliasDeclaration>(),
     ): boolean => {
       if (type.type === "TSUnknownKeyword") return true;
       if (type.type === "TSParenthesizedType") {
@@ -62,16 +67,18 @@ export const noUnknownReturnsRule = defineRule({
         return value !== undefined && resolvesToUnknown(value, shadowedAliases, visited);
       }
       const name = referencedAliasName(type);
-      if (name === null || visited.has(name) || shadowedAliases.has(name)) return false;
-      const alias = aliases.get(name);
+      if (name === null || shadowedAliases.has(name)) return false;
+      const binding = visibleTypeBinding(name, type, bindings);
+      const alias = binding?.type === "TSTypeAliasDeclaration" ? binding : undefined;
       if (
         alias === undefined ||
+        visited.has(alias) ||
         (alias.typeParameters !== null && alias.typeParameters !== undefined)
       ) {
         return false;
       }
       const nextVisited = new Set(visited);
-      nextVisited.add(name);
+      nextVisited.add(alias);
       return resolvesToUnknown(alias.typeAnnotation, shadowedAliases, nextVisited);
     };
 
@@ -91,14 +98,8 @@ export const noUnknownReturnsRule = defineRule({
 
     return {
       Program(node) {
-        aliases.clear();
-        for (const statement of node.body) {
-          const declaration =
-            statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
-          if (declaration?.type === "TSTypeAliasDeclaration") {
-            aliases.set(declaration.id.name, declaration);
-          }
-        }
+        bindings.length = 0;
+        collectTypeBindings(node, context.sourceCode.visitorKeys, bindings);
       },
       ArrowFunctionExpression: checkReturnType,
       FunctionDeclaration: checkReturnType,

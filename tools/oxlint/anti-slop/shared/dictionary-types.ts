@@ -1,5 +1,13 @@
 import type { ESTree } from "@oxlint/plugins";
 
+import { lexicalTypeParameterNames } from "./lexical-type-parameters.ts";
+import {
+	collectTypeBindings,
+	visibleTypeBinding,
+	type TypeBinding,
+	type VisitorKeys,
+} from "./lexical-type-bindings.ts";
+
 const BUILT_INS = new Set([
 	"Record",
 	"Readonly",
@@ -39,6 +47,8 @@ export type TypeEnvironment = {
 	readonly aliases: ReadonlyMap<string, ESTree.TSTypeAliasDeclaration>;
 	readonly interfaces: ReadonlyMap<string, readonly ESTree.TSInterfaceDeclaration[]>;
 	readonly shadowedBuiltIns: ReadonlySet<string>;
+	readonly typeBindings: readonly TypeBinding[];
+	readonly visitorKeys: VisitorKeys;
 };
 
 function declaredStatement(statement: ESTree.Statement): ESTree.Node | null {
@@ -48,10 +58,15 @@ function declaredStatement(statement: ESTree.Statement): ESTree.Node | null {
 		: statement;
 }
 
-export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment {
+export function createTypeEnvironment(
+	program: ESTree.Program,
+	visitorKeys: VisitorKeys,
+): TypeEnvironment {
 	const aliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
 	const interfaces = new Map<string, ESTree.TSInterfaceDeclaration[]>();
 	const shadowedBuiltIns = new Set<string>();
+	const typeBindings: TypeBinding[] = [];
+	collectTypeBindings(program, visitorKeys, typeBindings);
 
 	for (const statement of program.body) {
 		const declaration = declaredStatement(statement);
@@ -88,7 +103,23 @@ export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment 
 		}
 	}
 
-	return { aliases, interfaces, shadowedBuiltIns };
+	return { aliases, interfaces, shadowedBuiltIns, typeBindings, visitorKeys };
+}
+
+export function typeEnvironmentAt(
+	environment: TypeEnvironment,
+	node: ESTree.Node,
+): TypeEnvironment {
+	const shadowedBuiltIns = new Set(environment.shadowedBuiltIns);
+	for (const name of BUILT_INS) {
+		if (
+			lexicalTypeParameterNames(node, environment.visitorKeys).has(name) ||
+			visibleTypeBinding(name, node, environment.typeBindings) !== undefined
+		) {
+			shadowedBuiltIns.add(name);
+		}
+	}
+	return { ...environment, shadowedBuiltIns };
 }
 
 function typeReferenceName(type: ESTree.TSTypeReference): string | null {

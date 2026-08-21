@@ -3,57 +3,11 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
 import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
-
-type VisitorKeys = Readonly<Record<string, readonly string[]>>;
-
-function isNode(value: unknown): value is ESTree.Node {
-	return typeof value === "object" && value !== null && "type" in value;
-}
-
-type TypeBinding =
-	| ESTree.TSTypeAliasDeclaration
-	| ESTree.TSInterfaceDeclaration
-	| ESTree.TSEnumDeclaration
-	| ESTree.ClassDeclaration;
-
-function bindingName(binding: TypeBinding): string | null {
-	return binding.id?.name ?? null;
-}
-
-function collectBindings(
-	node: ESTree.Node,
-	visitorKeys: VisitorKeys,
-	bindings: TypeBinding[],
-): void {
-	if (
-		node.type === "TSTypeAliasDeclaration" ||
-		node.type === "TSInterfaceDeclaration" ||
-		node.type === "TSEnumDeclaration" ||
-		(node.type === "ClassDeclaration" && node.id !== null)
-	) {
-		bindings.push(node);
-	}
-	const record = node as unknown as Readonly<Record<string, unknown>>;
-	for (const key of visitorKeys[node.type] ?? []) {
-		const value = record[key];
-		if (isNode(value)) collectBindings(value, visitorKeys, bindings);
-		else if (Array.isArray(value)) {
-			for (const child of value) if (isNode(child)) collectBindings(child, visitorKeys, bindings);
-		}
-	}
-}
-
-function lexicalContainer(node: ESTree.Node): ESTree.Node {
-	let current: ESTree.Node = node;
-	while (
-		current.type !== "Program" &&
-		current.type !== "BlockStatement" &&
-		current.type !== "TSModuleBlock"
-	) {
-		current = current.parent;
-	}
-	return current;
-}
+import {
+	collectTypeBindings,
+	visibleTypeBinding,
+	type TypeBinding,
+} from "../shared/lexical-type-bindings.ts";
 
 function referencedAliasName(type: ESTree.TSType): string | null {
 	if (type.type === "TSParenthesizedType") return referencedAliasName(type.typeAnnotation);
@@ -88,23 +42,8 @@ export const noUnknownTypeAliasesRule = defineRule({
 			if (lexicalTypeParameterNames(site, context.sourceCode.visitorKeys).has(name)) {
 				return undefined;
 			}
-			let current: ESTree.Node | null = site;
-			while (current !== null) {
-				if (
-					current.type === "Program" ||
-					current.type === "BlockStatement" ||
-					current.type === "TSModuleBlock"
-				) {
-					const binding = bindings.find(
-						(candidate) =>
-							bindingName(candidate) === name && lexicalContainer(candidate) === current,
-					);
-					if (binding !== undefined)
-						return binding.type === "TSTypeAliasDeclaration" ? binding : undefined;
-				}
-				current = current.parent;
-			}
-			return undefined;
+			const binding = visibleTypeBinding(name, site, bindings);
+			return binding?.type === "TSTypeAliasDeclaration" ? binding : undefined;
 		};
 
 		const resolvesToUnknown = (
@@ -134,7 +73,7 @@ export const noUnknownTypeAliasesRule = defineRule({
 		return {
 			Program(node) {
 				bindings.length = 0;
-				collectBindings(node, context.sourceCode.visitorKeys, bindings);
+				collectTypeBindings(node, context.sourceCode.visitorKeys, bindings);
 			},
 			TSTypeAliasDeclaration(alias) {
 				if (!resolvesToUnknown(alias.typeAnnotation, new Set([alias]))) return;

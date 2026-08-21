@@ -4,6 +4,7 @@ import {
 	classifyUnsafeDictionary,
 	classifyUnsafeDictionaryValue,
 	createTypeEnvironment,
+	typeEnvironmentAt,
 	type TypeEnvironment,
 } from "../shared/dictionary-types.ts";
 
@@ -108,15 +109,17 @@ export const noUnsafeDictionaryTypeRule = defineRule({
 			context.report({ node, messageId: "unsafeDictionary", data: { value } });
 		};
 		const reportIfUnsafe = (node: ESTree.TSType) => {
-			if (environment === null || !shouldReportType(node, environment)) return;
-			const unsafe = classifyUnsafeDictionary(node, environment);
+			if (environment === null) return;
+			const lexicalEnvironment = typeEnvironmentAt(environment, node);
+			if (!shouldReportType(node, lexicalEnvironment)) return;
+			const unsafe = classifyUnsafeDictionary(node, lexicalEnvironment);
 			if (unsafe === null) return;
 			report(node, unsafe.unsafeValue);
 		};
 
 		return {
 			Program(node) {
-				environment = createTypeEnvironment(node);
+				environment = createTypeEnvironment(node, context.sourceCode.visitorKeys);
 			},
 			TSTypeReference: reportIfUnsafe,
 			TSTypeLiteral: reportIfUnsafe,
@@ -130,7 +133,7 @@ export const noUnsafeDictionaryTypeRule = defineRule({
 					return;
 				const unsafe = classifyUnsafeDictionaryValue(
 					node.typeAnnotation.typeAnnotation,
-					environment,
+					typeEnvironmentAt(environment, node),
 				);
 				if (unsafe !== null) report(node, unsafe.unsafeValue);
 			},
