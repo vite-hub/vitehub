@@ -24,9 +24,11 @@ export interface AgentChannelDeliveryWorkflowBinding {
   provider: string
   state: "chat" | "webhook"
   steer?: {
+    capabilities?: Record<string, unknown>
     deliveryIds?: string[]
     lock: { expiresAt: number, threadId: string, token: string }
     queue: string
+    pendingQueue?: string
     ttlMs: number
   }
 }
