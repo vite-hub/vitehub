@@ -317,7 +317,7 @@ async function collectVercelNativeWorkflowFiles(workflowRoot: string, directory 
       Object.assign(files, await collectVercelNativeWorkflowFiles(workflowRoot, outputFile))
     }
     else if (entry.name !== vercelNativeWorkflowOwnershipMarker) {
-      files[relative(workflowRoot, outputFile)] = createHash("sha256").update(await readFile(outputFile)).digest("hex")
+      files[relative(workflowRoot, outputFile).replaceAll("\\", "/")] = createHash("sha256").update(await readFile(outputFile)).digest("hex")
     }
   }
   return files
