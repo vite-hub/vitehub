@@ -230,8 +230,8 @@ describe("Provider Agent Driver", () => {
   it("preserves failed and cancelled Provider task outcomes in traces", async () => {
     const threadId = "thread-task-outcomes"
     runtime(threadId, [
-      event("task.completed", threadId, { error: "subagent failed", status: "failed", taskId: "task-1" }, { turnId: "turn-1" }),
-      event("task.completed", threadId, { status: "interrupted", taskId: "task-2" }, { turnId: "turn-1" }),
+      event("task.completed", threadId, { status: "failed", summary: "subagent failed", taskId: "task-1" }, { turnId: "turn-1" }),
+      event("task.completed", threadId, { status: "stopped", taskId: "task-2" }, { turnId: "turn-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
     const traceLog = createTraceEventLog({ content: "content" })
@@ -249,7 +249,7 @@ describe("Provider Agent Driver", () => {
         type: "error",
       },
       {
-        attributes: { "task.status": "interrupted" },
+        attributes: { "task.status": "stopped" },
         name: "agent.task.cancelled",
         type: "run",
       },

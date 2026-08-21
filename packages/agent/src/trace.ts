@@ -182,13 +182,13 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
     const outcome = kind === "task.completed"
       ? status === "failed"
         ? "task.failed"
-        : status === "cancelled" || status === "interrupted"
+        : status === "stopped"
           ? "task.cancelled"
           : kind
       : kind
     return {
       attributes: {
-        "error.message": outcome === "task.failed" && typeof value?.error === "string" ? value.error : undefined,
+        "error.message": outcome === "task.failed" && typeof value?.summary === "string" ? value.summary : undefined,
         "step.id": event.id,
         "task.status": status,
         "vitehub.activity.body": data?.value,
