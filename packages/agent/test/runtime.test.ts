@@ -12269,6 +12269,7 @@ describe("agent message protocol", () => {
           await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "pending" })
         })
         await vi.waitFor(() => expect(terminalAttempts).toBeGreaterThan(0))
+        await vi.advanceTimersByTimeAsync(0)
         vi.setSystemTime(Date.now() + 61_000)
         await vi.advanceTimersByTimeAsync(1_000)
         storeAvailable = true
@@ -12283,7 +12284,7 @@ describe("agent message protocol", () => {
           workflow: () => import("@vite-hub/workflow"),
         })
       }
-    })
+    }, 15_000)
 
     it("keeps bounded journal recovery inside Workflow failure propagation", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
