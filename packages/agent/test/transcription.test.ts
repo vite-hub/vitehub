@@ -711,6 +711,17 @@ describe("agent transcription", () => {
       await capability.input?.(rawBase64Context.context as never)
       expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({ audio: "T2dnUwECAw==" }))
 
+      const lazyDataUrlContext = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ fetchData: () => "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+      await transcribe({ maxBytes: 7, model: "mock-transcription-model" }).input?.(lazyDataUrlContext.context as never)
+      expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({
+        audio: new Uint8Array([79, 103, 103, 83, 1, 2, 3]),
+      }))
+
       const oversized = transcribe({ maxBytes: 6, model: "mock-transcription-model" })
       await expect(oversized.input?.(createTranscriptionCapabilityContext([
         createMessage({
@@ -718,7 +729,7 @@ describe("agent transcription", () => {
           role: "user",
         }),
       ]).context as never)).rejects.toThrow("exceeds maxBytes")
-      expect(aiTranscribe).toHaveBeenCalledTimes(2)
+      expect(aiTranscribe).toHaveBeenCalledTimes(3)
     }
     finally {
       vi.doUnmock("ai")

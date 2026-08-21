@@ -164,7 +164,7 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
   if (data instanceof Blob) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
   else if (data instanceof ArrayBuffer) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
-  else if (typeof data === "string") assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
+  else if (typeof data === "string" && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
 }
 
