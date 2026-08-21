@@ -358,6 +358,7 @@ export async function writeVercelScheduleFunctions(options: {
       platform: "node",
       plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.rootDir,
+      workingDir: options.rootDir,
     })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")

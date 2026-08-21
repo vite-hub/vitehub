@@ -18,6 +18,7 @@ interface BundleEsmEntryOptions {
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
   rootDir?: string
+  workingDir?: string
 }
 
 const viteRawNamespace = "vitehub-vite-raw"
@@ -240,6 +241,7 @@ export async function bundleEsmEntry(
   const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({
+    absWorkingDir: options.workingDir,
     alias: aliases,
     banner: options.banner || (format === "esm" && platform === "node")
       ? {

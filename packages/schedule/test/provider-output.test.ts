@@ -101,7 +101,7 @@ describe("schedule provider output", () => {
     await writeFile(vercelRuntime, "export function setVercelWorkflowRuntimeModules() { globalThis.__workflowModules = true }\nexport async function runWithVercelWorkflowRuntimeEvent(req, res, run) { globalThis.__workflowEvent = { req, res }; return await run() }\n")
     await writeFile(workflowApi, "export const api = true\n")
     await writeFile(workflowRuntime, "export const runtime = true\n")
-    let workflowTransformRan = false
+    let workflowTransformWorkingDir: string | undefined
 
     await generateProviderOutputs({
       bundleAlias: {
@@ -117,9 +117,7 @@ describe("schedule provider output", () => {
         bundlePlugins: [{
           name: "test-workflow-transform",
           setup(build) {
-            build.onEnd(() => {
-              workflowTransformRan = true
-            })
+            workflowTransformWorkingDir = build.initialOptions.absWorkingDir
           },
         }],
         importBase: "test-workflow",
@@ -134,7 +132,7 @@ describe("schedule provider output", () => {
     expect(output).toContain("__workflowConfig")
     expect(output).toContain("__workflowRegistry")
     expect(output).toContain("__workflowEvent")
-    expect(workflowTransformRan).toBe(true)
+    expect(workflowTransformWorkingDir).toBe(rootDir)
   })
 
   it("installs inline Workflow definitions without Workflow DevKit", async () => {
