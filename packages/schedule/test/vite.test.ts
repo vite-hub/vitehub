@@ -30,6 +30,23 @@ function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: strin
 }
 
 describe("Vite schedule integration", () => {
+  it("collects provider import aliases without a Workflow plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-aliases-"))
+    const getImportAliases = vi.fn(async () => ({}))
+    const plugin = hubSchedule()
+
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist" },
+      command: "build",
+      plugins: [{ vitehub: { providerOutput: { getImportAliases } } }],
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.closeBundle as () => Promise<void>)()
+
+    expect(getImportAliases).toHaveBeenCalledOnce()
+  })
+
   it("runs before downstream framework integrations that consume Provider Output config", () => {
     const plugin = hubSchedule()
 

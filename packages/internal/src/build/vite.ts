@@ -13,6 +13,14 @@ export interface ViteHubProviderImportContributor {
   }
 }
 
+export async function collectViteHubProviderImportAliases(
+  plugins: ViteHubProviderImportContributor[],
+): Promise<Record<string, string>> {
+  return Object.assign({}, ...await Promise.all(plugins.map(async plugin =>
+    await plugin.vitehub?.providerOutput?.getImportAliases?.() ?? {},
+  )))
+}
+
 const generatedViteHubFilesPattern = "**/.vitehub/**"
 const projectRootDirectoryMarkers = [
   ["server", "agents"],

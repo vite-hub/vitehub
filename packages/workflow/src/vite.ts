@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { normalizeWorkflowOptions } from "./config.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
@@ -83,8 +83,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
 
   async function providerImportAliases(): Promise<Record<string, string>> {
     if (!resolved) return { ...internalOptions?.providerImportAliases }
-    const contributedAliases = Object.assign({}, ...await Promise.all((resolved.plugins as Array<Plugin & ViteHubProviderImportContributor>)
-      .map(async plugin => await plugin.vitehub?.providerOutput?.getImportAliases?.() ?? {})))
+    const contributedAliases = await collectViteHubProviderImportAliases(resolved.plugins as Array<Plugin & ViteHubProviderImportContributor>)
     return {
       ...resolveStringAliases(resolved),
       ...contributedAliases,

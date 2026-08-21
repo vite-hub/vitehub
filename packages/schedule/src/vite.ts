@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 import { shouldSkipViteProviderBuild, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
@@ -13,6 +13,7 @@ import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-mo
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
+import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
@@ -603,9 +604,11 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         ?.vitehub?.workflow?.prepareScheduleRuntime
       await withProviderDeploymentOutputLock(rootDir, async () => {
         const workflow = await prepareWorkflow?.()
+        const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
         await generateProviderOutputsWithinLock({
           bundleAlias: {
             ...resolveStringAliases(config),
+            ...contributedAliases,
             ...internalOptions.providerImportAliases,
             ...workflow?.bundleAlias,
           },
