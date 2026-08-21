@@ -1,13 +1,7 @@
 import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
-import { consoleClient } from './console.ts'
-import { mirrorAgentInvocationStore } from './invocation-mirror.ts'
 
-const localStore = createLibsqlAgentInvocationStore({ url: 'file:.vitehub/invocations.sqlite' })
-const client = consoleClient
-const store = mirrorAgentInvocationStore(localStore, client
-  ? invocation => client.post('/api/ingest/invocations', { invocation })
-  : undefined)
+const store = createLibsqlAgentInvocationStore({ url: 'file:.vitehub/invocations.sqlite' })
 
 // ponytail: Babysitter is single-host; use leases before sharing this database across owners.
 try {

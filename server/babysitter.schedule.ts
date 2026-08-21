@@ -4,7 +4,7 @@ import { createMessage, runScheduledAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/kv'
 import { defineSchedule } from 'vite-hub/schedule'
 import { useServerEnv } from '#vitehub/env/server'
-import babysitter from './agents/babysitter/agent.ts'
+import { createBabysitterAgent } from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import { withPullRequestCheckout } from './babysitter.checkout.ts'
@@ -42,7 +42,7 @@ export default defineSchedule({
             pullRequestTitle: pullRequest.title,
             pullRequestUrl: pullRequest.url,
           }
-          await runScheduledAgent(babysitter, {
+          await runScheduledAgent(createBabysitterAgent(checkout), {
             ...schedule,
             runId,
           }, {
@@ -59,7 +59,6 @@ export default defineSchedule({
           }, {
             abortSignal: AbortSignal.timeout(60 * 60 * 1000),
             context,
-            options: { checkout },
             messages: [createMessage({ role: 'user', text: await renderPrompt({ blocker, context }) })],
           })
         })

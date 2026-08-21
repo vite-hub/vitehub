@@ -34,8 +34,13 @@ const groups: InvocationGroup[] = [
 const selectedId = ref<string>()
 const refreshedAt = ref<Date>()
 const listPolling = ref<false | number>(5_000)
-const list = useAgentInvocations({ pollInterval: listPolling })
-const detail = useAgentInvocation(selectedId, { pollInterval: 5_000 })
+const request = async <T,>(path: string, options: { signal?: AbortSignal }) => {
+  const response = await fetch(path, { signal: options.signal })
+  if (!response.ok) throw new Error(`Invocation request failed with status ${response.status}.`)
+  return await response.json() as T
+}
+const list = useAgentInvocations({ pollInterval: listPolling, request })
+const detail = useAgentInvocation(selectedId, { pollInterval: 5_000, request })
 const invocations = list.invocations
 const selected = detail.invocation
 const observations = detail.observations
