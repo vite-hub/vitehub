@@ -127,6 +127,13 @@ describe("@vite-hub/source types", () => {
     await mixedCollection.get(mixedIdentity)
     // @ts-expect-error Mixed reader unions cannot emit a variant-only key either
     defineCollection({ sources: { invalidMixed: (Math.random() > 0.5 ? reader("a", 1) : { async get(key: "b") { return key } }) } })
+    interface OverloadedReader {
+      get(key: "a"): Promise<{ a: number }>
+      get(key: "b"): Promise<{ b: string }>
+    }
+    const overloadedReader = null as unknown as OverloadedReader
+    // @ts-expect-error Overloaded get methods have an ambiguous Collection contract
+    defineCollection({ sources: { overloaded: overloadedReader } })
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
     defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
     // @ts-expect-error Collection aliases must be strings

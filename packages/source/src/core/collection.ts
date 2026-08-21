@@ -21,11 +21,38 @@ type CollectionSourceValue<TReader> =
 type CollectionSourceItem<TReader> =
   TReader extends { items(): Promise<Array<infer TItem extends { key: string }>> } ? TItem : never
 
+type Equal<TLeft, TRight> =
+  (<T>() => T extends TLeft ? 1 : 2) extends (<T>() => T extends TRight ? 1 : 2)
+    ? (<T>() => T extends TRight ? 1 : 2) extends (<T>() => T extends TLeft ? 1 : 2)
+      ? true
+      : false
+    : false
+
+type CollectionSourceGetSignatures<TReader> = TReader extends { get: {
+  (key: infer TKey1): Promise<infer TValue1>
+  (key: infer TKey2): Promise<infer TValue2>
+  (key: infer TKey3): Promise<infer TValue3>
+  (key: infer TKey4): Promise<infer TValue4>
+  (key: infer TKey5): Promise<infer TValue5>
+} } ? [[TKey1, TValue1], [TKey2, TValue2], [TKey3, TValue3], [TKey4, TValue4], [TKey5, TValue5]] : never
+
+type SignaturesAreEqual<TSignatures extends unknown[], TExpected = TSignatures[number]> =
+  TSignatures extends [infer TSignature, ...infer TRest]
+    ? Equal<TSignature, TExpected> extends true
+      ? SignaturesAreEqual<TRest, TExpected>
+      : false
+    : true
+
+type ValidCollectionGet<TReader> =
+  TReader extends unknown
+    ? SignaturesAreEqual<CollectionSourceGetSignatures<TReader>> extends true ? TReader : never
+    : never
+
 type ValidCollectionSource<TReader> =
   [CollectionSourceItem<TReader>] extends [never]
-    ? TReader
+    ? ValidCollectionGet<TReader>
     : Exclude<CollectionSourceItem<TReader>["key"], CollectionSourceKey<TReader>> extends never
-      ? TReader
+      ? ValidCollectionGet<TReader>
       : never
 
 type ValidCollectionSources<TSources extends CollectionSources> = {
