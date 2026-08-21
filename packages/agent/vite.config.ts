@@ -4,7 +4,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/, /^eve\/extension$/],
+      alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: [
         "vite",
         "esbuild",
@@ -35,6 +35,7 @@ export default defineConfig({
       "src/cli.ts",
       "src/eval.ts",
       "src/eve.ts",
+      "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",
       "src/runtime/empty-registry.ts",

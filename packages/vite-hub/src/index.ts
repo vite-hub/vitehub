@@ -704,6 +704,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       ...emailOptions,
       hosting: plan.nitroPreset,
       runtimeEnvImport: "vite-hub/env/server",
+      workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
     } as unknown as EmailVitePluginOptions))
   }
   else plugins.push(hubEmailOptionalPeerResolver())

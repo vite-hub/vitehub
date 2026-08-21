@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
+import { transform } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import type { Plugin } from "esbuild"
@@ -245,13 +247,19 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node" })
 
-    await expect(readFile(outfile, "utf8")).resolves.toContain("globalThis.__filename = __vitehubFileURLToPath(import.meta.url);")
+    const bundled = await readFile(outfile, "utf8")
+    expect(bundled).toContain("if (globalThis.process?.getBuiltinModule && import.meta.url) {")
+    expect(bundled).toContain('globalThis.__filename = globalThis.process.getBuiltinModule("node:url").fileURLToPath(import.meta.url);')
+    expect(bundled).not.toMatch(/(?:const|let|var|import).*__vitehub/)
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => { dirname: string, filename: string, requireType: string } }
     expect(loaded.default()).toEqual({
       dirname: dirname(outfile),
       filename: outfile,
       requireType: "function",
     })
+
+    const commonjs = await transform(bundled, { format: "cjs", logLevel: "silent", target: "node24" })
+    expect(() => runInNewContext(commonjs.code, { exports: {}, module: { exports: {} } })).not.toThrow()
   })
 
   it("does not redeclare Netlify runtime filename globals", async () => {

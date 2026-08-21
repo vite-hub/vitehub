@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { env } from "@vite-hub/env"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
+
+import { hubWorkflow } from "@vite-hub/workflow/vite"
 
 import { createEmail } from "../src/client.ts"
 import { EMAIL_DEFINITION_ID, hubEmail, hubEmailOptionalPeerResolver, resolveEmailTemplateModulePath } from "../src/vite.ts"
@@ -209,10 +211,13 @@ describe("hubEmail", () => {
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
 
-    expect(await config({ root })).toMatchObject({ resolve: { alias: [{
-      find: /^#vitehub\/emails\/monthly-recap$/,
-      replacement: join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
-    }] } })
+    expect(await config({ root })).toMatchObject({ resolve: { alias: [
+      { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
+      {
+        find: /^#vitehub\/emails\/monthly-recap$/,
+        replacement: join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
+      },
+    ] } })
     await resolvePlugin(plugin, root)
 
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
@@ -225,6 +230,57 @@ describe("hubEmail", () => {
     await buildStart.call({ addWatchFile: vi.fn() })
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated template")
+  })
+
+  it("exposes its generated definition to explicitly selected Vercel Workflows", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({
+      driver: "unemail/driver/resend",
+      workflowProvider: "vercel",
+    } as Parameters<typeof hubEmail>[0])
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
+
+    expect(await config({ root })).toMatchObject({ resolve: { alias: [
+      { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
+    ] } })
+  })
+
+  it("exposes its generated definition to directly composed Vercel Workflows", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
+    const workflow = hubWorkflow({ provider: "vercel" })
+    const server = await createServer({
+      appType: "custom",
+      configFile: false,
+      plugins: [
+        hubEmail({ driver: "unemail/driver/resend" }),
+        workflow,
+      ],
+      root,
+      server: { middlewareMode: true },
+    })
+    try {
+      expect(server.config.plugins.find(plugin => plugin.name === "@vite-hub/email/vite"))
+        .toHaveProperty("api.getDefinition")
+      const contributions = await Promise.all([
+        workflow.vitehub?.workflow?.prepareScheduleRuntime?.(),
+        workflow.vitehub?.workflow?.prepareScheduleRuntime?.(),
+      ])
+      expect(contributions[0]).toMatchObject({
+        bundleAlias: {
+          [EMAIL_DEFINITION_ID]: join(root, ".vitehub", "email", "definition.mjs"),
+          "#vitehub/emails/monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
+        },
+      })
+      expect(contributions[1]).toMatchObject({ bundleAlias: contributions[0]?.bundleAlias })
+      await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
+        .resolves.toContain("Hello {{name}}")
+    }
+    finally {
+      await server.close()
+    }
   })
 
   it("resolves nested standalone host templates through exact aliases", async () => {
@@ -275,10 +331,13 @@ describe("hubEmail", () => {
     await writeFile(join(root, "server", "emails", "welcome.md"), "Welcome")
     const plugin = hubEmail({ driver: "unemail/driver/resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
-    await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [{
-      find: /^#vitehub\/emails\/welcome$/,
-      replacement: join(root, ".vitehub", "email", "templates", "welcome.mjs"),
-    }] } })
+    await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [
+      { find: EMAIL_DEFINITION_ID, replacement: join(appRoot, ".vitehub", "email", "definition.mjs") },
+      {
+        find: /^#vitehub\/emails\/welcome$/,
+        replacement: join(root, ".vitehub", "email", "templates", "welcome.mjs"),
+      },
+    ] } })
   })
 
   it("serializes development refreshes and watches imported templates", async () => {

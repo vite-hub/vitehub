@@ -162,6 +162,27 @@ export default defineAgent({
 
 Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports only metadata, even when the invocation uses a caller-supplied content trace log, and includes setup failures that occur before the Driver starts. Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Receivers should deduplicate spans by trace and span id because retries can deliver the same invocation more than once.
 
+For a durable, queryable invocation journal, attach Agent Invocations to the Agent Definition. The SQLite adapter accepts a local SQLite or remote libSQL URL:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
+const invocations = defineAgentInvocations({
+  store: createLibsqlAgentInvocationStore({ url: 'file:./.data/invocations.db' }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
+})
+```
+
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
+
+Cloudflare and OpenWorkflow create the journal after durable recovery dispatch and reconcile failures after the generated Agent module loads but before the Agent handler starts. If that module cannot be evaluated, use Workflow inspection because the Agent-owned invocation store is unavailable. An accepted Vercel run also starts its journal in the Agent worker because arbitrary Agent Definitions cannot be embedded in Vercel's deterministic native Workflow bundle; use Workflow inspection when it fails before then. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation.
+
 ## Control child work
 
 Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model should delegate work itself.

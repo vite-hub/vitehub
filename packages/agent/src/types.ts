@@ -1,10 +1,10 @@
 import type { Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
+import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
-import type { MountedExtension } from "eve/extension"
 import type { LanguageModel } from "ai"
 import type {
   MaybePromise,
@@ -200,6 +200,7 @@ export interface AgentScheduleInvocationInput {
 }
 
 export interface AgentRunMetadata<TOrigin extends string = string> {
+  annotations?: Record<string, AgentInvocationAnnotationValue>
   channelId?: string
   messageId?: string
   origin?: TOrigin
@@ -937,6 +938,9 @@ export type AgentCapabilityInput<
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name>
 
+type AgentExtensionMount = object
+declare const agentStaticCapabilitiesListBrand: unique symbol
+
 export type AgentCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -945,7 +949,12 @@ export type AgentCapabilitiesList<
 export type AgentStaticCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | MountedExtension)[]
+> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentExtensionMount)[] & {
+  readonly [agentStaticCapabilitiesListBrand]?: true
+}
+
+export type IsTypedAgentStaticCapabilitiesList<T> =
+  typeof agentStaticCapabilitiesListBrand extends keyof T ? true : false
 
 export interface AgentCapabilitiesResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1201,6 +1210,7 @@ type AgentSharedSettings<
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
+  invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -1240,6 +1250,7 @@ export interface AgentDefinition<
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
+  invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding

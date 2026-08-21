@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
@@ -54,11 +54,21 @@ interface GeneratedScheduleArtifacts {
 
 interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
+  bundleExternal?: string[]
   clientOutDir: string
   definitions?: DiscoveredScheduleDefinition[]
   rootDir: string
   runtimeImport?: string
   source?: DiscoveredScheduleDefinition["source"]
+  workflow?: ScheduleWorkflowRuntime
+}
+
+export interface ScheduleWorkflowRuntime {
+  bundleAlias: Record<string, string>
+  bundlePlugins?: Plugin[]
+  importBase: string
+  native: boolean
+  registryFile: string
 }
 
 async function removeEmptyDirectories(directory: string, rootDir: string): Promise<void> {
@@ -122,12 +132,28 @@ function readStaticString(source: string | undefined): string | undefined {
   }
 }
 
-function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {
+function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string, workflow?: ScheduleWorkflowRuntime) {
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
+  const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
+    ...(workflowRuntime
+      ? [
+          `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
+          `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/state`)}`,
+          `import { runWithVercelWorkflowRuntimeEvent } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
+          ...(workflowRuntime.native
+            ? [
+                `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
+                `import * as workflowApi from "workflow/api"`,
+                `import * as workflowRuntime from "workflow/runtime"`,
+              ]
+            : []),
+        ]
+      : []),
     "",
+    workflowRuntime?.native ? "setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)" : "",
     "async function loadScheduleDefinition(name) {",
     "  const loader = scheduleRegistry[name]",
     "  if (!loader) return undefined",
@@ -179,7 +205,15 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "    res.end('Missing schedule definition.')",
           "    return",
           "  }",
-          "  await runSchedule(name, definition.cron, new Date())",
+          ...(workflowRuntime
+            ? [
+                "  setWorkflowRuntimeConfig({ provider: 'vercel' })",
+                "  setWorkflowRuntimeRegistry(workflowRegistry)",
+              ]
+            : []),
+          workflowRuntime
+            ? "  await runWithVercelWorkflowRuntimeEvent(req, res, () => runSchedule(name, definition.cron, new Date()))"
+            : "  await runSchedule(name, definition.cron, new Date())",
           "  res.statusCode = 204",
           "  res.end()",
           "}",
@@ -290,10 +324,12 @@ export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinit
 
 export async function writeVercelScheduleFunctions(options: {
   bundleAlias?: Record<string, string>
+  bundleExternal?: string[]
   definitions: DiscoveredScheduleDefinition[]
   outputRoot: string
   registryFile: string
   rootDir: string
+  workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
   const definitions = staticScheduleDefinitions(options.definitions)
   const outputRoot = options.outputRoot
@@ -314,13 +350,15 @@ export async function writeVercelScheduleFunctions(options: {
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
-    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name), "utf8")
+    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
+      external: options.bundleExternal,
       format: "esm",
       platform: "node",
-      plugins: [createScheduleDefinitionAliasPlugin()],
+      plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.rootDir,
+      workingDir: options.rootDir,
     })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
@@ -542,7 +580,7 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
   ])
 }
 
-export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+export async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(options.rootDir, productName)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
@@ -568,10 +606,12 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   }
   await writeVercelScheduleFunctions({
     bundleAlias: options.bundleAlias,
+    bundleExternal: options.bundleExternal,
     definitions: artifacts.definitions,
     outputRoot: createDefaultVercelOutputRoot(options.rootDir),
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
+    workflow: options.workflow,
   }, crons)
   await writeNetlifyScheduleFunctions({
     definitions: artifacts.definitions,
@@ -580,4 +620,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     rootDir: options.rootDir,
   })
   return artifacts
+}
+
+export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+  return await withProviderDeploymentOutputLock(options.rootDir, async () => await generateProviderOutputsWithinLock(options))
 }

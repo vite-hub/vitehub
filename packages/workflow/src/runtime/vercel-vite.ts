@@ -10,6 +10,10 @@ import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../typ
 
 export { setVercelWorkflowRuntimeModules } from "./vercel.ts"
 
+export async function runWithVercelWorkflowRuntimeEvent<T>(req: unknown, res: unknown, run: () => T | Promise<T>): Promise<T> {
+  return await runWithWorkflowRuntimeEvent({ req, res, waitUntil: vercelWaitUntil }, run)
+}
+
 interface WorkflowVercelServerOptions {
   app?: WorkflowApp
   registry?: WorkflowDefinitionRegistry
@@ -25,7 +29,7 @@ export function createWorkflowVercelServer(options: WorkflowVercelServerOptions 
     onRequest({ handle, req, res }) {
       setWorkflowRuntimeConfig(options.workflow)
       setWorkflowRuntimeRegistry(options.registry)
-      return runWithWorkflowRuntimeEvent({ req, res, waitUntil: vercelWaitUntil }, handle)
+      return runWithVercelWorkflowRuntimeEvent(req, res, handle)
     },
   }) as WorkflowVercelServer
 }

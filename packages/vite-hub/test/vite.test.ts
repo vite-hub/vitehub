@@ -292,7 +292,11 @@ describe("vitehub", () => {
       ...email,
       hosting: "node-server",
       runtimeEnvImport: "vite-hub/env/server",
+      workflowProvider: undefined,
     })
+
+    vitehub({ email, preset: "node", workflow: { provider: "vercel" } })
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(expect.objectContaining({ workflowProvider: "vercel" }))
   })
 
   it("uses Cloudflare Email when Email is enabled by preset", () => {
@@ -302,6 +306,7 @@ describe("vitehub", () => {
       driver: "unemail/driver/cloudflare-email",
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
+      workflowProvider: undefined,
     })
   })
 

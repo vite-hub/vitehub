@@ -21,6 +21,7 @@ import {
 } from "./delivery-effects.ts"
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
@@ -45,8 +46,9 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
+import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -162,6 +164,7 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentStaticCapabilitiesList,
+  IsTypedAgentStaticCapabilitiesList,
   AgentTelemetry,
   AgentToolStepItem,
   AgentUsageRecord,
@@ -189,6 +192,17 @@ import type {
   WorkspaceName,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
+
+export type {
+  AgentInvocationAnnotationValue,
+  AgentInvocationListOptions,
+  AgentInvocationListResult,
+  AgentInvocationRecord,
+  AgentInvocationRecordStatus,
+  AgentInvocationSummary,
+  AgentInvocations,
+  AgentInvocationStore,
+} from "./invocations.ts"
 
 export type {
   AgentInvocationControlOutcome,
@@ -626,10 +640,17 @@ type AgentDefinitionWithBaseResolve<
 }
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   capabilities?: Record<string, false>
-  input: AgentRunInput<CALL_OPTIONS>
+  input?: AgentRunInput<CALL_OPTIONS>
+  invocationRecovery?: {
+    agentName?: string
+    runId: string
+    sourceRunId: string
+    workflowName: string
+  }
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
+  trace?: AgentRuntimeContext["trace"]
   runtime?: AgentRuntimeContext["runtime"]
   runtimeConfig?: AgentRuntimeConfig
 }
@@ -644,6 +665,7 @@ interface AgentWorkflowRun<TOutput = unknown> {
 type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
+  invocationJournal?: AgentInvocationJournal
   run: AgentWorkflowRun<TOutput>
 }
 interface ScheduleRunContextLike {
@@ -700,6 +722,24 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
 
+async function deferAgentWorkflowRecovery<TPayload, TResult>(
+  handle: WorkflowHandle<TPayload, TResult>,
+  payload: TPayload,
+  options: { id?: string },
+): Promise<void> {
+  let failure: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await handle.defer(payload, options)
+      return
+    }
+    catch (error) {
+      failure = error
+    }
+  }
+  throw failure
+}
+
 async function getAgentWorkflowHandle<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -708,6 +748,7 @@ async function getAgentWorkflowHandle<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   name: string,
   reuseRegistry: boolean,
+  recovery = false,
 ): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>> {
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
   const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
@@ -715,8 +756,25 @@ async function getAgentWorkflowHandle<
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
 
   const { createWorkflow } = await loadAgentWorkflowModule()
-  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await loadAgentWorkflowRuntimeStateModule()
-  const handle = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, loadWorkflowDefinition, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
+  const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  if (registered) {
+    const definition = await loadWorkflowDefinition(name)
+    if (Boolean(definition?.internalAgentInvocationRecovery) !== recovery) {
+      throw new Error(`Workflow name ${JSON.stringify(name)} conflicts with an Agent invocation recovery Workflow.`)
+    }
+  }
+  if (!registered && recovery) {
+    registerInlineWorkflowDefinition(name, {
+      internalAgentInvocationRecovery: true,
+      handler: async (workflowContext) => {
+        const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
+        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
+      },
+      options: { rootStep: false },
+    })
+  }
+  const handle = registered || recovery
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name)
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
@@ -733,6 +791,18 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   if (/^[a-zA-Z0-9_][a-zA-Z0-9-_]{0,99}$/.test(runId) && !runId.startsWith(generatedPrefix)) return runId
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(runId))
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
+}
+
+function isAmbiguousWorkflowStartFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error) || !("details" in error)) return false
+  const details = (error as { details?: unknown }).details
+  return (error as { code?: unknown }).code === "WORKFLOW_PROVIDER_OPERATION_FAILED"
+    && Boolean(details && typeof details === "object"
+      && (details as { acknowledgement?: unknown }).acknowledgement === "unknown"
+      && (((details as { provider?: unknown }).provider === "cloudflare"
+        && (details as { operation?: unknown }).operation === "create")
+      || ((details as { provider?: unknown }).provider === "openworkflow"
+        && (details as { operation?: unknown }).operation === "run")))
 }
 
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
@@ -794,7 +864,8 @@ async function runAgentAsWorkflow<
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
+  const workflowName = resolveAgentWorkflowName(agent, binding, context)
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
@@ -816,6 +887,7 @@ async function runAgentAsWorkflow<
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(inheritedRun ? { run: inheritedRun } : {}),
+    ...(context.trace ? { trace: context.trace } : {}),
   }
   const workflowEvent = {
     ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
@@ -830,11 +902,75 @@ async function runAgentAsWorkflow<
       ? await portableAgentWorkflowRunId(context.run.runId)
       : context.run.runId
     : undefined
-  const run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
-    payload,
-    workflowRunId ? { id: workflowRunId } : {},
-  ))
-  return { handle, run }
+  const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
+    if (!hasAgentDefinition(agent)) return false
+    const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
+    const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
+      agent,
+      getAgentInvocationRecoveryWorkflowName(handle.name),
+      Boolean(context.agentIdentity),
+      true,
+    )
+    try {
+      await deferAgentWorkflowRecovery(recoveryHandle, {
+        invocationRecovery: {
+          ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
+          runId,
+          sourceRunId,
+          workflowName,
+        },
+        ...(context.trace ? { trace: context.trace } : {}),
+      }, { id: recoveryId })
+      return true
+    }
+    catch {
+      return false
+    }
+  }
+  let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+  try {
+    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+      payload,
+      workflowRunId ? { id: workflowRunId } : {},
+    )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+  }
+  catch (error) {
+    const ambiguous = isAmbiguousWorkflowStartFailure(error)
+    const failedRunId = !options.fresh && context.run?.runId
+      ? context.run.runId
+      : workflowRunId || (ambiguous ? undefined : createTraceId())
+    if (hasAgentDefinition(agent) && failedRunId) {
+      const recoveryAccepted = !ambiguous
+        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
+        || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
+      if (recoveryAccepted) {
+        const invocationJournal = await bindAgentInvocations(agent.invocations, {
+          ...context,
+          run: { ...context.run, runId: failedRunId },
+        }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
+        if (!ambiguous) await invocationJournal?.finish("failed", error)
+      }
+    }
+    throw error
+  }
+  // Vercel's native Workflow owns durable suspension, but arbitrary Agent Definitions cannot
+  // be compiled into that deterministic bundle. Its journal begins in the Agent worker instead.
+  let invocationJournal: AgentInvocationJournal<TRuntimeConfig> | undefined
+  if (hasAgentDefinition(agent) && agent.invocations && run.provider !== "vercel") {
+    const snapshot = agentInvocationSnapshotFromWorkflow(run)
+    if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
+      const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id
+      if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
+    }
+    invocationJournal = await bindAgentInvocations(agent.invocations, {
+      ...context,
+      run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
+    }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
+    if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+      await invocationJournal?.finish(snapshot.status, snapshot.error)
+    }
+  }
+  return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
 }
 
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
@@ -1165,7 +1301,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, telemetry, uiMessageStream, version, workspace } = options
+  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, telemetry, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" ? driver.run : undefined
   const capabilitiesResolver = typeof capabilities === "function"
@@ -1224,6 +1360,7 @@ function defineBaseAgent<
     description,
     hooks,
     invoker,
+    invocations,
     messages,
     name,
     runtime,
@@ -1446,7 +1583,7 @@ type AgentCapabilitiesOption<
   Name extends WorkspaceName,
   CALL_OPTIONS,
   TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
-> = TCapabilities | AgentCapabilitiesResolver<
+> = (TCapabilities & ValidateStaticAgentCapabilities<TCapabilities>) | AgentCapabilitiesResolver<
   TRuntimeConfig,
   Name,
   CALL_OPTIONS,
@@ -1455,13 +1592,31 @@ type AgentCapabilitiesOption<
     : readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
 >
 
+type ValidateStaticAgentCapability<TCapability> =
+  TCapability extends AgentCapabilityDefinition
+    ? TCapability
+    : Extract<keyof TCapability, symbol> extends never
+      ? never
+      : TCapability[Extract<keyof TCapability, symbol>] extends true
+        ? TCapability
+        : never
+
+type ValidateStaticAgentCapabilities<TCapabilities> =
+  TCapabilities extends readonly unknown[]
+    ? number extends TCapabilities["length"]
+      ? IsTypedAgentStaticCapabilitiesList<TCapabilities> extends true
+        ? TCapabilities
+        : readonly ValidateStaticAgentCapability<TCapabilities[number]>[]
+      : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
+    : TCapabilities
+
 export interface DefineAgent {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
     TOutput = unknown,
     const TOptions extends WorkspaceAgentOptions<
       TRuntimeConfig,
@@ -1490,7 +1645,7 @@ export interface DefineAgent {
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
     TOutput = unknown,
     const TOptions extends WorkspaceAgentOptions<
       TRuntimeConfig,
@@ -1514,7 +1669,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig> | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
     TOutput = unknown,
   >(
     options: AgentSettings<
@@ -1531,7 +1686,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig> | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
     TOutput = unknown,
   >(
     options: AgentSettings<
@@ -1794,6 +1949,7 @@ type AgentInvocationContext<
   workspaceInstructionBindings?: Record<string, unknown>
   workspaceMaterializationPaths: readonly string[]
   workspaceMode: AgentCapabilityMode
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
 }
 
 function toAgentAdapterRunContext<
@@ -1937,6 +2093,7 @@ async function createAgentInvocationContext<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   invocationKind: "run" | "stream" = "run",
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -2128,6 +2285,7 @@ async function createAgentInvocationContext<
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
       invoker,
+      invocationJournal,
       messages: capabilities.messages,
       modelExecutionInstrumentation: capabilities.registries.modelExecutionInstrumentation,
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
@@ -2222,6 +2380,7 @@ type InvocationRunContext<
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
   output?: AgentOutputDefinition
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   startTask?: Promise<void>
@@ -3133,10 +3292,18 @@ async function finishAgentInvocation<
     else {
       await traceAgentInvocationError(toTraceContext(context), error)
     }
+    await context.invocationJournal?.finish(
+      failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
+      error,
+    )
     if (closeError !== undefined) throw closeError
   }
   catch (finishError) {
     await traceAgentInvocationError(toTraceContext(context), failed ? error : finishError)
+    await context.invocationJournal?.finish(
+      failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
+      failed ? error : finishError,
+    )
     if (closeError !== undefined && finishError !== closeError) {
       throw new AggregateError([closeError, finishError], "[vitehub] Capability cleanup and Agent finish lifecycle both failed.")
     }
@@ -3404,9 +3571,10 @@ async function createAgentInvocationContextWithWorkflowFailureDelivery<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   kind: "run" | "stream",
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   try {
-    return await createAgentInvocationContext(definition, context, input, kind)
+    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal)
   }
   catch (error) {
     try {
@@ -3429,13 +3597,14 @@ async function executeAgentInvocationWithCapacityLease<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
   preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
   const invocation = preparedInvocation
-    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind)
+    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal)
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
@@ -4198,20 +4367,31 @@ async function executeAgentInvocation<
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
+  const invocationJournal = definition
+    ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
+      ...context,
+      ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
+        ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
+        : {}),
+    }, { agentName: (definition as AgentDefinition).name })
+    : undefined
+  if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
-  if (definition && inspectAgentCapacity(definition)) {
-    preparedInvocation = await createAgentInvocationContextWithWorkflowFailureDelivery(
-      agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
-      context,
-      input,
-      options.kind,
-    )
-  }
-  if (preparedInvocation?.handledResponse) {
-    return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
-  }
   let release: (() => void) | undefined
   try {
+    if (definition && inspectAgentCapacity(definition)) {
+      preparedInvocation = await createAgentInvocationContextWithWorkflowFailureDelivery(
+        agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
+        context,
+        input,
+        options.kind,
+        invocationJournal,
+      )
+    }
+    if (preparedInvocation?.handledResponse) {
+      await invocationJournal?.running()
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
+    }
     release = definition
       ? await acquireAgentCapacity(definition, input.abortSignal)
       : undefined
@@ -4221,10 +4401,18 @@ async function executeAgentInvocation<
       const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
       await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
     }
+    await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     throw error
   }
   if (!release) {
-    return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
+    await invocationJournal?.running()
+    try {
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
+    }
+    catch (error) {
+      await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+      throw error
+    }
   }
 
   let released = false
@@ -4234,6 +4422,7 @@ async function executeAgentInvocation<
     release()
   }
   try {
+    await invocationJournal?.running()
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,
       holdCapacity: true,
@@ -4246,9 +4435,10 @@ async function executeAgentInvocation<
           releaseOnce()
         }
       },
-    }, preparedInvocation)
+    }, preparedInvocation, invocationJournal)
   }
   catch (error) {
+    await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     releaseOnce()
     throw error
   }
@@ -4321,12 +4511,23 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
-  const { handle, run } = started
+  const { handle, invocationJournal, run } = started
+  const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
+    if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+      await invocationJournal?.finish(snapshot.status, snapshot.error)
+    }
+    return snapshot
+  }
   return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
-    cancel: async () => agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>),
+    cancel: async () => {
+      const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
+      return await reconcileJournal(snapshot)
+    },
     errorOutcome: workflowOperationOutcome,
     id: run.id,
-    inspect: async () => agentInvocationSnapshotFromWorkflow(await handle.getRun(run.id) as AgentWorkflowRun<TOutput>),
+    inspect: async () => await reconcileJournal(agentInvocationSnapshotFromWorkflow(
+      await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
+    )),
     parentAbortSignal,
     result: Promise.resolve(run),
   })
@@ -4378,9 +4579,10 @@ export async function startAgentInvocation<
     input,
     { fresh: true },
   )
-  return workflow
-    ? createWorkflowAgentInvocationController(workflow, input.abortSignal)
-    : createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
+  if (workflow) {
+    return createWorkflowAgentInvocationController(workflow, input.abortSignal)
+  }
+  return createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
 }
 
 export async function runAgent<
@@ -4394,7 +4596,9 @@ export async function runAgent<
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
-  if (workflow) return workflow.run
+  if (workflow) {
+    return workflow.run
+  }
   if (input.context?.[requireAgentWorkflowContextKey] === true) {
     throw new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
   }

@@ -29,6 +29,7 @@ it("installs discovered Agent workflows into a Cloudflare Nitro entry", async ()
     })
     expect((nitro.cloudflare as { wrangler: { workflows: unknown[] } }).wrangler.workflows).toEqual([
       expect.objectContaining({ class_name: expect.stringContaining("Calories"), name: expect.stringContaining("63616c6f72696573") }),
+      expect.objectContaining({ class_name: expect.stringContaining("InvocationRecoveryCalories") }),
     ])
     expect((nitro.rollupConfig as { plugins: Array<{ name: string }> }).plugins).toContainEqual(
       expect.objectContaining({ name: "vitehub-workflow-cloudflare-exports" }),

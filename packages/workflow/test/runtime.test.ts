@@ -37,6 +37,7 @@ const openWorkflowMock = vi.hoisted(() => {
     stop: vi.fn(async () => {}),
   }))
   const runOptions: unknown[] = []
+  const sleepCalls: unknown[][] = []
 
   class OpenWorkflow {
     constructor(public readonly options: unknown) {}
@@ -79,6 +80,7 @@ const openWorkflowMock = vi.hoisted(() => {
                 run: { createdAt: run.createdAt, id, startedAt: run.startedAt, workflowName: spec.name },
                 step: {
                   run: async (_config: unknown, stepRun: () => unknown) => await stepRun(),
+                  sleep: async (...args: unknown[]) => { sleepCalls.push(args) },
                 },
                 version: null,
               })
@@ -109,6 +111,7 @@ const openWorkflowMock = vi.hoisted(() => {
     OpenWorkflow,
     runOptions,
     runs,
+    sleepCalls,
     sqliteConnect,
   }
 })
@@ -173,6 +176,7 @@ beforeEach(async () => {
   openWorkflowMock.newWorker.mockClear()
   openWorkflowMock.runOptions.length = 0
   openWorkflowMock.runs.clear()
+  openWorkflowMock.sleepCalls.length = 0
   delete process.env.KV_REST_API_URL
   delete process.env.KV_REST_API_TOKEN
   delete process.env.OPENWORKFLOW_NAMESPACE_ID
@@ -191,7 +195,7 @@ describe("workflow runtime", () => {
   async function expectProviderFailure(
     request: Promise<unknown>,
     cause: unknown,
-    details: { operation: string, provider: string, status?: number },
+    details: { acknowledgement?: "unknown", operation: string, provider: string, status?: number },
   ) {
     const error = await request.catch(error => error)
     expect(error).toBeInstanceOf(ViteHubError)
@@ -269,7 +273,10 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async ({ payload }) => ({ payload }) },
+        default: { handler: async ({ payload, step }) => {
+          await step?.sleep?.("settle", "1 second")
+          return { payload }
+        } },
       }),
     })
 
@@ -566,6 +573,7 @@ describe("workflow runtime", () => {
     const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
     const converted = new Error("non-retryable: invalid input")
     const createNonRetryableError = vi.fn(() => converted)
+    const stepSleep = vi.fn(async () => {})
     const step = {
       do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => {
         try {
@@ -576,6 +584,7 @@ describe("workflow runtime", () => {
           throw error
         }
       }),
+      sleep: stepSleep,
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
@@ -585,13 +594,17 @@ describe("workflow runtime", () => {
       event: { id: "run-1" },
       name: "welcome",
       registry: {
-        welcome: async () => ({ default: { handler: async () => { throw original } } }),
+        welcome: async () => ({ default: { handler: async ({ step }) => {
+          await step?.sleep?.("settle", "1 second")
+          throw original
+        } } }),
       },
       step,
     })).rejects.toBe(converted)
 
     expect(createNonRetryableError).toHaveBeenCalledWith(original)
     expect(step.do).toHaveBeenCalledOnce()
+    expect(stepSleep).toHaveBeenCalledWith("settle", "1 second")
   })
 
   it("isolates overlapping Cloudflare fetch environments", async () => {
@@ -753,7 +766,10 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async ({ payload }) => ({ payload }) },
+        default: { handler: async ({ payload, step }) => {
+          await step?.sleep?.("settle", "1 second")
+          return { payload }
+        } },
       }),
     })
 
@@ -781,7 +797,10 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async ({ payload }) => ({ payload }) },
+        default: { handler: async ({ payload, step }) => {
+          await step?.sleep?.("settle", "1 second")
+          return { payload }
+        } },
       }),
     })
 
@@ -805,6 +824,7 @@ describe("workflow runtime", () => {
         status: "completed",
       })
     })
+    expect(openWorkflowMock.sleepCalls).toEqual([["settle", "1 second"]])
   })
 
   it("shares one OpenWorkflow acquisition and closes its backend once", async () => {
@@ -1127,9 +1147,97 @@ describe("workflow runtime", () => {
     })
 
     await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      acknowledgement: "unknown",
       operation: "run",
       provider: "openworkflow",
     })
+  })
+
+  it("preserves definite OpenWorkflow run rejections", async () => {
+    const cause = Object.assign(new Error("provider-secret:forbidden"), { status: 403 })
+    class RejectingOpenWorkflow {
+      defineWorkflow() {
+        return { run: async () => { throw cause } }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}, { id: "source-run" }), cause, {
+      operation: "run",
+      provider: "openworkflow",
+      status: 403,
+    })
+  })
+
+  it("preserves a lost OpenWorkflow acknowledgement across a definite retry rejection", async () => {
+    const first = new Error("creation acknowledgement lost")
+    const retry = Object.assign(new Error("provider-secret:conflict"), { status: 409 })
+    const run = vi.fn().mockRejectedValueOnce(first).mockRejectedValueOnce(retry)
+    class RejectingOpenWorkflow {
+      defineWorkflow() {
+        return { run }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}, { id: "source-run" }), retry, {
+      acknowledgement: "unknown",
+      operation: "run",
+      provider: "openworkflow",
+      status: 409,
+    })
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it("recovers OpenWorkflow runs after a lost creation acknowledgement", async () => {
+    const run = vi.fn()
+      .mockRejectedValueOnce(new Error("creation acknowledgement lost"))
+      .mockResolvedValueOnce({ workflowRun: { id: "accepted-run", status: "pending" } })
+    class RecoveringOpenWorkflow {
+      defineWorkflow() {
+        return { run }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RecoveringOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expect(runWorkflow("welcome", {}, { id: "source-run" })).resolves.toMatchObject({
+      id: "accepted-run",
+      metadata: { idempotencyKey: "source-run" },
+      provider: "openworkflow",
+      status: "queued",
+    })
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenNthCalledWith(2, {}, { idempotencyKey: "source-run" })
   })
 
   it("narrows malformed OpenWorkflow run results at the public boundary", async () => {
@@ -1939,7 +2047,7 @@ describe("workflow runtime", () => {
     })
 
     const getCause = new Error("provider-secret:get")
-    enterBinding({ create: vi.fn(), get: async () => { throw getCause } })
+    enterBinding({ createBatch: vi.fn(), get: async () => { throw getCause } })
     await expectProviderFailure(getWorkflowRun("welcome", "private-run"), getCause, {
       operation: "get",
       provider: "cloudflare",
@@ -1947,7 +2055,7 @@ describe("workflow runtime", () => {
 
     const statusCause = new Error("provider-secret:status")
     enterBinding({
-      create: vi.fn(),
+      createBatch: vi.fn(),
       get: async () => ({ id: "private-run", status: async () => { throw statusCause } }),
     })
     await expectProviderFailure(getWorkflowRun("welcome", "private-run"), statusCause, {
@@ -1956,11 +2064,48 @@ describe("workflow runtime", () => {
     })
 
     const createCause = new Error("provider-secret:create")
-    enterBinding({ create: async () => { throw createCause }, get: vi.fn() })
+    enterBinding({ createBatch: async () => { throw createCause }, get: vi.fn() })
     await expectProviderFailure(runWorkflow("welcome", {}), createCause, {
+      acknowledgement: "unknown",
       operation: "create",
       provider: "cloudflare",
     })
+  })
+
+  it("honors custom bindings for user Workflows with recovery-like names", async () => {
+    const name = "vitehub-agent-invocation-recovery-user-defined"
+    const createBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      [name]: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: { createBatch, get: vi.fn() } } } } },
+    })
+
+    await expect(runWorkflow(name, {}, { id: "custom-run" })).resolves.toMatchObject({ id: "custom-run" })
+    expect(createBatch).toHaveBeenCalledOnce()
+  })
+
+  it("keeps an acknowledged Cloudflare start queued when status inspection is unavailable", async () => {
+    const status = vi.fn(async () => { throw new Error("status unavailable") })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
+        createBatch: async () => [{ id: "accepted-run", status }],
+        get: vi.fn(),
+      } } } } },
+    })
+
+    await expect(runWorkflow("welcome", {}, { id: "accepted-run" })).resolves.toMatchObject({
+      id: "accepted-run",
+      provider: "cloudflare",
+      status: "queued",
+    })
+    expect(status).not.toHaveBeenCalled()
   })
 
   it("omits unsafe workflow names and caller run IDs from public errors", async () => {
@@ -2001,7 +2146,7 @@ describe("workflow runtime", () => {
   })
 
   it("validates Cloudflare workflow names before binding dispatch", async () => {
-    const create = vi.fn()
+    const createBatch = vi.fn()
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
@@ -2011,7 +2156,7 @@ describe("workflow runtime", () => {
         runtime: {
           cloudflare: {
             env: {
-              WORKFLOW_CUSTOM: { create, get: vi.fn() },
+              WORKFLOW_CUSTOM: { createBatch, get: vi.fn() },
             },
           },
         },
@@ -2021,7 +2166,7 @@ describe("workflow runtime", () => {
     await expect(runWorkflow("welcom", {}, { id: "typo" })).rejects.toMatchObject({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
     })
-    expect(create).not.toHaveBeenCalled()
+    expect(createBatch).not.toHaveBeenCalled()
   })
 
   it("returns unknown when inline Vercel run state is unavailable", async () => {
@@ -2070,10 +2215,10 @@ describe("workflow runtime", () => {
   })
 
   it("uses request waitUntil for deferred Cloudflare workflow dispatch", async () => {
-    const create = vi.fn(async ({ id }: { id: string }) => ({
-      id,
+    const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => [{
+      id: id!,
       status: vi.fn(async () => ({ status: "queued" })),
-    }))
+    }])
     const waitUntil = vi.fn()
 
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
@@ -2085,7 +2230,7 @@ describe("workflow runtime", () => {
         runtime: {
           cloudflare: {
             env: {
-              [getCloudflareWorkflowBindingName("welcome")]: { create, get: vi.fn() },
+              [getCloudflareWorkflowBindingName("welcome")]: { createBatch, get: vi.fn() },
             },
           },
         },
@@ -2097,10 +2242,62 @@ describe("workflow runtime", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]
-    expect(create).toHaveBeenCalledWith({
+    expect(createBatch).toHaveBeenCalledWith([{
       id: "welcome-1",
       params: { email: "ava@example.com" },
+    }])
+  })
+
+  it("recovers Cloudflare runs after a lost creation acknowledgement", async () => {
+    const instance = { id: "welcome-1", status: vi.fn(async () => ({ status: "queued" })) }
+    const createBatch = vi.fn()
+      .mockRejectedValueOnce(new Error("connection closed"))
+      .mockResolvedValueOnce([])
+    const get = vi.fn(async () => instance)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
+    enterWorkflowRuntimeEvent({
+      req: {
+        runtime: {
+          cloudflare: {
+            env: { [getCloudflareWorkflowBindingName("welcome")]: { createBatch, get } },
+          },
+        },
+      },
+    })
+
+    await expect(runWorkflow("welcome", {}, { id: "welcome-1" })).resolves.toMatchObject({
+      id: "welcome-1",
+      status: "queued",
+    })
+    expect(createBatch).toHaveBeenCalledTimes(2)
+    expect(get).toHaveBeenCalledWith("welcome-1")
+  })
+
+  it("preserves a lost Cloudflare acknowledgement when the retry is rejected", async () => {
+    const lostAcknowledgement = new Error("connection closed")
+    const retryFailure = Object.assign(new Error("already exists"), { status: 409 })
+    const createBatch = vi.fn()
+      .mockRejectedValueOnce(lostAcknowledgement)
+      .mockRejectedValueOnce(retryFailure)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName("welcome")]: { createBatch, get: vi.fn() },
+      } } } },
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}, { id: "welcome-1" }), lostAcknowledgement, {
+      acknowledgement: "unknown",
+      operation: "create",
+      provider: "cloudflare",
+    })
+    expect(createBatch).toHaveBeenCalledTimes(2)
   })
 
   it("treats terminated Cloudflare workflow runs as failed", async () => {
@@ -2115,7 +2312,7 @@ describe("workflow runtime", () => {
         runtime: {
           cloudflare: {
             env: {
-              [getCloudflareWorkflowBindingName("welcome")]: { create: vi.fn(), get },
+              [getCloudflareWorkflowBindingName("welcome")]: { createBatch: vi.fn(), get },
             },
           },
         },

@@ -69,6 +69,10 @@
       "types": "./dist/eve.d.ts",
       "import": "./dist/eve.js"
     },
+    "./invocations/sqlite": {
+      "types": "./dist/invocations/sqlite.d.ts",
+      "import": "./dist/invocations/sqlite.js"
+    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js"
@@ -162,7 +166,6 @@
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
     "evalite": "catalog:ai",
-    "eve": "^0.31.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

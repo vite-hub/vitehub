@@ -10,6 +10,7 @@ import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-template/internal/vite"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
+import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
 
 export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
@@ -39,7 +40,7 @@ export interface EmailVitePluginAPI {
   prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>>
 }
 
-export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
+export type EmailVitePlugin = Plugin & ViteHubProviderImportContributor & { api: EmailVitePluginAPI }
 
 export function hubEmailOptionalPeerResolver(): Plugin & { api: { prepareTypes: (projectRoot: string) => Promise<void> } } {
   const prepareTypes = async (projectRoot: string) => {
@@ -59,6 +60,7 @@ export function hubEmailOptionalPeerResolver(): Plugin & { api: { prepareTypes: 
 interface InternalEmailVitePluginOptions {
   hosting?: string
   runtimeEnvImport?: string
+  workflowProvider?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -336,6 +338,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let buildStarted = false
   let materialized = false
   let materializationRequested = false
+  let providerImportAliases: Promise<Record<string, string>> | undefined
   let watchFiles = new Set<string>()
 
   const updateTemplateRoots = (nextProjectRoot: string, nextServerDirs = serverDirs) => {
@@ -379,11 +382,27 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       getDefinition: () => definition,
       prepareTypes,
     },
+    vitehub: {
+      providerOutput: {
+        getImportAliases(): Promise<Record<string, string>> {
+          providerImportAliases ??= prepareTypes({ materialize: true, projectRoot, serverDirs }).then(templates => ({
+            ...(definition ? { [EMAIL_DEFINITION_ID]: definition.handler } : {}),
+            ...Object.fromEntries(Object.entries(templates).map(([name, replacement]) => [`${emailTemplatePrefix}${name}`, replacement])),
+          })).finally(() => {
+            providerImportAliases = undefined
+          })
+          return providerImportAliases
+        },
+      },
+    },
     async config(config) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const hosting = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>))
+      const configRecord = config as Record<string, unknown>
+      const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
       cloudflare = hosting === "cloudflare"
       vercel = hosting === "vercel"
+        || internalOptions.workflowProvider === "vercel"
+        || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       const emailTemplatePaths = cloudflare || vercel
@@ -391,10 +410,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         : {}
       return {
         ...(cloudflare || vercel
-          ? { resolve: { alias: Object.entries(emailTemplatePaths).map(([name, replacement]) => ({
-              find: exactIdPattern(`${emailTemplatePrefix}${name}`),
-              replacement,
-            })) } }
+          ? { resolve: { alias: [
+              { find: EMAIL_DEFINITION_ID, replacement: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs") },
+              ...Object.entries(emailTemplatePaths).map(([name, replacement]) => ({
+                find: exactIdPattern(`${emailTemplatePrefix}${name}`),
+                replacement,
+              })),
+            ] } }
           : {}),
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }

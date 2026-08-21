@@ -4,6 +4,22 @@ export {
 } from "./server/routes.ts"
 
 export { defineAgentRunEvents } from "./run-events.ts"
+export { createMemoryAgentInvocationStore, defineAgentInvocations } from "./invocations.ts"
+
+export type {
+  AgentInvocationAnnotationValue,
+  AgentInvocationListOptions,
+  AgentInvocationListResult,
+  AgentInvocationRecord,
+  AgentInvocationRecordStatus,
+  AgentInvocationSummary,
+  AgentInvocations,
+  AgentInvocationsOptions,
+  AgentInvocationStore,
+  AgentInvocationStoreCreateInput,
+  AgentInvocationStoreCreateResult,
+  AgentInvocationStoreUpdateInput,
+} from "./invocations.ts"
 
 export type {
   AgentRunEvent,
