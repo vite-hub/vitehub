@@ -112,6 +112,23 @@ describe("schedule provider output", () => {
     await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
   })
 
+  it("preserves Node built-ins for the Cloudflare runtime", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-cloudflare-node-builtins-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { AsyncLocalStorage } from 'node:async_hooks'",
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "",
+      "const storage = new AsyncLocalStorage()",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => storage.getStore() })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "index.js"), "utf8"))
+      .resolves.toContain('from "node:async_hooks"')
+  })
+
   it("installs a composed Workflow runtime in Vercel schedule functions", async () => {
     const rootDir = await createTempProject("vitehub-schedule-workflow-output-")
     const workflowDir = join(rootDir, ".vitehub", "workflow")
