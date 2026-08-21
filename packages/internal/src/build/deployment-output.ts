@@ -361,6 +361,7 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
     }))
   }
   await settleWrites(writes)
+  await options.afterWrite?.()
 
   const cleanups: Array<Promise<void>> = []
   if (!options.cloudflare && options.cleanup?.cloudflare) {
@@ -374,7 +375,6 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
     if (cleanup) cleanups.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup))
   }
   await settleWrites(cleanups)
-  await options.afterWrite?.()
 }
 
 export async function withProviderDeploymentOutputLock<T>(

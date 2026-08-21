@@ -1263,8 +1263,9 @@ async function cleanVercelWorkflowRootConfig(rootDir: string, ownedRoutes: strin
     if (!value || typeof value !== "object" || Array.isArray(value)) return
     config = value as Record<string, unknown>
   }
-  catch {
-    return
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
   }
   if (!Array.isArray(config.routes)) return
 
@@ -1300,15 +1301,17 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   const removedRootConfigRoutes: string[] = []
+  const removedFunctionRoots: string[] = []
   for (const serverFunctionName of candidates) {
     if (serverFunctionName === activeServerFunctionName || !isSafeVercelFunctionName(functionsRoot, serverFunctionName)) continue
     const functionRoot = resolve(functionsRoot, serverFunctionName)
     const ownership = await getVercelWorkflowFunctionOwnership(functionRoot, serverFunctionName === "__server.func" || serverFunctionName === "__workflow.func")
     if (!ownership) continue
     removedRootConfigRoutes.push(...(ownership.rootConfigRoutes ?? (previousOutput?.serverFunctionName === serverFunctionName ? previousOutput.rootConfigRoutes ?? [] : [])))
-    await rm(functionRoot, { force: true, recursive: true })
+    removedFunctionRoots.push(functionRoot)
   }
   await cleanVercelWorkflowRootConfig(rootDir, removedRootConfigRoutes)
+  await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
   const stateFile = resolve(rootDir, vercelWorkflowOutputState)
   if (!activeServerFunctionName) {
     await rm(stateFile, { force: true })

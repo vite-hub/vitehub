@@ -504,6 +504,26 @@ it("recovers truncated Workflow ownership JSON", async () => {
   expect(existsSync(stateFile)).toBe(false)
 })
 
+it("preserves Vercel ownership when its root config is truncated", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-truncated-vercel-config-")
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await writeFile(configFile, "{\"routes\":")
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })).rejects.toThrow()
+
+  expect(existsSync(functionRoot)).toBe(true)
+  expect(existsSync(stateFile)).toBe(true)
+})
+
 it("rolls back marker-owned output after an atomic state write fails", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-state-write-error-")
   const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
