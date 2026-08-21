@@ -530,6 +530,8 @@ describe("Vite workflow provider outputs", () => {
     const wrangler = JSON.parse(await readFile(cloudflareConfig, "utf8"))
     const className = getCloudflareWorkflowClassName("welcome")
     const agentClassName = getCloudflareWorkflowClassName("nuxt")
+    const agentRecoveryName = "vitehub-agent-invocation-recovery-nuxt"
+    const agentRecoveryClassName = getCloudflareWorkflowClassName(agentRecoveryName)
     const boxedAgentClassName = getCloudflareWorkflowClassName("boxed")
     const cliDevAgentClassName = getCloudflareWorkflowClassName("cli-dev")
     const flatAgentClassName = getCloudflareWorkflowClassName("flat")
@@ -552,6 +554,11 @@ describe("Vite workflow provider outputs", () => {
       name: getCloudflareWorkflowName("nuxt"),
     })
     expect(wrangler.workflows).toContainEqual({
+      binding: getCloudflareWorkflowBindingName(agentRecoveryName),
+      class_name: agentRecoveryClassName,
+      name: getCloudflareWorkflowName(agentRecoveryName),
+    })
+    expect(wrangler.workflows).toContainEqual({
       binding: getCloudflareWorkflowBindingName("cli-dev"),
       class_name: cliDevAgentClassName,
       name: getCloudflareWorkflowName("cli-dev"),
@@ -561,16 +568,18 @@ describe("Vite workflow provider outputs", () => {
       class_name: flatAgentClassName,
       name: getCloudflareWorkflowName("flat"),
     })
-    expect(wrangler.workflows).toHaveLength(5)
+    expect(wrangler.workflows).toHaveLength(9)
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${agentClassName} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain(`export class ${agentRecoveryClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${boxedAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${cliDevAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${flatAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')
+    expect(cloudflareWorkerContents).toContain(`runViteHubWorkflowDefinition(${JSON.stringify(agentRecoveryName)}`)
     expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
     const cloudflareWorkerBundleContents = await readFile(cloudflareWorkerBundle, "utf8")
     expect(cloudflareWorkerBundleContents).toContain("runViteHubWorkflowDefinition")
@@ -583,6 +592,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("runAgentWorkflowDefinition")
     expect(registry).toContain("options: { rootStep: false }")
     expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
+    expect(registry).toContain(`${JSON.stringify(agentRecoveryName)}: async () => {`)
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain("agentWithColocatedSkills")
     expect(registry).toContain("agentWithColocatedHome")

@@ -1,9 +1,20 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { useAgent, useChat, type AgentChatInit, type AgentChatReactiveInit, type AgentClient } from "../src/vue.ts"
+import {
+  useAgent,
+  useAgentInvocation,
+  useAgentInvocations,
+  useChat,
+  type AgentChatInit,
+  type AgentChatReactiveInit,
+  type AgentClient,
+  type AgentInvocationRequester,
+} from "../src/vue.ts"
 
+import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { ChatTransport, UIMessage } from "ai"
 import type { ComputedRef, MaybeRefOrGetter, ShallowRef } from "vue"
+import type { AgentInvocationSummary } from "../src/invocations.ts"
 
 describe("Agent Vue client types", () => {
   it("preserves AI SDK Vue message and transport types", () => {
@@ -29,5 +40,27 @@ describe("Agent Vue client types", () => {
     useChat(agent, staticInit)
     // @ts-expect-error Pretyped constructor-only options are also excluded from reactive getters.
     useChat(agent, () => staticInit)
+  })
+
+  it("exposes typed invocation list and detail resources", () => {
+    const request = null as unknown as AgentInvocationRequester
+    const list = useAgentInvocations({ immediate: false, request })
+    const detail = useAgentInvocation("inv-1", { immediate: false, request })
+
+    expectTypeOf(list.invocations).toEqualTypeOf<ShallowRef<readonly AgentInvocationSummary[]>>()
+    expectTypeOf(list.cursor).toEqualTypeOf<ShallowRef<string | undefined>>()
+    expectTypeOf(list.refresh).toBeFunction()
+    expectTypeOf(list.loadMore).toBeFunction()
+    expectTypeOf(list.isLoadingMore).toEqualTypeOf<ShallowRef<boolean>>()
+    expectTypeOf(list.stop).toBeFunction()
+    expectTypeOf(detail.invocation).toEqualTypeOf<ShallowRef<AgentInvocationSummary | null>>()
+    expectTypeOf(detail.observations).toEqualTypeOf<ShallowRef<readonly TraceEventLogEntry[]>>()
+    expectTypeOf(detail.refresh).toBeFunction()
+    expectTypeOf(detail.stop).toBeFunction()
+
+    // @ts-expect-error Invocation consoles must provide the transport their server exposes.
+    useAgentInvocations({ immediate: false })
+    // @ts-expect-error Invocation consoles must provide the transport their server exposes.
+    useAgentInvocation("inv-1", { immediate: false })
   })
 })

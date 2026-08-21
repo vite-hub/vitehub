@@ -43,7 +43,7 @@ type NuxtLike = {
   }
 }
 
-const agentVueComposables = ["useAgent", "useChat"]
+const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {

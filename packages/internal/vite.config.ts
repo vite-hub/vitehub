@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     dts: true,
     entry: [
+      "src/agent-workflow.ts",
       "src/arrays.ts",
       "src/cli.ts",
       "src/definition-catalog.ts",

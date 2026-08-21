@@ -42,8 +42,10 @@ function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel"
   })
 }
 
-function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string) {
-  const bindingName = binding || getCloudflareWorkflowBindingName(name)
+function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string, definition?: { internalAgentInvocationRecovery?: true }) {
+  const bindingName = definition?.internalAgentInvocationRecovery
+    ? getCloudflareWorkflowBindingName(name)
+    : binding || getCloudflareWorkflowBindingName(name)
   return getCloudflareEnv(event)?.[bindingName] as CloudflareWorkflowBinding | undefined
 }
 
@@ -64,11 +66,19 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
 }
 
+function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const details = (error as { details?: unknown }).details
+  return Boolean(details && typeof details === "object"
+    && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
+}
+
 function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
     cancel: () => unsupportedOperation("cloudflare", "cancellation"),
     async get({ event, id, name }) {
-      const binding = resolveCloudflareBinding(event, config.binding, name)
+      const definition = await loadWorkflowDefinition(name)
+      const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
@@ -83,17 +93,30 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       return await inlineAdapter(config).get({ event, id, name })
     },
     async run({ definition, event, id, name, options, payload }) {
-      const binding = resolveCloudflareBinding(event, config.binding, name)
+      const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
-        const start = runWorkflowProviderOperation("cloudflare", "create", () => binding.create({ id, params: payload }))
+        const start = () => runWorkflowProviderOperation(
+          "cloudflare",
+          "create",
+          async () => (await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id),
+          { acknowledgementUnknown: (_error, status) => status === undefined },
+        )
+        const creation = start().catch(async (firstError) => {
+          try {
+            return await start()
+          }
+          catch (retryError) {
+            if (hasUnknownWorkflowAcknowledgement(firstError)) throw firstError
+            throw retryError
+          }
+        })
         const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined
         if (waitUntil) {
-          waitUntil(start)
+          waitUntil(creation)
         }
-        const instance = await start
+        const instance = await creation
         return {
           id: instance.id,
-          metadata: await runWorkflowProviderOperation("cloudflare", "status", () => instance.status()),
           payload,
           provider: "cloudflare",
           status: "queued",

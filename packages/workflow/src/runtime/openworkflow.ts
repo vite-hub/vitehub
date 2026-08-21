@@ -1,6 +1,6 @@
 import { runWorkflowHandler } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
-import { runWorkflowProviderOperation } from "./provider-operation.ts"
+import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
@@ -196,6 +196,7 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
         ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
       }, run)
     },
+    sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
   }
 }
 
@@ -271,11 +272,16 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
+  let firstAcknowledgementUnknown = false
+  const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
+    const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
+    return await start().catch((error) => {
+      if (!options.id) throw error
+      firstAcknowledgementUnknown = getWorkflowProviderStatus(error) === undefined
+      return start()
+    })
+  }, { acknowledgementUnknown: (_error, status) => firstAcknowledgementUnknown || status === undefined })
   return await runWorkflowProviderOperation("openworkflow", "run", async () => {
-    const handle = await workflow.run(
-      payload,
-      options.id ? { idempotencyKey: options.id } : undefined,
-    )
     return {
       id: handle.workflowRun.id,
       metadata: {
