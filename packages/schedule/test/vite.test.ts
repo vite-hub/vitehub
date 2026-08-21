@@ -746,6 +746,24 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-sync.mjs"), "utf8")).rejects.toThrow()
   })
 
+  it("keeps suffix Schedule discovery relative to a nested Vite root", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-schedule-project-root-"))
+    const viteRoot = join(projectRoot, "apps", "web")
+    await mkdir(join(viteRoot, "src"), { recursive: true })
+    await mkdir(join(projectRoot, "apps", "sibling", "src"), { recursive: true })
+    await writeFile(join(viteRoot, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n")
+    await writeFile(join(projectRoot, "apps", "sibling", "src", "noise.schedule.ts"), "export default defineSchedule({ cron: '0 1 * * *', handler: () => {} })\n")
+
+    const plugin = hubSchedule({ projectRoot })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)({ root: viteRoot }, { command: "build", mode: "production" })
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({ build: { outDir: "dist" }, command: "build", resolve: { alias: [] }, root: viteRoot })
+    await (plugin.closeBundle as () => Promise<void>)()
+
+    const registry = await readFile(join(projectRoot, ".vitehub", "schedule", "registry.mjs"), "utf8")
+    expect(registry).toContain('"cleanup"')
+    expect(registry).not.toContain("noise")
+  })
+
   it("serves a stable lazy registry for discovered schedule files", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-"))
     await mkdir(join(root, "src"), { recursive: true })

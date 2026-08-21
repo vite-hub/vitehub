@@ -80,7 +80,7 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
   return await import("@workflow/builders") as VercelWorkflowBuilders
 }
 
-async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
+export async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
   return builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
@@ -179,7 +179,9 @@ export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: stri
     await writeFile(workflowBundle, await readFile(flowFile, "utf8"), "utf8")
     await writeFile(bootstrapEntry, [
       `import viteHubEmailDefinition from ${JSON.stringify(createImportPath(bootstrapEntry, emailDefinitionFile))}`,
+      `import workflowHandler from ${JSON.stringify(createImportPath(bootstrapEntry, workflowBundle))}`,
       `globalThis[Symbol.for("vitehub.email.definition")] = viteHubEmailDefinition`,
+      "export default workflowHandler",
       `export * from ${JSON.stringify(createImportPath(bootstrapEntry, workflowBundle))}`,
       "",
     ].join("\n"), "utf8")
@@ -196,8 +198,30 @@ export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: stri
   }
 }
 
+export async function cleanVercelNativeWorkflowOutput(rootDir: string): Promise<void> {
+  const outputRoot = resolve(rootDir, ".vercel", "output")
+  await rm(resolve(outputRoot, "functions", ".well-known", "workflow"), { force: true, recursive: true })
+  const configFile = resolve(outputRoot, "config.json")
+  let config: { routes?: Array<Record<string, unknown>>, [key: string]: unknown }
+  try {
+    config = JSON.parse(await readFile(configFile, "utf8"))
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+  if (!Array.isArray(config.routes)) return
+  const routes = config.routes.filter(route => !JSON.stringify(route).includes("/.well-known/workflow/v1/"))
+  if (routes.length !== config.routes.length) {
+    await writeFile(configFile, `${JSON.stringify({ ...config, routes }, null, 2)}\n`, "utf8")
+  }
+}
+
 async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): Promise<void> {
-  if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) return
+  if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) {
+    await cleanVercelNativeWorkflowOutput(rootDir)
+    return
+  }
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) {
     throw new Error("Native Vercel workflows require the optional workflow and @workflow/builders peer dependencies.")
@@ -270,6 +294,7 @@ interface GenerateProviderOutputsOptions {
   importBase?: string
   providerImportAliases?: Record<string, string>
   providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
+  definitionRootDir?: string
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
@@ -735,14 +760,15 @@ export async function writeProviderEntries(
   serverDirs?: string[],
   includeUserAppEntry = true,
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
+  definitionRootDir = rootDir,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const definitions = discoverWorkflowDefinitions({ rootDir, serverDirs })
+  const definitions = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
   const providerDefinitions = definitions
-  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(rootDir) : undefined
+  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
   const vercelNativeFile = resolve(generatedDir, "vercel-native.mjs")
@@ -902,7 +928,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry)
+  }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"

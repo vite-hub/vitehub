@@ -6,10 +6,11 @@ import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProvi
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { Plugin, ResolvedConfig } from "vite"
 
 interface WorkflowNitroConfigOptions {
@@ -25,6 +26,7 @@ export type WorkflowVitePlugin = Plugin & {
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
       prepareScheduleRuntime?: () => Promise<{
         bundleAlias: Record<string, string>
+        bundlePlugins?: EsbuildPlugin[]
         importBase: string
         native: boolean
         registryFile: string
@@ -97,8 +99,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, serverDirs, internalOptions?.includeUserAppEntry, (resolved.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry)
-    if (!artifacts.providerDefinitions.length) return
+      ?.vitehub?.agent?.transformWorkflowRegistry, resolved.root)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(rootDir, "package.json"))
     const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, providerImportAliases(), artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
@@ -116,6 +117,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
             }
           : {}),
       },
+      ...(native
+        ? { bundlePlugins: [await createVercelWorkflowTransformPlugin(rootDir)].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)) }
+        : {}),
       importBase,
       native,
       registryFile: artifacts.registryFile,
@@ -174,6 +178,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
           vercel: providerRuntimeImportAliases("vercel"),
         },
         rootDir: resolveViteHubProjectRoot(resolved.root),
+        definitionRootDir: resolved.root,
         serverDirs,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "workflow"),
         includeUserAppEntry: internalOptions?.includeUserAppEntry,

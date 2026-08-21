@@ -598,7 +598,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         },
         ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
         clientOutDir: resolved.build.outDir,
-        definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
+        definitions: emitStandaloneProviderOutput ? discoverViteSchedules() : [],
         rootDir: projectRoot ?? resolved.root,
         runtimeImport: internalOptions.runtimeImport,
         source: standaloneProviderSource,

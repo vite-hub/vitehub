@@ -65,6 +65,7 @@ interface GenerateProviderOutputsOptions {
 
 export interface ScheduleWorkflowRuntime {
   bundleAlias: Record<string, string>
+  bundlePlugins?: Plugin[]
   importBase: string
   native: boolean
   registryFile: string
@@ -355,7 +356,7 @@ export async function writeVercelScheduleFunctions(options: {
       external: options.bundleExternal,
       format: "esm",
       platform: "node",
-      plugins: [createScheduleDefinitionAliasPlugin()],
+      plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.rootDir,
     })
     await rm(wrapperFile, { force: true })

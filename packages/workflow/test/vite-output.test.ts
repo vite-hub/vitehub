@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -26,12 +26,25 @@ it("detects user-authored native Vercel workflow entries", async () => {
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
 })
 
+it("keeps suffix Workflow discovery relative to a nested Vite root", async () => {
+  const projectRoot = await createWorkspaceTempDir("vitehub-workflow-project-root-")
+  const viteRoot = join(projectRoot, "apps", "web")
+  await mkdir(join(viteRoot, "src"), { recursive: true })
+  await mkdir(join(projectRoot, "apps", "sibling", "src"), { recursive: true })
+  await writeFile(join(viteRoot, "src", "cleanup.workflow.ts"), "export default defineWorkflow(async () => undefined)\n")
+  await writeFile(join(projectRoot, "apps", "sibling", "src", "noise.workflow.ts"), "export default defineWorkflow(async () => undefined)\n")
+
+  const artifacts = await writeProviderEntries(projectRoot, false, {}, undefined, false, undefined, viteRoot)
+
+  expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
+})
+
 it("preserves WDK optional externals while installing the Email definition", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-bootstrap-")
   const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
   const emailDefinitionFile = join(rootDir, "email-definition.mjs")
   await mkdir(resolve(flowFile, ".."), { recursive: true })
-  await writeFile(flowFile, `import credentials from "@aws-sdk/credential-provider-web-identity"\nexport { credentials }\n`)
+  await writeFile(flowFile, `import credentials from "@aws-sdk/credential-provider-web-identity"\nexport { credentials }\nexport default async function handler() {}\n`)
   await writeFile(emailDefinitionFile, "export default { handler: async () => undefined }\n")
 
   await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
@@ -39,6 +52,24 @@ it("preserves WDK optional externals while installing the Email definition", asy
   const combinedFlow = await readFile(flowFile, "utf8")
   expect(combinedFlow).toContain("@aws-sdk/credential-provider-web-identity")
   expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+  expect(combinedFlow).toMatch(/export\s*\{[^}]*\s+as\s+default/)
+})
+
+it("removes stale WDK functions and routes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-clean-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
+  await writeFile(configFile, `${JSON.stringify({ routes: [
+    { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" },
+    { src: "/user", dest: "/user" },
+  ] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  expect(existsSync(workflowRoot)).toBe(false)
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
 })
 
 function resolvePlaygroundNodeModules() {
@@ -312,6 +343,7 @@ describe("Vite workflow provider outputs", () => {
     expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native.mjs"))).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
       .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+
   }, buildOutputTestTimeout)
 
   it("rejects native Vercel entries outside discovered definition directories", async () => {
