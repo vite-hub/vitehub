@@ -20,9 +20,26 @@ function agentOutputValidationError(code: AgentOutputValidationErrorCode, option
 }
 
 export async function normalizeNativeAgentOutputError(output: AgentOutputDefinition | undefined, error: unknown): Promise<never> {
-  const text = error && typeof error === "object" && "text" in error && typeof error.text === "string" && "name" in error && error.name === "AI_NoObjectGeneratedError" ? error.text : undefined
-  if (output && text !== undefined) await validateAgentOutput(output, text)
+  const failure = await nativeAgentOutputValidationFailure(output, error)
+  if (failure) throw failure.error
   throw error
+}
+
+export async function nativeAgentOutputValidationFailure(
+  output: AgentOutputDefinition | undefined,
+  error: unknown,
+): Promise<{ error: Error, text: string } | undefined> {
+  const text = error && typeof error === "object" && "text" in error && typeof error.text === "string" && "name" in error && error.name === "AI_NoObjectGeneratedError" ? error.text : undefined
+  if (!output || text === undefined) return
+  try {
+    await validateAgentOutput(output, text)
+  }
+  catch (validationError) {
+    if (isAgentOutputValidationError(validationError)) {
+      return { error: validationError as Error, text }
+    }
+    throw validationError
+  }
 }
 
 function isAgentOutputValidationError(value: unknown): boolean {

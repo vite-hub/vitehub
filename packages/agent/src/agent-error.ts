@@ -96,6 +96,10 @@ export type AgentPublicErrorCode =
   | "CAPABILITY_NOT_FOUND"
   | "INTERNAL"
   | "LLM_GATE_REJECTED"
+  | "PROVIDER_AUTHENTICATION_FAILED"
+  | "PROVIDER_QUOTA_EXHAUSTED"
+  | "PROVIDER_RATE_LIMITED"
+  | "PROVIDER_UNAVAILABLE"
   | "RATE_LIMIT_REJECTED"
   | "RATE_LIMIT_UNAVAILABLE"
   | "TRANSCRIPTION_AUTHENTICATION_FAILED"
@@ -143,8 +147,50 @@ function publicError(
   return { code, ...(details ? { details } : {}), error }
 }
 
+function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined {
+  const retry = readAgentErrorProperty(error, "name") === "AI_RetryError"
+    ? readAgentErrorProperty(error, "lastError")
+    : error
+  const name = readAgentErrorProperty(retry, "name")
+  if (name === "AI_LoadAPIKeyError") {
+    return publicError("PROVIDER_AUTHENTICATION_FAILED", "AI provider credentials were rejected.")
+  }
+  if (name !== "AI_APICallError") return
+
+  const status = readAgentErrorProperty(retry, "statusCode")
+  const data = readAgentErrorProperty(retry, "data")
+  const nested = readAgentErrorProperty(data, "error")
+  const code = [
+    readAgentErrorProperty(nested, "code"),
+    readAgentErrorProperty(nested, "type"),
+    readAgentErrorProperty(data, "code"),
+  ].find(value => typeof value === "string")
+  const quota = typeof code === "string" && [
+    "credit_balance_exhausted",
+    "insufficient_quota",
+    "organization_spend_limit_exceeded",
+    "organization_usage_limit_exceeded",
+    "project_spend_limit_exceeded",
+  ].includes(code)
+
+  if (status === 401 || status === 403 && !quota) {
+    return publicError("PROVIDER_AUTHENTICATION_FAILED", "AI provider credentials were rejected.")
+  }
+  if (status === 402 || quota) {
+    return publicError("PROVIDER_QUOTA_EXHAUSTED", "AI provider quota is exhausted.")
+  }
+  if (status === 429) {
+    return publicError("PROVIDER_RATE_LIMITED", "AI provider is temporarily rate limited. Try again later.")
+  }
+  if (typeof status === "number" && status >= 500) {
+    return publicError("PROVIDER_UNAVAILABLE", "AI provider is temporarily unavailable. Try again later.")
+  }
+}
+
 export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
   try {
+    const providerError = aiSdkProviderPublicError(error)
+    if (providerError) return providerError
     const viteHubError = getViteHubErrorShape(error)
     if (viteHubError?.code === "AUTHENTICATION_REQUIRED") {
       return publicError("AUTHENTICATION_REQUIRED", "Authentication required.")

@@ -2,13 +2,15 @@ import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
-import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
-import { chat, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
+import { createRateLimiter } from "@vite-hub/rate-limit"
+import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority, ViteHubError } from "@vite-hub/runtime"
+import { chat, mcp, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
-import type { AgentChannelDeliveryFinishEffectCallback, AgentFinishEvent } from "../src/index.ts"
+import type { AgentChannelDeliveryFinishEffectCallback, AgentChannelDeliveryFinishEffectResult, AgentFinishEvent } from "../src/index.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const loadAiSdk = vi.hoisted(() => vi.fn())
@@ -31,6 +33,35 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, reject, resolve }
+}
+
+function nativeSummarySchema() {
+  return {
+    "~standard": {
+      jsonSchema: {
+        input: () => ({
+          properties: { summary: { type: "string" }, title: { type: "string" } },
+          required: ["summary", "title"],
+          type: "object",
+        }),
+      },
+      validate: (value: unknown) => value
+        && typeof value === "object"
+        && typeof (value as { summary?: unknown }).summary === "string"
+        && typeof (value as { title?: unknown }).title === "string"
+        ? { value: value as { summary: string, title: string } }
+        : { issues: [{ message: "Expected a string", path: ["title"] }] },
+      vendor: "vitehub-test",
+      version: 1 as const,
+    },
+  }
+}
+
+function nativeOutputError(text: string) {
+  return Object.assign(new Error("No object generated"), {
+    name: "AI_NoObjectGeneratedError",
+    text,
+  })
 }
 
 async function failedTitleInvocation(options: {
@@ -4734,7 +4765,7 @@ describe("agent message protocol", () => {
   it("rejects overlap-policy concurrency with durable message delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
-    for (const concurrency of ["drop", "queue", "reject", "serial", "tenant-policy"] as const) {
+    for (const concurrency of ["drop", "queue", "reject", "serial", "steer", "tenant-policy"] as const) {
       expect(() => defineAgent({
         channels: { telegram: telegram({ adapter: () => ({}) as never }) },
         driver: { run: () => "ok" },
@@ -10262,6 +10293,1103 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("delivers durable failure fallbacks with completed write tool results", async () => {
+      const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const failure = Object.assign(new Error("provider unavailable"), {
+        name: "AI_APICallError",
+        statusCode: 503,
+      })
+      const fallback = vi.fn(({ toolResults }) => {
+        expect(toolResults).toEqual([expect.objectContaining({
+          input: { calories: 240 },
+          output: { id: "meal-1" },
+          toolName: "save_meal",
+        })])
+        return "The meal was saved, but I could not finish the reply."
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "meals",
+          mode: "write",
+          tools: {
+            save_meal: {
+              execute: () => ({ id: "meal-1" }),
+              name: "save_meal",
+            },
+          },
+        })],
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: {
+          run: async ({ tools }) => {
+            await tools!.save_meal!.execute!({ calories: 240 })
+            throw failure
+          },
+        },
+        messages: { errorFallbackText: fallback },
+      })
+
+      expect(agent.capabilities?.map(capability => capability.id)).toContain("chat")
+
+      await expect(runAgentWorkflowDefinition(agent, {
+        id: "run-after-write",
+        name: "calories",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "I ate skyr" } } },
+            prompt: "I ate skyr",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBe(failure)
+
+      expect(fallback).toHaveBeenCalledOnce()
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", {
+        markdown: "The meal was saved, but I could not finish the reply.",
+      })
+    })
+
+    it("delivers streamed tool results to durable failure fallbacks without duplicates", async () => {
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const fallback = vi.fn(({ toolResults }) => {
+        expect(toolResults).toEqual([{
+          output: { id: "meal-1" },
+          toolCallId: "save-1",
+          toolName: "save_meal",
+        }])
+        return "The streamed write completed before the failure."
+      })
+      const agent = defineAgent({
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: () => (async function* () {
+          yield { output: { id: "meal-1" }, toolCallId: "save-1", toolName: "save_meal", type: "tool-result" }
+          yield { output: { id: "meal-1" }, toolCallId: "save-1", toolName: "save_meal", type: "tool-result" }
+          throw new Error("stream failed")
+        })() },
+        messages: { errorFallbackText: fallback },
+      })
+
+      const stream = await streamAgent(agent, {
+        [agentWorkflowExecutionContextKey]: true,
+        memo: vi.fn(),
+        run: { channelId: "telegram", origin: "telegram", runId: "streamed-write-failure", threadId: "telegram:123" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        context: { channel: { message: { text: "Save this meal" } } },
+        prompt: "Save this meal",
+      }) as AsyncIterable<unknown>
+      await expect(async () => {
+        for await (const _event of stream) {}
+      }).rejects.toThrow("stream failed")
+
+      expect(fallback).toHaveBeenCalledOnce()
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "The streamed write completed before the failure." })
+    })
+
+    it("delivers UI-message stream tool results to durable failure fallbacks without duplicates", async () => {
+      const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+      const postMessage = vi.fn(async () => undefined)
+      let fallbackToolResults: unknown
+      const fallback = vi.fn(({ toolResults }) => {
+        fallbackToolResults = toolResults
+        return "The UI streamed write completed before the failure."
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "meals",
+          mode: "write",
+          tools: {
+            save_meal: {
+              execute: () => ({ id: "meal-1" }),
+              name: "save_meal",
+            },
+          },
+        })],
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: ({ tools }) => (async function* () {
+          await tools!.save_meal!.execute!({ calories: 240 }, { toolCallId: "save-1" })
+          yield { id: "save-1", name: "save_meal", output: { id: "meal-1" }, type: "tool-result" }
+          yield { id: "save-1", name: "save_meal", output: { id: "meal-1" }, type: "tool-result" }
+          throw new Error("UI stream failed")
+        })() },
+        messages: { errorFallbackText: fallback },
+        uiMessageStream: { tools: "hidden" },
+      })
+
+      const stream = await streamAgent(agent, {
+        [agentWorkflowExecutionContextKey]: true,
+        memo: vi.fn(),
+        run: { channelId: "telegram", origin: "telegram", runId: "ui-streamed-write-failure", threadId: "telegram:123" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        context: { channel: { message: { text: "Save this meal" } } },
+        prompt: "Save this meal",
+      }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      await expect(async () => {
+        for await (const _event of stream) {}
+      }).rejects.toThrow("UI stream failed")
+
+      expect(fallback).toHaveBeenCalledOnce()
+      expect(fallbackToolResults).toEqual([{
+        input: { calories: 240 },
+        output: { id: "meal-1" },
+        toolCallId: "save-1",
+        toolName: "save_meal",
+      }])
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "The UI streamed write completed before the failure." })
+    })
+
+    it("bounds durable prepared fallback delivery", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const postMessage = vi.fn(() => new Promise(() => undefined))
+        const agent = defineAgent({
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-prepared-fallback",
+          name: "failure",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error).toMatchObject({ isRetryable: false })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("bounds durable Agent error hooks", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const postMessage = vi.fn(async () => undefined)
+        let releaseErrorHook!: () => void
+        const errorHook = vi.fn((event: { input: { abortSignal?: AbortSignal }, reply: (message: string) => AgentChannelDeliveryFinishEffectResult }) => new Promise<AgentChannelDeliveryFinishEffectResult>((resolve) => {
+          releaseErrorHook = () => resolve(event.reply("Too late."))
+        }))
+        const agent = defineAgent({
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => { throw failure } },
+          hooks: { "agent:error": errorHook },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-error-hook",
+          name: "failure",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.waitFor(() => expect(errorHook).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({
+          isRetryable: false,
+          message: "Durable chat error fallback delivery timed out after 10ms.",
+        }))
+        expect(error).toMatchObject({ isRetryable: false })
+        expect(errorHook.mock.calls[0]?.[0].input.abortSignal).toMatchObject({ aborted: true })
+        releaseErrorHook()
+        await vi.runAllTimersAsync()
+        expect(postMessage).toHaveBeenCalledOnce()
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("delivers durable fallbacks before a stalled title effect and bounds the complete finish path", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { defineFinishEffect, telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const postMessage = vi.fn(async () => undefined)
+        const setThreadTitle = vi.fn(() => new Promise(() => undefined))
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "thread-title",
+            prepare(context) {
+              const effect = defineFinishEffect(() => ({ kind: "title", payload: { title: "Prepared title" } }))
+              effect.kind = "title"
+              context.delivery.finishEffect(effect)
+            },
+          })],
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+                setThreadTitle,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-title-before-fallback",
+          name: "failure",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              messages: [createMessage({ role: "user", text: "Hello" })],
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        expect(setThreadTitle).toHaveBeenCalledOnce()
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error).toMatchObject({ isRetryable: false })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("starts the durable failure deadline before title-support adapter resolution", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { defineFinishEffect, telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const adapter = vi.fn(() => new Promise(() => undefined) as never)
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "thread-title",
+            prepare(context) {
+              const effect = defineFinishEffect(() => ({ kind: "title", payload: { title: "Prepared title" } }))
+              effect.kind = "title"
+              context.delivery.finishEffect(effect)
+            },
+          })],
+          channels: {
+            telegram: telegram({ adapter }),
+          },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-title-adapter-resolution",
+          name: "failure",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              messages: [createMessage({ role: "user", text: "Hello" })],
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(adapter).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error).toMatchObject({ isRetryable: false })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("delivers durable fallbacks before a stalled finish extension and bounds completion", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const postMessage = vi.fn(async () => undefined)
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "stalled-finish-extension",
+            prepare(context) {
+              context.finish.provide(() => new Promise(() => undefined))
+            },
+          })],
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "stalled-finish-extension",
+          name: "failure",
+          payload: {
+            input: { context: { channel: { message: { text: "Hello" } } }, prompt: "Hello" },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error).toMatchObject({ isRetryable: false })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("does not apply chat fallback deadlines to non-channel Workflow invocations", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        const settled = vi.fn()
+        let releaseExtension!: () => void
+        const finishExtension = vi.fn(() => new Promise<{ ready: true }>((resolve) => {
+          releaseExtension = () => resolve({ ready: true })
+        }))
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "slow-finish-extension",
+            prepare(context) {
+              context.finish.provide(finishExtension)
+            },
+          })],
+          channels: { telegram: telegram({ adapter: vi.fn() as never }) },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "non-channel-workflow",
+          name: "failure",
+          payload: { input: { prompt: "scheduled work" }, run: { origin: "schedule" } },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error).then((error) => {
+          settled()
+          return error
+        })
+
+        await vi.waitFor(() => expect(finishExtension).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        expect(settled).not.toHaveBeenCalled()
+        releaseExtension()
+        expect(await result).toBe(failure)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("does not apply fallback deadlines when durable error fallbacks are disabled", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        const failure = new Error("provider failed")
+        let releaseExtension!: () => void
+        const finishExtension = vi.fn(() => new Promise<{ ready: true }>((resolve) => {
+          releaseExtension = () => resolve({ ready: true })
+        }))
+        const settled = vi.fn()
+        const agent = defineAgent({
+          capabilities: [defineCapability({
+            id: "slow-finish-extension",
+            prepare(context) {
+              context.finish.provide(finishExtension)
+            },
+          })],
+          channels: { telegram: telegram({ adapter: vi.fn() as never }) },
+          driver: { run: async () => { throw failure } },
+          messages: { errorFallbackText: null, timeout: 10 },
+        })
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "disabled-error-fallback",
+          name: "failure",
+          payload: {
+            input: { context: { channel: { message: { text: "Hello" } } }, prompt: "Hello" },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error).then((error) => {
+          settled()
+          return error
+        })
+
+        await vi.waitFor(() => expect(finishExtension).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        expect(settled).not.toHaveBeenCalled()
+        releaseExtension()
+        expect(await result).toBe(failure)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("delivers durable failure fallbacks when Capability setup fails", async () => {
+      const { defineAgent, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const failure = new Error("Capability setup failed")
+      const agent = defineAgent({
+        capabilities: async () => { throw failure },
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => ({ text: "unreachable" }) },
+        messages: {
+          errorFallbackText: async ({ thread }) => {
+            await thread.post("Please try again.")
+            return "Do not duplicate the posted fallback."
+          },
+        },
+      })
+
+      await expect(runAgentWorkflowDefinition(agent, {
+        id: "run-before-capabilities",
+        name: "setup",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBe(failure)
+
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
+      expect(postMessage).toHaveBeenCalledOnce()
+    })
+
+    it("does not resolve chat fallbacks for non-chat Workflow invocations", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+      const failure = new Error("Scheduled Capability setup failed")
+      const fallback = vi.fn(() => "Please try again.")
+      const agent = defineAgent({
+        capabilities: async () => { throw failure },
+        driver: { run: async () => ({ text: "unreachable" }) },
+        messages: { errorFallbackText: fallback },
+      })
+
+      await expect(runAgent(agent, {
+        [agentWorkflowExecutionContextKey]: true,
+        memo: vi.fn(),
+        run: { origin: "schedule", runId: "scheduled-setup-failure" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, { prompt: "Run the scheduled task" })).rejects.toBe(failure)
+
+      expect(fallback).not.toHaveBeenCalled()
+    })
+
+    it("bounds durable setup fallback delivery", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+        const failure = new Error("Capability setup failed")
+        const agent = defineAgent({
+          capabilities: async () => { throw failure },
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage: () => new Promise(() => undefined),
+              }) as never,
+            }),
+          },
+          driver: { run: async () => ({ text: "unreachable" }) },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+
+        const result = runAgent(agent, {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: { channelId: "telegram", origin: "telegram", runId: "stalled-setup-fallback", threadId: "telegram:123" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: { channel: { message: { text: "Hello" } } },
+          prompt: "Hello",
+        }).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("shares the durable setup fallback deadline across resolution and delivery", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+        const failure = new Error("Capability setup failed")
+        const postMessage = vi.fn(() => new Promise(() => undefined))
+        const agent = defineAgent({
+          capabilities: async () => { throw failure },
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => ({ text: "unreachable" }) },
+          messages: {
+            errorFallbackText: async () => {
+              await new Promise(resolve => setTimeout(resolve, 8))
+              return "Please try again."
+            },
+            timeout: 10,
+          },
+        })
+
+        const result = runAgent(agent, {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: { channelId: "telegram", origin: "telegram", runId: "shared-setup-deadline", threadId: "telegram:123" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: { channel: { message: { text: "Hello" } } },
+          prompt: "Hello",
+        }).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(8)
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(2)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors).toContain(failure)
+        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("does not deliver setup fallbacks that resolve after the durable deadline", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+        const failure = new Error("Capability setup failed")
+        const postMessage = vi.fn(async () => undefined)
+        const agent = defineAgent({
+          capabilities: async () => { throw failure },
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => ({ text: "unreachable" }) },
+          messages: {
+            errorFallbackText: async () => {
+              await new Promise(resolve => setTimeout(resolve, 12))
+              return "Too late."
+            },
+            timeout: 10,
+          },
+        })
+
+        const result = runAgent(agent, {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: { channelId: "telegram", origin: "telegram", runId: "late-setup-fallback", threadId: "telegram:123" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: { channel: { message: { text: "Hello" } } },
+          prompt: "Hello",
+        }).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        await vi.advanceTimersByTimeAsync(2)
+        expect(postMessage).not.toHaveBeenCalled()
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("delivers durable setup fallbacks for capacity-limited Agents", async () => {
+      const { defineAgent, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const failure = new Error("Capacity-limited Capability setup failed")
+      const agent = defineAgent({
+        capabilities: async () => { throw failure },
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: {
+          capacity: { concurrency: 1 },
+          run: async () => ({ text: "unreachable" }),
+        },
+        messages: { errorFallbackText: "Please try again." },
+      })
+
+      await expect(runAgentWorkflowDefinition(agent, {
+        id: "capacity-setup-failure",
+        name: "setup",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBe(failure)
+
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
+      expect(postMessage).toHaveBeenCalledOnce()
+    })
+
+    it("awaits durable failure finalization when Workflow capacity acquisition fails", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        let releaseDriver!: () => void
+        const driverGate = new Promise<void>((resolve) => { releaseDriver = resolve })
+        const postMessage = vi.fn(() => new Promise(() => undefined))
+        const driverRun = vi.fn(async () => {
+          await driverGate
+          return { text: "done" }
+        })
+        const agent = defineAgent({
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: {
+            capacity: { concurrency: 1, queue: { maxPending: 1, timeout: 1 } },
+            run: driverRun,
+          },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+        const first = runAgent(agent, {
+          memo: vi.fn(),
+          run: { origin: "test", runId: "capacity-holder" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, { prompt: "Hold capacity" })
+        await vi.waitFor(() => expect(driverRun).toHaveBeenCalledOnce())
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "capacity-timeout-fallback",
+          name: "capacity",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(1)
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors[0]).toMatchObject({ code: "AGENT_CAPACITY_QUEUE_TIMEOUT" })
+        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
+
+        releaseDriver()
+        await first
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("delivers durable failure fallbacks when Capability cleanup also fails", async () => {
+      const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const providerFailure = new Error("provider failed")
+      const cleanupFailure = new Error("Capability cleanup failed")
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          close: async () => { throw cleanupFailure },
+          id: "cleanup-failure",
+        })],
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => { throw providerFailure } },
+        messages: { errorFallbackText: "The request failed." },
+      })
+
+      await expect(runAgentWorkflowDefinition(agent, {
+        id: "cleanup-failure",
+        name: "cleanup",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBeInstanceOf(AggregateError)
+
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "The request failed." })
+      expect(postMessage).toHaveBeenCalledOnce()
+    })
+
+    it("delivers durable failure fallbacks when Capability cleanup is the only failure", async () => {
+      const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const postMessage = vi.fn(async () => undefined)
+      const errorHook = vi.fn(async () => undefined)
+      const cleanupFailure = new Error("Capability cleanup failed")
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          close: async () => { throw cleanupFailure },
+          id: "cleanup-only-failure",
+        })],
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => ({ text: "completed before cleanup" }) },
+        hooks: { "agent:error": errorHook },
+        messages: { errorFallbackText: "Cleanup failed after completion." },
+      })
+
+      await expect(runAgentWorkflowDefinition(agent, {
+        id: "cleanup-only-failure",
+        name: "cleanup",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline)).rejects.toBe(cleanupFailure)
+
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Cleanup failed after completion." })
+      expect(postMessage).toHaveBeenCalledOnce()
+      expect(errorHook).not.toHaveBeenCalled()
+    })
+
+    it("preserves cleanup failures when later Agent error handling also fails", async () => {
+      const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const providerFailure = new Error("provider failed")
+      const cleanupFailure = new Error("Capability cleanup failed")
+      const hookFailure = new Error("Agent error hook failed")
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          close: async () => { throw cleanupFailure },
+          id: "combined-failures",
+        })],
+        channels: {
+          telegram: telegram({
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage: async () => undefined,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => { throw providerFailure } },
+        hooks: { "agent:error": async () => { throw hookFailure } },
+        messages: { errorFallbackText: "The request failed." },
+      })
+
+      const failure = await runAgentWorkflowDefinition(agent, {
+        id: "combined-failures",
+        name: "cleanup",
+        payload: {
+          input: {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        },
+        provider: "cloudflare",
+      }, runAgentInline).catch(error => error)
+      const errors = (function flatten(error: unknown): unknown[] {
+        return error instanceof AggregateError ? error.errors.flatMap(flatten) : [error]
+      })(failure)
+
+      expect(errors).toEqual(expect.arrayContaining([providerFailure, cleanupFailure, hookFailure]))
+    })
+
+    it("bounds durable error fallback callbacks", async () => {
+      vi.useFakeTimers()
+      const { resolveDurableChatErrorFallbackText } = await import("../src/chat-trigger.ts")
+      const resolution = resolveDurableChatErrorFallbackText({
+        errorFallbackText: () => new Promise(() => undefined),
+        timeout: 10,
+      }, {
+        error: new Error("provider failed"),
+        history: [],
+        message: { text: "hello" },
+        publicError: { code: "INTERNAL", error: "Internal error" },
+        thread: { post: async () => undefined },
+        toolResults: [],
+      })
+
+      await vi.advanceTimersByTimeAsync(10)
+      await expect(resolution).resolves.toBe("Sorry, I couldn't process that message.")
+      vi.useRealTimers()
+    })
+
+    it("ignores fallback posts after durable callback resolution times out", async () => {
+      vi.useFakeTimers()
+      try {
+        const { resolveDurableChatErrorFallbackIntents } = await import("../src/chat-trigger.ts")
+        const resolution = resolveDurableChatErrorFallbackIntents({
+          errorFallbackText: async ({ thread }) => {
+            await new Promise(resolve => setTimeout(resolve, 20))
+            await thread.post("late fallback")
+          },
+          timeout: 10,
+        }, {
+          error: new Error("provider failed"),
+          history: [],
+          message: { text: "hello" },
+          publicError: { code: "INTERNAL", error: "Internal error" },
+          toolResults: [],
+        })
+
+        await vi.advanceTimersByTimeAsync(10)
+        const intents = await resolution
+        expect(intents).toHaveLength(1)
+        await vi.advanceTimersByTimeAsync(20)
+        expect(intents).toHaveLength(1)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it.each([
+      Object.assign(new Error("invalid provider request"), { name: "AI_APICallError", statusCode: 400 }),
+      new ViteHubError("AGENT_OUTPUT_SCHEMA_INVALID", "output failed schema validation"),
+    ])("marks permanent Agent Workflow failures as non-retryable", async (failure) => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "terminal-agent-failure",
+        name: "agent",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("preserves permanent failure classification through finish failures", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const providerFailure = Object.assign(new Error("invalid provider request"), { name: "AI_APICallError", statusCode: 400 })
+      const failure = new AggregateError([providerFailure, new Error("fallback delivery failed")])
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "terminal-aggregate-failure",
+        name: "agent",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("leaves transient provider failures retryable at safe inner seams", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const failure = Object.assign(new Error("provider unavailable"), {
+        name: "AI_APICallError",
+        statusCode: 503,
+      })
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "transient-agent-failure",
+        name: "agent",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => { throw failure })).rejects.toBe(failure)
+      expect(failure).not.toHaveProperty("isRetryable")
+    })
+
+    it("marks exhausted transient provider retries as non-retryable at the Workflow boundary", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const failure = Object.assign(new Error("provider retries exhausted"), {
+        lastError: Object.assign(new Error("provider unavailable"), {
+          name: "AI_APICallError",
+          statusCode: 503,
+        }),
+        name: "AI_RetryError",
+      })
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "exhausted-transient-provider-failure",
+        name: "agent",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("normalizes noncloneable Agent results before Workflow completion", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -10504,6 +11632,98 @@ describe("agent message protocol", () => {
         payload: {},
         provider: "vercel",
       }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it.each(["success", "failure"] as const)("retains Workflow background work through %s", async (outcome) => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let release!: () => void
+      const pending = new Promise<void>(resolve => { release = resolve })
+      let settled = false
+      const workflow = runAgentWorkflowDefinition({} as never, {
+        id: `background-${outcome}`,
+        name: `background-${outcome}`,
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        context.waitUntil(pending)
+        if (outcome === "failure") throw new Error("Agent failed")
+        return "ok"
+      })
+      void workflow.finally(() => { settled = true }).catch(() => {})
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      release()
+      if (outcome === "failure") await expect(workflow).rejects.toThrow("Agent failed")
+      else await expect(workflow).resolves.toBe("ok")
+    })
+
+    it("retains Workflow background work registered during cleanup", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let releaseFirst!: () => void
+      let releaseSecond!: () => void
+      const second = new Promise<void>(resolve => { releaseSecond = resolve })
+      let runtimeContext!: { waitUntil: (task: Promise<unknown>) => void }
+      const first = new Promise<void>(resolve => { releaseFirst = resolve }).then(() => runtimeContext.waitUntil(second))
+      let markRegistered!: () => void
+      const registered = new Promise<void>(resolve => { markRegistered = resolve })
+      let settled = false
+      const workflow = runAgentWorkflowDefinition({} as never, {
+        id: "nested-background",
+        name: "nested-background",
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        runtimeContext = context
+        context.waitUntil(first)
+        markRegistered()
+        return "ok"
+      })
+      void workflow.finally(() => { settled = true })
+
+      await registered
+      releaseFirst()
+      await first
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      releaseSecond()
+      await expect(workflow).resolves.toBe("ok")
+    })
+
+    it("observes Workflow background failures while the invocation is pending", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let rejectTask!: (error: Error) => void
+      let releaseRun!: () => void
+      let markRegistered!: () => void
+      const task = new Promise<void>((_resolve, reject) => { rejectTask = reject })
+      const run = new Promise<void>(resolve => { releaseRun = resolve })
+      const registered = new Promise<void>(resolve => { markRegistered = resolve })
+      const unhandled = vi.fn()
+      process.on("unhandledRejection", unhandled)
+
+      try {
+        const workflow = runAgentWorkflowDefinition({} as never, {
+          id: "background-rejection",
+          name: "background-rejection",
+          payload: {},
+          provider: "vercel",
+        }, async (_agent, context) => {
+          context.waitUntil(task)
+          markRegistered()
+          await run
+          return "ok"
+        })
+        await registered
+        rejectTask(new Error("background failed"))
+        await new Promise(resolve => setImmediate(resolve))
+        expect(unhandled).not.toHaveBeenCalled()
+        releaseRun()
+        await expect(workflow).resolves.toBe("ok")
+      }
+      finally {
+        process.off("unhandledRejection", unhandled)
+      }
     })
 
     it("rejects sparse arrays whose custom properties mask missing indices", async () => {

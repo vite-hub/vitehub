@@ -89,6 +89,23 @@ describe("gmail capability", () => {
     }
   })
 
+  it("forwards only the configured Gmail keyring secret to Gmail commands", async () => {
+    vi.stubEnv("GOG_KEYRING_PASSWORD", "keyring-secret")
+    vi.stubEnv("UNRELATED_APPLICATION_SECRET", "do-not-forward")
+    const runtime = await capabilityTools(gmail(), args => result(args[0] === "auth"
+      ? '{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}'
+      : '{"threads":[]}'))
+
+    await runtime.tools.gmail_search!.execute?.({ account: "test@example.com" })
+
+    for (const session of runtime.sessions) {
+      expect(session.exec).toHaveBeenCalledWith("gog", expect.any(Array), expect.objectContaining({
+        env: { GOG_KEYRING_PASSWORD: "keyring-secret" },
+      }))
+    }
+    vi.unstubAllEnvs()
+  })
+
   it("returns structured authorization states and validates the continuation", async () => {
     let state: "compose-only" | "connected" | "configuration" | "disconnected" | "invalid-url" = "connected"
     const calls: string[][] = []

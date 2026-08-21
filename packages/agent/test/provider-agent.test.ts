@@ -505,6 +505,50 @@ describe("Provider Agent Driver", () => {
     expect(provider.respondToRequest).not.toHaveBeenCalled()
   })
 
+  it("does not execute Capability calls canceled during asynchronous validation", async () => {
+    let finishValidation!: () => void
+    let validationStarted!: () => void
+    const validationReady = new Promise<void>(resolve => validationStarted = resolve)
+    const validationRelease = new Promise<void>(resolve => finishValidation = resolve)
+    const controller = new AbortController()
+    const execute = vi.fn(async () => undefined)
+    runtime("thread-tool-validation-cancel", [event("turn.completed", "thread-tool-validation-cancel", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        const toolCall = client.callTool({ arguments: {}, name: "delayed" }, undefined, { signal: controller.signal }).finally(() => client.close())
+        await validationReady
+        controller.abort()
+        finishValidation()
+        await expect(toolCall).rejects.toThrow(/AbortError/)
+      },
+    })
+    const tools = {
+      delayed: {
+        execute,
+        inputSchema: {
+          "~standard": {
+            jsonSchema: { input: () => ({ additionalProperties: false, properties: {}, type: "object" }) },
+            async validate(value: unknown) {
+              validationStarted()
+              await validationRelease
+              return { value }
+            },
+            vendor: "vitehub-test",
+            version: 1 as const,
+          },
+        },
+        name: "delayed",
+      },
+    }
+
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context("thread-tool-validation-cancel", { tools }) as never)).resolves.toBeDefined()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["clean", { exitKind: "clean" }],
     ["recoverable error", { exitKind: "error", reason: "provider restarted", recoverable: true }],

@@ -10,6 +10,7 @@ const projectRootDirectoryMarkers = [
   ["server", "agents"],
   ["server", "channels"],
   ["server", "browsers"],
+  ["server", "emails"],
   ["server", "schedules"],
   ["server", "templates"],
   ["server", "workspaces"],

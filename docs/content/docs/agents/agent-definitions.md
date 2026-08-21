@@ -87,6 +87,8 @@ export default defineAgent({
 
 Inline `runAgent()` execution returns the validated structured result. A schema failure fails the invocation instead of returning unchecked model output. Workflow-backed calls return an `AgentWorkflowRun` after the Workflow starts. Poll `getWorkflowRun(workflowName, run.id)` until its status is `completed`, then read `result` for the validated Agent value. Treat `failed`, `cancelled`, and `unknown` as terminal states instead of waiting indefinitely.
 
+When a model returns invalid native structured output, the Agent Driver makes one output-only correction call before failing validation. The correction keeps the invocation's prepared model and provider route, but it does not replay conversation messages or expose tools, so completed tool effects cannot run again. Tool results remain available as bounded evidence for the corrected output. Usage records include both model calls, with per-call attribution, aggregate token totals, and aggregate cost when provider metadata or configured pricing supplies it.
+
 ## Choose hosted execution
 
 Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
@@ -108,6 +110,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
 | `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. |
 | `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
+| `telemetry` | Exports completed invocation traces without changing Agent output. |
 | `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |
 | `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |
 

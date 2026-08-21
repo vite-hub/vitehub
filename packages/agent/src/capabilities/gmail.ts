@@ -169,9 +169,11 @@ function gmailAuthorizationUrl(value: unknown): string {
 }
 
 async function runGmailCommand(args: string[], context: AgentCapabilityContext, execution?: AgentToolExecutionContext): Promise<string> {
+  const keyringPassword = process.env.GOG_KEYRING_PASSWORD
   return (await executeWorkspaceCommand(context.workspace, "gog", args, {
     abortSignal: execution?.abortSignal || context.abortSignal,
     check: true,
+    env: keyringPassword === undefined ? undefined : { GOG_KEYRING_PASSWORD: keyringPassword },
     timeout: 60_000,
   }, context.context)).stdout
 }

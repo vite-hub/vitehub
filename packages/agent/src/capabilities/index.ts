@@ -90,6 +90,9 @@ export {
   elevenLabsScribe,
 } from "./transcription-elevenlabs.ts"
 export {
+  openRouterTranscriptionModel,
+} from "./transcription-openrouter.ts"
+export {
   cost,
   vercelAiGatewayPricing,
 } from "./cost.ts"
@@ -347,6 +350,9 @@ export type {
 export type {
   ElevenLabsScribeOptions,
 } from "./transcription-elevenlabs.ts"
+export type {
+  OpenRouterTranscriptionModelOptions,
+} from "./transcription-openrouter.ts"
 export type {
   BlobCapabilityOptions,
 } from "./storage/blob.ts"

@@ -1,24 +1,26 @@
 # `@vite-hub/browser`
 
-Browser Definitions for deterministic server-side browser automation.
+Browser Definitions and provider-backed actions for deterministic server-side browser automation.
 
-ViteHub selects the browser provider from the deployment preset. Application code defines a browser operation and opens an invocation-scoped session:
+Use an action directly when the operation does not need a persistent session:
+
+```ts
+import { runBrowserContent } from "@vite-hub/browser/actions"
+
+const [error, html] = await runBrowserContent("https://example.com")
+if (error) throw error
+```
+
+Application code can also define a named browser operation without exposing its provider:
 
 ```ts
 import { defineBrowser } from "@vite-hub/browser"
 
 export default defineBrowser(async (
-  input: {
-    url: string
-    selector?: string
-  },
+  input: { url: string },
   { browser },
 ) => {
-  const session = await browser.open()
-  await session.page.goto(input.url)
-  return await session.page.locator(input.selector ?? "body").screenshot({
-    type: "png",
-  })
+  return await browser.content(input.url)
 })
 ```
 
@@ -49,17 +51,24 @@ export default defineConfig({
 })
 ```
 
-ViteHub generates the Cloudflare Browser Run binding and uses Kitesurf by default. It closes every session after its Browser Definition completes or throws. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`. A definition can open more than one session; each one belongs to that invocation.
+ViteHub generates the Cloudflare Browser Run binding and uses its Quick Actions directly for `browser.content()` and `browser.run()`. The Kitesurf default applies only when `browser.open()` creates a full browser session. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`.
 
-Kitesurf uses Cloudflare's service-defined session timeout and rejects `idleTimeoutMs`. Select `engine: "chromium"` when an invocation must configure a persistent session's idle timeout.
+Use a definition-owned page when the operation needs multiple interactions. ViteHub controls the page through CDP and closes it after the definition finishes.
+
+Kitesurf sessions work with the Browser binding alone. When `browser: { engine: "chromium" }` opens a persistent Chromium session, install the optional `@cloudflare/playwright` and `playwright-core` peers used to acquire that session.
 
 ## Low-level sessions
 
-`createBrowser()` remains available for standalone integrations where the caller owns provider selection and cleanup. Controller attachment is imperative:
+`createBrowser()` remains available for standalone integrations where the caller explicitly owns provider selection, controller selection, and cleanup. Playwright stays on this path instead of being selected implicitly by a Browser Definition:
 
 ```ts
+import { createBrowser } from "@vite-hub/browser"
+import { playwright } from "@vite-hub/browser/controllers/playwright"
+import { cloudflareBrowser } from "@vite-hub/browser/providers/cloudflare"
+
+const browser = createBrowser({ provider: cloudflareBrowser() })
 const session = await browser.open()
-const control = await session.attach(controller)
+const control = await session.attach(playwright())
 
 try {
   await control.client.doSomething()

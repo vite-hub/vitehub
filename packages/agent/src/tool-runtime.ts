@@ -123,6 +123,12 @@ function createToolCallId(name: string): string {
   return `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+function toolCallIdFromExecutionOptions(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return
+  const toolCallId = (value as { toolCallId?: unknown }).toolCallId
+  return typeof toolCallId === "string" && toolCallId ? toolCallId : undefined
+}
+
 function getErrorOutput(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -193,7 +199,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
       async execute(input: unknown, ...args: unknown[]) {
         const toolCall: AgentToolStepItem = {
           input,
-          toolCallId: createToolCallId(name),
+          toolCallId: toolCallIdFromExecutionOptions(args[0]) ?? createToolCallId(name),
           toolName: name,
         }
 

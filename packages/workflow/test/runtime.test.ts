@@ -676,6 +676,44 @@ describe("workflow runtime", () => {
     expect(stepDo.mock.calls.map(call => call[0])).toEqual(["pipeline/01.first", "pipeline/02.second"])
   })
 
+  it("does not replay a root handler after a completed write", async () => {
+    const transient = Object.assign(new Error("provider unavailable"), {
+      name: "AI_APICallError",
+      statusCode: 503,
+    })
+    let writes = 0
+    const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => Promise<unknown>) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          return await run()
+        }
+        catch (error) {
+          if (attempt === 3) throw error
+        }
+      }
+    })
+
+    await expect(runCloudflareWorkflow({
+      config: { provider: "cloudflare" },
+      env: {},
+      event: { id: "run-after-write" },
+      name: "agent",
+      registry: {
+        agent: async () => {
+          createWorkflow("agent", async () => {
+            writes += 1
+            throw transient
+          }, { rootStep: false })
+          return { default: takeInlineWorkflowDefinition("agent")! }
+        },
+      },
+      step: { do: stepDo } as WorkflowProviderStep,
+    })).rejects.toBe(transient)
+
+    expect(writes).toBe(1)
+    expect(stepDo).not.toHaveBeenCalled()
+  })
+
   it("runs inline folder workflows through generated step wrappers", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     const step = { do: stepDo } as WorkflowProviderStep

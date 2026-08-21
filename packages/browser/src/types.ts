@@ -4,16 +4,21 @@ import type {
   TraceEvent,
   ViteHubError,
 } from "@vite-hub/runtime"
-import type {
-  Browser as PlaywrightBrowser,
-  BrowserContext,
-  Download as PlaywrightDownload,
-  Page,
-} from "playwright-core"
-
-export type BrowserDownload = PlaywrightDownload
 
 export type BrowserEngine = "chromium" | "kitesurf"
+
+export type BrowserAction =
+  | "accessibilityTree"
+  | "content"
+  | "json"
+  | "links"
+  | "markdown"
+  | "pdf"
+  | "scrape"
+  | "screenshot"
+  | "snapshot"
+
+export type BrowserActionInput = string | ({ url?: string } & Record<string, unknown>)
 
 export interface BrowserFeatures {
   liveHandoff: boolean
@@ -121,17 +126,44 @@ export interface CreateBrowserOptions<TConnection> {
   trace?: (event: TraceEvent) => MaybePromise<void>
 }
 
+export interface BrowserLocatorOptions {
+  hasText?: string
+}
+
+export interface BrowserLocatorWaitOptions {
+  state?: "visible"
+  timeoutMs?: number
+}
+
+export interface BrowserLocator {
+  click(): Promise<void>
+  count(): Promise<number>
+  fill(value: string): Promise<void>
+  inputValue(): Promise<string>
+  waitFor(options?: BrowserLocatorWaitOptions): Promise<void>
+}
+
+export interface BrowserPageGotoOptions {
+  timeoutMs?: number
+}
+
+export interface BrowserPage {
+  goto(url: string, options?: BrowserPageGotoOptions): Promise<void>
+  locator(selector: string, options?: BrowserLocatorOptions): BrowserLocator
+  press(key: string): Promise<void>
+}
+
 export interface BrowserPageSession {
-  readonly browser: PlaywrightBrowser
-  readonly context: BrowserContext
   readonly id: string
-  readonly page: Page
+  readonly page: BrowserPage
   close(): Promise<void>
   inspect(): BrowserSessionInfo
 }
 
 export interface BrowserDefinitionBrowser {
+  content(input: BrowserActionInput): Promise<string>
   open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession>
+  run(action: BrowserAction, input: BrowserActionInput): Promise<Response>
 }
 
 export interface BrowserDefinitionContext {
@@ -158,6 +190,6 @@ export type BrowserDefinitionRegistry = Record<
 
 export interface BrowserRuntimeConfig {
   binding: string
-  engine?: BrowserEngine
+  engine: BrowserEngine
   provider?: "cloudflare"
 }

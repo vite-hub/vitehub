@@ -518,10 +518,9 @@ describe("agent eval", () => {
   })
 
   it.each([
-    ["provider name", "codex", "o4-mini"],
-    ["tagged provider", { kind: "codex" }, { id: "o4-mini" }],
-    ["LanguageModel", { kind: "codex" }, { doGenerate() {}, doStream() {}, modelId: "o4-mini", provider: "openai" }],
-  ])("applies model variants to the %s form", async (_name, driver, model) => {
+    ["provider name", "codex"],
+    ["tagged provider", { kind: "codex" }],
+  ])("applies string model variants to the %s form", async (_name, driver) => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
 
@@ -529,12 +528,30 @@ describe("agent eval", () => {
       agent: defineAgent({ driver: driver as never }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
-      variants: [{ instructions: "Variant instructions.", model: model as never, name: "variant" }],
+      variants: [{ instructions: "Variant instructions.", model: "o4-mini", name: "variant" }],
     })
 
     await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
 
     expect(providerStarts.at(-1)).toMatchObject({ model: "o4-mini" })
+  })
+
+  it.each([
+    ["gateway descriptor", { apiKey: "variant-secret", id: "o4-mini" }],
+    ["LanguageModel", { doGenerate() {}, doStream() {}, modelId: "o4-mini", provider: "openai" }],
+  ])("rejects ambiguous provider %s variants without losing their semantics", async (_name, model) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: defineAgent({ driver: "codex" }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ model: model as never, name: "variant" }],
+    })
+
+    await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input))
+      .rejects.toThrow("require a string model id")
   })
 
   it("rejects variant overrides for non-inspectable agents", async () => {

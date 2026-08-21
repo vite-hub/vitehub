@@ -8,7 +8,7 @@ import { awaitAgentInvocationResult } from "../agent-invocation.ts"
 import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
-import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
+import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
 import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatSessionBaseId, resolveChatSessionId, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
@@ -200,7 +200,6 @@ type AgentDefinitionWithCapabilities = {
   chat?: AgentChatOptions
 }
 
-const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
 const chatNativeStreamUpdateIntervalMs = 1
 const chatTypingRefreshIntervalMs = 4000
@@ -2468,10 +2467,12 @@ function createChatSdkConfig(
   const identity: ChatConfig["identity"] = options?.identity ?? (options?.transcripts
     ? ({ author }) => author.isBot === true ? null : `${adapterName}:${author.userId}`
     : undefined)
-  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial">(options, "concurrency")
+  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
-    concurrency: concurrency === "parallel" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
+    // TODO: forward active Chat messages through Agent Invocation steering once
+    // model and Workflow runtimes expose the same resumable input contract.
+    concurrency: concurrency === "parallel" ? "concurrent" : concurrency === "serial" || concurrency === "steer" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -2929,6 +2930,7 @@ function chatErrorHookArgs(
     : undefined
   return {
     error,
+    publicError: toAgentPublicError(error, "http"),
     history: input ? uiMessagesToAgentMessages(input.messages) : [],
     message: {
       id: inputMessage?.id || message.id,
@@ -3048,29 +3050,6 @@ async function deliverToManualDeliveryPlaceholder(
   return false
 }
 
-async function resolveChatErrorFallbackText(
-  options: AgentChatOptions | undefined,
-  args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
-  resolutionTimeout?: number,
-  resolutionAbort?: AbortController,
-  callbackDelivered?: () => boolean,
-): Promise<string | undefined> {
-  const fallback = options?.errorFallbackText
-  if (fallback === null) return undefined
-  if (typeof fallback === "function") {
-    try {
-      const resolved = await enforceChatInvocationTimeout(Promise.resolve(fallback(args)), resolutionTimeout, resolutionAbort)
-      return resolved || undefined
-    }
-    catch {
-      return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
-    }
-  }
-  const publicError = toAgentPublicError(args.error, "http")
-  if (publicError.code !== "INTERNAL") return publicError.error
-  return typeof fallback === "string" ? fallback : defaultChatErrorFallbackText
-}
-
 interface ManualChatDeliveryState {
   errorFallback?: string
   placeholder?: unknown
@@ -3115,9 +3094,8 @@ async function postChatErrorFallback(
       callbackDelivered = true
       resolveCallbackDelivery?.()
     }),
-    fallbackResolutionTimeout,
-    fallbackResolutionAbort,
     () => callbackDelivered,
+    resolution => enforceChatInvocationTimeout(resolution, fallbackResolutionTimeout, fallbackResolutionAbort),
   )
   const fallback = typeof options?.errorFallbackText === "function"
     ? await Promise.race([fallbackResolution, callbackDelivery.then(() => undefined)])
@@ -3391,6 +3369,8 @@ async function handleChatSdkMessage(
       return
     }
 
+    const manualDelivery = options?.delivery === "manual"
+    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
@@ -3423,9 +3403,8 @@ async function handleChatSdkMessage(
       return
     }
 
+    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     assertChatDeliveryOptions(options || {})
-    const manualDelivery = options?.delivery === "manual"
-    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     run = invocation.run
     await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: run?.runId })
     await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: run?.runId })
@@ -3444,7 +3423,8 @@ async function handleChatSdkMessage(
       if (state.workflowCustodySupported === false) {
         throw new Error("[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider.")
       }
-      const durableTyping = startChatTypingRefresh(thread, context)
+      const durableTyping = typing || startChatTypingRefresh(thread, context)
+      typing = undefined
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
       try {
         await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({
@@ -3472,7 +3452,6 @@ async function handleChatSdkMessage(
       }
       return
     }
-    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
       const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
@@ -4952,9 +4931,6 @@ export function createChannelWebhookRouteHandler(
             }
             if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
               return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured."))
-            }
-            if (invocation.webhook.busy === "steer" && invocation.webhook.rehydrate) {
-              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership cannot combine busy steering with rehydration."))
             }
             const concurrencyLimit = positiveWebhookConcurrencyLimit(invocation.webhook.concurrencyLimit)!
             if (!hasAgentWebhookQueue(webhookState.state)) {

@@ -213,6 +213,7 @@ async function startToolServer(
     const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
     try {
       const input = await validateToolInput(tool, request.params.arguments || {})
+      executionSignal.throwIfAborted()
       return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
     }
     catch (error) {

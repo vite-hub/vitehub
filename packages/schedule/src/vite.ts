@@ -548,7 +548,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           ...internalOptions.providerImportAliases,
         },
         clientOutDir: resolved.build.outDir,
-        ...(!emitStandaloneProviderOutput ? { definitions: [] } : {}),
+        definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
         rootDir: resolved.root,
         runtimeImport: internalOptions.runtimeImport,
         source: standaloneProviderSource,

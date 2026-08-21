@@ -17,9 +17,29 @@ import type { Lease, TraceEvent } from "@vite-hub/runtime"
 
 import {
   browserLiveHandoffUnsupportedError,
+  browserProviderError,
   browserSessionRefError,
   browserSessionStateError,
 } from "./errors.ts"
+
+const CONTROLLER_RELEASE_TIMEOUT_MS = 30_000
+
+async function releaseLateController(release: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      release,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(browserProviderError("browser", "release a late browser controller"))
+        }, CONTROLLER_RELEASE_TIMEOUT_MS)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 export type {
   BrowserClaimOptions,
   BrowserClient,
@@ -42,12 +62,18 @@ export type {
   CreateBrowserOptions,
 } from "./types.ts"
 export type {
+  BrowserAction,
+  BrowserActionInput,
   BrowserDefinition,
   BrowserDefinitionBrowser,
   BrowserDefinitionContext,
   BrowserDefinitionHandler,
   BrowserDefinitionRegistry,
-  BrowserDownload,
+  BrowserLocator,
+  BrowserLocatorOptions,
+  BrowserLocatorWaitOptions,
+  BrowserPage,
+  BrowserPageGotoOptions,
   BrowserPageSession,
   BrowserRunResult,
 } from "./types.ts"
@@ -125,7 +151,11 @@ async function releaseResource<TConnection>(record: {
 class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
   readonly id: string
   private claimed: boolean
+  private closePromise?: Promise<void>
+  private closing = false
   private controller?: string
+  private attaching = false
+  private detaching = false
   private lastControllerSupportsHandoff = true
   private state: BrowserSessionState = "released"
 
@@ -158,18 +188,27 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     controller: BrowserController<TClient, TConnection>,
   ): Promise<BrowserControl<TClient>> {
     this.assertState("attach a controller to", "released")
+    if (this.attaching || this.closing) throw browserSessionStateError("attach a controller to", "controlled")
     if (this.claimed && !controller.features.attachExistingSession) {
       throw browserLiveHandoffUnsupportedError(this.owner.provider.name, controller.name)
     }
 
-    this.state = "controlled"
-    this.controller = controller.name
+    this.attaching = true
     let attached: Awaited<ReturnType<typeof controller.attach>> | undefined
     try {
       attached = await controller.attach(this.providerSession.connection, {
         provider: this.owner.provider,
         sessionId: this.id,
       })
+      this.attaching = false
+      if (this.closing || this.state !== "released") {
+        const lateControl = attached
+        attached = undefined
+        await releaseLateController(Promise.resolve(lateControl.release()))
+        throw browserSessionStateError("attach a controller to", this.state)
+      }
+      this.state = "controlled"
+      this.controller = controller.name
       this.lastControllerSupportsHandoff = controller.features.attachExistingSession
         && attached.preservesSessionOnRelease !== false
       await this.owner.emit("browser.controller.attach", this, { controller: controller.name })
@@ -180,10 +219,12 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
         release: async () => {
           if (released) return
           released = true
+          this.detaching = true
           try {
             await control.release()
           }
           finally {
+            this.detaching = false
             if (this.state === "controlled") this.state = "released"
             this.controller = undefined
             await this.owner.emit("browser.controller.detach", this, { controller: controller.name })
@@ -192,6 +233,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       }
     }
     catch (error) {
+      this.attaching = false
       const errors = [error]
       if (attached) {
         try {
@@ -220,6 +262,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
 
   async handoff(options: BrowserHandoffOptions): Promise<BrowserSessionRef> {
     this.assertState("handoff", "released")
+    if (this.attaching || this.closing) throw browserSessionStateError("handoff", "controlled")
     if (options?.mode !== "live") {
       throw new TypeError('[vitehub:browser] handoff({ mode }) currently requires "live".')
     }
@@ -251,15 +294,26 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
   }
 
   async close(): Promise<void> {
+    if (this.closePromise) return await this.closePromise
     if (this.state === "closed") return
     if (this.state === "handed-off") throw browserSessionStateError("close", this.state)
-    if (this.state === "controlled") throw browserSessionStateError("close", this.state)
+    if (this.state === "controlled" && !this.detaching) throw browserSessionStateError("close", this.state)
+    this.closing = true
+    const closing = (async () => {
+      try {
+        await releaseResource({ lease: this.lease, providerSession: this.providerSession })
+        this.state = "closed"
+      }
+      finally {
+        await this.owner.emit("browser.session.close", this)
+      }
+    })()
+    this.closePromise = closing
     try {
-      await releaseResource({ lease: this.lease, providerSession: this.providerSession })
-      this.state = "closed"
+      await closing
     }
     finally {
-      await this.owner.emit("browser.session.close", this)
+      this.closePromise = undefined
     }
   }
 

@@ -16,13 +16,15 @@ import {
 import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
-import { env } from "./core/declarations.ts"
+import { env, isDefaultStringEnvVariable } from "./core/declarations.ts"
 import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
+import { parseSchema } from "./schema.ts"
 
 export { createRuntimeRegistry as createRuntimeEnvRegistry } from "./core/resolve.ts"
 
 import type {
   EnvIntegrationOptions,
+  EnvRuntimeConfigOptions,
   EnvRuntimeImportSpecifiers,
   EnvRuntimeRegistry,
   EnvRuntimeRegistryValue,
@@ -45,8 +47,11 @@ const defaultRuntimeImports = {
 export { env }
 
 export interface EnvVitePluginAPI {
+  createServerEnvRegistry: (declarations: EnvRuntimeConfigOptions | undefined) => EnvRuntimeRegistry
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
+  onServerEnvRegistry: (handler: (registry: EnvRuntimeRegistry, config: UserConfig) => void) => void
+  prepareTypes: (config: EnvViteConfigOptions | undefined, viteRoot: string) => Promise<void>
   resolveProjectRoot: (viteRoot: string) => string
 }
 
@@ -74,18 +79,34 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   let diagnosticsText: string | undefined
+  const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
   const getPublicEnv = () => buildPublicConfig
   const getServerEnvRegistry = () => serverRegistry
+  const createServerEnvRegistry = (declarations: EnvRuntimeConfigOptions | undefined) => createRuntimeRegistry(declarations, { prefix: options.prefix })
   const resolveProjectRoot = (viteRoot: string) => resolveViteHubProjectRoot(resolve(viteRoot), { projectRoot: options.projectRoot })
   const runtimeImports = resolveRuntimeImports(options.runtimeImports)
+  const prepareTypes = async (config: EnvViteConfigOptions | undefined, viteRoot: string) => {
+    const root = resolveProjectRoot(viteRoot)
+    const packageRoot = await resolvePackageRoot(viteRoot, root)
+    await prepareEnvGeneratedTypes(root, packageRoot, config?.public, createRuntimeRegistry(config?.server, { prefix: options.prefix }), runtimeImports)
+  }
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
-    api: { getPublicEnv, getServerEnvRegistry, resolveProjectRoot },
+    api: {
+      createServerEnvRegistry,
+      getPublicEnv,
+      getServerEnvRegistry,
+      onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),
+      prepareTypes,
+      resolveProjectRoot,
+    },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
       if (!envConfig) {
+        serverRegistry = {}
+        for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
         return
       }
 
@@ -113,9 +134,8 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       })
 
       buildPublicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
-      serverRegistry = createRuntimeRegistry(envConfig.server, {
-        prefix: options.prefix,
-      })
+      serverRegistry = createServerEnvRegistry(envConfig.server)
+      for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
       diagnosticsText = formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics)
 
       return {
@@ -162,6 +182,32 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   }
 }
 
+async function prepareEnvGeneratedTypes(
+  root: string,
+  packageRoot: string | undefined,
+  publicConfig: EnvViteConfigOptions["public"],
+  serverRegistry: EnvRuntimeRegistry,
+  runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+): Promise<void> {
+  const publicTypes = createPreparedPublicTypeEntries(publicConfig)
+  await Promise.all([
+    ...(packageRoot && packageRoot !== root
+      ? [
+          writeFileIfChanged(viteHubEnvPublicModuleTypesPath(packageRoot), createPublicEnvModuleTypes(publicTypes)),
+          writeFileIfChanged(viteHubEnvServerModuleTypesPath(packageRoot), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
+          writeFileIfChanged(viteHubEnvAmbientTypesPath(packageRoot), createAmbientTypesReference(packageRoot, root)),
+        ]
+      : []),
+    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
+    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
+    ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
+    ...(packageRoot && packageRoot !== root
+      ? legacyEnvAmbientTypesPaths(packageRoot).map(path => rm(path, { force: true }))
+      : []),
+  ])
+}
+
 function resolveEnvProjectRoot(options: EnvGeneratedPathOptions): string {
   return resolveViteHubProjectRoot(process.cwd(), { projectRoot: options.projectRoot })
 }
@@ -190,6 +236,7 @@ async function refreshEnvGeneratedFiles(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
 ): Promise<void> {
+  const publicTypes = createPublicTypeEntries(publicConfig)
   await Promise.all([
     ...(packageRoot && packageRoot !== root
       ? [
@@ -200,9 +247,9 @@ async function refreshEnvGeneratedFiles(
           ),
         ]
       : []),
-    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
-    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
+    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
     ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
@@ -221,9 +268,10 @@ function packageEnvModuleWrites(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
 ): Promise<void>[] {
+  const publicTypes = createPublicTypeEntries(publicConfig)
   return [
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
-    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
+    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ]
@@ -262,10 +310,10 @@ function createPublicEnvModule(publicConfig: Record<string, unknown>): string {
   ].join("\n")
 }
 
-function createPublicEnvModuleTypes(publicConfig: Record<string, unknown>): string {
+function createPublicEnvModuleTypes(publicTypes: Record<string, string>): string {
   return [
     "export interface PublicEnv {",
-    ...createPublicTypeFields(publicConfig, 2),
+    ...createPublicTypeFields(publicTypes, 2),
     "}",
     "export const publicEnv: PublicEnv",
     "export function usePublicEnv(): PublicEnv",
@@ -297,14 +345,14 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeI
 }
 
 function createViteTypes(
-  publicConfig: Record<string, unknown>,
+  publicTypes: Record<string, string>,
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
 ): string {
   return [
     "declare module \"#vitehub/env/public\" {",
     "  export interface PublicEnv {",
-    ...createPublicTypeFields(publicConfig, 4),
+    ...createPublicTypeFields(publicTypes, 4),
     "  }",
     "  export const publicEnv: PublicEnv",
     "  export function usePublicEnv(): PublicEnv",
@@ -320,9 +368,27 @@ function createViteTypes(
   ].join("\n")
 }
 
-function createPublicTypeFields(publicConfig: Record<string, unknown>, indent: number): string[] {
+function createPublicTypeEntries(publicConfig: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(Object.entries(publicConfig).map(([key, value]) => [key, typeof value]))
+}
+
+function createPreparedPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"]): Record<string, string> {
+  return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => {
+    const parsedDefault = typeof declaration.default === "undefined"
+      ? undefined
+      : parseSchema(declaration.schema, declaration.default, `env.public.${key}`)
+    return [
+      key,
+      `${declaration.type
+        ?? (isDefaultStringEnvVariable(declaration) ? "string" : undefined)
+        ?? (parsedDefault === null ? "null" : typeof parsedDefault === "undefined" ? "unknown" : typeof parsedDefault)}${!declaration.required && typeof declaration.default === "undefined" ? " | undefined" : ""}`,
+    ]
+  }))
+}
+
+function createPublicTypeFields(publicTypes: Record<string, string>, indent: number): string[] {
   const prefix = " ".repeat(indent)
-  return Object.entries(publicConfig).map(([key, value]) => `${prefix}${JSON.stringify(key)}: ${typeof value}`)
+  return Object.entries(publicTypes).map(([key, type]) => `${prefix}${JSON.stringify(key)}: ${type}`)
 }
 
 function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number, secretType = "SecretEnv"): string[] {
