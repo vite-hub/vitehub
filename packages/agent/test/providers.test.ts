@@ -11696,7 +11696,9 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 28000ms.",
       })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
+      await vi.waitFor(() => {
+        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
+      }, { interval: 0 })
     }
     finally {
       consoleError.mockRestore()
