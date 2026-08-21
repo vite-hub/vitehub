@@ -1699,6 +1699,10 @@ async function generateAgentDeploymentCatalog(
   }
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
+  const serverInternalImports = [
+    options.inspection ? "createAgentWebhookRequest" : undefined,
+    ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute"] : []),
+  ].filter(Boolean).join(", ")
 
   return {
     imports: [
@@ -1706,8 +1710,8 @@ async function generateAgentDeploymentCatalog(
       ...(options.inspection
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
-      ...(channelHandlers
-        ? [`import { createAgentWebhookRequest, createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
+      ...(channelHandlers || options.inspection
+        ? [`import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
         : []),
       ...(options.workspaceRuntimeImport ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
       ...hostedWorkspaceRuntime.imports,
@@ -1907,7 +1911,7 @@ async function generateAgentWebhookRouteHandler(
       ? [
           "  if (isInspectionRoute) {",
           "    const cloudflare = cloudflareFromEvent(event)",
-          "    const request = new Request(getRequestURL(event), { headers: getRequestHeaders(event), method: event.method || 'GET', signal: event.req?.signal })",
+          "    const request = createAgentWebhookRequest({ headers: getRequestHeaders(event), method: event.method || 'GET', node: event.node, signal: event.req?.signal, url: getRequestURL(event) })",
           `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption || ", runtime: runtimeFromEvent(event)"}, waitUntil: waitUntilFromEvent(event) })`,
           "  }",
         ]

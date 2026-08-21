@@ -3101,10 +3101,11 @@ describe("defineAgent workspace option", () => {
     expect(close).toHaveBeenCalledTimes(2)
   })
 
-  it("resolves invocation-selected Workspace Access before Agent inspection Source Resolution", async () => {
+  it("applies invocation-selected Workspace Access without resolving Sources when Source resolution is disabled", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const resolveSource = vi.fn(() => false)
     const resolveCapabilities = vi.fn(() => [
       access({
         workspace: {
@@ -3118,7 +3119,11 @@ describe("defineAgent workspace option", () => {
       driver: { model: {} as never },
       workspace: {
         sources: {
-          docs: { name: "docs" } as never,
+          docs: {
+            getItem: vi.fn(),
+            getKeys: vi.fn(),
+            resolve: resolveSource,
+          } as never,
         },
       },
     }), { workspace: "support" })
@@ -3127,14 +3132,68 @@ describe("defineAgent workspace option", () => {
     expect(resolveCapabilities).toHaveBeenCalledOnce()
     expect(list).not.toHaveBeenCalled()
     expect(readFile).not.toHaveBeenCalled()
-    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
-    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(Object),
-      expect.objectContaining({
-        selectedWorkspaceScope: expect.objectContaining({ all: true, name: "all", role: "admin" }),
-      }),
-    )
+    expect(resolveSource).not.toHaveBeenCalled()
+    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
+  })
+
+  it("does not invoke dynamic Source resolvers when Source resolution is disabled", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const resolveSource = vi.fn(() => false)
+    const agent = withExplicitWorkspaceName(defineAgent({
+      driver: { model: {} as never },
+      workspace: {
+        sources: {
+          docs: {
+            getItem: vi.fn(),
+            getKeys: vi.fn(),
+            resolve: resolveSource,
+          } as never,
+        },
+      },
+    }), { workspace: "support" })
+
+    await expect(resolveAgentInspectionMetadata(agent, { resolveSources: false })).resolves.toBeDefined()
+    expect(resolveSource).not.toHaveBeenCalled()
+    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
+  })
+
+  it("does not invoke Capability-contributed Source resolvers when Source resolution is disabled", async () => {
+    const { defineAgent, defineCapability, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const resolveSource = vi.fn(() => false)
+    const agent = withExplicitWorkspaceName(defineAgent({
+      capabilities: [defineCapability({
+        id: "dynamic-source",
+        workspace: {
+          sources: {
+            contributed: {
+              getItem: vi.fn(),
+              getKeys: vi.fn(),
+              resolve: resolveSource,
+            } as never,
+          },
+        },
+      })],
+      driver: { model: {} as never },
+      workspace: {},
+    }), { workspace: "support" })
+
+    await expect(resolveAgentInspectionMetadata(agent, { resolveSources: false })).resolves.toBeDefined()
+    expect(resolveSource).not.toHaveBeenCalled()
+    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
+  })
+
+  it("keeps static instruction coverage warnings when Source resolution is disabled", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      capabilities: [workspaceShell()],
+      driver: { instructions: "Answer from the workspace.", model: {} as never },
+      workspace: {},
+    }), { workspace: "support" })
+
+    await expect(resolveAgentInspectionMetadata(agent, { resolveSources: false })).resolves.toMatchObject({
+      warnings: [expect.objectContaining({ id: "instruction-coverage:capability:workspace-shell" })],
+    })
   })
 
   it("does not resolve Workspace-backed instructions when Source resolution is disabled", async () => {
@@ -3506,6 +3565,31 @@ describe("defineAgent workspace option", () => {
     expect(paths).not.toContain("portal")
     expect(resolveScope).toHaveBeenCalledOnce()
     expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
+  })
+
+  it("applies Access-scoped Source visibility without resolving Sources", async () => {
+    const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {
+        sources: {
+          customers: { mount: "customers", name: "customers" } as never,
+          portal: { mount: "portal", name: "portal" } as never,
+        },
+      },
+      capabilities: [access({
+        workspace: {
+          defaultScope: "customer",
+          scopes: { customer: { paths: ["customers/acme"] } },
+        },
+      })],
+      driver: { model: {} as never },
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentInspectionMetadata(agent, { resolveSources: false })
+    expect(metadata.files?.map(file => file.source)).toEqual(["customers"])
+    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
   })
 
   it("clears Source coverage warnings after Access source resolution for Agent inspection metadata", async () => {

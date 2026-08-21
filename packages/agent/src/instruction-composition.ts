@@ -132,6 +132,14 @@ export function createInstructionCoverage(): InstructionCoverage {
   }
 }
 
+export async function collectStaticInstructionCoverage(content: string): Promise<InstructionCoverage> {
+  const coverage = createInstructionCoverage()
+  const marker = createInstructionCoverageMarker()
+  const marked = await markInstructionCoverage(content, marker)
+  await stripMarkedInstructionCoverage(marked, marker, coverage)
+  return coverage
+}
+
 function createInstructionCoverageMarker(): InstructionCoverageMarker {
   return {
     entries: [],
