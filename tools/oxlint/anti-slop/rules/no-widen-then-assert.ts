@@ -1,10 +1,5 @@
 import { defineRule } from "@oxlint/plugins";
 import type { ESTree, Variable } from "@oxlint/plugins";
-import {
-  createTypeEnvironment,
-  isUnshadowedBuiltIn,
-  type TypeEnvironment,
-} from "../shared/dictionary-types.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
 
@@ -54,22 +49,16 @@ function isBroadRecordKeyType(type: ESTree.TSType): boolean {
   return unwrapped.type === "TSTypeReference" && typeReferenceName(unwrapped) === "PropertyKey";
 }
 
-function isBroadRecordType(type: ESTree.TSType, environment: TypeEnvironment, from: ESTree.Node): boolean {
+function isBroadRecordType(type: ESTree.TSType): boolean {
   const unwrapped = unwrapTypeParentheses(type);
 
   if (unwrapped.type === "TSTypeReference") {
-    if (
-      typeReferenceName(unwrapped) === "Readonly" &&
-      isUnshadowedBuiltIn("Readonly", environment, from)
-    ) {
+    if (typeReferenceName(unwrapped) === "Readonly") {
       const [inner] = unwrapped.typeArguments?.params ?? [];
-      return inner !== undefined && isBroadRecordType(inner, environment, from);
+      return inner !== undefined && isBroadRecordType(inner);
     }
 
-    if (
-      typeReferenceName(unwrapped) !== "Record" ||
-      !isUnshadowedBuiltIn("Record", environment, from)
-    ) return false;
+    if (typeReferenceName(unwrapped) !== "Record") return false;
     const parameters = unwrapped.typeArguments?.params ?? [];
     return (
       parameters.length === 2 &&
@@ -92,11 +81,11 @@ function isBroadRecordType(type: ESTree.TSType, environment: TypeEnvironment, fr
   );
 }
 
-function broadTypeKind(type: ESTree.TSType, environment: TypeEnvironment, from: ESTree.Node): BroadTypeKind | null {
+function broadTypeKind(type: ESTree.TSType): BroadTypeKind | null {
   const unwrapped = unwrapTypeParentheses(type);
   if (unwrapped.type === "TSUnknownKeyword" || unwrapped.type === "TSAnyKeyword") return "top";
   if (unwrapped.type === "TSObjectKeyword") return "object";
-  return isBroadRecordType(unwrapped, environment, from) ? "record" : null;
+  return isBroadRecordType(unwrapped) ? "record" : null;
 }
 
 function assertedExpression(
@@ -151,28 +140,18 @@ function isDefinitelyObjectType(type: ESTree.TSType): boolean {
   }
 }
 
-function isDefinitelyNarrowerRecordType(
-  type: ESTree.TSType,
-  environment: TypeEnvironment,
-  from: ESTree.Node,
-): boolean {
+function isDefinitelyNarrowerRecordType(type: ESTree.TSType): boolean {
   const unwrapped = unwrapTypeParentheses(type);
   if (unwrapped.type === "TSTypeLiteral") {
     return unwrapped.members.some((member) => member.type !== "TSIndexSignature");
   }
 
   if (unwrapped.type !== "TSTypeReference") return false;
-  if (
-    typeReferenceName(unwrapped) === "Readonly" &&
-    isUnshadowedBuiltIn("Readonly", environment, from)
-  ) {
+  if (typeReferenceName(unwrapped) === "Readonly") {
     const [inner] = unwrapped.typeArguments?.params ?? [];
-    return inner !== undefined && isDefinitelyNarrowerRecordType(inner, environment, from);
+    return inner !== undefined && isDefinitelyNarrowerRecordType(inner);
   }
-  if (
-    typeReferenceName(unwrapped) !== "Record" ||
-    !isUnshadowedBuiltIn("Record", environment, from)
-  ) return false;
+  if (typeReferenceName(unwrapped) !== "Record") return false;
 
   const parameters = unwrapped.typeArguments?.params ?? [];
   return (
@@ -223,12 +202,11 @@ function knownValueEvidence(
   scopes: Parameters<typeof resolvedVariableForIdentifier>[0],
   boundary: ESTree.Node | null,
   visitedVariables: ReadonlySet<Variable>,
-  environment: TypeEnvironment,
 ): KnownValueEvidence | null {
   const unwrapped = unwrapExpressionParentheses(expression);
 
   if (unwrapped.type === "TSAsExpression" || unwrapped.type === "TSTypeAssertion") {
-    if (broadTypeKind(unwrapped.typeAnnotation, environment, unwrapped) !== null) return null;
+    if (broadTypeKind(unwrapped.typeAnnotation) !== null) return null;
     return { type: unwrapped.typeAnnotation };
   }
 
@@ -256,10 +234,7 @@ function knownValueEvidence(
   );
   const annotation = annotatedIdentifier?.typeAnnotation?.typeAnnotation;
   if (annotation !== undefined && annotatedIdentifier !== undefined) {
-    if (
-      functionBoundary(annotatedIdentifier) !== boundary ||
-      broadTypeKind(annotation, environment, annotatedIdentifier) !== null
-    ) {
+    if (functionBoundary(annotatedIdentifier) !== boundary || broadTypeKind(annotation) !== null) {
       return null;
     }
     return { type: annotation };
@@ -282,14 +257,12 @@ function knownValueEvidence(
     scopes,
     boundary,
     new Set([...visitedVariables, variable]),
-    environment,
   );
 }
 
 function widenedBinding(
   variable: Variable,
   scopes: Parameters<typeof resolvedVariableForIdentifier>[0],
-  environment: TypeEnvironment,
 ): {
   readonly broadKind: BroadTypeKind;
   readonly evidence: KnownValueEvidence;
@@ -312,11 +285,8 @@ function widenedBinding(
   const declaredType = declarator.id.typeAnnotation?.typeAnnotation;
   const initializerAssertion = assertionFromExpression(declarator.init);
   const initializerBroadKind =
-    initializerAssertion === null
-      ? null
-      : broadTypeKind(initializerAssertion.typeAnnotation, environment, initializerAssertion);
-  const declaredBroadKind =
-    declaredType === undefined ? null : broadTypeKind(declaredType, environment, declarator.id);
+    initializerAssertion === null ? null : broadTypeKind(initializerAssertion.typeAnnotation);
+  const declaredBroadKind = declaredType === undefined ? null : broadTypeKind(declaredType);
   const broadKind = declaredBroadKind ?? initializerBroadKind;
   if (broadKind === null) return null;
 
@@ -324,13 +294,7 @@ function widenedBinding(
     initializerAssertion !== null && initializerBroadKind !== null
       ? assertedExpression(initializerAssertion)
       : declarator.init;
-  const evidence = knownValueEvidence(
-    originalExpression,
-    scopes,
-    boundary,
-    new Set([variable]),
-    environment,
-  );
+  const evidence = knownValueEvidence(originalExpression, scopes, boundary, new Set([variable]));
   return evidence === null ? null : { broadKind, evidence, declaredAt: declarator.end, boundary };
 }
 
@@ -339,14 +303,12 @@ function assertionIsNarrower(
   broadKind: BroadTypeKind,
   evidence: KnownValueEvidence,
   assertedType: ESTree.TSType,
-  environment: TypeEnvironment,
-  from: ESTree.Node,
 ): boolean {
-  if (broadTypeKind(assertedType, environment, from) !== null) return false;
+  if (broadTypeKind(assertedType) !== null) return false;
   if (broadKind === "top") return true;
   if (typesHaveSameSyntax(sourceText, evidence.type, assertedType)) return true;
   if (broadKind === "object") return isDefinitelyObjectType(assertedType);
-  return isDefinitelyNarrowerRecordType(assertedType, environment, from);
+  return isDefinitelyNarrowerRecordType(assertedType);
 }
 
 /** Detect immutable local bindings that erase a known type and are later asserted back to a narrower type. */
@@ -364,7 +326,6 @@ export const noWidenThenAssertRule = defineRule({
   },
   createOnce(context) {
     let scopes: Parameters<typeof resolvedVariableForIdentifier>[0] = [];
-    let environment: TypeEnvironment;
 
     const checkAssertion = (node: ESTree.TSAsExpression | ESTree.TSTypeAssertion) => {
       const expression = assertedExpression(node);
@@ -372,7 +333,7 @@ export const noWidenThenAssertRule = defineRule({
 
       const variable = resolvedVariableForIdentifier(scopes, expression);
       if (variable === null) return;
-      const widened = widenedBinding(variable, scopes, environment);
+      const widened = widenedBinding(variable, scopes);
       if (
         widened === null ||
         node.start <= widened.declaredAt ||
@@ -382,8 +343,6 @@ export const noWidenThenAssertRule = defineRule({
           widened.broadKind,
           widened.evidence,
           node.typeAnnotation,
-          environment,
-          node,
         )
       ) {
         return;
@@ -397,9 +356,8 @@ export const noWidenThenAssertRule = defineRule({
     };
 
     return {
-      Program(node) {
+      Program() {
         scopes = context.sourceCode.scopeManager.scopes;
-        environment = createTypeEnvironment(node, context.sourceCode.visitorKeys);
       },
       TSAsExpression: checkAssertion,
       TSTypeAssertion: checkAssertion,
