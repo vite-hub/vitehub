@@ -10236,6 +10236,75 @@ describe("server helpers", () => {
     }
   })
 
+  it("serializes steered manual delivery across durable Agent Workflows", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-workflow-state-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const adapter = createTestChatAdapter()
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let releasePending!: () => void
+    let pending: Promise<void> | undefined = new Promise<void>(resolve => { releasePending = resolve })
+    const inputs: Array<{ messages?: Array<{ id?: string }> }> = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: async ({ input }) => {
+        inputs.push(input as never)
+        await pending
+        return "internal output"
+      } },
+      hooks: { "agent:finish": event => event.reply("Durable reply") },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      await state.connect()
+      const runtime = {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+      }
+      await handler(chatWebhookRequest(91_120), "telegram", runtime)
+      await vi.waitFor(() => expect(inputs).toHaveLength(1))
+      await handler(chatWebhookRequest(91_121), "telegram", runtime)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(inputs).toHaveLength(1)
+
+      pending = undefined
+      releasePending()
+      await vi.waitFor(() => expect(inputs).toHaveLength(2))
+      expect(inputs[1]?.messages?.at(-1)?.id).toBe("91121")
+
+      pending = new Promise<void>(resolve => { releasePending = resolve })
+      await handler(chatWebhookRequest(91_122), "telegram", runtime)
+      await vi.waitFor(() => expect(inputs).toHaveLength(3))
+      await handler(chatWebhookRequest(91_123), "telegram", runtime)
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+      await handler(chatWebhookRequest(91_124), "telegram", runtime)
+      await vi.waitFor(() => expect(inputs).toHaveLength(4))
+      expect(inputs[3]?.messages?.at(-1)?.id).toBe("91124")
+    }
+    finally {
+      pending = undefined
+      releasePending()
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  }, 10_000)
+
   it("rejects request-scoped State before a Workflow custody handoff", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -10359,7 +10428,8 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: { env: {} },
         waitUntil: task => waitUntilTasks.push(task),
-      })).rejects.toThrow("Durable Channel delivery requires this Agent invocation to start a Workflow")
+      })).resolves.toMatchObject({ status: 200 })
+      expect(createBatch).toHaveBeenCalledOnce()
     }
     finally {
       resetWorkflowRuntime()

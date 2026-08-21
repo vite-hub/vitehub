@@ -12,7 +12,7 @@ import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workf
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "../agent-error.ts"
-import { agentChannelDeliveryWorkflowContextKey, resumeWorkflowAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliveryWorkflowContextKey, resumeAgentChannelDeliveryWorkflowOwnership, resumeWorkflowAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
 
 import type {
@@ -325,6 +325,9 @@ export async function runAgentWorkflowDefinition<
     throw new Error(`[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.`)
   }
   if (channelDelivery) runtimeContext = withAgentChannelDelivery(runtimeContext, channelDelivery)
+  const settleChannelOwnership = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
+    ? await resumeAgentChannelDeliveryWorkflowOwnership(agent, runtimeContext, channelDeliveryBinding)
+    : undefined
 
   try {
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
@@ -352,6 +355,7 @@ export async function runAgentWorkflowDefinition<
     while (backgroundTasks.length) {
       await Promise.allSettled(backgroundTasks.splice(0))
     }
+    await settleChannelOwnership?.()
   }
 }
 

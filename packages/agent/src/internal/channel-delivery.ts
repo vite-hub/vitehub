@@ -8,6 +8,7 @@ const maximumDeliveries = 10_000
 const indexKey = "deliveries:index"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
+let workflowOwnershipResolver: AgentChannelDeliveryWorkflowOwnershipResolver | undefined
 
 interface StoredAgentChannelDelivery extends AgentChannelDelivery {
   journalRetrySignaled?: boolean
@@ -22,6 +23,11 @@ export interface AgentChannelDeliveryWorkflowBinding {
   deliveryId: string
   provider: string
   state: "chat" | "webhook"
+  steer?: {
+    lock: { expiresAt: number, threadId: string, token: string }
+    queue: string
+    ttlMs: number
+  }
 }
 
 export interface AgentChannelDeliveryTracker {
@@ -36,6 +42,12 @@ type AgentChannelDeliveryWorkflowResolver = (
   context: AgentRuntimeContext,
   binding: AgentChannelDeliveryWorkflowBinding,
 ) => Promise<AgentChannelDeliveryTracker | undefined>
+
+type AgentChannelDeliveryWorkflowOwnershipResolver = (
+  agent: unknown,
+  context: AgentRuntimeContext,
+  binding: AgentChannelDeliveryWorkflowBinding,
+) => Promise<(() => Promise<void>) | undefined>
 
 function deliveryRecordKey(deliveryId: string): string {
   return `deliveries:${deliveryId}`
@@ -274,6 +286,18 @@ export function detachAgentChannelDelivery(delivery: AgentChannelDeliveryTracker
 
 export function setAgentChannelDeliveryWorkflowResolver(resolver: AgentChannelDeliveryWorkflowResolver): void {
   workflowResolver = resolver
+}
+
+export function setAgentChannelDeliveryWorkflowOwnershipResolver(resolver: AgentChannelDeliveryWorkflowOwnershipResolver): void {
+  workflowOwnershipResolver = resolver
+}
+
+export async function resumeAgentChannelDeliveryWorkflowOwnership(
+  agent: unknown,
+  context: AgentRuntimeContext,
+  binding: AgentChannelDeliveryWorkflowBinding,
+): Promise<(() => Promise<void>) | undefined> {
+  return await workflowOwnershipResolver?.(agent, context, binding)
 }
 
 export async function resumeWorkflowAgentChannelDelivery(
