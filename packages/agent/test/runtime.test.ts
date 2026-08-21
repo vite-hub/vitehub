@@ -12237,6 +12237,7 @@ describe("agent message protocol", () => {
       const memory = createMemoryAgentInvocationStore()
       let storeAvailable = false
       let terminalAttempts = 0
+      const sleep = vi.fn(async () => { storeAvailable = true })
       const invocations = defineAgentInvocations({
         store: {
           ...memory,
@@ -12270,6 +12271,7 @@ describe("agent message protocol", () => {
             workflowName: "recovering-agent",
           } },
           provider: "cloudflare",
+          step: { sleep },
         }, vi.fn())
 
         await vi.waitFor(async () => {
@@ -12279,9 +12281,8 @@ describe("agent message protocol", () => {
         await retryTimerScheduled.promise
         vi.setSystemTime(Date.now() + 61_000)
         await vi.advanceTimersByTimeAsync(1_000)
-        storeAvailable = true
-        await vi.advanceTimersByTimeAsync(2_000)
         await recovery
+        expect(sleep).toHaveBeenCalledTimes(1)
         await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "completed" })
       }
       finally {
