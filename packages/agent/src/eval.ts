@@ -156,16 +156,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function providerVariantModel(model: AgentModelInput): string {
-  const record = isRecord(model) ? model as Record<string, unknown> : undefined
-  const id = typeof model === "string"
-    ? model
-    : typeof record?.modelId === "string"
-      ? record.modelId
-      : typeof record?.id === "string"
-        ? record.id
-        : undefined
-  if (!id?.trim()) throw new TypeError("[vitehub] Provider Agent Evaluation model variants require a model id.")
-  return id
+  if (typeof model !== "string" || !model.trim()) {
+    throw new TypeError("[vitehub] Provider Agent Evaluation model variants require a string model id; gateway descriptors and LanguageModel instances are only supported by model-backed Drivers.")
+  }
+  return model
 }
 
 function applyVariantToExplicitDriver(

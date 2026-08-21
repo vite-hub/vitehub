@@ -13,6 +13,7 @@ import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgent
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
+import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
@@ -188,6 +189,21 @@ async function validateToolInput(tool: AgentToolDefinition, input: unknown): Pro
   return input
 }
 
+async function validateToolInputUntilCanceled(tool: AgentToolDefinition, input: unknown, signal: AbortSignal): Promise<unknown> {
+  signal.throwIfAborted()
+  let cancel!: () => void
+  const canceled = new Promise<never>((_resolve, reject) => {
+    cancel = () => reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"))
+    signal.addEventListener("abort", cancel, { once: true })
+  })
+  try {
+    return await Promise.race([validateToolInput(tool, input), canceled])
+  }
+  finally {
+    signal.removeEventListener("abort", cancel)
+  }
+}
+
 function toolResult(value: unknown) {
   const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value)
   return { content: [{ text, type: "text" as const }] }
@@ -219,7 +235,8 @@ async function startToolServer(
     if (!tool?.execute) return { content: [{ text: `Unknown Agent tool: ${request.params.name}`, type: "text" }], isError: true }
     const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
     try {
-      const input = await validateToolInput(tool, request.params.arguments || {})
+      const input = await validateToolInputUntilCanceled(tool, request.params.arguments || {}, executionSignal)
+      executionSignal.throwIfAborted()
       return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
     }
     catch (error) {
@@ -685,9 +702,6 @@ function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): Strea
   switch (event.type) {
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
-      if (["reasoning_text", "reasoning_summary_text", "plan_text", "command_output", "file_change_output"].includes(event.payload.streamKind)) {
-        return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
-      }
       return [{ data: { kind: "content", value: event.payload.delta }, type: "data-agent-event" }]
     case "item.started":
       return isProviderToolItem(event.itemId, event.payload.itemType)
@@ -766,6 +780,9 @@ async function* runProvider(
   if (context.providerTools?.length) {
     throw new Error("[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools.")
   }
+  if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
+    throw new TypeError("[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds.")
+  }
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
   const effectiveSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
@@ -817,6 +834,7 @@ async function* runProvider(
   let originalGeneratedInstructionLink: string | undefined
   let originalGeneratedInstructionMode: number | undefined
   let generatedInstructionFileExisted = false
+  let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
   let releaseDeferredRuntimeStopped: (() => void) | undefined
@@ -917,6 +935,20 @@ async function* runProvider(
       }
       await writeFile(instructionPath, instructions)
     }
+    if (!workspaceSession) {
+      const colocatedSkills = context.context.get<Record<string, { content?: string | Uint8Array, workspacePath?: string }>>(colocatedAgentSkillsContextKey)
+      for (const source of Object.values(colocatedSkills || {})) {
+        if (source.content === undefined || !source.workspacePath) continue
+        const target = resolve(root, source.workspacePath)
+        if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
+        await mkdir(dirname(target), { recursive: true })
+        await writeFile(target, source.content)
+      }
+    }
+    if (workspaceSession) {
+      await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
+      await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
+    }
     effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
     const finalizeLateRuntimeCreation = async () => {
@@ -953,7 +985,7 @@ async function* runProvider(
       runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
-    if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
+    if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     const attachments = await waitForProviderOperation(
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
       effectiveSignal,
@@ -988,7 +1020,7 @@ async function* runProvider(
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
-    if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
+    if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
       rejectAbort = reject
@@ -1097,6 +1129,14 @@ async function* runProvider(
     const deferredCleanup = deferredRuntimeCleanup || deferredWorkspaceCleanup
     if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
+    if (sessionKey) {
+      if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
+        resumeCursors.set(sessionKey, pendingResumeCursor)
+      }
+      else {
+        resumeCursors.delete(sessionKey)
+      }
+    }
     if (cleanupErrors.length) {
       throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
     }

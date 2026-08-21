@@ -54,7 +54,9 @@ describe("gmail capability", () => {
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("gog")
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("shell")
     expect(() => gmail({ mode: "send" as never })).toThrow('must be "read" or "draft"')
-    expect(() => validateAgentCapabilityComposition([read], { hasWorkspace: true, workspaceMode: "write" })).not.toThrow()
+    expect(() => validateAgentCapabilityComposition([read], { driverKind: "provider", hasWorkspace: true, workspaceMode: "write" })).not.toThrow()
+    expect(() => validateAgentCapabilityComposition([read], { driverKind: "model", hasWorkspace: true, workspaceMode: "write" }))
+      .toThrow("requires a provider Agent Driver")
     await expect(validateCapabilityRuntimeRequirement(read, { fs: { exists: vi.fn() } } as never, "read"))
       .rejects.toThrow('requires workspace.mode: "write"')
 
@@ -87,6 +89,23 @@ describe("gmail capability", () => {
     for (const session of runtime.sessions) {
       expect(session.exec).toHaveBeenCalledWith("gog", expect.any(Array), expect.objectContaining({ abortSignal: controller.signal }))
     }
+  })
+
+  it("forwards only the configured Gmail keyring secret to Gmail commands", async () => {
+    vi.stubEnv("GOG_KEYRING_PASSWORD", "keyring-secret")
+    vi.stubEnv("UNRELATED_APPLICATION_SECRET", "do-not-forward")
+    const runtime = await capabilityTools(gmail(), args => result(args[0] === "auth"
+      ? '{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}'
+      : '{"threads":[]}'))
+
+    await runtime.tools.gmail_search!.execute?.({ account: "test@example.com" })
+
+    for (const session of runtime.sessions) {
+      expect(session.exec).toHaveBeenCalledWith("gog", expect.any(Array), expect.objectContaining({
+        env: { GOG_KEYRING_PASSWORD: "keyring-secret" },
+      }))
+    }
+    vi.unstubAllEnvs()
   })
 
   it("returns structured authorization states and validates the continuation", async () => {

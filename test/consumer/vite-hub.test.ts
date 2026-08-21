@@ -715,7 +715,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it("publishes Browser types and Cloudflare adapter without consumer-owned Playwright", async () => {
+  it("publishes Browser actions without installing Playwright by default", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -731,9 +731,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ]))
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
-          import type { BrowserDownload } from "@vite-hub/browser"
-          declare const download: BrowserDownload
-          download.url()
+          import { runBrowserContent } from "@vite-hub/browser/actions"
+          export async function load() {
+            return await runBrowserContent("https://example.com")
+          }
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
@@ -749,11 +750,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/browser"])
-      await run(process.execPath, ["--input-type=module", "--eval", `
-        import { createRequire } from "node:module"
-        const browserRequire = createRequire(import.meta.resolve("@vite-hub/browser/package.json"))
-        browserRequire.resolve("@cloudflare/playwright")
-      `], appDir)
+      const { stdout: prodDependencies } = await run("pnpm", ["list", "--depth", "Infinity", "--prod", "--json"], appDir)
+      expect(prodDependencies).not.toContain("@cloudflare/playwright")
+      expect(prodDependencies).not.toContain("playwright-core")
       await run(process.execPath, [
         resolve(repoRoot, "node_modules/typescript/bin/tsc"),
         "--module",
@@ -1053,22 +1052,27 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         ...process.env,
         VITEHUB_PRESET: "vercel",
       })
-      const [agentRoute, authTypes, blobPlugin, envServer, scheduleRegistryTypes, workflowRegistry, workspacePlugin] = await Promise.all([
+      const [nativeWorkflowFile] = await readdir(join(appDir, ".vitehub/workflow/vercel-native"))
+      const [agentRoute, authTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/email/templates/welcome.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
-        readFile(join(appDir, ".vitehub/schedule/registry.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/workflow/registry.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/workspace/plugin.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/workflow/vercel-native", nativeWorkflowFile), "utf8"),
+        readFile(join(appDir, ".vercel/output/functions/api/vitehub/schedules/vercel/heartbeat.func/index.mjs"), "utf8"),
+        readFile(join(appDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8"),
+        readFile(join(appDir, ".vercel/output/config.json"), "utf8"),
       ])
       expect(agentRoute).toContain("vite-hub/_internal/agent")
       expect(agentRoute).toContain("vite-hub/_internal/workspace/runtime")
       expect(authTypes).toContain("namespace ViteHub")
       expect(authTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
+      expect(emailTemplate).toContain("Welcome")
       expect(envServer).toContain("vite-hub/env/server")
-      expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
       expect(workflowRegistry).toContain("vite-hub/_internal/agent")
       expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
@@ -1078,6 +1082,17 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workflowRegistry).not.toContain("vite-hub/sandbox")
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
+      expect(nativeWorkflow).toContain('"use workflow"')
+      expect(nativeWorkflow).toContain('"use step"')
+      expect(nativeWorkflow).not.toContain("vitehub.email.definition")
+      expect(scheduleFunction).toContain("setWorkflowRuntimeRegistry")
+      expect(flowBundle).toContain("vitehub.email.definition")
+      expect(flowBundle).toContain("RESEND_API_KEY")
+      expect(flowBundle).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+      expect(JSON.parse(vercelConfig).crons).toContainEqual({
+        path: "/api/vitehub/schedules/vercel/heartbeat",
+        schedule: "0 0 * * *",
+      })
 
       await run("pnpm", ["run", "build"], appDir, process.env)
       const smoke = await run("pnpm", ["run", "smoke"], appDir)

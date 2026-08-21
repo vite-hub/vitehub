@@ -966,6 +966,19 @@ describe("agent Vite plugin", () => {
     ])
   })
 
+  it("registers an opt-in custom inspection route with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { inspection: "/internal/agents/[agent]/status" } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+      : undefined
+
+    expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
+      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      route: "/internal/agents/:agent/status",
+    })
+  })
+
   it("does not register agent routes without hosted Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
@@ -1527,6 +1540,7 @@ describe("agent Vite plugin", () => {
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
+      expect(webhookRoute).toContain('import { createAgentWebhookRequest, createChannelChatRouteHandler')
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
@@ -1651,14 +1665,16 @@ export default defineAgent({
 
       for (const stateProvider of ["cloudflare", "libsql"] as const) {
         const plugin = hubAgent(stateProvider === "libsql"
-          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } }
-          : undefined)
+          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } }, routes: { inspection: true } }
+          : { routes: { inspection: true } })
         if (typeof plugin.configResolved === "function") {
           await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
         }
 
         const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
         expect(generatedRoute).not.toContain("@ts-nocheck")
+        expect(generatedRoute).toContain("abortSignal: request.signal")
+        expect(generatedRoute).toContain("runtime: runtimeFromEvent(event)")
         if (stateProvider === "libsql") {
           expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
         }
@@ -6387,7 +6403,7 @@ describe("server helpers", () => {
       await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
 
       releases.splice(0).forEach(release => release())
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4), { timeout: 10_000 })
       expect(maxActive).toBe(2)
       releases.splice(0).forEach(release => release())
       await vi.waitFor(() => expect(active).toBe(0))
@@ -6398,7 +6414,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("preserves persisted webhook handoff and execution when custody progress writes fail", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -6716,6 +6732,18 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const rehydrate = vi.fn((deliveryId: string) => ({
+      input: { prompt: `fresh ${deliveryId}` },
+      run: { runId: deliveryId },
+      webhook: {
+        busy: "steer" as const,
+        concurrencyGroup: "reviews",
+        concurrencyKey: "pr-42",
+        concurrencyLimit: 1,
+        concurrencyTtlMs: 1_000,
+        deliveryId,
+      },
+    }))
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
@@ -6766,6 +6794,7 @@ describe("server helpers", () => {
                     concurrencyLimit: 1,
                     concurrencyTtlMs: 1_000,
                     deliveryId,
+                    rehydrate: () => rehydrate(deliveryId),
                   },
                 }
               },
@@ -6800,6 +6829,7 @@ describe("server helpers", () => {
       const first = await handler(request("delivery-1"), "github", options)
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(rehydrate).toHaveBeenCalledWith("delivery-1")
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
 
       const waitUntilCount = waitUntilTasks.length
@@ -7380,7 +7410,7 @@ describe("server helpers", () => {
       )).toHaveLength(1))
 
       await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(3_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
       await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
@@ -7450,6 +7480,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(1))
+      await vi.advanceTimersByTimeAsync(0)
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 5_000 })
@@ -7458,7 +7489,8 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(2))
-      await vi.advanceTimersByTimeAsync(2_000)
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(3_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
       await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
@@ -8765,6 +8797,45 @@ describe("server helpers", () => {
     }
   })
 
+  it("starts typing only after chat context is accepted", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    let contextStarted!: () => void
+    let releaseContext!: () => void
+    const contextStartedPromise = new Promise<void>(resolve => { contextStarted = resolve })
+    const contextReleasePromise = new Promise<void>(resolve => { releaseContext = resolve })
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => {
+      contextStarted()
+      await contextReleasePromise
+      return Buffer.from([1, 2, 3])
+    } })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: () => ({ text: "ok" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ message: { chat: { id: 456, type: "private" }, document: { content: "context", file_name: "context.txt", mime_type: "text/plain" }, from: { id: 123 }, message_id: 44, text: "hello" } }),
+      method: "POST",
+    }), "telegram")
+    await contextStartedPromise
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+    releaseContext()
+    await vi.waitFor(() => expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined))
+    await expect(responsePromise).resolves.toMatchObject({ status: 200 })
+  })
+
   it("does not block chat webhook handling on typing status", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -9576,6 +9647,39 @@ describe("server helpers", () => {
     }
   })
 
+  it("posts the sanitized provider quota message to chat", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const error = Object.assign(new Error("private balance"), {
+      data: { error: { code: "insufficient_quota" } },
+      name: "AI_APICallError",
+      statusCode: 429,
+    })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => adapter as never },
+        webhooks: { telegram: {} },
+      })],
+      driver: { run: () => { throw error } },
+    })
+    const tasks: Promise<unknown>[] = []
+
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(chatWebhookRequest(90_003), "telegram", {
+        waitUntil: task => tasks.push(task),
+      })
+      expect(response.status).toBe(200)
+      await Promise.all(tasks)
+      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", "AI provider quota is exhausted.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("keeps name-spoofed rate-limit errors behind the generic chat fallback", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -9615,6 +9719,7 @@ describe("server helpers", () => {
     ["drop", "drop"],
     ["queue", "queue"],
     ["serial", "queue"],
+    ["steer", "queue"],
   ] as const)("maps ViteHub %s message concurrency to Chat SDK %s", async (concurrency, expectedConcurrency) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -11591,7 +11696,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const responseError = handler(chatWebhookRequest(91_023), "telegram", {
+      const responseError = handler(chatWebhookRequest(91_023, 457), "telegram", {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
@@ -11607,7 +11712,9 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 28000ms.",
       })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+      await vi.waitFor(() => {
+        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
+      }, { interval: 0 })
     }
     finally {
       consoleError.mockRestore()

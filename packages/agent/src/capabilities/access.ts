@@ -1,4 +1,4 @@
-import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
+import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
@@ -327,14 +327,15 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         },
         selectedWorkspaceScope: toWorkspaceSelectedScope(sourceResolutionScope),
       }
-      const resolvedDefinition = context.workspaceDefinition
+      const sourceResolutionDisabled = isTrustedSourceFreeInspection(context.context)
+      const resolvedDefinition = context.workspaceDefinition && !sourceResolutionDisabled
         ? await workspaceRuntime.resolveWorkspaceSources(context.workspaceDefinition, sourceResolutionOptions)
-        : undefined
-      const hasSourceResolvers = context.workspaceDefinition
+        : context.workspaceDefinition
+      const hasSourceResolvers = context.workspaceDefinition && !sourceResolutionDisabled
         ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
         : false
       const finalScope = withProviderWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), workspaceMaterializationPaths(context))
-      const sourceResolution = resolvedDefinition
+      const sourceResolution = resolvedDefinition && !sourceResolutionDisabled
         ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
             ...sourceResolutionOptions,
             selectedWorkspaceScope: toWorkspaceSelectedScope(finalScope),

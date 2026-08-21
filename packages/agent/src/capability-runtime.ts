@@ -1,6 +1,6 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
-import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "./access-runtime.ts"
+import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, workspaceOverrideSymbol } from "./access-runtime.ts"
 import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
@@ -295,9 +295,12 @@ function capabilityRequiresWorkspace(capability: AgentCapabilityDefinition): boo
 
 export function validateAgentCapabilityComposition(
   capabilities: readonly AgentCapabilityDefinition[],
-  options: { hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
+  options: { driverKind?: AgentDriverKind, hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
 ): void {
   for (const capability of normalizeCapabilities(capabilities)) {
+    if (capability.id === "gmail" && options.driverKind !== "provider") {
+      throw new Error("[vitehub] gmail() requires a provider Agent Driver so its Workspace commands have a local execution host.")
+    }
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
     }
@@ -771,6 +774,9 @@ async function applyCapabilityWorkspaceContributions<
   assertSelectedWorkspaceSourceGrants(selectedWorkspaceScope, [definition, declaredWorkspaceDefinition])
   if (!registries.length) return
   assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
+  if (isTrustedSourceFreeInspection(context.context)) {
+    return { definition, registries, workspace: context.workspace }
+  }
   const resolvedDefinition = await workspaceRuntime.resolveWorkspaceSources(definition, {
     invocation: {
       context: agentInvocationSourceContext(context.context),

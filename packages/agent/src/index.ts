@@ -7,7 +7,7 @@ import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./i
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
-import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
+import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import {
   createBackedAgentInvocationController,
@@ -22,8 +22,10 @@ import {
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
-import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
+import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import {
   bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
@@ -92,6 +94,7 @@ import {
 } from "./tool-runtime.ts"
 import {
   createAgentStreamEventTracer,
+  agentInvocationTraceIdContextKey,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentInvocationFinish,
@@ -169,6 +172,7 @@ import type {
   IsTypedAgentStaticCapabilitiesList,
   AgentTelemetry,
   AgentToolSet,
+  AgentToolStepItem,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -180,6 +184,7 @@ import type {
   AgentInvocationSnapshot,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
+import type { AgentChannelContext } from "./chat-trigger.ts"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
@@ -215,6 +220,12 @@ export type {
   AgentInvocationSnapshot,
   AgentInvocationStatus,
 } from "./agent-invocation.ts"
+
+export type {
+  AgentPublicError,
+  AgentPublicErrorCode,
+  AgentPublicErrorDetails,
+} from "./agent-error.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -306,6 +317,7 @@ export type {
   AgentDeliveryArtifactPlacement,
   AgentDefinition,
   AgentDefinitionCliOptions,
+  AgentInspectionCapabilityMetadata,
   AgentInspectionConfigMetadata,
   AgentInspectionConfigValue,
   AgentInspectionDriverMetadata,
@@ -315,6 +327,7 @@ export type {
   AgentInspectionModelExecutionMetadata,
   AgentInspectionModelMetadata,
   AgentInspectionToolDefinition,
+  AgentInspectionValue,
   AgentDriver,
   AgentDriverCapacityOptions,
   AgentDriverCapacityQueueOptions,
@@ -717,10 +730,6 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
 
-function agentWorkflowRecoveryName(name: string): string {
-  return `vitehub-agent-invocation-recovery-${name}`
-}
-
 async function deferAgentWorkflowRecovery<TPayload, TResult>(
   handle: WorkflowHandle<TPayload, TResult>,
   payload: TPayload,
@@ -778,7 +787,7 @@ async function getAgentWorkflowHandle<
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
-      })
+      }, { rootStep: false })
   agentWorkflowNames.add(name)
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
   agentWorkflowHandles.set(agent as object, handles)
@@ -907,7 +916,7 @@ async function runAgentAsWorkflow<
       const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
       const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
         agent,
-        agentWorkflowRecoveryName(handle.name),
+        getAgentInvocationRecoveryWorkflowName(handle.name),
         Boolean(context.agentIdentity),
         true,
       )
@@ -940,9 +949,8 @@ async function runAgentAsWorkflow<
       : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
       const recoveryAccepted = !ambiguous
-        || !workflowRunId
-        || !agent.invocations
-        || await deferRecovery(workflowRunId, failedRunId)
+        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
+        || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
       if (recoveryAccepted) {
         const invocationJournal = await bindAgentInvocations(agent.invocations, {
           ...context,
@@ -1322,6 +1330,7 @@ function defineBaseAgent<
     ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
     : baseCapabilities
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
+    driverKind: driver.kind,
     hasWorkspace: false,
   })
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
@@ -1747,6 +1756,7 @@ function createWorkspaceAgentDefinition<
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   if (Array.isArray(options.capabilities)) {
     validateAgentCapabilityComposition(options.capabilities, {
+      driverKind: normalizeAgentDriver(options).kind,
       hasWorkspace: true,
       workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
     })
@@ -1955,6 +1965,7 @@ type AgentInvocationContext<
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
+  toolResults: AgentToolStepItem[]
   driverContributions: AgentDriverContribution[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
@@ -1971,6 +1982,7 @@ type AgentInvocationContext<
   startTask?: Promise<void>
   telemetry?: AgentTelemetry<TRuntimeConfig>
   telemetryAgent: { name?: string, version?: string }
+  telemetryInvocationId: string
   instructions?: string
   startedAt: number
   actor: AgentInvoker
@@ -2069,16 +2081,33 @@ function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, 
   catch {}
 }
 
+function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>, invocationId: string, runId?: string): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
+  return {
+    append(event) {
+      return traceLog.append({
+        ...event,
+        attributes: {
+          ...event.attributes,
+          "agent.invocation.id": invocationId,
+          ...(runId ? { "agent.run.id": runId } : {}),
+        },
+      })
+    },
+    entries: () => traceLog.entries(),
+  }
+}
+
 function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   telemetry: AgentTelemetry<TRuntimeConfig> | undefined,
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   agent: { name?: string, version?: string },
+  invocationId: string,
 ): void {
-  const traceLog = runtime.traceLog
-  if (!telemetry || !traceLog) return
+  if (!telemetry || !runtime.traceLog) return
   const task = Promise.resolve()
     .then(async () => {
-      const runs = deriveTraceRuns(traceLog.entries())
+      const events = runtime.traceLog!.entries().filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
+      const runs = deriveTraceRuns(events)
       const id = runtime.run?.runId || runtime.trace?.id
       const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
       if (!run || run.status === "running") return
@@ -2114,15 +2143,27 @@ async function createAgentInvocationContext<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
-  const tracedRuntimeContext = resolvedContext.trace && resolvedContext.traceLog
+  const invocationContext = createAgentInvocationContextStore(input.context)
+  const telemetryInvocationId = createTraceId()
+  const toolResults: AgentToolStepItem[] = []
+  const toolStepReporter: NonNullable<AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]> = async (step) => {
+    if (step.toolResults?.length) {
+      for (const result of step.toolResults) appendAgentToolResult(toolResults, result)
+    }
+    await context.toolStepReporter?.(step)
+  }
+  invocationContext.set(agentInvocationTraceIdContextKey, telemetryInvocationId, { overwrite: true })
+  const tracedRuntimeContextBase = resolvedContext.trace && resolvedContext.traceLog
     ? resolvedContext
     : {
         ...resolvedContext,
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
       }
+  const tracedRuntimeContext = definition?.telemetry && tracedRuntimeContextBase.traceLog
+    ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId) }
+    : tracedRuntimeContextBase
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
-  const invocationContext = createAgentInvocationContextStore(input.context)
   let invoker = createFallbackAgentInvoker(context.run)
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
@@ -2155,6 +2196,7 @@ async function createAgentInvocationContext<
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
           ...callbackContext,
+          abortSignal: input.abortSignal,
           actor: invoker,
           context: invocationContext,
           driver: { kind: driverKind },
@@ -2172,6 +2214,7 @@ async function createAgentInvocationContext<
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
+      driverKind,
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
@@ -2246,8 +2289,9 @@ async function createAgentInvocationContext<
       }
     }
     const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
-      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.toolStepReporter)
+      ? withAgentToolStepReporting(preparedTools, toolStepReporter)
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
@@ -2270,7 +2314,12 @@ async function createAgentInvocationContext<
       close: capabilities.close,
       context: invocationContext,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
-      toolStepReporter: context.toolStepReporter,
+      durableErrorFallbackTimeout: (() => {
+        const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
+        return options ? durableChatErrorFallbackTimeout(options) : undefined
+      })(),
+      toolStepReporter,
+      toolResults,
       driverContributions: capabilities.driverContributions,
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
@@ -2297,6 +2346,7 @@ async function createAgentInvocationContext<
       startedAt,
       telemetry: definition?.telemetry,
       telemetryAgent: { name: definition?.name, version: definition?.version },
+      telemetryInvocationId,
       tools,
       workspace: activeWorkspace,
       workspaceAutoCommit,
@@ -2335,8 +2385,29 @@ async function createAgentInvocationContext<
       run: context.run,
       runtime: runtimeContext,
     }, error)
-    scheduleAgentTelemetry(definition?.telemetry, runtimeContext, { name: definition?.name, version: definition?.version })
+    scheduleAgentTelemetry(definition?.telemetry, runtimeContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
+  }
+}
+
+function appendAgentToolResult(results: AgentToolStepItem[], result: AgentToolStepItem): void {
+  const id = result.toolCallId ?? result.id
+  if (id !== undefined && results.some(candidate => (candidate.toolCallId ?? candidate.id) === id)) return
+  results.push(result)
+}
+
+function agentToolResultStreamCollector(toolResults: AgentToolStepItem[]): (chunk: unknown) => void {
+  const toolNames = new Map<string, string>()
+  const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  return (chunk) => {
+    const event = toAgentStreamEvent(chunk, toolNames, textPhases)
+    if (event?.type === "tool-result" && !event.error) {
+      appendAgentToolResult(toolResults, {
+        output: event.output,
+        toolCallId: event.id,
+        toolName: event.name,
+      })
+    }
   }
 }
 
@@ -2348,6 +2419,7 @@ type InvocationRunContext<
   close: () => Promise<void>
   context: AgentInvocationContextStore
   deliveryEffectIntents?: readonly AgentChannelDeliveryEffectIntent[]
+  durableErrorFallbackTimeout?: number
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
@@ -2366,7 +2438,9 @@ type InvocationRunContext<
   startedAt: number
   telemetry?: AgentTelemetry<TRuntimeConfig>
   telemetryAgent: { name?: string, version?: string }
+  telemetryInvocationId: string
   tools?: AgentToolSet
+  toolResults: AgentToolStepItem[]
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
@@ -2438,6 +2512,7 @@ function withEagerStreamUsageExtensions<
         },
         result,
         runtime: context.runtimeContext,
+        toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       await createAgentInvocationExtensions(eventBase as never, providers)
       if (chunk && typeof chunk === "object") {
@@ -2626,6 +2701,7 @@ function withStreamedResult(
   stream: AsyncIterable<unknown>,
   result: unknown,
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
+  toolResults?: AgentToolStepItem[],
   tools?: AgentToolSet,
 ) {
   const toolNames = new Map<string, string>()
@@ -2645,6 +2721,13 @@ function withStreamedResult(
     stream: (async function* () {
       for await (const chunk of stream) {
         const event = toAgentStreamEvent(chunk, toolNames, textPhases, toolActivities)
+        if (toolResults && event?.type === "tool-result" && !event.error) {
+          appendAgentToolResult(toolResults, {
+            output: event.output,
+            toolCallId: event.id,
+            toolName: event.name,
+          })
+        }
         const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
           && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
           && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
@@ -2923,6 +3006,83 @@ async function resolveFinishDeliveryEffectIntents<
   return intents
 }
 
+interface DurableFailureDeadline {
+  expiresAt: number
+  timeout: number
+}
+
+function createDurableFailureDeadline(timeout: number): DurableFailureDeadline {
+  return { expiresAt: Date.now() + timeout, timeout }
+}
+
+function durableFailureTimeoutError(timeout: number): Error & { isRetryable: false } {
+  return Object.assign(
+    new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
+    { isRetryable: false as const },
+  )
+}
+
+async function runWithinDurableFailureDeadline<T>(
+  deadline: DurableFailureDeadline,
+  operation: (abortSignal: AbortSignal) => Promise<T>,
+  parentSignal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController()
+  const abortSignal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
+  const task = operation(abortSignal)
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          const error = durableFailureTimeoutError(deadline.timeout)
+          controller.abort(error)
+          reject(error)
+        }, Math.max(0, deadline.expiresAt - Date.now()))
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+    void task.catch(() => undefined)
+  }
+}
+
+async function applyDurableFailureDeliveryEffects<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  providers: readonly AgentChannelDeliveryFinishEffect[],
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  deadline: DurableFailureDeadline,
+): Promise<void> {
+  const fallbackProviders = providers.filter(isDurableChatErrorFallbackEffect)
+  const otherProviders = providers.filter(provider => !isDurableChatErrorFallbackEffect(provider))
+  await runWithinDurableFailureDeadline(deadline, async (abortSignal) => {
+    const deliveryContext = { ...context, input: { ...context.input, abortSignal } }
+    for (const group of [fallbackProviders, otherProviders]) {
+      const intents = await resolveFinishDeliveryEffectIntents(group, event, deliveryContext)
+      for (const intent of intents) await applyChannelDeliveryEffectIntents(deliveryContext, [intent], event)
+    }
+  }, context.input.abortSignal)
+}
+
+async function resolveDurableFailureFinishExtensions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  event: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
+  providers: ResolvedAgentFinishExtensionProvider[],
+  deadline: DurableFailureDeadline,
+): Promise<AgentFinishExtensions> {
+  return await runWithinDurableFailureDeadline(
+    deadline,
+    async () => await createAgentInvocationExtensions(event as never, providers),
+  )
+}
+
 function createFinishDeliveryEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -2995,6 +3155,7 @@ function createAgentErrorHookEvent<
     ...errorEvent,
     error: errorEvent.error,
     errorMessage: errorEvent.errorMessage ?? agentErrorDetails(errorEvent.error).message,
+    publicError: toAgentPublicError(errorEvent.error, "http"),
     reaction: delivery.reaction,
     reply: delivery.reply,
     status: delivery.status,
@@ -3062,20 +3223,35 @@ async function finishAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
 ): Promise<void> {
   const durationMs = Date.now() - context.startedAt
-  const failed = outcome.status === "error"
-  const error = failed ? outcome.error : undefined
-  const result = outcome.status === "success" ? outcome.result : undefined
-  const runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
-  const text = runResult?.text
+  let failed = outcome.status === "error"
+  let error = outcome.status === "error" ? outcome.error : undefined
+  let result = outcome.status === "success" ? outcome.result : undefined
+  let usage = outcome.status === "success" ? outcome.usage : undefined
+  const usageResolved = outcome.status === "success" && outcome.usageResolved
+  let runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
+  let text = runResult?.text
+  let closeError: unknown
   try {
     await context.startTask
-    await context.close()
+    try {
+      await context.close()
+    }
+    catch (cleanupError) {
+      closeError = cleanupError
+      if (!failed) {
+        failed = true
+        result = undefined
+        runResult = undefined
+        text = undefined
+        error = cleanupError
+      }
+    }
     let resultKind: string | undefined
-    let usage = failed ? undefined : outcome.usage
+    if (failed) usage = undefined
     if (!failed) {
       try {
         resultKind = agentResultKind(result)
-        if (!outcome.usageResolved) usage ??= await resolveAgentUsageRecord(result, context.run)
+        if (!usageResolved) usage ??= await resolveAgentUsageRecord(result, context.run)
       }
       catch {
         // Invocation data must not change Agent output or mask the original failure.
@@ -3098,34 +3274,76 @@ async function finishAgentInvocation<
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
         ...(text !== undefined ? { text } : {}),
+        toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
-      const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
-      const outcomeHook = failed ? context.errorHook : context.finishHook
+      const provisionalEvent = provisionalFinishEvent(context, eventBase)
+      const provisionallyActiveDeliveryProviders = activeFinishDeliveryEffectProviders(context, provisionalEvent)
+      const hasDurableFailureDelivery = failed
+        && context.durableErrorFallbackTimeout !== undefined
+        && provisionallyActiveDeliveryProviders.some(isDurableChatErrorFallbackEffect)
+      const durableFailureDeadline = hasDurableFailureDelivery
+        ? createDurableFailureDeadline(context.durableErrorFallbackTimeout!)
+        : undefined
+      const provisionalActiveDeliveryProviders = hasDurableFailureDelivery
+        ? provisionallyActiveDeliveryProviders
+        : await prepareProvisionalTitleDeliverySupport(context, eventBase)
+      const cleanupOnlyFailure = outcome.status === "success" && closeError !== undefined
+      const outcomeHook = failed
+        ? cleanupOnlyFailure ? undefined : context.errorHook
+        : context.finishHook
       const hookName = failed ? "agent:error" : "agent:finish"
       const hasOutcomeConsumer = Boolean(outcomeHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders))
       const finishExtensionProviders = hasOutcomeConsumer
         ? context.finishExtensionProviders
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
-        const extensions = await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
+        if (hasDurableFailureDelivery) {
+          const fallbackEvent = provisionalFinishEvent(context, eventBase)
+          const fallbackProviders = activeFinishDeliveryEffectProviders(context, fallbackEvent)
+            .filter(isDurableChatErrorFallbackEffect)
+          await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, durableFailureDeadline!)
+        }
+        const extensions = hasDurableFailureDelivery
+          ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!)
+          : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
-        await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
-        let outcomeHookResult: void | AgentChannelDeliveryFinishEffectResult
-        await runObservedAgentHook(context.hooks, {
-          ids: { runId: context.run?.runId },
-          name: hookName,
-          owner: "agent",
-          phase: failed ? "error" : "finish",
-        }, async () => {
-          outcomeHookResult = failed
-            ? await context.errorHook?.(createAgentErrorHookEvent(finishEvent, context))
-            : await context.finishHook?.(createAgentFinishHookEvent(finishEvent, context))
-        })
-        if (outcomeHookResult) {
-          const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
-          appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
-          await applyChannelDeliveryEffectIntents(context, outcomeHookIntents, finishEvent)
+          .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
+        if (hasDurableFailureDelivery) {
+          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline!)
+        }
+        else {
+          const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
+          for (const intent of finishIntents) {
+            await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
+          }
+        }
+        const runOutcomeHook = async (hookContext: typeof context) => {
+          const hookFinishEvent = { ...finishEvent, input: hookContext.input }
+          let outcomeHookResult: void | AgentChannelDeliveryFinishEffectResult
+          await runObservedAgentHook(context.hooks, {
+            ids: { runId: context.run?.runId },
+            name: hookName,
+            owner: "agent",
+            phase: failed ? "error" : "finish",
+          }, async () => {
+            outcomeHookResult = failed
+              ? await outcomeHook?.(createAgentErrorHookEvent(hookFinishEvent, hookContext) as never)
+              : await outcomeHook?.(createAgentFinishHookEvent(hookFinishEvent, hookContext) as never)
+          })
+          if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
+            const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
+            appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
+            await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, hookFinishEvent)
+          }
+        }
+        if (durableFailureDeadline) {
+          await runWithinDurableFailureDeadline(durableFailureDeadline, async (abortSignal) => {
+            await runOutcomeHook({ ...context, input: { ...context.input, abortSignal } })
+          }, context.input.abortSignal)
+        }
+        else {
+          await runOutcomeHook(context)
         }
       }
     }
@@ -3146,6 +3364,7 @@ async function finishAgentInvocation<
       failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
       error,
     )
+    if (closeError !== undefined) throw closeError
   }
   catch (finishError) {
     await traceAgentInvocationError(toTraceContext(context), failed ? error : finishError)
@@ -3153,10 +3372,13 @@ async function finishAgentInvocation<
       failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
       failed ? error : finishError,
     )
+    if (closeError !== undefined && finishError !== closeError) {
+      throw new AggregateError([closeError, finishError], "[vitehub] Capability cleanup and Agent finish lifecycle both failed.")
+    }
     throw finishError
   }
   finally {
-    scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent)
+    scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent, context.telemetryInvocationId)
   }
 }
 
@@ -3224,7 +3446,7 @@ async function finalizeAgentInvocationResult<
       const enrichedStream = withEagerStreamUsageExtensions(source.stream, context, result)
       const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
-        const streamed = withStreamedResult(stream, result, undefined, context.tools)
+        const streamed = withStreamedResult(stream, result, undefined, context.toolResults, context.tools)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
@@ -3349,15 +3571,88 @@ type AgentInvocationExecutionOptions =
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
   }
 
-function deferPreparedInvocationFailure<
+async function finishPreparedInvocationFailure<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
   preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   error: unknown,
-): void {
+  waitForFinish: boolean,
+): Promise<void> {
   const finishTask = finishAgentInvocation(preparedInvocation, { error, status: "error" })
-  registerAgentBackgroundTask(preparedInvocation.runtimeContext, finishTask)
+  if (!waitForFinish) {
+    registerAgentBackgroundTask(preparedInvocation.runtimeContext, finishTask)
+    return
+  }
+  try {
+    await finishTask
+  }
+  catch (finishError) {
+    throw new AggregateError([error, finishError], "[vitehub] Agent capacity acquisition and finish lifecycle both failed.")
+  }
+}
+
+async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  error: unknown,
+): Promise<void> {
+  if (!(context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
+  const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
+  if (!options) return
+  const invocationContext = createAgentInvocationContextStore(input.context)
+  const chat = getAgentChatContext(invocationContext)
+  const channel = invocationContext.get<AgentChannelContext>("channel")
+  if (!chat && !channel) return
+  const invoker = createFallbackAgentInvoker(context.run)
+  const timeout = durableChatErrorFallbackTimeout(options)
+  const deadline = createDurableFailureDeadline(timeout)
+  await runWithinDurableFailureDeadline(deadline, async (abortSignal) => {
+    const intents = await resolveDurableChatErrorFallbackIntents(options, {
+      error,
+      history: input.messages || [],
+      message: chat?.message || channel?.message || { text: "" },
+      publicError: toAgentPublicError(error, "http"),
+      run: context.run,
+      toolResults: [],
+    }, async resolution => await resolution)
+    if (abortSignal.aborted || !intents.length) return
+    await applyChannelDeliveryEffectIntents({
+      actor: invoker,
+      channels: definition?.channels,
+      context: invocationContext,
+      hooks: definition?.hooks as AgentHookObserverHooks | undefined,
+      input: { ...input, abortSignal },
+      invoker,
+      run: context.run,
+      runtimeContext: createResolvedRuntimeContext(context),
+    } as never, intents)
+  }, input.abortSignal)
+}
+
+async function createAgentInvocationContextWithWorkflowFailureDelivery<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  kind: "run" | "stream",
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
+): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
+  try {
+    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal)
+  }
+  catch (error) {
+    try {
+      await deliverUnpreparedWorkflowFailure(definition, context, input, error)
+    }
+    catch (deliveryError) {
+      throw new AggregateError([error, deliveryError], "[vitehub] Agent setup failed and Workflow fallback delivery also failed.")
+    }
+    throw error
+  }
 }
 
 async function executeAgentInvocationWithCapacityLease<
@@ -3376,7 +3671,8 @@ async function executeAgentInvocationWithCapacityLease<
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
-  const invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input, options.kind, invocationJournal)
+  const invocation = preparedInvocation
+    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal)
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
@@ -3506,6 +3802,7 @@ async function executeAgentInvocationWithCapacityLease<
           let finishTask: Promise<void> | undefined
           let streamedText = ""
           let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+          const collectToolResult = agentToolResultStreamCollector(invocation.toolResults)
           let preserved: object
           let uiMessageStreamCreated = false
           const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
@@ -3566,6 +3863,7 @@ async function executeAgentInvocationWithCapacityLease<
                     abortSignal: invocation.input.abortSignal,
                     cancelOnAbort: source.cancel,
                     onChunk(chunk) {
+                      collectToolResult(chunk)
                       streamedText += uiMessageTextDelta(chunk) || ""
                       streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
                     },
@@ -3635,7 +3933,7 @@ async function executeAgentInvocationWithCapacityLease<
           const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
           preservedSources.set(renderedStream, source)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
-          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.tools)
+          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             finishing = true
@@ -3961,7 +4259,9 @@ async function executeAgentInvocationWithCapacityLease<
         : isAsyncIterable(capacityRendered)
           ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
           : capacityRendered
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
+      const shouldWrapOutput = shouldHoldInvocationOutput()
+      const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
         const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
@@ -3979,9 +4279,14 @@ async function executeAgentInvocationWithCapacityLease<
         else {
           await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
         }
-      }, projection, invocation.input.abortSignal, options.holdCapacity === true
-        ? async reason => { await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(reason))) }
-        : undefined)
+      }, {
+        abortSignal: invocation.input.abortSignal,
+        cancelOnAbort: options.holdCapacity === true
+          ? async reason => { await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(reason))) }
+          : undefined,
+        ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
+        projection,
+      })
     }
 
     let isStreamResult = hasTraceableStreamResult(rendered)
@@ -4034,7 +4339,7 @@ async function executeAgentInvocationWithCapacityLease<
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
-    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.tools)
+    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
@@ -4073,7 +4378,9 @@ async function executeAgentInvocationWithCapacityLease<
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
           }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions, response)
           const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
-          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
+          const shouldWrapOutput = shouldHoldInvocationOutput()
+          const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
+          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
               await lifecycle.finish({
                 result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
@@ -4088,7 +4395,11 @@ async function executeAgentInvocationWithCapacityLease<
               const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
               await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
             }
-          }, projection, invocation.input.abortSignal)
+          }, {
+            abortSignal: invocation.input.abortSignal,
+            ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
+            projection,
+          })
           const headers = new Headers(response.headers)
           headers.delete("content-encoding")
           headers.delete("content-length")
@@ -4136,18 +4447,18 @@ async function executeAgentInvocation<
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
-    preparedInvocation = definition && inspectAgentCapacity(definition)
-      ? await createAgentInvocationContext(
-          agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
-          context,
-          input,
-          options.kind,
-          invocationJournal,
-        )
-      : undefined
+    if (definition && inspectAgentCapacity(definition)) {
+      preparedInvocation = await createAgentInvocationContextWithWorkflowFailureDelivery(
+        agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
+        context,
+        input,
+        options.kind,
+        invocationJournal,
+      )
+    }
     if (preparedInvocation?.handledResponse) {
       await invocationJournal?.running()
-      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
     }
     release = definition
       ? await acquireAgentCapacity(definition, input.abortSignal)
@@ -4155,7 +4466,8 @@ async function executeAgentInvocation<
   }
   catch (error) {
     if (preparedInvocation) {
-      deferPreparedInvocationFailure(preparedInvocation, error)
+      const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+      await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
     }
     await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     throw error

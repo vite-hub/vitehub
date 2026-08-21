@@ -1,4 +1,5 @@
 import type { AgentRuntimeContext } from "../types.ts"
+import { agentWorkflowExecutionContextKey } from "./workflow-execution.ts"
 
 const invocationRecoveryTasksByMemo = new WeakMap<AgentRuntimeContext["memo"], Array<Promise<void>>>()
 
@@ -24,8 +25,10 @@ export function registerAgentInvocationRecovery(context: AgentRuntimeContext, pr
     if (index !== -1) tasks.splice(index, 1)
     if (tasks.length === 0) invocationRecoveryTasksByMemo.delete(context.memo)
   })
-  try {
-    context.waitUntil(task)
+  if (!(context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) {
+    try {
+      context.waitUntil(task)
+    }
+    catch {}
   }
-  catch {}
 }

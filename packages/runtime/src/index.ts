@@ -294,7 +294,7 @@ function isContentAttributeKey(key: string): boolean {
 
 function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (!value || typeof value !== "object") return value
-  if (seen.has(value)) return undefined
+  if (seen.has(value)) return "[Circular]"
   seen.add(value)
   if (Array.isArray(value)) {
     const next = value.map(child => metadataValue(child, seen))
@@ -315,8 +315,7 @@ function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
       omitted.push(key)
       return []
     }
-    const sanitized = metadataValue(child, seen)
-    return sanitized === undefined ? [] : [[key, sanitized]]
+    return [[key, metadataValue(child, seen)]]
   }))
   seen.delete(value)
   if (omitted.length) next["content.omitted"] = omitted
@@ -494,6 +493,10 @@ function traceRunParentId(run: TraceRunView): string | undefined {
   return firstString(...run.events.map(event => event.trace?.parentId))
 }
 
+function traceRunSpanId(run: TraceRunView): string {
+  return firstString(...run.events.map(event => event.attributes?.["agent.invocation.id"]), run.id) || run.id
+}
+
 function isOpenTelemetryId(value: string, length: number): boolean {
   return value.length === length && /^[0-9a-f]+$/.test(value)
 }
@@ -537,7 +540,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     const rawParentSpanId = traceRunParentId(run)
     const rawTraceId = traceRunTraceId(run)
     const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
-    const spanId = openTelemetryId(run.id, 16)
+    const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
     const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
     const errorMessage = firstString(...run.events.slice().reverse().map(event => event.attributes?.["error.message"]))
@@ -569,7 +572,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         endTime: step.endTime || run.endTime,
         name: step.name,
         parentSpanId: spanId,
-        spanId: openTelemetryId(`${run.id}:${step.id}`, 16),
+        spanId: openTelemetryId(`${spanId}:${step.id}`, 16),
         startTime: step.startTime,
         status: {
           code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",

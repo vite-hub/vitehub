@@ -334,6 +334,7 @@ export function normalizeUiMessageStream(
   stream: ReadableStream<unknown>,
   options: {
     omitUsageEvents?: boolean
+    onChunk?: (chunk: unknown) => void
     onUsageRecord?: (usageRecord: AgentUsageRecord) => void
   } = {},
 ): ReadableStream<unknown> {
@@ -342,7 +343,9 @@ export function normalizeUiMessageStream(
       const usageRecord = usageRecordFromStreamChunk(chunk, stream)
       if (usageRecord) options.onUsageRecord?.(usageRecord)
       if (options.omitUsageEvents && streamEventType(chunk) === "usage" && usageRecord) return
-      controller.enqueue(normalizeUiMessageStreamChunk(chunk))
+      const normalized = normalizeUiMessageStreamChunk(chunk)
+      options.onChunk?.(normalized)
+      controller.enqueue(normalized)
     },
   }))
 }
@@ -484,10 +487,14 @@ export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
   finish: (outcome: StreamCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => MaybePromise<void>,
-  projection?: AgentUIMessageStreamProjection,
-  abortSignal?: AbortSignal,
-  cancelOnAbort?: (reason: unknown) => Promise<void>,
+  options: {
+    abortSignal?: AbortSignal
+    cancelOnAbort?: (reason: unknown) => Promise<void>
+    onNormalizedChunk?: (chunk: unknown) => void
+    projection?: AgentUIMessageStreamProjection
+  } = {},
 ): Promise<FinalizedStreamOutput<unknown>> {
+  const { abortSignal, cancelOnAbort, onNormalizedChunk, projection } = options
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
   const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
@@ -515,6 +522,7 @@ export async function finalizeUiMessageStreamOutput(
         },
   }), {
     omitUsageEvents: true,
+    onChunk: onNormalizedChunk,
     onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
   }), projection)
   let streamedText = ""

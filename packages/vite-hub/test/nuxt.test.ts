@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { PluginOption } from "vite"
 
@@ -29,6 +29,9 @@ const mocks = vi.hoisted(() => ({
       ownerPlugin: true,
     },
   })),
+  envHook: vi.fn((config: Record<string, unknown>) => {
+    config.envReady = true
+  }),
   outputHook: vi.fn(),
   agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }) => ({
     nitro: {
@@ -48,6 +51,7 @@ const mocks = vi.hoisted(() => ({
       sandbox: config[VITEHUB_NITRO_CONFIG_CONTEXT],
     },
   })),
+  useEnvPlugin: vi.fn(),
   vitehub: vi.fn(),
   workflowNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
@@ -95,9 +99,11 @@ describe("ViteHub Nuxt integration", () => {
     mocks.existingQueueConfig.mockClear()
     mocks.existingQueueNitroConfig.mockClear()
     mocks.existingOwnerConfig.mockClear()
+    mocks.envHook.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
+    mocks.useEnvPlugin.mockClear()
     mocks.workflowNitroConfig.mockClear()
     mocks.vitehub.mockReset()
     mocks.vitehub.mockReturnValue([
@@ -161,7 +167,25 @@ describe("ViteHub Nuxt integration", () => {
       },
       {
         name: "vite-hub/deployment-output",
+        enforce: "post",
         config: mocks.outputHook,
+        vitehub: {
+          deploymentOutput: {
+            useEnvPlugin: mocks.useEnvPlugin,
+          },
+        },
+      },
+      {
+        name: "@vite-hub/env/vite",
+        api: {
+          resolveProjectRoot: vi.fn((root: string) => {
+            const envOptions = (mocks.vitehub.mock.calls.at(-1)?.[0] as {
+              env?: { projectRoot?: string }
+            } | undefined)?.env
+            return envOptions?.projectRoot ? resolve(root, envOptions.projectRoot) : resolveViteHubProjectRoot(root)
+          }),
+        },
+        config: mocks.envHook,
       },
     ])
   })
@@ -192,6 +216,21 @@ describe("ViteHub Nuxt integration", () => {
       existingPlugin,
       { name: "vite-hub/deployment-output" },
     ]])
+    mocks.outputHook.mockImplementationOnce((config: { nitro?: Record<string, unknown> }) => {
+      if (!(config as Record<string, unknown>).envReady) return
+      const cloudflare = config.nitro?.cloudflare as Record<string, unknown> | undefined
+      const wrangler = cloudflare?.wrangler as Record<string, unknown> | undefined
+      config.nitro = {
+        ...config.nitro,
+        cloudflare: {
+          ...cloudflare,
+          wrangler: {
+            ...wrangler,
+            secrets: { required: ["VITEHUB_TOKEN"] },
+          },
+        },
+      }
+    })
 
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
@@ -206,6 +245,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
+      expect.objectContaining({ name: "@vite-hub/env/vite" }),
       existingQueuePlugin,
       existingOwnerPlugin,
       existingPlugin,
@@ -280,7 +320,11 @@ describe("ViteHub Nuxt integration", () => {
         mode: "development",
       },
     )
-    expect(mocks.outputHook).not.toHaveBeenCalled()
+    expect(mocks.outputHook).toHaveBeenCalledOnce()
+    expect(mocks.envHook).toHaveBeenCalledOnce()
+    expect(mocks.useEnvPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "@vite-hub/env/vite" }),
+    )
     expect(nitroConfig).toEqual({
       alias: {
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
@@ -292,6 +336,7 @@ describe("ViteHub Nuxt integration", () => {
           d1_databases: [d1Binding, d1Binding],
           name: "vitehub-nuxt",
           observability: { enabled: true },
+          secrets: { required: ["VITEHUB_TOKEN"] },
         },
       },
       ownerPlugin: true,
@@ -304,6 +349,20 @@ describe("ViteHub Nuxt integration", () => {
       sandbox: true,
       workflows: true,
     })
+  })
+
+  it("binds deployment output to an existing Env plugin selected for replay", async () => {
+    const existingEnvPlugin = {
+      name: "@vite-hub/env/vite",
+      api: { resolveProjectRoot: (root: string) => resolveViteHubProjectRoot(root) },
+      config: vi.fn(),
+    }
+    const { nuxt } = createNuxt(false, [existingEnvPlugin])
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(mocks.useEnvPlugin).toHaveBeenCalledWith(existingEnvPlugin)
+    expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toContain(existingEnvPlugin)
   })
 
   it("replays configured Nuxt Vite options into Nitro hooks", async () => {
@@ -320,6 +379,39 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({
         root: "/tmp/vitehub-nuxt/custom-vite-root",
         workspace: false,
+      }),
+      expect.anything(),
+    )
+  })
+
+  it("finalizes deployment output after later ViteHub post hooks", async () => {
+    const lateCloudflarePlugin = {
+      name: "vite-hub/custom-cloudflare",
+      enforce: "post" as const,
+      config() {
+        return {
+          nitro: {
+            cloudflare: {
+              wrangler: {
+                env: { staging: { name: "staging-worker" } },
+              },
+            },
+          },
+        }
+      },
+    }
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [lateCloudflarePlugin])
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook({})
+
+    expect(mocks.outputHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nitro: expect.objectContaining({
+          cloudflare: expect.objectContaining({
+            wrangler: expect.objectContaining({ env: { staging: { name: "staging-worker" } } }),
+          }),
+        }),
       }),
       expect.anything(),
     )
@@ -344,6 +436,114 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
     })
+  })
+
+  it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes: vi.fn() },
+      name: "@vite-hub/email/vite",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ email: true, preset: "vercel" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+    expect(((nuxt.options as typeof nuxt.options & { nitro: { alias: Record<string, string> } }).nitro).alias["#vitehub/emails"]).toBe(emailTemplates)
+    expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+  })
+
+  it("materializes Email templates before Cloudflare Workflow preparation", async () => {
+    const prepareTypes = vi.fn().mockResolvedValue({
+      "monthly-recap": "/tmp/vitehub-nuxt/.vitehub/email/templates/monthly-recap.mjs",
+      "monthly-recap/detail": "/tmp/vitehub-nuxt/.vitehub/email/templates/monthly-recap%2Fdetail.mjs",
+    })
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "@vite-hub/email/vite",
+    }])
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ email: true, preset: "cloudflare" }, nuxt)
+
+    expect(prepareTypes).toHaveBeenCalledWith({
+      materialize: true,
+      projectRoot: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
+    const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap"])
+      .toBe(`${emailTemplates}/monthly-recap.mjs`)
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap/detail"])
+      .toBe(`${emailTemplates}/monthly-recap%2Fdetail.mjs`)
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+    expect(((nuxt.options as typeof nuxt.options & { nitro: { alias: Record<string, string> } }).nitro).alias["#vitehub/emails"]).toBe(emailTemplates)
+  })
+
+  it("resolves live-added nested Email templates dynamically during Nuxt development", async () => {
+    const prepareTypes = vi.fn().mockResolvedValue({
+      monthly: "/tmp/vitehub-nuxt/.vitehub/email/templates/monthly.mjs",
+    })
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "@vite-hub/email/vite",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+
+    await viteHubNuxtModule({ email: true, preset: "vercel" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nuxt.options.alias).not.toHaveProperty("#vitehub/emails/monthly")
+    const rollupConfig = nitroConfig.rollupConfig as { plugins: Array<{ name: string, resolveId: (id: string) => string | undefined }> }
+    const resolver = rollupConfig.plugins.find(plugin => plugin.name === "vite-hub/nuxt-email-templates")
+    expect(resolver?.resolveId("#vitehub/emails/monthly/detail"))
+      .toBe("/tmp/vitehub-nuxt/.vitehub/email/templates/monthly%2Fdetail.mjs")
+  })
+
+  it("exposes templates from a directly installed Email plugin", async () => {
+    const prepareTypes = vi.fn()
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [{
+      api: { prepareTypes },
+      name: "@vite-hub/email/vite",
+    }])
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    expect(prepareTypes).toHaveBeenCalledWith({
+      materialize: true,
+      projectRoot: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
+    const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+    expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+  })
+
+  it("materializes and exposes Email templates on non-host-specific Nitro presets", async () => {
+    const prepareTypes = vi.fn()
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "@vite-hub/email/vite",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ email: { driver: "unemail/driver/resend" }, preset: "node" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    expect(prepareTypes).toHaveBeenCalledWith({
+      materialize: true,
+      projectRoot: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
+    const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+    expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
   })
 
   it("includes generated types from a configured Env project root", async () => {
@@ -389,6 +589,53 @@ describe("ViteHub Nuxt integration", () => {
       "#vitehub/env/server": "/tmp/vitehub-nuxt/apps/api/.vitehub/env/server.mjs",
       "#vitehub/templates": "./custom-templates.mjs",
     })
+  })
+
+  it("prepares Env types before collecting generated declarations", async () => {
+    const steps: string[] = []
+    const prepareEnvTypes = vi.fn(async () => { steps.push("env") })
+    const prepareTypes = vi.fn(async () => { steps.push("types") })
+    mocks.vitehub.mockReturnValue([
+      {
+        api: { prepareTypes: prepareEnvTypes, resolveProjectRoot: (root: string) => root },
+        name: "@vite-hub/env/vite",
+      },
+      {
+        api: { prepareTypes },
+        name: "vite-hub/types",
+      },
+    ])
+    const { nuxt } = createNuxt()
+    const githubToken = { source: "GITHUB_TOKEN" }
+    const appName = { source: "PUBLIC_APP_NAME" }
+    ;(nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }).env = { public: { appName } }
+
+    await viteHubNuxtModule({ env: { server: { githubToken } }, preset: "node" } as never, nuxt)
+
+    expect(prepareEnvTypes).toHaveBeenCalledWith({ public: { appName }, server: { githubToken } }, "/tmp/vitehub-nuxt")
+    expect(steps).toEqual(["env", "types"])
+  })
+
+  it("removes disabled Email types before collecting generated declarations", async () => {
+    const steps: string[] = []
+    const cleanupEmailTypes = vi.fn(async () => { steps.push("email") })
+    const prepareTypes = vi.fn(async () => { steps.push("types") })
+    mocks.vitehub.mockReturnValue([
+      {
+        api: { prepareTypes: cleanupEmailTypes },
+        name: "@vite-hub/email/optional-peer-resolver",
+      },
+      {
+        api: { prepareTypes },
+        name: "vite-hub/types",
+      },
+    ])
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "node" } as never, nuxt)
+
+    expect(cleanupEmailTypes).toHaveBeenCalledWith("/tmp/vitehub-nuxt")
+    expect(steps).toEqual(["email", "types"])
   })
 
   it("replaces existing Env array declarations instead of concatenating data values", async () => {

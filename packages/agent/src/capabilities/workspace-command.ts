@@ -94,8 +94,8 @@ function isValidCommand(command: string): boolean {
 
 export function normalizeWorkspaceCommandTimeout(value: unknown, label: string): number | undefined {
   if (value === undefined) return undefined
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new TypeError(`[vitehub] ${label} must be a positive number.`)
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 2_147_483_647) {
+    throw new TypeError(`[vitehub] ${label} must be a positive number no greater than 2,147,483,647.`)
   }
   return value
 }

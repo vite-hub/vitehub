@@ -3,6 +3,7 @@ import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { BoxDefinition } from "@vite-hub/box"
+import type { AgentPublicError } from "./agent-error.ts"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
@@ -419,7 +420,7 @@ interface AgentWebhookInvocationOwnershipBase {
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
-  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: never }
+  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
   | { busy?: undefined, concurrencyKey?: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
   | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: undefined, rehydrate?: never }
 )
@@ -557,6 +558,7 @@ export interface AgentOutputExtensionEvent {
 export interface AgentFinishEvent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TOutput = unknown,
 > {
   actor: AgentActor
   error?: unknown
@@ -570,15 +572,17 @@ export interface AgentFinishEvent<
     run?: AgentRunMetadata
     usage?: AgentUsageRecord
   }
-  result?: unknown
+  result?: TOutput
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher }
   text?: string
+  toolResults: AgentToolStepItem[]
 }
 
 export type AgentFinishHookEvent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "error" | "errorMessage"> & {
+  TOutput = unknown,
+> = Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS, TOutput>, "error" | "errorMessage"> & {
   reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
   reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
   status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
@@ -590,6 +594,7 @@ export type AgentErrorHookEvent<
 > = Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "error" | "errorMessage" | "result" | "text"> & {
   error: unknown
   errorMessage: string
+  publicError: AgentPublicError
   reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
   reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
   status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
@@ -603,7 +608,10 @@ export type AgentErrorHook<
 export type AgentFinishHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
+  TOutput = unknown,
+> = {
+  bivarianceHack(event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS, TOutput>): MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
+}["bivarianceHack"]
 
 export type AgentInputHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -615,9 +623,10 @@ export interface AgentInvocationHooks<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
 > {
   "agent:error"?: AgentErrorHook<TRuntimeConfig, CALL_OPTIONS>
-  "agent:finish"?: AgentFinishHook<TRuntimeConfig, CALL_OPTIONS>
+  "agent:finish"?: AgentFinishHook<TRuntimeConfig, CALL_OPTIONS, TOutput>
   "agent:input"?: AgentInputHook<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }
 
@@ -952,6 +961,7 @@ export interface AgentCapabilitiesResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>, AgentInvocationCallbackContextValues {
+  abortSignal?: AbortSignal
   driver: {
     kind: AgentDriverKind
   }
@@ -1199,13 +1209,14 @@ type AgentSharedSettings<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
+  TOutput = unknown,
 > = {
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
   description?: string
-  hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
@@ -1226,7 +1237,7 @@ export type AgentSettings<
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
   TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>,
-> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput> & {
   driver: TDriver
 }
 
@@ -1246,7 +1257,7 @@ export interface AgentDefinition<
   chat?: AgentChatOptions<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
   description?: string
-  hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
@@ -1320,10 +1331,12 @@ export type AgentRouteOption = boolean | string
 
 export interface AgentRoutesOptions {
   discordGateway?: AgentRouteOption
+  inspection?: AgentRouteOption
 }
 
 export interface ResolvedAgentRoutesOptions {
   discordGateway: false | string
+  inspection: false | string
   webhooks: string
 }
 
@@ -1417,6 +1430,7 @@ export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfi
 
 export interface AgentChatErrorHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChatAgentHookArgs<TRuntimeConfig> {
   error: unknown
+  publicError: AgentPublicError
   toolResults: AgentToolStepItem[]
 }
 
@@ -1485,7 +1499,7 @@ export type AgentChatMessage =
 
 export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 
-export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | "serial" | (string & {})
+export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | "serial" | "steer" | (string & {})
 
 export type AgentMessageDeliveryKind = "direct" | "mention" | "subscribed"
 
@@ -1611,6 +1625,7 @@ export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | (JSONSch
 
 export interface AgentToolExecutionContext {
   abortSignal?: AbortSignal
+  toolCallId?: string
 }
 
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
@@ -1669,6 +1684,15 @@ export interface AgentInspectionToolDefinition {
 
 export type AgentInspectionConfigValue = boolean | null | number | string
 
+export type AgentInspectionValue = boolean | null | number | string | AgentInspectionValue[] | {
+  [key: string]: AgentInspectionValue
+}
+
+export interface AgentInspectionCapabilityMetadata {
+  id: string
+  metadata: Record<string, AgentInspectionValue>
+}
+
 export interface AgentInspectionModelMetadata {
   dynamic?: boolean
   id?: string
@@ -1709,6 +1733,7 @@ export interface AgentInspectionConfigMetadata {
 }
 
 export interface AgentInspectionMetadata {
+  capabilities?: AgentInspectionCapabilityMetadata[]
   config?: AgentInspectionConfigMetadata
   files?: AgentInspectionFileTreeItem[]
   instructions?: string[]
@@ -1759,6 +1784,7 @@ export interface AgentUsageCredentialSource {
 }
 
 export interface AgentUsageRecord {
+  calls?: AgentUsageRecord[]
   cost?: AgentUsageCost
   credentialSource?: AgentUsageCredentialSource
   latency?: {

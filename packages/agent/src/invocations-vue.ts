@@ -210,7 +210,7 @@ export function useAgentInvocations(
       isLoadingMore.value = false;
     },
     immediate:
-      options.immediate !== false,
+      options.immediate !== false && (options.request !== undefined || "window" in globalThis),
     load: (signal) =>
       request<AgentInvocationListResult>(
         appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
@@ -289,7 +289,7 @@ export function useAgentInvocation(
       observations.value = [];
     },
     immediate:
-      options.immediate !== false,
+      options.immediate !== false && (options.request !== undefined || "window" in globalThis),
     load(signal) {
       const resolvedId = toValue(id);
       if (resolvedId === undefined) return Promise.resolve(undefined);

@@ -184,7 +184,7 @@ describe("Provider Agent Driver", () => {
 
     expect(events.map(item => item.type)).toEqual([
       "data-agent-event",
-      "text-delta",
+      "data-agent-event",
       "tool-call",
       "tool-result",
       "approval-request",
@@ -193,7 +193,7 @@ describe("Provider Agent Driver", () => {
       "usage",
       "finish",
     ])
-    expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
+    expect(events[1]).toMatchObject({ data: { kind: "content", value: "thinking" } })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
@@ -277,6 +277,24 @@ describe("Provider Agent Driver", () => {
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
+  })
+
+  it("clears a provider cursor when the invocation fails", async () => {
+    const threadId = "thread-failed-resume"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "successful-cursor",
+    })
+    runtime(threadId, [event("turn.completed", threadId, { errorMessage: "provider failed", state: "failed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "failed-cursor",
+    })
+    const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await adapter.generate(context(threadId) as never)
+    await expect(adapter.generate(context(threadId) as never)).rejects.toThrow("provider failed")
+    await adapter.generate(context(threadId) as never)
+
+    expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
   })
 
   it("partitions provider cursors by the resolved Chat Session", async () => {
@@ -611,6 +629,53 @@ describe("Provider Agent Driver", () => {
     expect(provider.respondToRequest).not.toHaveBeenCalled()
   })
 
+  it("does not execute Capability calls canceled during asynchronous validation", async () => {
+    let finishValidation!: () => void
+    let validationStarted!: () => void
+    const validationReady = new Promise<void>(resolve => validationStarted = resolve)
+    const validationRelease = new Promise<void>(resolve => finishValidation = resolve)
+    const controller = new AbortController()
+    const execute = vi.fn(async () => undefined)
+    runtime("thread-tool-validation-cancel", [event("turn.completed", "thread-tool-validation-cancel", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        const toolCall = client.callTool({ arguments: {}, name: "delayed" }, undefined, { signal: controller.signal })
+        const toolCallResult = toolCall.then(value => ({ value }), error => ({ error }))
+        await validationReady
+        controller.abort()
+        await new Promise(resolve => setTimeout(resolve, 20))
+        finishValidation()
+        await expect(toolCallResult).resolves.toMatchObject({ error: expect.objectContaining({ message: expect.stringMatching(/AbortError/) }) })
+        await client.close()
+      },
+    })
+    const tools = {
+      delayed: {
+        execute,
+        inputSchema: {
+          "~standard": {
+            jsonSchema: { input: () => ({ additionalProperties: false, properties: {}, type: "object" }) },
+            async validate(value: unknown) {
+              validationStarted()
+              await validationRelease
+              return { value }
+            },
+            vendor: "vitehub-test",
+            version: 1 as const,
+          },
+        },
+        name: "delayed",
+      },
+    }
+
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context("thread-tool-validation-cancel", { tools }) as never)).resolves.toBeDefined()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["clean", { exitKind: "clean" }],
     ["recoverable error", { exitKind: "error", reason: "provider restarted", recoverable: true }],
@@ -839,6 +904,47 @@ describe("Provider Agent Driver", () => {
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
     expect(session.commit).toHaveBeenCalledWith({ message: "chore: save provider work" })
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("clears a provider cursor when Workspace write-back fails", async () => {
+    const threadId = "thread-workspace-failed-resume"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "successful-cursor",
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "uncommitted-cursor",
+    })
+    const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sessions = [
+      {
+        close: vi.fn(async () => undefined),
+        commit: vi.fn(async () => undefined),
+        diff: vi.fn(async () => ({ entries: [] })),
+        exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+        readFile: vi.fn(async () => new Uint8Array()),
+      },
+      {
+        close: vi.fn(async () => undefined),
+        commit: vi.fn(async () => { throw new Error("write-back failed") }),
+        diff: vi.fn(async () => ({ entries: [{ path: "result.md", type: "modified" }] })),
+        exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+        readFile: vi.fn(async () => new Uint8Array()),
+      },
+    ]
+    const workspace = { fs: {}, startSession: vi.fn(async () => sessions.shift()), tools: {} }
+    const runContext = () => context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
+      workspaceMode: "write",
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await adapter.generate(runContext() as never)
+    await expect(adapter.generate(runContext() as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    await adapter.generate(context(threadId) as never)
+
+    expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
   })
 
   it("writes successful streaming Workspace sessions back when UI projection stops at finish", async () => {

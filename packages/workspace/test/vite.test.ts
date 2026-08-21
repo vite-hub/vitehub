@@ -737,7 +737,7 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        cloudflare: { wrangler: { compatibility_flags: ["nodejs_compat"] } },
+        cloudflare: { nodeCompat: true },
         plugins: [".vitehub/nitro/workspace/plugin.ts"],
         rollupConfig: { external: ["cloudflare:workers"] },
       },
@@ -977,9 +977,9 @@ describe("hubWorkspace", () => {
     await expect(config({ plugins: [{ name: "nitro:main" }], root }, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
         cloudflare: {
+          nodeCompat: true,
           wrangler: {
             artifacts: [{ binding: "WORKSPACE_ARTIFACTS", namespace: "vitehub" }],
-            compatibility_flags: ["nodejs_compat"],
           },
         },
         rollupConfig: { external: ["cloudflare:workers"] },

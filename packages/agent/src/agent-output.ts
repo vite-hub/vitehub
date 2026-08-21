@@ -166,7 +166,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
   if (!isRecord(value)) return false
-  return ["cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"].some(key => key in value)
+  return ["calls", "cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"].some(key => key in value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -337,19 +337,20 @@ function withFallbackUsageMetadata(
   fallbackMetadataSource: unknown,
   run?: Partial<AgentRunMetadata>,
 ): AgentUsageRecord {
+  const compound = Boolean(record.calls?.length)
   const modelMetadata = modelMetadataFromResult(fallbackMetadataSource)
-  const model = record.model ?? modelMetadata?.model
-  const transport = record.transport ?? modelMetadata?.transport
-  let cost = providerCostFromResult(fallbackMetadataSource)
+  const model = record.model ?? (compound ? undefined : modelMetadata?.model)
+  const transport = record.transport ?? (compound ? undefined : modelMetadata?.transport)
+  let cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   try {
     if (record.cost) cost = materializeAgentUsageCost(record.cost)
   }
   catch {
-    cost = providerCostFromResult(fallbackMetadataSource)
+    cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   }
-  const response = record.response ?? responseFromResult(fallbackMetadataSource)
-  const latency = record.latency ?? latencyFromResult(fallbackMetadataSource)
-  const credentialSource = record.credentialSource ?? credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource))
+  const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
+  const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
+  const credentialSource = record.credentialSource ?? (compound ? undefined : credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource)))
   const runMetadata = record.run ?? run
   return model || transport || cost || response || latency || credentialSource || runMetadata
     ? {

@@ -27,7 +27,7 @@ function otlpAnyValue(value: unknown): OtlpAnyValue {
     return Number.isSafeInteger(value) ? { intValue: String(value) } : { doubleValue: value }
   }
   if (typeof value === "bigint") {
-    return value >= -9_223_372_036_854_775_808n && value <= 9_223_372_036_854_775_807n
+    return value >= -(2n ** 63n) && value <= 2n ** 63n - 1n
       ? { intValue: String(value) }
       : { stringValue: String(value) }
   }

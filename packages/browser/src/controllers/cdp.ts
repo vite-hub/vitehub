@@ -11,6 +11,7 @@ interface CDPSocket extends EventTarget {
 }
 
 export interface CDPClient {
+  on(method: string, listener: (params: unknown, sessionId?: string) => void): () => void
   send<TResult = unknown>(method: string, params?: object, sessionId?: string): Promise<TResult>
 }
 
@@ -68,13 +69,24 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
       let nextId = 0
       let released = false
       const pending = new Map<number, { reject(error: unknown): void, resolve(value: unknown): void }>()
+      const listeners = new Map<string, Set<(params: unknown, sessionId?: string) => void>>()
       socket.addEventListener("message", (event) => {
         const message = JSON.parse(String((event as MessageEvent).data)) as {
           error?: { message?: string }
           id?: number
+          method?: string
+          params?: unknown
           result?: unknown
+          sessionId?: string
         }
-        if (!message.id) return
+        if (!message.id) {
+          if (message.method) {
+            for (const listener of listeners.get(message.method) ?? []) {
+              listener(message.params, message.sessionId)
+            }
+          }
+          return
+        }
         const request = pending.get(message.id)
         if (!request) return
         pending.delete(message.id)
@@ -88,6 +100,15 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
 
       return {
         client: {
+          on(method, listener) {
+            const methodListeners = listeners.get(method) ?? new Set()
+            methodListeners.add(listener)
+            listeners.set(method, methodListeners)
+            return () => {
+              methodListeners.delete(listener)
+              if (methodListeners.size === 0) listeners.delete(method)
+            }
+          },
           async send<TResult>(method: string, params: object = {}, sessionId?: string): Promise<TResult> {
             if (released) throw browserProviderError("cdp", "send a command after release")
             return await new Promise<TResult>((resolve, reject) => {
@@ -101,6 +122,7 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
         async release() {
           if (released) return
           released = true
+          listeners.clear()
           if (socket.readyState >= 2) return
           await new Promise<void>((resolve) => {
             socket.addEventListener("close", () => resolve(), { once: true })

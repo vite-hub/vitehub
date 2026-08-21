@@ -52,6 +52,7 @@ The matrix follows source and executable proof rather than provider marketing:
 - Realtime `memory` is development or explicit single-process state. Cloudflare Realtime routes use one Durable Object authority and persist Yjs room identities in its SQLite storage; Vercel and Netlify have no built-in Realtime authority.
 - Memory and filesystem defaults do not become production-durable because the surrounding application is deployed.
 - The Cloudflare Live Smoke exercises nine primitives, including Rate Limit. Vercel exercises the other eight because ViteHub does not provide a native Vercel Rate Limit driver. Agent route output has contract tests, but it is outside that deployed matrix.
+- Vercel Agent Definitions currently use inline Workflow execution. Their invocation journal recovery is bounded and best-effort; Workflow inspection remains authoritative until ViteHub can generate a native Vercel Agent Workflow.
 
 ## Related pages
 

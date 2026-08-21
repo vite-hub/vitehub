@@ -589,6 +589,52 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(span)).not.toContain("secret result")
   })
 
+  it("recursively redacts traversable non-plain attribute objects", async () => {
+    const details = Object.assign(Object.create(null) as Record<string, unknown>, {
+      nested: { prompt: "secret prompt", safe: true },
+    })
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({ attributes: { details }, name: "agent.invocation", type: "run" })
+
+    const [span] = traceEventsToOpenTelemetrySpans(log.entries(), { content: "metadata" })
+
+    expect(span?.attributes?.details).toEqual({ nested: { "content.omitted": ["prompt"], safe: true } })
+    expect(JSON.stringify(span)).not.toContain("secret prompt")
+  })
+
+  it("uses the terminal invocation outcome after a recovered error", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
+    await log.append({ attributes: { "error.message": "best-effort start failed" }, name: "agent.invocation.error", trace: { id: "trace-1" }, type: "error" })
+    await log.append({ name: "agent.invocation.finish", trace: { id: "trace-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())[0]?.status).toBe("completed")
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
+  })
+
+  it("preserves success after a recoverable stream error", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
+    await log.append({ attributes: { "error.recoverable": true }, name: "agent.stream.error", trace: { id: "trace-1" }, type: "error" })
+    await log.append({ name: "agent.invocation.finish", trace: { id: "trace-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())[0]?.status).toBe("completed")
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
+  })
+
+  it("derives child span ids from the invocation-specific root", async () => {
+    const event = (invocationId: string, sequence: number) => [
+      { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.start", sequence, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "host-trace" }, type: "run" as const },
+      { attributes: { "agent.invocation.id": invocationId, "step.id": "model" }, name: "agent.model.finish", sequence: sequence + 1, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "host-trace" }, type: "run" as const },
+      { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.finish", sequence: sequence + 2, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "host-trace" }, type: "run" as const },
+    ]
+
+    const [firstRoot, firstChild] = traceEventsToOpenTelemetrySpans(event("invocation-1", 1))
+    const [secondRoot, secondChild] = traceEventsToOpenTelemetrySpans(event("invocation-2", 4))
+    expect(firstRoot?.spanId).not.toBe(secondRoot?.spanId)
+    expect(firstChild?.spanId).not.toBe(secondChild?.spanId)
+  })
+
   it("keeps provider activity open through progress and fails terminal task errors", () => {
     const events = [
       { attributes: { "step.id": "task-1" }, name: "agent.task.started", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" as const },
@@ -626,7 +672,7 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
-  it("bounds each run without dropping middle runs or their terminal events", () => {
+  it("bounds each run without dropping middle runs or terminal events", () => {
     const events = ["run-1", "run-2", "run-3"].flatMap((id, runIndex) => Array.from({ length: 2_000 }, (_, index) => ({
       attributes: { "agent.run.id": id, index },
       name: index === 1_999 ? "agent.invocation.finish" : "agent.message",
@@ -639,7 +685,7 @@ describe("@vite-hub/runtime", () => {
     const spans = traceEventsToOpenTelemetrySpans(events)
     expect(spans).toHaveLength(3)
     expect(spans.map(span => span.attributes?.["vitehub.run.id"])).toEqual(["run-1", "run-2", "run-3"])
-    expect(spans).toEqual(spans.map(span => expect.objectContaining({
+    expect(spans).toEqual(spans.map(_span => expect.objectContaining({
       attributes: expect.objectContaining({
         "vitehub.trace.originalEventCount": 2_000,
         "vitehub.trace.truncated": true,

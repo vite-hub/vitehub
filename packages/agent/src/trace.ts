@@ -24,6 +24,8 @@ export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = A
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
+export const agentInvocationTraceIdContextKey = "agent.invocation.traceId"
+
 export function hasAgentTraceLog(context: { runtime: ResolvedAgentRuntimeContext }): boolean {
   return Boolean(context.runtime.traceLog)
 }
@@ -194,9 +196,12 @@ export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>
   event: TraceEvent,
 ): Promise<void> {
   try {
-    const attributes = context.run?.runId
-      ? { "agent.run.id": context.run.runId, ...event.attributes }
-      : event.attributes
+    const invocationId = context.context.get<string>(agentInvocationTraceIdContextKey)
+    const attributes = {
+      ...(invocationId ? { "agent.invocation.id": invocationId } : {}),
+      ...(context.run?.runId ? { "agent.run.id": context.run.runId } : {}),
+      ...event.attributes,
+    }
     await emitTraceEvent(context.runtime, {
       ...event,
       ...(attributes ? { attributes } : {}),

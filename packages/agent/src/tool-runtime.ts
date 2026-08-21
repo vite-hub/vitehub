@@ -51,7 +51,10 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       approvedInputs.add(input)
     },
     async execute(input, context) {
-      if (approvedInputs.delete(input)) return await execute(input, context)
+      if (approvedInputs.delete(input)) {
+        context?.abortSignal?.throwIfAborted()
+        return await execute(input, context)
+      }
       const decision = typeof policy === "function"
         ? await policy({
             name: tool.name,
@@ -81,6 +84,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
       }
 
+      context?.abortSignal?.throwIfAborted()
       return await execute(input, context)
     },
   } as AgentToolDefinition
@@ -121,6 +125,12 @@ type AgentToolStepReporter = AgentRuntimeContext["toolStepReporter"]
 
 function createToolCallId(name: string): string {
   return `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function toolCallIdFromExecutionOptions(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return
+  const toolCallId = (value as { toolCallId?: unknown }).toolCallId
+  return typeof toolCallId === "string" && toolCallId ? toolCallId : undefined
 }
 
 function getErrorOutput(error: unknown): string {
@@ -193,12 +203,14 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
       async execute(input: unknown, ...args: unknown[]) {
         const toolCall: AgentToolStepItem = {
           input,
-          toolCallId: createToolCallId(name),
+          toolCallId: toolCallIdFromExecutionOptions(args[0]) ?? createToolCallId(name),
           toolName: name,
         }
 
         await reportToolStep({ toolCalls: [toolCall] })
         try {
+          const execution = args[0] as { abortSignal?: AbortSignal } | undefined
+          execution?.abortSignal?.throwIfAborted()
           const output = await execute.call(tool, input, ...args)
           await reportToolStep({ toolResults: [{ ...toolCall, output }] })
           return output
