@@ -3424,15 +3424,25 @@ type AgentInvocationExecutionOptions =
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
   }
 
-function deferPreparedInvocationFailure<
+async function finishPreparedInvocationFailure<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
   preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   error: unknown,
-): void {
+  waitForFinish: boolean,
+): Promise<void> {
   const finishTask = finishAgentInvocation(preparedInvocation, { error, status: "error" })
-  registerAgentBackgroundTask(preparedInvocation.runtimeContext, finishTask)
+  if (!waitForFinish) {
+    registerAgentBackgroundTask(preparedInvocation.runtimeContext, finishTask)
+    return
+  }
+  try {
+    await finishTask
+  }
+  catch (finishError) {
+    throw new AggregateError([error, finishError], "[vitehub] Agent capacity acquisition and finish lifecycle both failed.")
+  }
 }
 
 async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -3460,7 +3470,7 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
       run: context.run,
       toolResults: [],
     }, async resolution => await resolution)
-    if (!intents.length) return
+    if (abortSignal.aborted || !intents.length) return
     await applyChannelDeliveryEffectIntents({
       actor: invoker,
       channels: definition?.channels,
@@ -4296,7 +4306,8 @@ async function executeAgentInvocation<
   }
   catch (error) {
     if (preparedInvocation) {
-      deferPreparedInvocationFailure(preparedInvocation, error)
+      const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+      await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
     }
     throw error
   }

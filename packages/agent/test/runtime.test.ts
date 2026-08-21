@@ -13007,6 +13007,56 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("does not deliver setup fallbacks that resolve after the durable deadline", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+        const failure = new Error("Capability setup failed")
+        const postMessage = vi.fn(async () => undefined)
+        const agent = defineAgent({
+          capabilities: async () => { throw failure },
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: { run: async () => ({ text: "unreachable" }) },
+          messages: {
+            errorFallbackText: async () => {
+              await new Promise(resolve => setTimeout(resolve, 12))
+              return "Too late."
+            },
+            timeout: 10,
+          },
+        })
+
+        const result = runAgent(agent, {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: { channelId: "telegram", origin: "telegram", runId: "late-setup-fallback", threadId: "telegram:123" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: { channel: { message: { text: "Hello" } } },
+          prompt: "Hello",
+        }).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        await vi.advanceTimersByTimeAsync(2)
+        expect(postMessage).not.toHaveBeenCalled()
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("delivers durable setup fallbacks for capacity-limited Agents", async () => {
       const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { telegram } = await import("../src/channels.ts")
@@ -13045,6 +13095,72 @@ describe("agent message protocol", () => {
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
       expect(postMessage).toHaveBeenCalledOnce()
+    })
+
+    it("awaits durable failure finalization when Workflow capacity acquisition fails", async () => {
+      vi.useFakeTimers()
+      try {
+        const { defineAgent, runAgent, runAgentInline } = await import("../src/index.ts")
+        const { telegram } = await import("../src/channels.ts")
+        const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+        let releaseDriver!: () => void
+        const driverGate = new Promise<void>((resolve) => { releaseDriver = resolve })
+        const postMessage = vi.fn(() => new Promise(() => undefined))
+        const driverRun = vi.fn(async () => {
+          await driverGate
+          return { text: "done" }
+        })
+        const agent = defineAgent({
+          channels: {
+            telegram: telegram({
+              adapter: () => ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
+            }),
+          },
+          driver: {
+            capacity: { concurrency: 1, queue: { maxPending: 1, timeout: 1 } },
+            run: driverRun,
+          },
+          messages: { errorFallbackText: "Please try again.", timeout: 10 },
+        })
+        const first = runAgent(agent, {
+          memo: vi.fn(),
+          run: { origin: "test", runId: "capacity-holder" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, { prompt: "Hold capacity" })
+        await vi.waitFor(() => expect(driverRun).toHaveBeenCalledOnce())
+
+        const result = runAgentWorkflowDefinition(agent, {
+          id: "capacity-timeout-fallback",
+          name: "capacity",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          },
+          provider: "cloudflare",
+        }, runAgentInline).catch(error => error)
+
+        await vi.advanceTimersByTimeAsync(1)
+        await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(10)
+        const error = await result
+        expect(error).toBeInstanceOf(AggregateError)
+        if (!(error instanceof AggregateError)) throw error
+        expect(error.errors[0]).toMatchObject({ code: "AGENT_CAPACITY_QUEUE_TIMEOUT" })
+        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
+
+        releaseDriver()
+        await first
+      }
+      finally {
+        vi.useRealTimers()
+      }
     })
 
     it("delivers durable failure fallbacks when Capability cleanup also fails", async () => {
