@@ -1,14 +1,13 @@
 ---
 title: Package reference
-description: Map the ViteHub framework distribution and independent owner packages to their public surfaces.
+description: Find the ViteHub package and public import for each feature.
 navigation.title: Package reference
 navigation.order: 50
 icon: i-lucide-package
 ---
 
-The framework distribution is the canonical application dependency. Independent
-owner packages preserve package-level composition for libraries and advanced
-integrations.
+Most applications need only `vite-hub`. Install an individual `@vite-hub/*`
+package when you are building a library or configuring one integration directly.
 
 ## Framework distribution
 
@@ -27,13 +26,18 @@ instead of one root barrel.
 | `@vite-hub/agent` | Agent Definitions, Agent Invocations, Agent Driver boundary, Capability composition, Agent Evals, Agent Trigger API | `@vite-hub/agent`, `@vite-hub/agent/capabilities`, `@vite-hub/agent/channels`, `@vite-hub/agent/eval`, `@vite-hub/agent/vite` |
 | `@vite-hub/auth` | Auth Definitions, Better Auth server wiring, generated Auth route behavior | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, Default Blob Store behavior, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
-| `@vite-hub/browser` | Browser Definitions, invocation-scoped sessions, low-level controllers and providers, live handoff, and Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
+| `@vite-hub/browser` | Browser Definitions, invocation-scoped sessions, controllers and providers, live handoff, and Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
 | `@vite-hub/box` | Box Definitions and provider-neutral execution sessions | `@vite-hub/box` |
+| `@vite-hub/channels` | Provider-neutral Channel definitions, server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
 | `@vite-hub/email` | Declarative Unemail provider integration, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
+| `@vite-hub/history` | Shared history records, cursors, pages, and store contracts for stateful features | `@vite-hub/history` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
+| `@vite-hub/markdown-template` | Markdown templates with data bindings, conditions, fragments, and Vite discovery | `@vite-hub/markdown-template`, `@vite-hub/markdown-template/vite` |
 | `@vite-hub/queue` | Queue Definitions, queue dispatch Runtime Helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
+| `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, and provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
+| `@vite-hub/realtime` | Realtime documents, server routes, history, and Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
 | `@vite-hub/runtime` | Runtime Host Context, Runtime Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
 | `@vite-hub/sandbox` | Sandbox Definitions, Sandbox Runs, Sandbox Provider integration | `@vite-hub/sandbox`, `@vite-hub/sandbox/vite` |
 | `@vite-hub/schedule` | Static schedules, runtime schedules, Schedule Targets, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
@@ -51,10 +55,10 @@ instead of one root barrel.
 
 ## Package rules
 
-Applications should start with `vite-hub` and its documented feature subpaths.
-Libraries and focused integrations may depend directly on the package that
-owns the primitive.
-Application code should not import `@vite-hub/internal`, generated files, or framework virtual modules unless a package reference explicitly promotes the path.
+Applications start with `vite-hub` and its documented feature imports. Libraries
+and focused integrations can depend on one `@vite-hub/*` package directly.
+Do not import `@vite-hub/internal`, generated files, or framework virtual modules
+unless a reference page documents that path.
 
 Provider-specific behavior belongs to the package that owns the primitive.
 For example, Blob Provider SDK Adapters belong behind Blob Driver Modules, and Workspace Provider Adapters stay behind Workspace configuration and generated runtime wiring.

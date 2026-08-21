@@ -2,20 +2,15 @@
 title: Repository host context
 description: Read issue and Change Request context through a lazy async record.
 navigation.title: Repository host context
-navigation.order: 120
+navigation.order: 121
 navigation.group: External context
 icon: i-lucide-git-pull-request
 ---
 
 `repositoryHostContext()` records repository-host context for one Agent Invocation.
-Use it when a trigger, webhook, or host knows the current issue or Change Request and runtime code should read the related provider data on demand.
+Use it when a trigger, webhook, or host identifies the current issue or Change Request and runtime code needs its provider data on demand.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 Provide a Repository Host client directly, or configure a `repository-host` primitive for the invocation.
-
-## What it adds
 
 The Capability stores an async record in Agent Invocation Context under `repositoryHost` by default.
 The record exposes `keys()`, `has(key)`, `get(key)`, `pick(keys)`, `entries(keys?)`, and `resolveAll()`.
@@ -27,11 +22,11 @@ The default keys are `issue`, `pullRequest`, `body`, `labels`, `comments`, and `
 Known keys that do not apply return `undefined`.
 Unknown keys throw an error.
 
-## Configuration
+## Configure repository context
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { repositoryHostContext } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { repositoryHostContext } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -54,7 +49,7 @@ Read the async record from invocation context when hooks, custom runners, or hos
 The caller owns presentation and decides whether to render Markdown, JSON, or another format.
 
 ```ts [server/agents/reviewer.ts]
-import { repositoryHostContext } from '@vite-hub/agent/capabilities'
+import { repositoryHostContext } from 'vite-hub/agent/capabilities'
 
 const host = repositoryHostContext.read(ctx)
 
@@ -93,7 +88,7 @@ repositoryHostContext({
 V1 supports GitHub issues and pull requests.
 Node ids, discussions, actions, and non-GitHub providers are not part of this context record yet.
 
-## Runtime behavior
+## How context is loaded
 
 `repositoryHostContext()` keeps context data-only unless `materialize` is configured.
 With `materialize: './PULL_REQUEST.template.md'`, ViteHub bundles the colocated Markdown renderer and writes the resolved context to `PULL_REQUEST.md` in the Agent Workspace.
@@ -111,7 +106,7 @@ Target-based context requires a client option or a configured `repository-host` 
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Does not receive rendered context automatically. Caller code must render selected values into instructions, input, or another model-facing surface. |
+| Model-backed | Does not receive rendered context automatically. Caller code must add selected values to instructions, input, or a tool. |
 | Provider-backed | Receives the configured materialized Markdown file in its Agent Workspace. |
 | Custom-run-backed | Can read the async record directly through `repositoryHostContext.read(ctx)`. |
 
@@ -128,13 +123,12 @@ Target-based context requires a client option or a configured `repository-host` 
 | `target` | `RepositoryHostContextTarget \| function` | none | Repository host target such as `{ repo, number }`, `{ repo, issue }`, or `{ repo, pullRequest }`. |
 | `triggers` | `Record<string, AgentTriggerDefinition>` | none | Trigger contributions tied to this context. |
 
-## Inspect and verify
+## Verify repository context
 
 Call `keys()` to inspect which values are available for the target.
 Call `resolveAll()` in tests when you need to assert the full resolved shape.
 
-## Reference
+## Related pages
 
 - [Repository host](/docs/capabilities/repository-host)
 - [Agent invocations](/docs/agents/invocations)
-- Source: `packages/agent/src/capabilities/repository-host-context.ts`

@@ -6,12 +6,12 @@ navigation.group: Advanced execution
 icon: i-lucide-workflow
 ---
 
-Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model should choose and await delegation itself.
+Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model chooses and awaits delegated work itself.
 
 ## Start and inspect a child
 
 ```ts
-import { startAgentInvocation } from '@vite-hub/agent'
+import { startAgentInvocation } from 'vite-hub/agent'
 import researcher from '../agents/researcher'
 
 const child = await startAgentInvocation(researcher, runtimeContext, {

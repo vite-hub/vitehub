@@ -5,9 +5,9 @@ navigation.order: 10
 icon: i-lucide-workflow
 ---
 
-Workflows own durable long-running execution. Use them when work needs a Workflow Run, provider-tracked state, retries, resumability, or optional Workflow Steps.
+Use Workflows for long-running work that needs a tracked run, retries, resumable state, or durable steps.
 
-Workflow is not Queue. Queue delivers jobs; Workflow starts and tracks a run.
+Use [Queue](/docs/server-primitives/queue) when you only need to deliver a job. A Workflow starts and tracks a run.
 
 ## Quick start
 
@@ -16,7 +16,7 @@ Workflow is not Queue. Queue delivers jobs; Workflow starts and tracks a run.
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/workflow
+pnpm add @vite-hub/runtime @vite-hub/workflow
 ```
 
 ### Configure
@@ -55,7 +55,7 @@ export default defineEventHandler(async () => {
 | Import | Use |
 | --- | --- |
 | `defineWorkflow` from `@vite-hub/workflow` | Declare a Workflow Definition. |
-| `runWorkflow`, `deferWorkflow`, `getWorkflowRun` from `@vite-hub/workflow` | Start, defer, or inspect Workflow Runs. |
+| `runWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflowSignal` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume Workflow Runs. |
 | `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle for app-owned code. |
 | `normalizeWorkflowOptions` from `@vite-hub/workflow` | Resolve Integration Options to a concrete Workflow Provider. |
 | `ViteHubError` from `@vite-hub/runtime` | Throw application-owned Workflow failures with stable codes. |
@@ -127,9 +127,63 @@ Use Workflow Steps only when the selected provider and definition need independe
 | Option | Type | Description |
 | --- | --- | --- |
 | `id` | `string` | Static provider id override for the Workflow Definition. |
+| `native` | `WorkflowHandler` | Provider-native durable entry used by Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
 
 The handler receives a `WorkflowExecutionContext` with `name`, `payload`, `provider`, optional run `id`, and provider-backed `step` or typed `steps` helpers when available.
+
+### Add a durable Vercel entry
+
+Vercel runs the normal handler inline unless the definition provides `native`.
+Inline work does not survive a function restart. Register a Workflow DevKit entry
+when the run needs Vercel's durable execution:
+
+```bash [Terminal]
+pnpm add workflow @workflow/builders
+```
+
+```ts [server/workflows/onboard-user.ts]
+import {
+  defineWorkflow,
+  type WorkflowExecutionContext,
+} from '@vite-hub/workflow'
+
+interface OnboardPayload {
+  email: string
+}
+
+async function createUserStep(email: string) {
+  'use step'
+
+  return await createUser(email)
+}
+
+async function sendWelcomeEmailStep(email: string) {
+  'use step'
+
+  await sendWelcomeEmail(email)
+}
+
+async function durableOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+  'use workflow'
+
+  const user = await createUserStep(payload.email)
+  await sendWelcomeEmailStep(user.email)
+  return { userId: user.id }
+}
+
+async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+  const user = await createUser(payload.email)
+  await sendWelcomeEmail(user.email)
+  return { userId: user.id }
+}
+
+export default defineWorkflow(inlineOnboard, { native: durableOnboard })
+```
+
+ViteHub transforms the `native` entry when it generates Vercel output. Other
+providers keep using the normal handler. Keep external side effects in `use step`
+functions and make them idempotent because a step can be retried.
 
 ## Start a run
 
@@ -141,24 +195,38 @@ import { runWorkflow } from '@vite-hub/workflow'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
 
-  return runWorkflow('onboard-user', body, {
-    id: `onboard:${body.email}`,
-  })
+  return runWorkflow('onboard-user', body)
 })
 ```
 
-The run id belongs to Invocation Options. Use a stable id when the provider should dedupe or resume the same logical run.
+The run id belongs to Invocation Options. Use a stable id when the selected
+provider supports caller-assigned ids and needs to deduplicate or resume the
+same logical run. Native Vercel workflows reject an explicit `id`; let Workflow
+DevKit assign it as shown above.
 
-## Runtime Helpers
+## Runtime helpers
 
 | Helper | Description |
 | --- | --- |
 | `runWorkflow(name, payload?, options?)` | Starts a Workflow Run immediately. |
 | `deferWorkflow(name, payload?, options?)` | Starts a run through the deferred provider path when available. |
 | `getWorkflowRun(name, id)` | Reads the current run state. |
-| `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, and `getRun`. |
+| `cancelWorkflow(name, id)` | Cancels a durable Vercel run. |
+| `resumeWorkflowSignal(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
+| `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, `getRun`, and `cancel`. |
 
 `WorkflowStartOptions` currently accepts `id`.
+
+Cancellation currently requires a native Vercel Workflow Definition.
+Cloudflare, OpenWorkflow, and inline Vercel runs report
+`WORKFLOW_OPERATION_UNSUPPORTED` instead of simulating cancellation.
+
+Signal resumption requires the Vercel provider, the Workflow DevKit runtime,
+and a registered hook token. The application can choose a deterministic opaque
+token; it becomes resumable when a native workflow registers the hook and
+suspends while waiting for it. Pass that token to `resumeWorkflowSignal()`.
+It identifies the hook, not a Workflow Run. Cloudflare and OpenWorkflow report
+signals as unsupported.
 
 ## Structured errors
 
@@ -206,13 +274,13 @@ export default defineEventHandler((event) => {
 })
 ```
 
-## Connect it to Agents
+## Connect Workflows to Agents
 
-An Agent can start a workflow only when you explicitly expose that behavior through a Capability or server route. Workflow owns durable orchestration; Agent owns model-backed behavior and Agent Invocations.
+An Agent can start a workflow only when you expose that action through a Capability or server route. Workflows track durable work. Agents provide model-backed behavior.
 
-Use a product-specific Capability when a model should start or inspect a particular Workflow Run.
+Use a product-specific Capability when a model needs to start or inspect a particular Workflow Run.
 
-## Production boundaries
+## Production checks
 
 Use Queue when background delivery is enough. Use Workflow when the app must inspect run state, resume work, or coordinate multiple steps over time.
 

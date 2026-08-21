@@ -5,11 +5,11 @@ navigation.order: 10
 icon: i-lucide-file-code-2
 ---
 
-A Definition is a file that declares one named piece of ViteHub behavior or state. Discovery is the rule that finds the file and gives it the name application code and the runtime use later.
+A Definition is a file that declares named behavior or state, such as an Agent, Queue, or Workspace. Discovery finds the file and assigns the name that application code uses.
 
 ## The file location supplies the name
 
-ViteHub derives a Definition's name from the location expected by its package. For example:
+ViteHub derives a Definition's name from its file path. Each package defines which paths it scans. For example:
 
 ```txt
 server/agents/support.ts      -> support
@@ -17,14 +17,14 @@ server/agents/docs/agent.ts   -> docs
 src/triager.agent.ts          -> triager
 ```
 
-Each package documents its own locations and file suffixes. Follow that package rule when you add a Definition; do not add a second application-side name to compensate for a misplaced file.
+Each package documents its paths and file suffixes. Put the Definition in one of those paths instead of adding another name in application code.
 
 ## The integration finds the file
 
-The package integration scans the configured project during development and build. It then prepares the routes, imports, bindings, or metadata that the package needs to run.
+The package integration scans the project during development and build. It prepares the routes, imports, bindings, or metadata that the package needs.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: {
@@ -33,10 +33,10 @@ export default defineAgent({
 })
 ```
 
-The Definition stays in application code. Generated files explain what the integration prepared, but they are not the application API.
+The Definition stays in application code. Generated files show what the integration prepared, but application code doesn't import them unless the package documents that import.
 
 ## Check the discovered result
 
-When a Definition is missing or has the wrong name, check its location, the package integration, and the generated metadata. Fix the discovery rule at its source instead of adding a duplicate declaration.
+If a Definition is missing or has the wrong name, check its location, the package integration, and the generated metadata.
 
 Read [Agent Definitions](/docs/agents/agent-definitions) for Agent-specific files and [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) for the build side.

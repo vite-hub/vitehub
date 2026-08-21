@@ -43,7 +43,7 @@ describe("Rate Limit documentation", () => {
     expect(primitive).toContain('"capabilities": {')
     expect(primitive).toContain('"scope": "location"')
     expect(primitive).toContain('"windows": [10000, 60000]')
-    expect(primitive).toContain("application code should keep using the guard")
+    expect(primitive).toContain("Application code keeps using the guard")
     expect(primitive).not.toMatch(/from ['"]@vite-hub\/rate-limit\/(?:kv|capability)['"]/)
     expect(primitive).not.toContain("event?: unknown")
   })

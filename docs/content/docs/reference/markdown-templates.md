@@ -1,7 +1,7 @@
 ---
 title: Markdown templates
 description: Render deterministic Markdown from explicit data, bounded conditions, fragments, and caller-resolved imports.
-navigation.order: 52
+navigation.order: 53
 icon: i-vscode-icons-file-type-markdown
 ---
 
@@ -62,7 +62,7 @@ const markdown = await prompt({ pullRequest, sections })
 
 Relative template imports work with both forms. Imported fragments can remain ordinary `.md` files.
 
-Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code should use the `.template.md` suffix.
+Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code uses the `.template.md` suffix.
 
 `repositoryHostContext({ materialize })` uses the same path convention. Pass a caller-relative `.template.md` path; ViteHub bundles its renderer and derives the generated `.md` path by removing only the final `.template`, preserving directories and case.
 

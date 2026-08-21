@@ -10,26 +10,19 @@ icon: i-lucide-file-box
 `blob()` adds model-facing tools for a configured ViteHub Blob primitive.
 It exposes object read, metadata, and list operations by default, then adds edits only in write mode.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability contributes `blob_read` for get, head, and list operations.
 When configured with write mode, it also contributes `blob_edit` for putting or deleting objects.
 `blob_edit` can upload inline content, a current input attachment through `attachmentId`, or a Workspace file through `workspacePath`.
 For Provider Agents, `assetPaths` also turns final-answer Markdown references into published delivery artifacts.
 
-## Configuration
+## Configure Blob access
 
 Attach Blob in read mode until the Agent needs to write objects.
 The Blob primitive must already be configured by the app.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { blob } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { blob } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -39,9 +32,9 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How Blob access works
 
-ViteHub selects the configured Blob store and exposes a small Storage Capability Tool Surface.
+ViteHub selects the configured Blob store and exposes the Blob tools.
 Read mode supports one object read, metadata read, or prefix list operation per tool call.
 Write mode adds put/delete operations and allows them by default.
 Put operations accept exactly one of `attachmentId`, `body`, or `workspacePath`.
@@ -63,13 +56,13 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 | Provider-backed | Receives the Capability tools. In write mode, `assetPaths` also publishes current-run files referenced by the final Markdown. |
 | Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
 
-## Inspect and verify
+## Verify Blob access
 
 Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
-Read mode should show only `blob_read`; write mode should also show `blob_edit` with the configured policy.
+Confirm that read mode shows only `blob_read`. Write mode also lists `blob_edit` with the configured policy.
 
 Run one invocation against a missing Blob primitive during development.
-The Capability should fail before exposing tools.
+Confirm that the Capability fails before it exposes tools.
 
 ## Options
 
@@ -85,9 +78,9 @@ The Capability should fail before exposing tools.
 Declare the directories where a Provider Agent may write public artifacts. The Agent can use its normal filesystem workflow, then reference a generated file in its final answer.
 
 ```ts [server/agents/review.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { blob } from '@vite-hub/agent/capabilities'
-import { github } from '@vite-hub/agent/channels'
+import { defineAgent } from 'vite-hub/agent'
+import { blob } from 'vite-hub/agent/capabilities'
+import { github } from 'vite-hub/agent/channels'
 
 export default defineAgent({
   capabilities: [
@@ -109,7 +102,7 @@ Configure Blob serving or a Blob driver that returns public URLs. When `blob.ser
 
 ## Workspace uploads
 
-Use `workspacePath` when another Capability writes an artifact into the Workspace and the Agent should upload that file to Blob storage.
+Use `workspacePath` to upload a Workspace artifact written by another Capability to Blob storage.
 The path is Workspace-relative.
 
 ```ts [Agent tool call]
@@ -121,8 +114,7 @@ await blob_edit({
 })
 ```
 
-## Reference
+## Related pages
 
 - [Blob primitive](/docs/server-primitives/blob)
 - [Official capabilities](/docs/capabilities/official-capabilities)
-- Source: `packages/agent/src/capabilities/storage/blob.ts`

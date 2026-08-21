@@ -6,7 +6,7 @@ icon: i-lucide-file-cog
 ---
 
 Generated files prove how ViteHub resolved Definitions, Runtime Registries, stable imports, and Provider Output.
-Application code should use Stable ViteHub Import Paths instead of importing generated files directly.
+Application code uses documented ViteHub imports instead of generated files.
 
 ## Common generated paths
 
@@ -16,10 +16,14 @@ Application code should use Stable ViteHub Import Paths instead of importing gen
 | `.vitehub/env/server.mjs` | Env Package | Generated Server Env runtime module. |
 | `.vitehub/types/env.d.ts` | Env Package | Generated Public Env and Server Env types. |
 | `.vitehub/types/browser.d.ts` | Browser Package | Generated Browser Definition names and input/result module types. |
+| `.vitehub/types/email.d.ts` | Email Package | Exact module declarations for discovered `#vitehub/emails/<name>` imports. |
 | `.vitehub/types/templates.d.ts` | Markdown Template Package | Generated `TemplateName` union and `#vitehub/templates` module types. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Generated Workspace name types. |
 | `.vitehub/markdown-template/templates.mjs` | Markdown Template Package | Bundled named-template registry used by Workspace and Provider builds. |
+| `.vitehub/email/templates/*.mjs` | Email Package | Bundled Markdown email templates used by provider builds. |
 | `.vitehub/rate-limit/manifest.json` | Rate Limit Package | Sorted Rate Limit IDs, resolved providers, and inspectable driver capabilities. |
+| `.vitehub/nitro/realtime/registry.mjs` | Realtime Package | Generated registry for discovered Realtime Definitions. |
+| `.vitehub/nitro/realtime/handler.ts` | Realtime Package | Generated WebSocket and checkpoint route handler. |
 | `.vitehub/agent/chat-webhook-route.ts` | Agent Package | Generated Chat Webhook Route handler for discovered chat-capable Agents. |
 | `.vitehub/agent/discord-gateway-plugin.ts` | Agent Package | Generated Nitro process lifecycle for Discord Gateway listeners on the Node preset. |
 | `.vitehub/agent/discord-gateway-route.ts` | Agent Package | Generated Nitro route handler that wakes the Discord Gateway listener for discovered Discord Agents. |

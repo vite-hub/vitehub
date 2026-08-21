@@ -10,24 +10,17 @@ icon: i-lucide-brain
 `memory()` adds scoped durable records that an Agent can search, read, remember, or delete through configured Memory Stores.
 Memory is explicit Agent behavior and is not the same as Chat History.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability exposes `memory_search` and `memory_read`, plus remember and delete tools when a store opts into tool writes.
 Each store owns its adapter, scope, allowed kinds, read behavior, and write policy.
 
-## Configuration
+## Configure memory
 
 Configure at least one store with an explicit scope.
 The workspace JSONL helper stores records inside the Agent Workspace.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { memory, workspaceJsonlMemoryStore } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { memory, workspaceJsonlMemoryStore } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -45,7 +38,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How memory works
 
 During resolve, `memory()` creates read tools for stores that allow reading and write tools for stores that opt into tool writes.
 
@@ -68,7 +61,7 @@ It requires writable Workspace access when the Agent creates, supersedes, or del
 | Provider-backed | Receives the configured memory tools through the provider MCP bridge. |
 | Custom-run-backed | Receives prepared context and can call store adapters from custom code when the application exposes them. |
 
-## Inspect and verify
+## Verify memory
 
 Inspect Agent inspection metadata for the configured memory stores.
 Inspect the tool list and confirm write tools appear only for stores with `write.mode: 'tool'`.
@@ -98,8 +91,7 @@ For the workspace JSONL store, inspect the configured Workspace file and verify 
 
 Cover Memory usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep memory tool descriptions with the tool definitions because they are structured tool contracts.
 
-## Reference
+## Related pages
 
 - [chat()](/docs/capabilities/chat)
 - [Workspace primitive](/docs/server-primitives/workspace)
-- Source: `packages/agent/src/capabilities/memory.ts`

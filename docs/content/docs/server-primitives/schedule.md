@@ -5,9 +5,9 @@ navigation.order: 11
 icon: i-lucide-calendar-clock
 ---
 
-Schedule owns cron-based runtime coordination, with first-version public language centered on static cron schedules and recurring Runtime Schedules. Use it for Static Schedule Definitions that produce provider cron output and Runtime Schedules that ViteHub stores durably.
+Use a Static Schedule Definition for cron entries deployed with the app. Use Runtime Schedules when the app creates, updates, or removes recurring work while it runs.
 
-Schedule is not an Agent Capability. A Schedule Target can start an Agent Invocation, but Schedule itself remains server runtime behavior.
+A Schedule Target can start an Agent Invocation, but Schedule itself runs on the server. Give an Agent schedule access only through a Schedule Capability.
 
 ## Quick start
 
@@ -145,9 +145,9 @@ Use `waitUntil(promise)` for consequential work that can outlive the handler bod
 
 ## Create recurring Runtime Schedules
 
-Runtime Schedules are dynamic cron schedules stored by ViteHub. A Runtime Schedule can target only a Runtime Schedule Target that opted into runtime reuse. Set an IANA `timeZone` when the cron should follow local civil time and daylight-saving changes; omit it to keep UTC behavior.
+Runtime Schedules are cron schedules stored by ViteHub. A Runtime Schedule can target only a Runtime Schedule Target that opted into runtime reuse. Set an IANA `timeZone` when the cron must follow local civil time and daylight-saving changes. Omit it to use UTC.
 
-Use `defineScheduleTarget()` when the handler should run only through Runtime Schedules and does not need its own build-time cron. These targets are runtime-eligible by construction and do not emit static provider output.
+Use `defineScheduleTarget()` when the handler runs only through Runtime Schedules and doesn't need its own build-time cron. These targets don't emit static provider output.
 
 ```ts [server/schedules/report.ts]
 import { defineScheduleTarget } from '@vite-hub/schedule'
@@ -196,7 +196,7 @@ export default defineEventHandler(async () => {
 | `cron` | `string` | create only | Five-field cron expression evaluated in `timeZone`, or UTC when `timeZone` is omitted. |
 | `target` | `ScheduleTargetName` | create only | A `defineScheduleTarget()` declaration or Static Schedule Definition that set `allowRuntimeSchedules: true`. |
 | `id` | `string` | No | Stable Runtime Schedule id. ViteHub generates one when omitted. |
-| `enabled` | `boolean` | No | Whether the Runtime Schedule should execute. Defaults to `true` on create. |
+| `enabled` | `boolean` | No | Whether the Runtime Schedule executes. Defaults to `true` on create. |
 | `input` | `unknown` | No | Opaque input passed to the target handler as `context.input`. |
 | `timeZone` | `string` | No | Named IANA time zone used to evaluate the cron expression. Numeric offsets such as `+01:00` are rejected. Defaults to UTC. |
 
@@ -204,7 +204,7 @@ export default defineEventHandler(async () => {
 
 Local cron matching follows conventional daylight-saving behavior: a local time missing during a DST gap is skipped, while both distinct instants in a repeated local time during a DST overlap run.
 
-## Runtime Helper methods
+## Runtime helper methods
 
 | Method | Description |
 | --- | --- |
@@ -222,9 +222,9 @@ Local cron matching follows conventional daylight-saving behavior: a local time 
 
 One-time delayed execution is not part of the first-version Scheduling vocabulary; use a recurring cron schedule, Queue delay, or Workflow design when that matches the actual behavior.
 
-## Connect a Runtime Schedule Wake Driver
+## Connect a Runtime Schedule wake driver
 
-Host integrations use the runtime driver boundary when the host can create and remove native wake registrations dynamically.
+Host integrations use a wake driver when the host can create and remove native schedule registrations at runtime.
 
 ```ts [server/runtime/schedule.ts]
 import { installScheduleRuntime } from '@vite-hub/schedule/runtime/driver'
@@ -238,15 +238,15 @@ const controller = await installScheduleRuntime({
 })
 ```
 
-`createDriver(context)` returns a driver with `reconcile(schedules)`. Pass `staticRegistry` when the driver should also schedule discovered Static Schedule Definitions; each reconciliation then receives those definitions alongside the complete stored Runtime Schedule snapshot, including disabled records. Installation awaits the initial reconciliation before it succeeds.
+`createDriver(context)` returns a driver with `reconcile(schedules)`. Pass `staticRegistry` when the driver also schedules discovered Static Schedule Definitions. Each reconciliation then receives those definitions with the complete stored Runtime Schedule snapshot, including disabled records. Installation waits for the first reconciliation.
 
-Runtime Schedule creates, updates, and deletes are serialized through the installed runtime. Each mutation persists to the canonical store before reconciliation. If reconciliation fails, ViteHub restores the previous stored record and rejects the mutation. Manual `schedules.run()` calls execute immediately and do not reconcile the driver.
+The installed runtime processes Runtime Schedule creates, updates, and deletes one at a time. It saves each change before reconciling the wake driver. If reconciliation fails, ViteHub restores the previous record and rejects the change. Manual `schedules.run()` calls execute immediately and don't reconcile the driver.
 
 When the host fires a native wake, call `context.wake({ scheduleId, scheduledAt })` with the exact stored Runtime Schedule id and occurrence time. Call `controller.close()` during host shutdown to release process resources; closing does not delete definitions, schedules, or run history.
 
 Use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when a custom long-running host wants the same in-process wake behavior without generated Nitro wiring.
 
-`startScheduleRunner()` has been removed. Existing self-hosted processes should install `createProcessScheduleWakeDriver()` through `installScheduleRuntime()` and await `controller.close()` during host shutdown.
+`startScheduleRunner()` has been removed. Existing self-hosted processes must install `createProcessScheduleWakeDriver()` through `installScheduleRuntime()` and await `controller.close()` during host shutdown.
 
 Static provider output remains build-time configuration; selecting the Process Runtime also executes discovered Static Schedule Definitions without requiring provider output.
 
@@ -260,13 +260,13 @@ Static provider output remains build-time configuration; selecting the Process R
 | KV Schedule Run Store | `createKVScheduleRunStore(options?)` | Persists Schedule Runs and attempts through KV-compatible storage. |
 | Custom Store | `setRuntimeScheduleStore(store)`, `setScheduleRunStore(store)` | Implement `RuntimeScheduleStore` or `ScheduleRunStore` directly. |
 
-## Connect it to Agents
+## Connect Schedule to Agents
 
 The Schedule Capability can let an Agent read or manage allowed Runtime Schedules through Capability policy. Inline Agent Schedules start the owning Agent with Schedule Invocation Input, not a synthetic user message.
 
-Attach a Schedule Capability only when a model should manage schedules. Read [Official capabilities](/docs/capabilities/official-capabilities) for Capability modes and write policy.
+Attach a Schedule Capability only when a model needs to manage schedules. Read [Official capabilities](/docs/capabilities/official-capabilities) for Capability modes and write policy.
 
-## Production boundaries
+## Production checks
 
 Schedule Runs, Schedule Run Attempts, retry policy, overlap policy, and dedupe policy belong to Schedule. Naming a policy does not imply every policy is configurable in the first version.
 

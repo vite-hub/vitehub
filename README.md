@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Portable Agents. Server Primitives for any host.
+  Server APIs and portable Agents for any Vite host.
 </p>
 
 <p align="center">
@@ -20,29 +20,29 @@
   <a href="https://vitehub.dev/docs/server-primitives">Server primitives</a>
 </p>
 
-ViteHub is one platform with two product lanes. ViteHub Agents defines, invokes, and deploys server-side Agents. ViteHub Server Primitives provide ordinary Vite applications with portable state and work across hosts.
+ViteHub adds a server layer to Vite. Call its Server Primitives directly from application code, or combine them with models and tools in an Agent. ViteHub keeps the application API consistent while its integrations handle local development and supported deployment hosts.
 
-## Choose a product lane
+## Choose how to start
+
+### Start with server primitives
+
+Server Primitives give application code APIs for auth, environment values, storage, queues, workflows, schedules, sandboxes, workspace files, and more. Start with [your first Server Primitive](https://vitehub.dev/docs/getting-started/first-server-primitive).
 
 ### Agents
 
-Agents are named server-side actors. Each Agent Definition picks an Agent Driver, receives Agent Invocations, can read explicit Workspace context, and gains abilities through Capabilities. Start with [your first Agent](https://vitehub.dev/docs/getting-started/first-agent).
-
-### Server Primitives
-
-Server Primitives give app code stable Runtime Helpers for auth, environment values, storage, queues, workflows, schedules, sandboxes, workspace files, and Provider Output. They work without an Agent Definition. Start with [your first Server Primitive](https://vitehub.dev/docs/getting-started/first-server-primitive).
+Agents are named server-side actors. An Agent Definition selects how the Agent runs, which Capabilities it receives, and which Workspace files it can use. Start with [your first Agent](https://vitehub.dev/docs/getting-started/first-agent).
 
 Agents may compose Server Primitives. Server Primitives never require Agents.
 
-## Installation
+## Install ViteHub
 
-Install the framework distribution for the normal application path. It keeps one direct ViteHub dependency while preserving feature boundaries through intentional subpaths.
+Install the framework distribution in a Vite application:
 
 ```bash
 pnpm add vite-hub
 ```
 
-Register the Vite Integration.
+Register the Vite integration:
 
 ```ts
 import { vitehub } from "vite-hub";
@@ -57,9 +57,9 @@ export default defineConfig({
 
 Model strings use AI Gateway automatically. Set `AI_GATEWAY_API_KEY` in the server environment, or pass an explicit key with `{ id, apiKey }`.
 
-Requirements: Node 24 or newer, Vite 8 or newer, and a server app with `vite.config.ts`.
+Requirements: Node 24.15 or newer, Vite 8 or newer, and a server app with `vite.config.ts`.
 
-## First Agent
+## Run your first Agent
 
 Create an Agent Definition.
 
@@ -89,20 +89,20 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-Add Capabilities only when the Agent needs controlled access to tools, storage, Workspace files, chat, product events, or external systems.
+Add Capabilities when the Agent needs tools, storage, Workspace files, chat, product events, or external systems. An Agent receives only the Capabilities you select.
 
-## How Agents Work
+## How Agents work
 
-- An **Agent Definition** declares one Agent and its Agent Driver.
-- An **Agent Driver** decides how an Agent Invocation runs: model-backed, provider-backed, or custom-run-backed.
+- An **Agent Definition** declares one Agent and selects its Agent Driver.
+- An **Agent Driver** runs an Agent Invocation with a model, a coding provider, or application code.
 - An **Agent Invocation** is one runtime request to an Agent.
-- **Capabilities** attach named abilities. They contribute tools, instructions, triggers, policies, or runtime context.
-- A **Workspace** gives an Agent explicit file-tree state. **Sources** place read-only context into that Workspace.
-- ViteHub discovers definitions, generates Runtime Registries, and prepares Provider Output through Vite Integrations.
+- **Capabilities** add selected tools, instructions, triggers, policies, or context.
+- A **Workspace** gives an Agent a file tree. **Sources** mount read-only files or remote content into it.
+- Vite integrations discover definitions and prepare the files and host configuration needed at runtime.
 
-Server code can call primitives directly. Agents do not receive every primitive by default; attach a Capability when the model should use one.
+Server code can call primitives directly. Agents do not receive every primitive by default; attach a Capability when the model needs one.
 
-## Server Primitives
+## Server primitives
 
 Server primitives are useful with or without Agents.
 
@@ -116,14 +116,14 @@ Server primitives are useful with or without Agents.
 | File-tree state and Sources | [`vite-hub/workspace`](https://vitehub.dev/docs/server-primitives/workspace) |
 | Background delivery | [`vite-hub/queue`](https://vitehub.dev/docs/server-primitives/queue) |
 | Durable long-running work | [`vite-hub/workflow`](https://vitehub.dev/docs/server-primitives/workflows) |
-| Future or recurring work | [`vite-hub/schedule`](https://vitehub.dev/docs/server-primitives/schedule) |
+| Delayed or recurring work | [`vite-hub/schedule`](https://vitehub.dev/docs/server-primitives/schedule) |
 | Isolated execution | [`vite-hub/sandbox`](https://vitehub.dev/docs/server-primitives/sandbox) |
 
-Each package owns its Runtime Helpers and Vite Integration. Host-specific wiring stays behind ViteHub Provider Output, so app code can use stable imports instead of provider SDK plumbing.
+Each package provides its server API and Vite integration. Application code uses the same imports while the integration connects them to the selected host.
 
 Libraries and focused integrations can depend on any `@vite-hub/*` owner package directly.
 
-## Learn More
+## Learn more
 
 - [Installation](https://vitehub.dev/docs/getting-started/installation)
 - [First server primitive](https://vitehub.dev/docs/getting-started/first-server-primitive)
@@ -136,4 +136,4 @@ Libraries and focused integrations can depend on any `@vite-hub/*` owner package
 
 ## Development
 
-This repo uses Node 24, pnpm, and Vite+. Run `vp run verify` for the full local gate. Package scripts own package-local test, build, and typecheck behavior.
+This repo uses Node 24.15 or newer, pnpm, and Vite+. Run `vp run verify` for the full local gate. Package scripts own package-local test, build, and typecheck behavior.

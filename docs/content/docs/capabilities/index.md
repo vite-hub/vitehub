@@ -1,18 +1,18 @@
 ---
 title: Capabilities
-description: Attach user-shareable abilities to Agent Definitions without exposing raw runtime authority by default.
+description: Give an Agent tools and behavior without handing it unrestricted server access.
 navigation.title: Overview
 navigation.order: 1
 navigation.group: Start here
 icon: i-lucide-blocks
 ---
 
-Capabilities are user-shareable ViteHub abilities that an Agent attaches through `defineAgent({ capabilities })`.
-They can add requirements, model-facing tools, Provider Tool contributions, Agent Triggers, pre-invocation decisions, output renderers, metadata, and finish extensions.
+Capabilities give an Agent a named ability through `defineAgent({ capabilities })`.
+They can add tools, triggers, input processing, output metadata, and checks that run before an invocation.
 
 A Capability is not a server primitive.
 Server primitives give trusted app code authority.
-Capabilities decide which parts of that authority become available to an Agent Invocation and which Agent Driver can consume the result.
+Capabilities decide which operations an Agent Invocation can use.
 
 ## Capability lifecycle
 
@@ -20,16 +20,16 @@ ViteHub applies Capabilities in the order listed or returned by the Agent Defini
 It validates duplicate ids, checks runtime requirements, applies Capability Trigger Contributions, and then runs configure, prepare, bind, input, resolve, and output phases for each invocation.
 
 `access()` is the only official Capability with a fixed position rule.
-Place it first when an Agent uses it, because later Capabilities may read the scoped Workspace or expose tools after access boundaries apply.
+Place it first so later Capabilities receive the restricted Workspace and tool access.
 
 ## Attach a Capability
 
 Import official factories from `@vite-hub/agent/capabilities`.
-Keep the import path explicit so the Agent Package root stays focused on Agent Definition and invocation primitives.
+Import the factory from the Capabilities entry point:
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { workspaceShell } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { workspaceShell } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -40,7 +40,7 @@ export default defineAgent({
 })
 ```
 
-Attaching a Capability opts the Agent into that ability. Model-facing tool policy defaults to `allow`; set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional runtime gate. Capability modes, scopes, allowlists, requirements, and input validation still bound the operation before policy applies.
+Attaching a Capability opts the Agent into that ability. Model-facing tool policy defaults to `allow`. Set `policy: 'require-approval'` or `policy: 'deny'` when a tool needs another runtime check. Modes, scopes, allowlists, requirements, and input validation still restrict the operation before policy runs.
 
 Use a callback when invocation context decides the Agent Definition's Capability list. ViteHub calls it once after resolving the Agent Invoker and before Capability setup; Capabilities contributed by the active Channel still compose normally.
 
@@ -62,7 +62,7 @@ ViteHub detects compatible Eve extension packages in a static Capability list an
 
 ```ts [server/agents/reviewer.ts]
 import github from '@github-tools/eve-extension'
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: { model },
@@ -83,26 +83,25 @@ This bridge is not yet a complete Eve runtime. Tool and approval contexts do not
 | Requirements | Primitive, Workspace mode, Workspace path, or policy checks that must pass before the Capability applies. |
 | Tools | Model-facing operations exposed only to compatible Agent Drivers. |
 | Provider tools | Provider-native tool requests, such as model web search mode. |
-| Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger surface. |
+| Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger API. |
 | Input behavior | Pre-invocation input transforms, transcription, decisions, gates, and rate limits. |
 | Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
 | Metadata | Inspectable configuration for runtime diagnostics and CLI inspection. |
 
 Capability metadata appears under the Capability id in Agent inspection output. ViteHub keeps JSON values, sorts object keys and Capability ids, drops unsupported or cyclic values, and redacts keys shaped like auth, API keys, credentials, passwords, secrets, or tokens. Metadata must describe configuration or an explicit check result; it must not include Env values, authentication material, or credentials.
 
-Use `defineCapability({ finish })` for metadata that evals, finish hooks, or channel delivery code should read after an invocation.
+Use `defineCapability({ finish })` for metadata read by evals, finish hooks, or channel delivery code after an invocation.
 Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
 
-## Driver boundary
+## Driver support
 
-Capabilities attach above the Agent Driver.
 A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.
 A provider-backed Agent Driver receives Agent tools through the private MCP bridge and scoped Workspace behavior. Provider-backed Drivers do not support model-specific Capability Provider Tool contributions such as `webSearch({ mode: 'model' })`.
 A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
 
 Free-form guidance about when and why to use a Capability belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas remain part of the model-facing tool contract.
 
-## Read next
+## Next steps
 
 - [Official capabilities](/docs/capabilities/official-capabilities)
 - [Custom capabilities](/docs/capabilities/custom-capabilities)

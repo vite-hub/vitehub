@@ -8,7 +8,7 @@ icon: i-lucide-mail
 ---
 
 `email()` grants an Agent one external side effect: `email_send` sends a plain-text message from an application-owned sender through the configured ViteHub Email primitive.
-Attach it only when the Agent should contact external recipients, scope exact addresses with `recipients`, then use policy when delivery requires approval or contextual authorization.
+Attach it only when the Agent needs to contact external recipients. Restrict exact addresses with `recipients`, then add policy when delivery requires approval or contextual authorization.
 
 ::warning
 An approved call can contact real people and incur provider charges.
@@ -44,7 +44,7 @@ Keep credentials in Server Env or the deployment platform's secret store and ref
 
 ## Requirements
 
-- The application must run on Node.js 24 or later.
+- The application must run on Node.js 24.15 or later.
 - Email configuration requires Vite 8 or later and one configured provider.
 - The configured provider must authorize the `from` address.
 - Generated Agent routes receive the Email runtime handle only while the Email Vite integration is active.
@@ -100,7 +100,7 @@ Your delivery provider owns those limits and may charge for every accepted recip
 
 ## Authorize recipients
 
-Use `recipients` as the hard boundary for exact addresses the Agent may contact.
+Use `recipients` as the allowlist of exact addresses the Agent may contact.
 Every address in `email_send.to` must match the configured list; one address outside the list denies the entire call before the Email primitive runs, so ViteHub never partially sends a multi-recipient message.
 
 ```ts [server/agents/support.ts]
@@ -152,7 +152,7 @@ After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub err
 | `EMAIL_NETWORK` or `EMAIL_TIMEOUT` | Treat delivery as uncertain. Check provider delivery logs before retrying, because the provider may already have accepted the message. |
 | `EMAIL_PROVIDER_FAILED` | Inspect protected server logs and provider delivery records. Never expose `cause` to the model. |
 
-ViteHub-produced `ViteHubError.message` values are safe for the public runtime boundary.
+ViteHub-produced `ViteHubError.message` values are safe to return from the public runtime.
 ViteHub-wrapped provider failures remain in `cause` for protected server-side diagnostics and may contain addresses, credentials, or response content; custom drivers must preserve the same rule.
 
 ## Keep Dynamic Markdown application-owned
@@ -171,10 +171,10 @@ Do not pass unrestricted model output into a trusted HTML fragment.
 | Provider-backed | Runtime requirements apply; model-facing Email tools are not passed by default. |
 | Custom-run-backed | Receives the resolved tool set; `driver.run` decides whether and when to call `email_send`. |
 
-## Inspect and verify
+## Verify email delivery
 
 Run `vitehub agent info --agent <name> --json` and confirm its tool list contains only `email_send` for this Capability.
-The Capability should report write mode and an `email` primitive requirement.
+Confirm that the Capability reports write mode and an `email` primitive requirement.
 
 For the first delivery, use an approved test recipient and a test or sandbox provider account.
 Approve the call, confirm the tool returns a non-empty `id`, then verify the same message in provider delivery logs or the recipient mailbox.
@@ -190,9 +190,8 @@ Approve the call, confirm the tool returns a non-empty `id`, then verify the sam
 `email()` has no `mode` option because Email exposes no read operation.
 The Capability always reports `mode: 'write'` so inspection and policy tooling can identify the side effect.
 
-## Reference
+## Related pages
 
 - [Email primitive](/docs/server-primitives/email)
 - [Official capabilities](/docs/capabilities/official-capabilities)
 - [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces)
-- Source: `packages/agent/src/capabilities/email.ts`

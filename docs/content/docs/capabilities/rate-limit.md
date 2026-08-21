@@ -13,9 +13,16 @@ icon: i-lucide-gauge
 
 Create a direct limiter beside the Agent and pass it to the Capability. The Capability needs the portable decision to attach Agent identity and rejection context, so the handler-only `requireRateLimit()` guard is not its input.
 
+The built-in memory driver is an owner-package API. Install that package when
+using it.
+
+```bash [Terminal]
+pnpm add @vite-hub/rate-limit
+```
+
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { rateLimit } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { rateLimit } from 'vite-hub/agent/capabilities'
 import { createRateLimiter } from '@vite-hub/rate-limit'
 import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
 
@@ -35,17 +42,17 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How rate limits work
 
 The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the `RateLimiter` exactly once.
 
-A rejected decision throws `ViteHubError` with code `RATE_LIMIT_REJECTED`; the HTTP boundary maps that code to `429` and emits `retry-after` headers only when the selected driver reports `retryAfter`. Cloudflare native enforcement does not return portable quota metadata.
+A rejected decision throws `ViteHubError` with code `RATE_LIMIT_REJECTED`; the HTTP handler maps that code to `429` and emits `retry-after` headers only when the selected driver reports `retryAfter`. Cloudflare native enforcement does not return portable quota metadata.
 
 The decision is stored under the Capability id in Agent Invocation Context and exposed as a finish extension. It contains the primitive decision plus `capabilityId`, `identity`, `identitySource`, `key`, and `scope`.
 
 ## Choose identity
 
-Identity derivation belongs to the Agent boundary, not the Rate Limit Driver. The default `identity: 'auto'` prefers the Agent Invoker, then Agent Run metadata, then explicitly trusted IP headers, and finally an anonymous identity.
+The Agent Definition chooses the identity, not the Rate Limit Driver. The default `identity: 'auto'` prefers the Agent Invoker, then Agent Run metadata, then trusted IP headers, and finally an anonymous identity.
 
 Use `identity: 'invoker'` when authentication provides a stable Agent Invoker. Use `identity: 'ip'` only after naming headers that the deployed host sets and sanitizes.
 
@@ -64,8 +71,8 @@ Do not trust a client-controlled forwarding header. The Capability reads only th
 Pass any `RateLimiter` when the application owns state or enforcement outside managed ViteHub Rate Limits.
 
 ```ts [server/rate-limiter.ts]
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import type { RateLimitDriver } from '@vite-hub/rate-limit'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import type { RateLimitDriver } from 'vite-hub/rate-limit'
 
 declare const driver: RateLimitDriver
 
@@ -78,7 +85,7 @@ export const invocationLimiter = createRateLimiter({
 ```
 
 ```ts [server/agents/support.ts]
-import { rateLimit } from '@vite-hub/agent/capabilities'
+import { rateLimit } from 'vite-hub/agent/capabilities'
 import { invocationLimiter } from '../rate-limiter'
 
 rateLimit({ limiter: invocationLimiter })
@@ -128,7 +135,7 @@ There is no compatibility shim. `memoryRateLimitStore()` and `RateLimitStore` ar
 
 ## Verify it
 
-Run repeated Agent Invocations with the same identity. The first `limit` invocations should reach the Agent Driver; the next should fail with code `RATE_LIMIT_REJECTED` before model, provider, or custom-run execution.
+Run repeated Agent Invocations with the same identity. Confirm that the first `limit` invocations reach the Agent Driver and the next fails with code `RATE_LIMIT_REJECTED` before model, provider, or custom-run execution.
 
 For local tests, use a dedicated memory driver instance. For Cloudflare, resolve the request binding in the limiter resolver and test the deployed binding because the native decision depends on request-scoped Worker environment.
 

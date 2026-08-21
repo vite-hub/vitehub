@@ -7,9 +7,9 @@ navigation.lanes: [server-primitives]
 icon: i-lucide-server
 ---
 
-Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
+Server Primitives are APIs for environment values, databases, queues, workflows, files, sandboxes, and other server features.
 
-ViteHub connects each primitive to the implementation supported by the current development or deployment host, so application code keeps the same API across Cloudflare, Vercel, Docker, and other platforms.
+Application code calls the ViteHub API. The Vite integration connects that call to the implementation supported by the current development or deployment host.
 
 ## Choose a primitive for the job
 
@@ -27,9 +27,9 @@ Most ViteHub primitives follow the same pattern:
 
 ::steps{level="3"}
 
-### Configure
+### Configure ViteHub
 
-Add ViteHub to your configuration. ViteHub relies heavily on the [Vite Environment API](https://vite.dev/guide/api-environment), so Vite 8+, Nitro 3+, and Nuxt 5+ are the supported versions for now.
+Add ViteHub to your configuration. ViteHub uses the [Vite Environment API](https://vite.dev/guide/api-environment), which requires Vite 8+, Nitro 3+, or Nuxt 5+.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
@@ -80,7 +80,7 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
     ```ts [src/notes.database.ts]
-    import { defineDatabase } from '@vite-hub/database'
+    import { defineDatabase } from 'vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
     export default defineDatabase({
@@ -97,7 +97,7 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
 
   :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs"}
     ```ts [server/databases/notes/config.ts]
-    import { defineDatabase } from '@vite-hub/database'
+    import { defineDatabase } from 'vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
     export default defineDatabase({
@@ -114,7 +114,7 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
 
   :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
     ```ts [server/databases/notes/config.ts]
-    import { defineDatabase } from '@vite-hub/database'
+    import { defineDatabase } from 'vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
     export default defineDatabase({
@@ -132,12 +132,12 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
 
 ### Use it from server code
 
-Import the generated Runtime Helper in a server route and query the named database. ViteHub connects that call to the provider configured for the current environment.
+Import the database API in a server route and query the named database. ViteHub connects that call to the provider configured for the current environment.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
     ```ts [src/server.ts]
-    import { useDatabase } from '@vite-hub/database/drizzle'
+    import { useDatabase } from 'vite-hub/database/drizzle'
 
     export default {
       async fetch() {
@@ -150,7 +150,7 @@ Import the generated Runtime Helper in a server route and query the named databa
 
   :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs"}
     ```ts [server/api/notes.get.ts]
-    import { useDatabase } from '@vite-hub/database/drizzle'
+    import { useDatabase } from 'vite-hub/database/drizzle'
 
     export default defineEventHandler(() => {
       const { db, schema } = useDatabase('notes')
@@ -161,7 +161,7 @@ Import the generated Runtime Helper in a server route and query the named databa
 
   :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
     ```ts [server/api/notes.get.ts]
-    import { useDatabase } from '@vite-hub/database/drizzle'
+    import { useDatabase } from 'vite-hub/database/drizzle'
 
     export default defineEventHandler(() => {
       const { db, schema } = useDatabase('notes')
@@ -173,4 +173,4 @@ Import the generated Runtime Helper in a server route and query the named databa
 
 ::
 
-That is the complete path: configure ViteHub, define the primitive when it needs a name or schema, and call its Runtime Helper from server code. Your application keeps the same API while ViteHub connects it to the current development or deployment host.
+The same path applies to other Server Primitives. Configure ViteHub, add a definition when the feature needs a name or schema, and call its server API. Check the [host support matrix](/docs/frameworks-hosts/support-matrix) before choosing a deployment target.

@@ -6,15 +6,24 @@ navigation.lanes: [agents]
 icon: i-lucide-blocks
 ---
 
-A Capability is a reusable bundle of Agent behavior. It can add tools, requirements, policy, trigger behavior, metadata, or invocation context to the Agent that selects it.
+A Capability gives an Agent a selected ability. It can add tools, instructions, requirements, policy, triggers, metadata, or invocation context.
 
-Installing a Server Primitive does not give every Agent access to it. Attach a Capability when the Agent should use that operation.
+Installing a Server Primitive does not give an Agent access to it. Attach a Capability when the Agent needs that operation.
+
+## Choose the API by its caller
+
+| | Server Primitive | Capability |
+| --- | --- | --- |
+| Caller | Application server code | An Agent during an Invocation |
+| Access | A documented server import | Selected tools, policy, requirements, or context |
+| Selection | Application code calls it | The Agent Definition or invocation selects it |
+| Model access | None | Only the operations the Capability contributes |
 
 ## Select the abilities an Agent can use
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { kv, workspaceShell } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { kv, workspaceShell } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   workspace: { mode: 'read' },
@@ -28,7 +37,7 @@ export default defineAgent({
 })
 ```
 
-The Agent Driver receives only what the selected Capabilities contribute. Application code can still call Server Primitives directly through their Runtime Helpers.
+The Agent receives only what the selected Capabilities contribute. Application code can call the same Server Primitives through their server APIs.
 
 ## Use a fixed or resolved list
 
@@ -43,8 +52,8 @@ capabilities: ({ actor }) => [
 
 ViteHub resolves the Agent Invoker before it calls the resolver. The returned array is the complete Capability list for that request.
 
-## Keep access explicit
+## Limit what the Agent can use
 
-A Capability does not expose the full Runtime Context or unrestricted host access to the model. Its tools, requirements, policy, and metadata define what the Agent can inspect and use.
+A Capability does not expose the full Runtime Context or unrestricted host access. Its tools, requirements, policy, and metadata define what the Agent can inspect and use.
 
 Read the [Capabilities](/docs/capabilities) section for implementation details and [First agent](/docs/getting-started/first-agent) for a runnable Definition.

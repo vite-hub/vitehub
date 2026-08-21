@@ -13,12 +13,7 @@ Use it to capture small, non-blocking friction while the details are still avail
 The Capability owns the reporting contract and provenance.
 Your application owns persistence, redaction, retention, deduplication, and triage.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 Provide a `report` callback that accepts each papercut before the tool reports success.
-
-## What it adds
 
 The Capability always adds `report_papercut`.
 The tool accepts one trimmed message between 1 and 1000 characters and asks the Agent to describe what it was doing and what got in the way.
@@ -26,13 +21,13 @@ The tool accepts one trimmed message between 1 and 1000 characters and asks the 
 Each report includes an id, creation time, source, and available Agent, run, and trace provenance.
 The callback also receives the current Capability runtime context for application-specific routing.
 
-## Configuration
+## Configure papercut reports
 
 Persist the normalized `papercut` record and use `context` only when the sink needs invocation-specific information.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { papercuts } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { papercuts } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -54,7 +49,7 @@ It is invocation-scoped and may contain request, actor, Workspace, or applicatio
 
 ## Add the Capability CLI
 
-Set `cli: true` when agents and developers should also have a command-shaped reporting surface.
+Set `cli: true` to let agents and developers submit the same reports from a command.
 This adds the fixed `papercuts report` command without replacing `report_papercut`.
 
 ```ts [server/agents/support.ts]
@@ -72,7 +67,7 @@ pnpm vitehub agent dev --agent support --cli papercuts -- report "The retry hid 
 
 Successful command output is `Papercut reported.`
 
-## Runtime behavior
+## How reports work
 
 ViteHub trims and validates the message, generates the record, and awaits `report`.
 The tool returns `{ reported: true, id }` only after the sink accepts the report; callback errors fail the tool call instead of returning a false success.
@@ -90,12 +85,12 @@ The normalized record contains:
 | `trace` | Runtime Trace Context when available. |
 
 Attaching the Capability grants access to the developer-provided reporting sink, so `papercuts()` does not add an approval policy.
-It does not provide a `when` option; attach the Capability only to Agent Definitions that should report papercuts.
+It does not provide a `when` option. Attach the Capability only to Agent Definitions that report papercuts.
 
 ## Requirements
 
 `papercuts({ report })` requires a report callback.
-The callback should complete only after its destination accepts the record.
+Resolve the callback only after its destination accepts the record.
 
 The tool description tells the Agent not to include secrets or customer data, but the sink still owns redaction and data handling appropriate to the application.
 
@@ -107,9 +102,9 @@ The tool description tells the Agent not to include secrets or customer data, bu
 | Provider-backed | Receives the same Capability tools through the Provider Agent tool bridge. |
 | Custom-run-backed | Receives resolved tools in the run context; `driver.run` decides whether to call them. |
 
-## Inspect and verify
+## Verify reports
 
-Run one Agent Invocation that encounters obvious friction and inspect the `report_papercut` call and normalized sink record.
+Run one Agent Invocation that encounters a known problem and inspect the `report_papercut` call and normalized sink record.
 When `cli` is enabled, run `papercuts report` through the Agent Dev Loop and confirm the same sink receives a report with `source: "cli"`.
 
 ## Options
@@ -119,8 +114,7 @@ When `cli` is enabled, run `papercuts report` through the Agent Dev Loop and con
 | `report` | `(event: PapercutReportEvent) => void \| Promise<void>` | required | Application-owned sink for the normalized papercut and current Capability runtime context. |
 | `cli` | `boolean` | `false` | Adds the fixed `papercuts report` Capability CLI while keeping `report_papercut`. |
 
-## Reference
+## Related pages
 
 - [Agent Evals](/docs/agents/evals)
 - [Custom capabilities](/docs/capabilities/custom-capabilities)
-- Source: `packages/agent/src/capabilities/papercuts.ts`

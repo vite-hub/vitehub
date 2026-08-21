@@ -7,7 +7,7 @@ icon: i-lucide-route
 
 Stable ViteHub Import Paths are ViteHub-owned app-facing import specifiers.
 They may resolve to Runtime Registries, generated files, virtual modules, or
-owner-package runtime code, but application code should not depend on that
+owner-package runtime code, but application code must not depend on that
 implementation detail.
 
 ## Canonical application imports
@@ -100,6 +100,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/email/server` | Email Runtime | Server-only configured `email` Runtime Helper. |
 | `@vite-hub/email/markdown` | Email Package | Dynamic Markdown composition into HTML and a composed Markdown text fallback. |
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |
+| `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `@vite-hub/database/drizzle` | Database Package | Generated Drizzle `db` and `schema` access. |
 | `@vite-hub/env` | Env Package | Env Declaration helpers. |
 | `@vite-hub/history` | History Package | Durable history checkpoint contract and types. |

@@ -5,9 +5,9 @@ navigation.order: 3
 icon: i-lucide-shield-check
 ---
 
-Auth is the server primitive for application user identity and sessions. ViteHub owns the Auth Definition, Auth Route Exposure, storage placement metadata, and server runtime helpers. Storage placement metadata is inspectable configuration; it does not create Better Auth storage adapters.
+Use Auth to add Better Auth sessions and server-side identity checks to a ViteHub app. ViteHub discovers one Auth Definition, mounts its route, and provides server helpers. Better Auth still provides the sign-in UI, client plugins, and provider-specific behavior.
 
-Better Auth owns sign-in UI, client plugins, and provider-specific client behavior. ViteHub exposes its Vue client and normalized session composables; other framework clients remain available from Better Auth.
+The `database` and `secondaryStorage` fields record where Auth data belongs. They don't create Better Auth storage adapters. Supply those adapters in the runtime configuration when you need persistent storage.
 
 ## Quick start
 
@@ -16,7 +16,7 @@ Better Auth owns sign-in UI, client plugins, and provider-specific client behavi
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/auth better-auth
+pnpm add @vite-hub/auth @vite-hub/runtime better-auth
 ```
 
 ### Configure
@@ -89,7 +89,7 @@ Better Auth-compatible options stay top-level. ViteHub reserves Auth fields such
 
 ## Use it at runtime
 
-The Canonical Auth Route Path is `/api/auth/**`. Auth Route Exposure is enabled by default, so apps do not need to create a manual route file for the common same-origin case.
+The default Auth route is `/api/auth/**`. ViteHub mounts it automatically, so same-origin apps don't need a manual route file.
 
 Vue apps can use the same-origin ViteHub Auth client and normalized session state directly.
 
@@ -153,7 +153,7 @@ When `@vite-hub/env` is installed before Auth, the callback receives typed Serve
 
 The `database` and `secondaryStorage` fields describe intended ViteHub primitive placement. ViteHub removes these metadata values before it calls `betterAuth()`, so they do not connect Better Auth to `@vite-hub/database` or `@vite-hub/kv`.
 
-Omitting `database`, or setting it to `true`, selects Default Database metadata. Use a named reference when inspection should record an explicit target.
+Omitting `database`, or setting it to `true`, selects Default Database metadata. Use a named reference when inspection needs to record the target.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -164,7 +164,7 @@ export default defineAuth({
 })
 ```
 
-Set `dedicated: true` when the metadata should record that the Named Database is dedicated to Auth.
+Set `dedicated: true` to record that the Named Database is dedicated to Auth.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -201,9 +201,9 @@ export default defineConfig({
 
 ## Provider output
 
-Auth generates the discovered definition module, route handler, access middleware, and ambient types needed by the host integration. Application code should use `@vite-hub/auth/server` or Better Auth clients, not generated files.
+Auth generates the definition module, route handler, access middleware, and ambient types needed by the host integration. Application code uses `@vite-hub/auth/server` or Better Auth clients, not generated files.
 
-Set `route: false` only when a host integration or manual route should mount the Auth handler itself.
+Set `route: false` only when a host integration or manual route mounts the Auth handler itself.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -214,9 +214,9 @@ export default defineAuth({
 })
 ```
 
-## Connect it to Agents
+## Connect Auth to Agents
 
-Auth identifies application users and sessions. Agents consume Agent Invokers, so Auth-to-Agent behavior should map trusted Auth state into an Agent Invoker instead of making Auth part of the Agent Definition.
+Auth identifies application users and sessions. Agents receive Agent Invokers. Map trusted Auth state into an Agent Invoker instead of adding Auth to the Agent Definition.
 
 Read [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) for the mental model and [Official capabilities](/docs/capabilities/official-capabilities) for agent-facing access patterns.
 
