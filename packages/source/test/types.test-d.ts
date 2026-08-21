@@ -104,6 +104,13 @@ describe("@vite-hub/source types", () => {
     const source = "count" as "count" | "keyed"
     // @ts-expect-error A union alias must remain correlated with its Source key
     await collection.get([source, "2026-07"])
+    const conditionalReader = Math.random() > 0.5
+      ? reader("a" as "a" | "shared", 1)
+      : reader("b" as "b" | "shared", 2)
+    const conditionalCollection = defineCollection({ sources: { conditional: conditionalReader } })
+    await conditionalCollection.get(["conditional", "shared"])
+    // @ts-expect-error A key must be accepted by every possible reader variant
+    await conditionalCollection.get(["conditional", "a"])
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
     defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
     // @ts-expect-error Collection aliases must be strings

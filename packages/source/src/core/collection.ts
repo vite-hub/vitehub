@@ -7,8 +7,13 @@ interface CollectionSourceReader {
 
 type CollectionSources = Record<string, CollectionSourceReader>
 
+type CollectionSourceKeyFunction<TReader> =
+  TReader extends { get(key: infer TKey): Promise<unknown> } ? (key: TKey) => void : never
+
 type CollectionSourceKey<TReader> =
-  TReader extends { get(key: infer TKey): Promise<unknown> } ? Extract<TKey, string> : never
+  CollectionSourceKeyFunction<TReader> extends (key: infer TKey) => void
+    ? Extract<TKey, string>
+    : never
 
 type CollectionSourceValue<TReader> =
   TReader extends { get(key: never): Promise<infer TValue> } ? TValue : never
