@@ -529,7 +529,14 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
   }
   const boundedEntries = [...entriesByRun.values()].flatMap((runEntries) => {
     if (runEntries.length <= maxEntries) return runEntries
-    return [...runEntries.slice(0, maxEntries / 2), ...runEntries.slice(-maxEntries / 2)].map((entry, index) => index === 0
+    const terminalIndex = runEntries.findLastIndex(isTraceRunTerminal)
+    const tailSize = terminalIndex === -1 ? maxEntries / 2 : maxEntries / 2 - 1
+    const indexes = new Set([
+      ...runEntries.slice(0, maxEntries / 2).map((_entry, index) => index),
+      ...(terminalIndex === -1 ? [] : [terminalIndex]),
+      ...runEntries.slice(-tailSize).map((_entry, index) => runEntries.length - tailSize + index),
+    ])
+    return [...indexes].sort((left, right) => left - right).map(index => runEntries[index]!).map((entry, index) => index === 0
       ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": runEntries.length, "vitehub.trace.truncated": true } }
       : entry)
   })

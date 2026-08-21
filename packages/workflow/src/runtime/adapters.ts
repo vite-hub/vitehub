@@ -51,7 +51,7 @@ function resolveCloudflareBinding(event: unknown, binding: string | undefined, n
 
 function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
   const env = getCloudflareEnv(event)
-  return (env?.[getCloudflareWorkflowBindingName(name)] || (binding ? env?.[binding] : undefined)) as CloudflareWorkflowBinding | undefined
+  return ((binding ? env?.[binding] : undefined) || env?.[getCloudflareWorkflowBindingName(name)]) as CloudflareWorkflowBinding | undefined
 }
 
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {

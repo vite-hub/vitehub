@@ -2075,16 +2075,24 @@ describe("workflow runtime", () => {
   it("honors custom bindings for user Workflows with recovery-like names", async () => {
     const name = "vitehub-agent-invocation-recovery-user-defined"
     const createBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
+    const get = vi.fn(async () => ({ id: "custom-run", status: async () => "complete" }))
+    const generatedGet = vi.fn(async () => ({ id: "generated-run", status: async () => "failed" }))
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
     setWorkflowRuntimeRegistry({
       [name]: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
     enterWorkflowRuntimeEvent({
-      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: { createBatch, get: vi.fn() } } } } },
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName(name)]: { createBatch: vi.fn(), get: generatedGet },
+        WORKFLOW_CUSTOM: { createBatch, get },
+      } } } },
     })
 
     await expect(runWorkflow(name, {}, { id: "custom-run" })).resolves.toMatchObject({ id: "custom-run" })
+    await expect(getWorkflowRun(name, "custom-run")).resolves.toMatchObject({ id: "custom-run", status: "completed" })
     expect(createBatch).toHaveBeenCalledOnce()
+    expect(get).toHaveBeenCalledOnce()
+    expect(generatedGet).not.toHaveBeenCalled()
   })
 
   it("inspects Cloudflare runs without evaluating their handler modules", async () => {

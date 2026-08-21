@@ -302,6 +302,17 @@ function terminalStatus(status: AgentInvocationRecordStatus): boolean {
   return status === "completed" || status === "failed" || status === "cancelled"
 }
 
+function terminalObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "agent.invocation.finish" || observation.name === "agent.invocation.error" || observation.name === "run.finish" || observation.name === "run.error"
+}
+
+function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
+  return {
+    ...observation,
+    attributes: { ...observation.attributes, "vitehub.trace.truncated": true },
+  }
+}
+
 export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
@@ -310,12 +321,20 @@ export function applyAgentInvocationStoreUpdate(
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
+  const observations = input.observation
+    ? record.observations.length < MAX_OBSERVATIONS
+      ? [...record.observations, cloneObservation(boundedObservation(input.observation))]
+      : [
+          ...record.observations.slice(0, -1),
+          cloneObservation(boundedObservation(terminalObservation(input.observation)
+            ? truncatedObservation(input.observation)
+            : truncatedObservation(record.observations.at(-1)!))),
+        ]
+    : record.observations
   return {
     ...record,
     ...(input.error ? { error: input.error } : {}),
-    ...(input.observation && record.observations.length < MAX_OBSERVATIONS
-      ? { observations: [...record.observations, cloneObservation(boundedObservation(input.observation))] }
-      : {}),
+    observations,
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
     ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
@@ -430,6 +449,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let finished = false
       let ownsRecord = false
       let observationCount = 0
+      let observationsTruncated = false
       let observationSequence = 0
       let created = false
       let creationTimedOut = false
@@ -467,6 +487,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
               observationCount = result.record.observations.length
+              observationsTruncated = result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
               created = true
             }
@@ -562,7 +583,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         observationWrite = settled
       }
       const observe = (observation: TraceEventLogEntry) => {
-        if (finished || observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS) return
+        if (finished) return
+        const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
+        if (atCapacity) {
+          if (observationsTruncated && !terminalObservation(observation)) return
+          observationsTruncated = true
+        }
         pendingObservations.push(observation)
         writeNextObservation()
       }

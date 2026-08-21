@@ -655,7 +655,7 @@ describe("@vite-hub/runtime", () => {
   it("bounds OpenTelemetry event aggregation while preserving terminal events", () => {
     const events = Array.from({ length: 2_000 }, (_, index) => ({
       attributes: { "agent.run.id": "run-1", index },
-      name: index === 1_999 ? "agent.invocation.finish" : "agent.message",
+      name: index === 1_000 ? "agent.invocation.finish" : "agent.message",
       sequence: index + 1,
       timestamp: new Date(index).toISOString(),
       trace: { id: "run-1" },
@@ -670,6 +670,7 @@ describe("@vite-hub/runtime", () => {
       },
       status: { code: "OK" },
     })
+    expect(span?.endTime).toBe(new Date(1_000).toISOString())
   })
 
   it("bounds each run without dropping middle runs or terminal events", () => {

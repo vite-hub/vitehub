@@ -2460,13 +2460,17 @@ function toTraceContext<
   }
 }
 
+function agentToolActivities(tools: AgentToolSet | undefined) {
+  return new Map(Object.entries(tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
+}
+
 function maybeTraceAgentStream<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(stream: AsyncIterable<StreamEvent>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AsyncIterable<StreamEvent> {
   if (!context.runtimeContext.traceLog) return stream
   const toolNames = new Map<string, string>()
-  const toolActivities = new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
+  const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   const tracer = createAgentStreamEventTracer(toTraceContext(context))
   return (async function* () {
@@ -2705,7 +2709,7 @@ function withStreamedResult(
   tools?: AgentToolSet,
 ) {
   const toolNames = new Map<string, string>()
-  const toolActivities = new Map(Object.entries(tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
+  const toolActivities = agentToolActivities(tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let explicitTextPhaseSeen = false
   let finalText = ""
@@ -2802,7 +2806,7 @@ function traceUiMessageStream<
 >(stream: ReadableStream<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): ReadableStream<unknown> {
   const reader = stream.getReader()
   const toolNames = new Map<string, string>()
-  const toolActivities = new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
+  const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let finished = false
   let released = false
