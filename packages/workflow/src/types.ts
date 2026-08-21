@@ -192,14 +192,11 @@ export interface WorkflowSignalResult {
   provider: WorkflowProvider
 }
 
-export interface WorkflowDefinitionRegistryEntry {
-  (): Promise<{ default?: WorkflowDefinition, [exportName: string]: unknown } | WorkflowDefinition>
-  /** @internal Identifies provider-generated Agent invocation recovery definitions without evaluating their modules. */
-  internalAgentInvocationRecovery?: true
-}
-
 export interface WorkflowDefinitionRegistry {
-  [name: string]: WorkflowDefinitionRegistryEntry
+  [name: string]: (() => Promise<{ default?: WorkflowDefinition, [exportName: string]: unknown } | WorkflowDefinition>) & {
+    /** @internal Identifies provider-generated Agent invocation recovery definitions without evaluating their modules. */
+    internalAgentInvocationRecovery?: true
+  }
 }
 
 export interface DiscoveredWorkflowDefinition {
