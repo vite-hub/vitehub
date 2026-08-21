@@ -644,6 +644,21 @@ describe("Vite schedule integration", () => {
     })
   })
 
+  it("does not add auto-selected Vercel crons when Process Runtime owns the schedule", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-auto-process-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
+
+    const nitro = await createScheduleNitroConfig({
+      command: "build",
+      nitro: { preset: "vercel" },
+      root,
+      runtime: { driver: "process" },
+    })
+
+    expect(nitro).not.toHaveProperty("vercel.config.crons")
+  })
+
   it.each(["NITRO_PRESET", "SERVER_PRESET"])("adds standalone schedules to Vercel Nitro config selected by %s", async (environmentVariable) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-env-"))
     await mkdir(join(root, "src"), { recursive: true })

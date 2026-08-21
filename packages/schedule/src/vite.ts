@@ -433,7 +433,10 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     ? options.nitro.preset
     : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING || ""
   const standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
-  const vercelDefinitions = options.command === "build" && nitroPreset.startsWith("vercel") && shouldEmitStandaloneProviderOutput(definitions, options)
+  const vercelDefinitions = options.command === "build"
+    && nitroPreset.startsWith("vercel")
+    && (options.runtime === undefined || options.providerOutput === "standalone")
+    && shouldEmitStandaloneProviderOutput(definitions, options)
     ? definitions.filter(definition =>
         definition.runtimeOnly !== true
         && (standaloneProviderSource === undefined || definition.source === standaloneProviderSource),
