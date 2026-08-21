@@ -1,7 +1,5 @@
 import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
-import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
-import { collectTypeAliases } from "../shared/type-aliases.ts";
 
 type Parameter = ESTree.ParamPattern;
 type ParameterOwner =
@@ -12,19 +10,6 @@ type ParameterOwner =
   | ESTree.TSConstructorType
   | ESTree.TSFunctionType
   | ESTree.TSMethodSignature;
-
-type TypeBinding = {
-  type: ESTree.TSType;
-  bindings: ReadonlyMap<string, TypeBinding>;
-  from: ESTree.Node;
-  shadowedAliases: ReadonlySet<string>;
-};
-
-function typeName(type: ESTree.TSTypeName): string {
-  return type.type === "Identifier"
-    ? type.name
-    : `${typeName(type.left)}.${type.right.name}`;
-}
 
 function parameterAnnotation(parameter: Parameter): ESTree.TSTypeAnnotation | null | undefined {
   if (parameter.type === "TSParameterProperty") {
@@ -68,66 +53,10 @@ export const noUnknownParametersRule = defineRule({
     },
   },
   createOnce(context) {
-    let findAlias: ReturnType<typeof collectTypeAliases>;
-    const containsUnknown = (
-      type: ESTree.TSType,
-      from: ESTree.Node,
-      shadowedAliases: ReadonlySet<string>,
-      bindings: ReadonlyMap<string, TypeBinding> = new Map(),
-      visited = new Set<string>(),
-    ): boolean => {
-      if (type.type === "TSUnknownKeyword") return true;
-      if (type.type === "TSParenthesizedType")
-        return containsUnknown(type.typeAnnotation, from, shadowedAliases, bindings, visited);
-      if (type.type === "TSUnionType")
-        return type.types.some((member) =>
-          containsUnknown(member, from, shadowedAliases, bindings, visited),
-        );
-      if (type.type !== "TSTypeReference") return false;
-      const name = typeName(type.typeName);
-      const bound = bindings.get(name);
-      if (bound !== undefined)
-        return containsUnknown(bound.type, bound.from, bound.shadowedAliases, bound.bindings, visited);
-      if (visited.has(name) || shadowedAliases.has(name)) return false;
-      const alias = findAlias(name, from);
-      if (alias === undefined) return false;
-      const parameters = alias.typeParameters?.params ?? [];
-      const arguments_ = type.typeArguments?.params ?? [];
-      if (arguments_.length > parameters.length) return false;
-      const nextBindings = new Map(bindings);
-      for (const [index, parameter] of parameters.entries()) {
-        const argument = arguments_[index] ?? parameter.default;
-        if (argument === null || argument === undefined) return false;
-        nextBindings.set(parameter.name.name, {
-          type: argument,
-          bindings: arguments_[index] === undefined ? nextBindings : bindings,
-          from: arguments_[index] === undefined ? alias : from,
-          shadowedAliases: arguments_[index] === undefined
-            ? lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys)
-            : shadowedAliases,
-        });
-      }
-      const nextVisited = new Set(visited);
-      nextVisited.add(name);
-      return containsUnknown(
-        alias.typeAnnotation,
-        alias,
-        lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys),
-        nextBindings,
-        nextVisited,
-      );
-    };
-
     const checkParameters = (node: ParameterOwner) => {
-      const shadowedAliases = lexicalTypeParameterNames(node, context.sourceCode.visitorKeys);
       for (const parameter of node.params) {
         const annotation = parameterAnnotation(parameter);
-        if (
-          annotation === null ||
-          annotation === undefined ||
-          !containsUnknown(annotation.typeAnnotation, node, shadowedAliases)
-        )
-          continue;
+        if (annotation?.typeAnnotation.type !== "TSUnknownKeyword") continue;
         const name = parameterName(parameter, context.sourceCode.getText(parameter));
         if (name === "cause") continue;
         context.report({
@@ -139,9 +68,6 @@ export const noUnknownParametersRule = defineRule({
     };
 
     return {
-      Program(node) {
-        findAlias = collectTypeAliases(node, context.sourceCode.visitorKeys);
-      },
       ArrowFunctionExpression: checkParameters,
       FunctionDeclaration: checkParameters,
       FunctionExpression: checkParameters,
