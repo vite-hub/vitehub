@@ -69,6 +69,28 @@ model providers and chat adapters stay explicit dependencies. Until T3 publishes
 its runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` for
 ViteHub's exact pkg.pr.new runtime pin.
 
+### Migrate coding Agent Drivers
+
+The provider runtime replaces the former Harness integration rather than
+preserving it as a compatibility layer. Migrate the removed Agent surfaces to
+the boundary that now owns their behavior:
+
+| Removed surface | Migration |
+| --- | --- |
+| Custom `{ harness }` Driver | Use the built-in `"codex"` or `"claude-code"` Driver, or use `driver.run` when application code owns execution. |
+| `defineAgent({ box })` | Use `@vite-hub/box` directly for an application-owned process, `sandbox()` for an allowlisted model tool, or compose Box execution inside `driver.run`. |
+| Agent Home | Put durable guidance in colocated `instructions.md` and declare required Workspace files explicitly. |
+| Global skills | Put Agent-owned Skills in a colocated `skills/` directory, or mount Workspace and external Skills with the `skills()` Capability. |
+
+Built-in coding-provider Drivers require a local Node.js host with the matching
+CLI and credentials available to the process. Provider Workspaces additionally
+require a POSIX host. Follow-up and steering are unsupported; respond to pending
+approvals and provider questions with Agent Invocation input mode `respond`.
+
+Read [Agent Drivers](/docs/agents/agent-drivers), [Boxes](/docs/agents/boxes),
+[Instructions](/docs/agents/instructions), and [Skills](/docs/capabilities/skills)
+for the replacement contracts.
+
 Source loader imports are intentionally breaking. The subpath selects and owns
 the loader's implementation closure, so a custom or GitHub-only consumer does
 not resolve MCP, local glob, or unrelated runtime code.
