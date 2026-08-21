@@ -50,7 +50,21 @@ export default defineRealtime({
 })
 ```
 
-The referenced Workspace Definition must exist and allow writes. Set
+Add the writable Workspace referenced by the Realtime Definition. This memory
+store matches the local, single-process setup above.
+
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace } from 'vite-hub/workspace'
+
+export default defineWorkspace({
+  store: { provider: 'memory' },
+  rules: {
+    '/**': { write: true, mediaType: 'text/markdown' },
+  },
+})
+```
+
+Set
 `auth: true` on the Realtime Definition when every WebSocket and checkpoint
 request must have a valid ViteHub Auth session. Connections are public when
 `auth` is omitted.
@@ -119,7 +133,7 @@ document.
 
 | Authority | Use |
 | --- | --- |
-| `auto` | Uses Cloudflare Durable Objects whenever the resolved preset is Cloudflare, including development. Other development presets use memory; other production builds fail until an authority is selected. |
+| `auto` | Uses Cloudflare Durable Objects when Realtime can resolve a Cloudflare Nitro preset or hosting environment. With only `vitehub({ preset: 'cloudflare' })` during Vite development, set `authority: 'cloudflare'` explicitly. Other development presets use memory; other production builds fail until an authority is selected. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration. Use it for durable, distributed rooms on Cloudflare. |
 | `memory` | Keeps rooms in one process. Use it for local development or an explicitly single-process Node deployment. Room state is lost when the process stops. |
 
