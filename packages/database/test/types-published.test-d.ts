@@ -15,17 +15,13 @@ const defaultSchema = {
   meals: sqliteTable("meals", { name: text("name").notNull() }),
 }
 
-declare module "#vitehub/database/schema" {
-  interface DatabaseSchema {
-    meals: typeof defaultSchema.meals
-  }
-}
-
-declare module "#vitehub/database/databases" {
+declare module "@vite-hub/database/drizzle" {
   interface DatabaseRegistry {
     analytics: {
-      config: import("@vite-hub/database").ResolvedDrizzleDatabaseConfig
       schema: typeof analyticsSchema
+    }
+    default: {
+      schema: typeof defaultSchema
     }
   }
 }

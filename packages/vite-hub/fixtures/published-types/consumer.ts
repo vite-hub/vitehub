@@ -15,6 +15,7 @@ import { useAgent, useChat } from "vite-hub/agent/vue"
 import * as authAgent from "vite-hub/auth/agent"
 import { createAuthClient, useUserSession } from "vite-hub/auth/vue"
 import type { BoxDefinition } from "vite-hub/box"
+import { useDatabase } from "vite-hub/database/drizzle"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
@@ -26,6 +27,14 @@ import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
 import * as workspacePublisher from "vite-hub/workspace/publish"
 import * as workspaceServer from "vite-hub/workspace/server"
+
+declare module "vite-hub/database/drizzle" {
+  interface DatabaseRegistry {
+    default: {
+      schema: { notes: { title: string } }
+    }
+  }
+}
 
 export const appFacingModules = [
   agentCloudflare,
@@ -48,6 +57,7 @@ export const nuxtModule = viteHubNuxtModule
 export const customAuthClient = createAuthClient({ basePath: "/auth" })
 export const userSession = useUserSession(customAuthClient)
 export const supportChat = useChat(useAgent("support"))
+export const notesTable = useDatabase("default").schema.notes
 export const builtInAgent = defineAgent({
   driver: "codex",
   runtime: false,

@@ -1,7 +1,6 @@
 import "./virtual-module.d.ts"
 
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
-import databaseEntries from "#vitehub/database/databases"
 import schema from "#vitehub/database/schema"
 import type { AgentDatabaseHandle } from "./runtime/agent.js"
 
@@ -12,27 +11,26 @@ export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>> {
   schema: TSchema
 }
 
+export interface DatabaseRegistry {}
+
+type RegisteredDatabaseSchema<Name extends keyof DatabaseRegistry> = DatabaseRegistry[Name] extends {
+  schema: infer TSchema extends Record<string, unknown>
+} ? TSchema : never
+
 type RuntimeDatabaseRegistry = {
-  [Name in keyof typeof databaseEntries]: RuntimeDatabaseEntry<typeof databaseEntries[Name]["schema"]>
+  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>>
 }
 
 type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: RuntimeDatabaseEntry<typeof schema>
 } & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
 
-type RuntimeDatabaseName = keyof RuntimeDatabaseRegistry | "default"
-
-type RuntimeDatabaseFor<Name extends RuntimeDatabaseName> =
-  Name extends keyof RuntimeDatabaseRegistry
-    ? RuntimeDatabaseRegistry[Name]
-    : RuntimeDatabaseEntry<typeof schema>
-
 export * from "#vitehub/database/schema"
 export { schema }
 
 export declare const databases: RuntimeDatabaseLookup
 
-export declare function useDatabase<Name extends RuntimeDatabaseName>(name: Name): RuntimeDatabaseFor<Name>
+export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
 
 export declare const db: DrizzleRuntimeDatabase<typeof schema>
 
