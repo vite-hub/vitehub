@@ -1078,6 +1078,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         ...process.env,
         VITEHUB_PRESET: "vercel",
       })
+      const [nativeWorkflowFile] = await readdir(join(appDir, ".vitehub/workflow/vercel-native"))
       const [agentRoute, authTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
@@ -1086,7 +1087,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/workflow/registry.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/workspace/plugin.ts"), "utf8"),
-        readFile(join(appDir, ".vitehub/workflow/vercel-native.mjs"), "utf8"),
+        readFile(join(appDir, ".vitehub/workflow/vercel-native", nativeWorkflowFile), "utf8"),
         readFile(join(appDir, ".vercel/output/functions/api/vitehub/schedules/vercel/heartbeat.func/index.mjs"), "utf8"),
         readFile(join(appDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8"),
         readFile(join(appDir, ".vercel/output/config.json"), "utf8"),
