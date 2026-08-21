@@ -58,9 +58,10 @@ request must have a valid ViteHub Auth session. Connections are public when
 ## Connect a TipTap editor
 
 Call `useRealtimeTiptap()` with the Realtime Definition name and a safe
-Workspace path. Pass `realtime.extensions` to the TipTap editor.
+Workspace path. Its editor state is exposed as Vue refs.
 
 ```ts [app/composables/useDocumentEditor.ts]
+import { useEditor } from '@tiptap/vue-3'
 import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
 
 const route = useRoute()
@@ -68,16 +69,20 @@ const realtime = useRealtimeTiptap('docs', () => route.params.path as string, {
   enabled: () => route.name === 'editor',
 })
 
-realtime.extensions // TipTap extensions for the current Yjs document
-realtime.people // Connected people
-realtime.status // connected, connecting, or disconnected
-realtime.synced // Whether the initial Yjs sync has completed
+const editor = useEditor({
+  extensions: realtime.extensions.value,
+})
+
+realtime.people.value // Connected people
+realtime.status.value // connected, connecting, or disconnected
+realtime.synced.value // Whether the initial Yjs sync has completed
 ```
 
 The composable connects to ViteHub's generated
-`/api/_vitehub/realtime/**` WebSocket route. An authenticated session supplies
-the person's identity. Without one, the client uses a guest identity unless the
-Definition requires Auth.
+`/api/_vitehub/realtime/**` WebSocket route. With `auth: true`, the server
+verifies the ViteHub Auth session and binds that user to presence updates. In a
+public Definition, presence identity is client-asserted—even if the client has a
+session—and must not be used as an authorization or verified-identity boundary.
 
 `realtime.workspace.change` reports file changes published by other Workspace
 clients. Call `realtime.workspace.notify(change)` after an application changes
@@ -113,7 +118,7 @@ document.
 
 | Authority | Use |
 | --- | --- |
-| `auto` | Uses memory during development and Cloudflare Durable Objects on a Cloudflare production build. Other production builds fail until an authority is selected. |
+| `auto` | Uses Cloudflare Durable Objects whenever the resolved preset is Cloudflare, including development. Other development presets use memory; other production builds fail until an authority is selected. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration. Use it for durable, distributed rooms on Cloudflare. |
 | `memory` | Keeps rooms in one process. Use it for local development or an explicitly single-process Node deployment. Room state is lost when the process stops. |
 

@@ -148,11 +148,23 @@ interface OnboardPayload {
   email: string
 }
 
+async function createUserStep(email: string) {
+  'use step'
+
+  return await createUser(email)
+}
+
+async function sendWelcomeEmailStep(email: string) {
+  'use step'
+
+  await sendWelcomeEmail(email)
+}
+
 async function durableOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
   'use workflow'
 
-  const user = await createUser(payload.email)
-  await sendWelcomeEmail(user.email)
+  const user = await createUserStep(payload.email)
+  await sendWelcomeEmailStep(user.email)
   return { userId: user.id }
 }
 
@@ -166,7 +178,8 @@ export default defineWorkflow(inlineOnboard, { native: durableOnboard })
 ```
 
 ViteHub transforms the `native` entry when it generates Vercel output. Other
-providers keep using the normal handler.
+providers keep using the normal handler. Keep external side effects in `use step`
+functions and make them idempotent because a step can be retried.
 
 ## Start a run
 
