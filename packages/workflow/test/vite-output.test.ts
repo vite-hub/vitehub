@@ -50,6 +50,17 @@ it("detects compact user-authored native Vercel workflow directives", async () =
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
 })
 
+it("detects shorthand user-authored native Vercel workflow options", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-shorthand-native-option-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `import { durable as native } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native })\n`)
+  await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
+})
+
 it("ignores workflow directive examples in comments", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-commented-native-entry-")
   const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")

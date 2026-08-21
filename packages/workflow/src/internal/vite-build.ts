@@ -190,7 +190,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
       }
       hasNativeEntry = true
     }
-    if (definitionHandlers.has(file) && !/\bnative\s*:/.test(parsedSource)) return
+    if (definitionHandlers.has(file) && !/\bnative\s*(?::|(?=[,}]))/.test(parsedSource)) return
     const imports = Object.values(parsed.metafile.outputs).flatMap(output => output.imports)
     for (const { path: specifier } of imports) {
       const alias = Object.entries(aliases)
