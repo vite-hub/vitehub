@@ -461,7 +461,7 @@ describe("Vite workflow provider outputs", () => {
     const optionalDevtoolsFixture = join(rootDir, "node_modules", "optional-vite-devtools-fixture")
     const flatAgent = join(rootDir, "server", "agents", "flat.ts")
     await mkdir(agentDir, { recursive: true })
-    await mkdir(join(boxedAgentDir, "home"), { recursive: true })
+    await mkdir(boxedAgentDir, { recursive: true })
     await mkdir(join(agentDir, "workspace"), { recursive: true })
     await mkdir(join(agentDir, "skills", "review"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "skills", "shared"), { recursive: true })
@@ -488,19 +488,11 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(agentDir, "instructions.md"), "Keep answers concise.\n@./shared.md\n`@./inline-example.md`\n```md\n@./fenced-example.md\n```\n    @./indented-example.md\n")
     await writeFile(join(agentDir, "shared.md"), "Use shared policy.\n")
     await writeFile(join(agentDir, "skills", "review", "SKILL.md"), "# Review skill\n")
-    await writeFile(join(boxedAgentDir, "home", ".gitconfig"), "[user]\nname = ViteHub\n")
     await writeFile(join(boxedAgentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       "",
-      "const runtime = {",
-      `  name: "fixture",`,
-      `  async open() { throw new Error("unreachable") },`,
-      `  async prepare() { throw new Error("unreachable") },`,
-      "}",
-      "",
       "export default defineAgent({",
-      "  box: { runtime },",
-      "  driver: { harness: {} },",
+      `  driver: { run: () => "fixture" },`,
       "})",
       "",
     ].join("\n"))
@@ -595,9 +587,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain(`${JSON.stringify(agentRecoveryName)}: async () => {`)
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain("agentWithColocatedSkills")
-    expect(registry).toContain("agentWithColocatedHome")
     expect(registry).toContain('agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, "Use flat Agent instructions.\\n")')
-    expect(registry).toContain(Buffer.from("[user]\nname = ViteHub\n").toString("base64"))
     expect(registry).toContain("__vitehubAgentSkill:skills/review/SKILL.md")
     expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")

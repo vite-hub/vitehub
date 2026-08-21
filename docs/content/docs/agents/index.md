@@ -58,7 +58,7 @@ The Definition has three independent parts:
 
 | Part | What it decides |
 | --- | --- |
-| [Agent Driver](/docs/agents/agent-drivers) | Whether the invocation uses a model, a harness such as Codex, or application code. |
+| [Agent Driver](/docs/agents/agent-drivers) | Whether the invocation uses a model, a coding provider such as Codex, or application code. |
 | [Capabilities](/docs/capabilities) | Which tools and runtime abilities the active Driver can use. |
 | [Workspace context](/docs/agents/workspace-context) | Which files, Sources, and bindings are visible to the invocation. |
 
@@ -188,7 +188,6 @@ Run the Agent locally through the [CLI dev loop](/docs/development/cli), then ad
 | Goal | Read |
 | --- | --- |
 | Understand every `defineAgent()` option | [Agent Definitions](/docs/agents/agent-definitions) |
-| Choose model, harness, or custom execution | [Agent Drivers](/docs/agents/agent-drivers) |
+| Choose model, provider, or custom execution | [Agent Drivers](/docs/agents/agent-drivers) |
 | Write model-facing behavior and policy | [Instructions](/docs/agents/instructions) |
 | Give an Agent scoped files and Sources | [Workspace context](/docs/agents/workspace-context) |
-| Run a harness in a prepared environment | [Boxes](/docs/agents/boxes) |

@@ -35,7 +35,7 @@ State the result you want and include any host or runtime constraint.
 | Task | Example prompt |
 | --- | --- |
 | Server primitive | `Add ViteHub KV to this route and prove that a value survives a restart.` |
-| Agent | `Create a harness-backed review Agent with repository context and invoke it locally.` |
+| Agent | `Create a provider-backed review Agent with repository context and invoke it locally.` |
 | Host boundary | `Build this ViteHub application for Cloudflare and inspect its Provider Output.` |
 
 The skill selects one primary product lane, reads only matching references and the smallest live docs pages, checks installed exports and types, and reports the proof for each requested behavior.
@@ -51,7 +51,7 @@ Keeping them separate prevents repository guidance from leaking into runtime Age
 | Public ViteHub skill | Coding agents building a ViteHub application | Routes project patterns through live docs, installed contracts, explicit authority, and runtime proof. |
 | Repository `AGENTS.md` | Coding agents contributing to a repository | Defines local development rules and project boundaries. |
 | [Agent Driver Instructions](/docs/agents/instructions) | Agents that run inside an application | Defines model-facing runtime behavior. |
-| Agent-local `skills/` | Harness-backed Agent Invocations | Automatically installs Skills owned by a folder Agent Definition. |
+| Agent-local `skills/` | Provider-backed Agent Invocations | Automatically installs Skills owned by a folder Agent Definition. |
 | [`skills()` Capability](/docs/capabilities/skills) | ViteHub Agent Invocations | Makes Workspace-backed or external Source Skills available to the Agent. |
 
 Agent-local Skills require a folder Definition. Place them beside `server/agents/<name>/agent.ts` under `server/agents/<name>/skills/<skill>/SKILL.md`. A flat Definition such as `server/agents/review.ts` cannot own a sibling Skill tree; move it to `server/agents/review/agent.ts` when it needs colocated Skills.

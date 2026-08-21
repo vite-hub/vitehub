@@ -56,7 +56,7 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `kv_read` and, in write mode, `kv_edit`. |
-| Harness-backed | Receives KV tools through the Harness tool bridge. |
+| Provider-backed | Receives KV tools through the provider MCP bridge. |
 | Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
 
 ## Inspect and verify

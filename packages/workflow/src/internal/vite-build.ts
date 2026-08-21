@@ -724,28 +724,13 @@ function readAgentSkills(file: string): Record<string, { content: string, encodi
   }))
 }
 
-function readAgentHome(file: string): Record<string, { contents: string, encoding: "base64" }> | undefined {
-  const files = readColocatedAgentFiles(file, "home", {
-    fileCountLimit: 1024,
-    fileSizeLimit: 1024 * 1024,
-    label: "Colocated Agent Home",
-    rejectUnsupportedEntries: true,
-    totalSizeLimit: 4 * 1024 * 1024,
-  })
-  if (!files) return
-  return Object.fromEntries(Object.entries(files).map(([target, source]) => [
-    target,
-    { contents: source.content, encoding: source.encoding },
-  ]))
-}
-
 function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
   return [
     `  ${JSON.stringify(definition.name)}: async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    `    const agent = agentWithColocatedHome(agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))}), ${JSON.stringify(readAgentHome(definition.handler))})`,
+    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
     `    const entry = { options: { rootStep: false }, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
@@ -843,7 +828,7 @@ function createWorkflowRegistryContents(
     ...(needsAgentRuntime
       ? [
           `import { agentWithColocatedInstructions, runAgentInline } from ${JSON.stringify(agentImportBase)}`,
-          `import { agentWithColocatedHome, agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
+          `import { agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
           `import { installAgentChannelDeliveryWorkflowResolver } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`,
           ...(installAgentWorkflowRuntime
             ? [`import { setAgentWorkflowRuntimeLoaders } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`]

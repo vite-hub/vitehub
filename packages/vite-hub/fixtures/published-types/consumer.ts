@@ -9,7 +9,6 @@ import type {
 } from "vite-hub/agent"
 import * as agentCloudflare from "vite-hub/agent/cloudflare"
 import * as agentEval from "vite-hub/agent/eval"
-import * as localHarnessSandbox from "vite-hub/agent/harness/local-sandbox"
 import * as agentServer from "vite-hub/agent/server"
 import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import { useAgent, useChat } from "vite-hub/agent/vue"
@@ -31,7 +30,6 @@ import * as workspaceServer from "vite-hub/workspace/server"
 export const appFacingModules = [
   agentCloudflare,
   agentEval,
-  localHarnessSandbox,
   agentServer,
   agentSqliteState,
   authAgent,
@@ -57,9 +55,9 @@ export const builtInAgent = defineAgent({
 })
 export const builtInBox = { runtime: "trusted-host" } satisfies BoxDefinition
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
-export const configuredCodex = { kind: "codex", reasoningEffort: "high" } satisfies BuiltInAgentDriver
+export const configuredCodex = { kind: "codex", permissions: "ask" } satisfies BuiltInAgentDriver
 export const codexOptions = { model: "gpt-5.5" } satisfies CodexDriverOptions
-export const claudeCodeOptions = { maxTurns: 12 } satisfies ClaudeCodeDriverOptions
+export const claudeCodeOptions = { env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } } satisfies ClaudeCodeDriverOptions
 
 export default defineConfig({
   env: {

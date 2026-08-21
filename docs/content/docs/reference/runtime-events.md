@@ -64,13 +64,14 @@ The current event stream includes text deltas, data parts, tool input and result
 | `tool-call` and `tool-result` | Represent model-facing tool execution. `tool-result.durationMs` can report elapsed tool time. |
 | `progress` | Represent non-tool runtime progress such as `workspace.prepare`. |
 | `approval-request` and `approval-decision` | Represent approval-shaped tool policy. |
+| `data-agent-input` | Carries provider questions as `{ requestId, questions, status: "requested" }`; replies use `{ requestId, answers }`. |
 | `error` | Represent recoverable or terminal stream errors. |
 | `finish` | Mark completion. |
 | `usage` | Carry an Agent Usage Record when an Agent Driver reports usage. |
 
 ## Agent Usage Record
 
-Agent Usage Records normalize usage across model-backed, harness-backed, and custom-run-backed Agent Drivers when usage exists.
+Agent Usage Records normalize usage across model-backed, provider-backed, and custom-run-backed Agent Drivers when usage exists.
 Token fields appear only when the provider reports them or ViteHub can derive them safely.
 
 Streams can carry the full Agent Usage Record through `{ type: "usage", usageRecord }`.

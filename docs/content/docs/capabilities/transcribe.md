@@ -175,7 +175,7 @@ Artifact paths must stay inside the Workspace and cannot target reserved `.git` 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives text-enriched messages after transcription. |
-| Harness-backed | Receives text-enriched Agent Run Input before harness execution. |
+| Provider-backed | Receives text-enriched Agent Run Input before provider execution. |
 | Custom-run-backed | Receives text-enriched Agent Run Input and can read transcription results from context. |
 
 Asynchronous transcription is independent of the Agent Driver because the caller composes its submitted operation and completion result into a durable Workflow.

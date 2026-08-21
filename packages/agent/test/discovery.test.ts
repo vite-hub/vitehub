@@ -227,7 +227,7 @@ describe("agent discovery", () => {
     ])
   })
 
-  it("does not discover Agent-like files inside Agent Home trees", async () => {
+  it("keeps legacy Agent Home paths reserved from Agent discovery", async () => {
     const root = await createTempRoot("vitehub-agent-server-home-")
     await mkdir(join(root, "server", "agents", "review", "home", "tools"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review", "agent.ts"), "export default {}", "utf8")
@@ -679,100 +679,6 @@ describe("agent chat capability discovery", () => {
     expect(response.statusCode).toBe(200)
     expect(commandSignal).toBeInstanceOf(AbortSignal)
     expect(commandSignal?.aborted).toBe(true)
-  })
-
-  it("runs Capability CLI commands on harness-backed agents through the Vite endpoint", async () => {
-    const root = await createTempRoot("vitehub-agent-invocation-stream-harness-cli-")
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
-
-    const { defineAgent, defineCapability } = await import("../src/index.ts")
-    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
-    const agent = defineAgent({
-      capabilities: [
-        defineCapability({
-          cli: {
-            commands: {
-              list: {
-                output: { format: "json" },
-                run: () => [{ id: "item_1" }],
-              },
-            },
-            name: "inventory",
-          },
-          id: "inventory-runtime",
-        }),
-      ],
-      driver: { harness: {} as never },
-    })
-    const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-
-    await configurePluginServer(plugin, server)
-
-    const response = await invokeMiddleware(handlers[0]!, {
-      agent: "chat",
-      cli: {
-        argv: ["list", "--json"],
-        name: "inventory",
-      },
-    }, agentInvocationStreamRoute, {
-      "content-type": "application/json",
-      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
-    })
-
-    expect(response.statusCode).toBe(200)
-    expect(JSON.parse(response.body)).toMatchObject({
-      capability: "inventory-runtime",
-      cli: "inventory",
-      exitCode: 0,
-      json: [{ id: "item_1" }],
-    })
-  })
-
-  it("respects Capability CLI opt-out through the Vite endpoint", async () => {
-    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-opt-out-")
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
-
-    const { defineAgent, defineCapability } = await import("../src/index.ts")
-    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
-    const agent = defineAgent({
-      capabilities: [
-        defineCapability({
-          cli: {
-            commands: {
-              list: {
-                output: { format: "json" },
-                run: () => [{ id: "item_1" }],
-              },
-            },
-            name: "inventory",
-          },
-          id: "inventory-runtime",
-        }),
-      ],
-      cli: { capabilities: false },
-      driver: { harness: {} as never },
-    })
-    const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-
-    await configurePluginServer(plugin, server)
-
-    const response = await invokeMiddleware(handlers[0]!, {
-      agent: "chat",
-      cli: {
-        argv: ["list", "--json"],
-        name: "inventory",
-      },
-    }, agentInvocationStreamRoute, {
-      "content-type": "application/json",
-      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
-    })
-
-    expect(response.statusCode).toBe(500)
-    expect(response.body).toBe("Agent Invocation Stream endpoint failed.")
   })
 
   it("preserves model driver context for Capability CLI dev runs", async () => {

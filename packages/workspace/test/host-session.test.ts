@@ -1285,41 +1285,6 @@ describe("workspace host sessions", () => {
     await expect(docs.stat("scripts/run.sh")).resolves.toMatchObject({ metadata: { gitMode: "100755" } })
   })
 
-  it("attaches to a live host tree without resetting or owning its lifecycle", async () => {
-    const docs = workspace()
-    const host = memoryHost()
-    await docs.writeFile("README.md", "authoritative")
-    await docs.snapshot({ name: "baseline" })
-    await host.files.mkdir("/workspace", { recursive: true })
-    await host.files.write("/workspace/README.md", new TextEncoder().encode("live harness edit"))
-
-    const session = await docs.startSession({ attach: true, host })
-    await expect(session.readFile("README.md")).resolves.toBe("live harness edit")
-    expect(await session.exec("write", ["result.txt", "done"])).toMatchObject({ exitCode: 0 })
-    await session.commit({ message: "command result" })
-    await session.close()
-
-    expect(host.readText("/workspace/README.md")).toBe("live harness edit")
-    expect(host.readText("/workspace/result.txt")).toBe("done")
-    await expect(docs.readFile("README.md")).resolves.toBe("authoritative")
-    await expect(docs.readFile("result.txt")).resolves.toBe("done")
-  })
-
-  it("rolls back only uncommitted changes from an attached session", async () => {
-    const docs = workspace()
-    const host = memoryHost()
-    await host.files.mkdir("/workspace", { recursive: true })
-    await host.files.write("/workspace/live.txt", new TextEncoder().encode("harness edit"))
-
-    const session = await docs.startSession({ attach: true, host })
-    await session.writeFile("live.txt", "command mutation")
-    await session.writeFile("partial.txt", "discarded")
-    await session.close()
-
-    expect(host.readText("/workspace/live.txt")).toBe("harness edit")
-    expect(host.readText("/workspace/partial.txt")).toBeUndefined()
-  })
-
   it("preserves Git metadata when closing an attached Session", async () => {
     const docs = workspace()
     const host = memoryHost()

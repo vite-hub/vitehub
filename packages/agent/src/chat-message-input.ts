@@ -271,6 +271,9 @@ export function resolveChatSessionId(
   if (!options) return triggerSession?.id
   const strategy = options.strategy || (options.idleTimeoutMs ? "idle-timeout" : "manual")
   const manualId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, options.metadataKey)
+  // A host-supplied Chat Session id is the durable boundary. History windows
+  // are allowed to slide, so their first loaded message cannot refine this id.
+  if (manualId && triggerSession?.action !== "new" && strategy === "manual") return manualId
   if (strategy === "manual") {
     const first = selectManualSession(messages, options, triggerSession)[0]
     const boundary = first?.id || uiMessageTime(first || {})?.toString()
@@ -281,6 +284,7 @@ export function resolveChatSessionId(
     : selectIdleSession(selectManualSession(messages, options, triggerSession), options)
   const first = selected[0]
   const boundary = first?.id || uiMessageTime(first || {})?.toString()
+  if (manualId && selected.length === messages.length) return manualId
   return boundary ? `${manualId ? `${manualId}:` : ""}idle:${boundary}` : manualId
 }
 
@@ -390,6 +394,11 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
+  const transportSessionId = triggerInput?.run?.threadId ?? triggerInput?.run?.runId
+  const selectedSessionId = resolveChatSessionId(messages, options.sessions, triggerInput?.session)
+  const providerSessionId = triggerInput?.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId
+    ? `${transportSessionId}:chat-session:${selectedSessionId}`
+    : transportSessionId)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
   return {
@@ -398,6 +407,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
       abortSignal: triggerInput?.abortSignal,
       context: {
         ...triggerInput?.context,
+        ...(providerSessionId ? { "chat.sessionId": providerSessionId } : {}),
         ...(invoker ? { invoker } : {}),
         ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
         channel: {

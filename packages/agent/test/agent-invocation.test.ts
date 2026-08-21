@@ -1,15 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createBackedAgentInvocationController, startLiveAgentInvocation } from "../src/agent-invocation.ts"
+import { createBackedAgentInvocationController } from "../src/agent-invocation.ts"
 import { subagents } from "../src/capabilities.ts"
-import { withHarnessAgentInvocationInput } from "../src/harness-agent.ts"
 import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
 import {
   agentInvocationControlId,
-  agentInvocationInputSupport,
   activeAgentInvocation,
   registerActiveAgentInvocation,
-  sendAgentInvocationInput,
   withAgentInvocationControlId,
 } from "../src/internal/agent-invocation-control.ts"
 
@@ -48,86 +45,6 @@ describe("Agent Invocation controllers", () => {
     expect(agentInvocationControlId(second)).toBe("ainv_second")
     expect(first.run.runId).toBe(second.run.runId)
     expect(agentInvocationControlId({ run: { runId: "legacy-run" } })).toBe("legacy-run")
-  })
-
-  it("steers through an active Harness turn and removes stale controls", async () => {
-    let finishFirst!: () => void
-    let finishSecond!: () => void
-    let finishThird!: () => void
-    const firstDone = new Promise<void>(resolve => { finishFirst = resolve })
-    const secondDone = new Promise<void>(resolve => { finishSecond = resolve })
-    const thirdDone = new Promise<void>(resolve => { finishThird = resolve })
-    const firstSubmit = vi.fn(async (_text: string) => undefined)
-    const secondSubmit = vi.fn(async () => { throw new Error("closed") })
-    const thirdSubmit = vi.fn(async () => undefined)
-    const rawSession = {
-      doDestroy: vi.fn(async () => undefined),
-      doPromptTurn: vi.fn()
-        .mockResolvedValueOnce({ done: firstDone, submitUserMessage: firstSubmit })
-        .mockResolvedValueOnce({ done: secondDone, submitUserMessage: secondSubmit })
-        .mockResolvedValueOnce({ done: thirdDone, submitUserMessage: thirdSubmit }),
-    }
-    const controller = startLiveAgentInvocation({
-      sendInput: (id, input, options) => sendAgentInvocationInput(id, input, options),
-      start: async () => await new Promise(() => {}),
-      support: id => agentInvocationInputSupport(id),
-    })
-    const harness = withHarnessAgentInvocationInput({
-      doStart: async () => rawSession,
-      harnessId: "test",
-    }, controller.id) as { doStart: () => Promise<typeof rawSession> }
-
-    const session = await harness.doStart()
-    expect(controller.support.steer).toBe(false)
-
-    await session.doPromptTurn()
-    expect(controller.support.steer).toBe(true)
-    await expect(controller.sendInput({ context: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
-    await expect(controller.sendInput({ options: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
-    await expect(controller.sendInput({ prompt: "follow up", timeout: 1_000 }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
-    await expect(controller.sendInput({ abortSignal: new AbortController().signal, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
-    await expect(controller.sendInput({ prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
-    expect(firstSubmit).toHaveBeenCalledWith("follow up")
-    const userMessage = { id: "user", parts: [{ text: "message input", type: "text" as const }], role: "user" as const }
-    const assistantMessage = { id: "assistant", parts: [{ text: "ignored", type: "text" as const }], role: "assistant" as const }
-    await expect(controller.sendInput({ message: userMessage }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
-    await expect(controller.sendInput({ message: userMessage, prompt: "lower-precedence prompt" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
-    await expect(controller.sendInput({ prompt: [assistantMessage, userMessage] }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
-    await expect(controller.sendInput({ messages: [assistantMessage, userMessage] }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
-    await expect(controller.sendInput({ messages: [assistantMessage] }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
-    await expect(controller.sendInput({ message: {
-      ...userMessage,
-      parts: [...userMessage.parts, { data: "image", mediaType: "image/png", type: "image" as const }],
-    } as never }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
-    await expect(controller.sendInput({
-      messages: [{ ...userMessage, parts: [...userMessage.parts, { data: "image", mediaType: "image/png", type: "image" as const }] } as never],
-      prompt: "must not bypass messages",
-    }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
-    expect(firstSubmit.mock.calls.map(([text]) => text)).toEqual([
-      "follow up",
-      "message input",
-      "message input",
-      "message input",
-      "message input",
-    ])
-
-    await session.doPromptTurn()
-    finishFirst()
-    await firstDone
-    expect(controller.support.steer).toBe(true)
-    await expect(controller.sendInput({ prompt: "retry" }, { mode: "steer" })).resolves.toMatchObject({
-      outcome: "unavailable",
-    })
-
-    finishSecond()
-    await secondDone
-    await vi.waitFor(() => expect(controller.support.steer).toBe(false))
-
-    await session.doPromptTurn()
-    expect(controller.support.steer).toBe(true)
-    await session.doDestroy()
-    expect(controller.support.steer).toBe(false)
-    finishThird()
   })
 
   it("starts fresh inline invocations and inspects their authoritative lifecycle", async () => {
@@ -199,12 +116,16 @@ describe("Agent Invocation controllers", () => {
     const agent = defineAgent({ driver: { run: () => "done" }, runtime: false })
     const controller = await startAgentInvocation(agent, runtime(), {})
 
-    expect(controller.support).toEqual({ followUp: false, steer: false })
+    expect(controller.support).toEqual({ followUp: false, respond: false, steer: false })
     await expect(controller.sendInput({ prompt: "continue" }, { mode: "follow-up" })).resolves.toMatchObject({
       id: controller.id,
       outcome: "unsupported",
     })
     await expect(controller.sendInput({ prompt: "change course" }, { mode: "steer" })).resolves.toMatchObject({
+      id: controller.id,
+      outcome: "unsupported",
+    })
+    await expect(controller.sendInput({ messages: [] }, { mode: "respond" })).resolves.toMatchObject({
       id: controller.id,
       outcome: "unsupported",
     })

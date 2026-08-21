@@ -21,7 +21,7 @@ interface DeploymentRuntimeCapture {
 interface DeploymentRuntimeFixture {
   capture: DeploymentRuntimeCapture
   close: () => Promise<void>
-  request: (agent: string, route: "chat" | "webhooks/channel") => Promise<Response>
+  request: (agent: string, route: "chat" | "inspection" | "webhooks/channel", method?: string) => Promise<Response>
   supportRoot: string
   waitUntilTasks: Promise<unknown>[]
   workspace: (name: string) => Promise<Record<PropertyKey, unknown>>
@@ -89,6 +89,8 @@ function deploymentRuntimeModules(): Map<string, string> {
 async function createDeploymentRuntimeFixture(
   adapter: "deno" | "netlify" | "nitro" = "nitro",
   supportName = "support",
+  inspectionRoute: true | string = true,
+  discordGatewayRoute?: true | string,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -101,40 +103,46 @@ async function createDeploymentRuntimeFixture(
   scope[runtimeCaptureKey] = capture
 
   await mkdir(join(supportRoot, "workspace"), { recursive: true })
-  await mkdir(join(supportRoot, "home", ".codex"), { recursive: true })
   await mkdir(join(supportRoot, "skills", "review"), { recursive: true })
   await writeFile(join(supportRoot, "agent.ts"), [
     "import { defineAgent } from '@vite-hub/agent'",
-    "const boxRuntime = {",
-    "  name: 'fixture',",
-    "  async open() { throw new Error('unreachable') },",
-    "  async prepare() { throw new Error('unreachable') },",
-    "}",
     "export default defineAgent({",
-    "  box: { runtime: boxRuntime },",
     "  description: 'support',",
-    "  driver: { harness: {} },",
+    "  driver: { model: {} },",
     "  runtime: false,",
     "  workspace: { mode: 'write' },",
     "})",
     "",
   ].join("\n"), "utf8")
   await writeFile(join(supportRoot, "instructions.md"), "Support the deployment catalog.\n", "utf8")
-  await writeFile(join(supportRoot, "home", ".codex", "config.bin"), Uint8Array.from([0, 255, 42]))
   await writeFile(join(supportRoot, "skills", "review", "SKILL.md"), "# Review\n", "utf8")
-  if (adapter === "nitro") {
-    await mkdir(reviewerRoot, { recursive: true })
-    await writeFile(join(reviewerRoot, "agent.ts"), [
-      "import { defineAgent } from '@vite-hub/agent'",
-      "export default defineAgent({",
-      "  description: 'reviewer',",
-      "  driver: { model: {} },",
-      "  runtime: false,",
-      "})",
-      "",
-    ].join("\n"), "utf8")
-    await writeFile(join(reviewerRoot, "instructions.md"), "Review the deployment catalog.\n", "utf8")
-  }
+  await mkdir(reviewerRoot, { recursive: true })
+  await writeFile(join(reviewerRoot, "agent.ts"), [
+    "import { defineAgent, defineCapability } from '@vite-hub/agent'",
+    "export default defineAgent({",
+    "  capabilities: ({ abortSignal, actor, agentIdentity, event, request, runtime, waitUntil }) => actor.kind === 'inspection' ? [defineCapability({",
+    "    id: 'runtime',",
+    "    metadata: { actor: actor.kind, agent: agentIdentity?.name, hasAbortSignal: Boolean(abortSignal), hasEvent: Boolean(event), hasWaitUntil: typeof waitUntil === 'function', method: request?.method, runtime, token: 'private' },",
+    "  })] : [],",
+    "  description: 'reviewer',",
+    "  driver: { model: {} },",
+    "  runtime: false,",
+    "})",
+    "",
+  ].join("\n"), "utf8")
+  await writeFile(join(reviewerRoot, "instructions.md"), "Review the deployment catalog.\n", "utf8")
+  const brokenRoot = join(root, "server", "agents", "broken")
+  await mkdir(brokenRoot, { recursive: true })
+  await writeFile(join(brokenRoot, "agent.ts"), [
+    "import { defineAgent } from '@vite-hub/agent'",
+    "export default defineAgent({",
+    "  capabilities: ({ actor }) => { if (actor.kind === 'inspection') throw new Error('private failure') ; return [] },",
+    "  description: 'broken',",
+    "  driver: { run: () => 'ok' },",
+    "  runtime: false,",
+    "})",
+    "",
+  ].join("\n"), "utf8")
   if (adapter === "deno") {
     await mkdir(join(root, ".vitehub", "schedule"), { recursive: true })
     await writeFile(join(root, ".vitehub", "schedule", "deno-cron.mjs"), "", "utf8")
@@ -154,6 +162,7 @@ async function createDeploymentRuntimeFixture(
             url: "file:catalog.sqlite",
           },
         },
+        routes: { discordGateway: discordGatewayRoute, inspection: inspectionRoute },
         ...(adapter === "deno" ? { runtime: "deno" } : {}),
       }),
       {
@@ -192,12 +201,21 @@ async function createDeploymentRuntimeFixture(
     }
   }
 
-  const route = await server.ssrLoadModule(join(
-    root,
-    ".vitehub",
-    "agent",
-    adapter === "deno" ? "deno-server.ts" : adapter === "netlify" ? "netlify-function.mjs" : "chat-webhook-route.ts",
-  )) as { default: (input: Record<string, unknown> | Request, context?: Record<string, unknown>) => Promise<Response> }
+  let route: { default: (input: Record<string, unknown> | Request, context?: Record<string, unknown>) => Promise<Response> }
+  try {
+    route = await server.ssrLoadModule(join(
+      root,
+      ".vitehub",
+      "agent",
+      adapter === "deno" ? "deno-server.ts" : adapter === "netlify" ? "netlify-function.mjs" : "chat-webhook-route.ts",
+    )) as typeof route
+  }
+  catch (error) {
+    await server.close()
+    delete scope[runtimeCaptureKey]
+    await rm(root, { force: true, recursive: true })
+    throw error
+  }
   const waitUntilTasks: Promise<unknown>[] = []
 
   return {
@@ -213,22 +231,23 @@ async function createDeploymentRuntimeFixture(
       }
       await rm(root, { force: true, recursive: true })
     },
-    async request(agent, requestedRoute) {
+    async request(agent, requestedRoute, method = requestedRoute === "inspection" ? "GET" : "POST") {
       const webhook = requestedRoute === "webhooks/channel" ? "channel" : undefined
+      const body = method === "GET" || method === "HEAD" ? undefined : "{}"
       if (adapter === "deno") {
         if (!capture.denoHandler) throw new Error("Deno server handler was not registered.")
         return await capture.denoHandler(new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
-          body: "{}",
+          ...(body ? { body } : {}),
           headers: { "content-type": "application/json" },
-          method: "POST",
+          method,
         }))
       }
       if (adapter === "netlify") {
         return await route.default(
           new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
-            body: "{}",
+            ...(body ? { body } : {}),
             headers: { "content-type": "application/json" },
-            method: "POST",
+            method,
           }),
           {
             params: { agent, ...(webhook ? { webhook } : {}) },
@@ -239,14 +258,14 @@ async function createDeploymentRuntimeFixture(
         )
       }
       return await route.default({
-        body: "{}",
+        body,
         context: {
           waitUntil(task: Promise<unknown>) {
             waitUntilTasks.push(task)
           },
         },
         headers: { "content-type": "application/json" },
-        method: "POST",
+        method,
         params: { agent, ...(webhook ? { webhook } : {}) },
         url: `https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`,
       })
@@ -297,6 +316,75 @@ describe("generated Agent deployment catalog", () => {
     })
   })
 
+  it("serves canonical inspection metadata with private error responses", async () => {
+    const response = await runtime!.request("reviewer", "inspection")
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    await expect(response.json()).resolves.toMatchObject({
+      capabilities: [{
+        id: "runtime",
+        metadata: {
+          actor: "inspection",
+          agent: "reviewer",
+          hasAbortSignal: true,
+          hasEvent: true,
+          hasWaitUntil: true,
+          method: "GET",
+          runtime: "vite",
+          token: "[redacted]",
+        },
+      }],
+      name: "reviewer",
+    })
+
+    const method = await runtime!.request("reviewer", "inspection", "POST")
+    expect(method.status).toBe(405)
+    expect(method.headers.get("cache-control")).toBe("private, no-store")
+
+    const missing = await runtime!.request("missing", "inspection")
+    expect(missing.status).toBe(404)
+    expect(missing.headers.get("cache-control")).toBe("private, no-store")
+
+    const broken = await runtime!.request("broken", "inspection")
+    expect(broken.status).toBe(500)
+    expect(await broken.json()).toEqual({ message: "Agent inspection failed.", status: 500 })
+  })
+
+  it("rejects inspection routes without an Agent parameter for multi-Agent deployments", async () => {
+    await runtime!.close()
+    runtime = undefined
+
+    await expect(createDeploymentRuntimeFixture("nitro", "support", "/internal/status"))
+      .rejects.toThrow("Multi-Agent inspection routes require an agent route parameter.")
+
+    await expect(createDeploymentRuntimeFixture("nitro", "support", "/internal/not[agent]"))
+      .rejects.toThrow("Multi-Agent inspection routes require an agent route parameter.")
+
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", "/internal/agents/:agent/inspection")
+  })
+
+  it("rejects inspection routes that overlap generated routes", async () => {
+    await runtime!.close()
+    runtime = undefined
+
+    for (const route of [
+      "/api/_vitehub/agents/[agent]/chat",
+      "/api/_vitehub/agents/[agent]/webhooks/custom",
+    ]) {
+      await expect(createDeploymentRuntimeFixture("nitro", "support", route))
+        .rejects.toThrow("Agent inspection route conflicts with the generated route")
+    }
+    await expect(createDeploymentRuntimeFixture(
+      "nitro",
+      "support",
+      "/api/_vitehub/agents/[agent]/discord/gateway",
+      true,
+    )).rejects.toThrow("Agent inspection route conflicts with the generated route")
+
+    runtime = await createDeploymentRuntimeFixture()
+  })
+
   it("passes the configured state adapter and waitUntil to route handlers", async () => {
     await expect((await runtime!.request("reviewer", "chat")).json()).resolves.toMatchObject({ hasState: false })
     await expect((await runtime!.request("support", "webhooks/channel")).json()).resolves.toMatchObject({ hasState: true })
@@ -308,14 +396,12 @@ describe("generated Agent deployment catalog", () => {
     await expect(Promise.all(runtime!.waitUntilTasks)).resolves.toEqual(["reviewer:chat", "support:webhook"])
   })
 
-  it("registers the Workspace definition with colocated instructions, skills, and Home", async () => {
+  it("registers the Workspace definition with colocated instructions and skills", async () => {
     expect(Object.keys(runtime!.capture.workspaceRegistry)).toEqual(["support"])
     const workspace = await runtime!.workspace("support")
     const sources = workspace.sources as Record<string, { content: string }> | undefined
     const skills = workspace[Symbol.for("vitehub.agent.colocatedSkills")] as Record<string, { content: Uint8Array }> | undefined
-    const box = workspace.box as { home?: { files?: Record<string, { contents: Uint8Array }> } } | undefined
     const settings = Object.getOwnPropertyDescriptor(workspace, "__vitehubAgentSettings")?.value as {
-      box?: unknown
       driver?: { instructions?: unknown }
     } | undefined
 
@@ -326,8 +412,6 @@ describe("generated Agent deployment catalog", () => {
       workspacePath: "AGENTS.md",
     })
     expect(new TextDecoder().decode(skills?.["__vitehubAgentSkill:skills/review/SKILL.md"]?.content)).toBe("# Review\n")
-    expect(box?.home?.files?.[".codex/config.bin"]?.contents).toEqual(Uint8Array.from([0, 255, 42]))
-    expect(settings?.box).toBe(box)
     expect(settings?.driver?.instructions).toBeUndefined()
     await expect((await runtime!.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
       instructions: "Support the deployment catalog.\n",
@@ -351,6 +435,10 @@ describe("generated Agent deployment catalog", () => {
       kind: "webhook",
       webhook: "channel",
     })
+    await expect((await runtime.request("reviewer", "inspection")).json()).resolves.toMatchObject({
+      capabilities: [{ id: "runtime", metadata: { hasEvent: true, runtime: "vite", token: "[redacted]" } }],
+      name: "reviewer",
+    })
     expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support"])
     expect(runtime.waitUntilTasks).toHaveLength(2)
   })
@@ -369,6 +457,10 @@ describe("generated Agent deployment catalog", () => {
       agentIdentity: { name: "team/support", workspace: "team/support" },
       kind: "webhook",
       webhook: "channel",
+    })
+    await expect((await runtime.request("reviewer", "inspection")).json()).resolves.toMatchObject({
+      capabilities: [{ id: "runtime", metadata: { runtime: "deno", token: "[redacted]" } }],
+      name: "reviewer",
     })
     expect(await runtime.request("missing", "chat")).toMatchObject({ status: 404 })
     expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["team/support"])

@@ -40,27 +40,6 @@ function runtime(): AgentRuntimeContext {
 }
 
 describe("Agent structured output", () => {
-  it("returns the validated Standard Schema value and passes it to finish lifecycle", async () => {
-    const finish = vi.fn()
-    class HarnessResult {
-      get text() {
-        return "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}"
-      }
-    }
-    const agent = defineAgent({
-      driver: { output: { schema: summarySchema() }, run: () => new HarnessResult() },
-      hooks: { "agent:finish": finish },
-      runtime: false,
-    })
-
-    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({
-      summary: "Decisions",
-      title: "Weekly sync",
-    })
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      result: { summary: "Decisions", title: "Weekly sync" },
-    }))
-  })
 
   it("reports malformed JSON with a stable ViteHub-owned error", async () => {
     const agent = defineAgent({

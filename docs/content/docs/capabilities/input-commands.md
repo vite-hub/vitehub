@@ -69,7 +69,7 @@ Host Commands that change chat, session, UI, or product state belong outside thi
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the transformed prompt, messages, or context before model execution. |
-| Harness-backed | Receives the transformed Agent Run Input before harness execution. |
+| Provider-backed | Receives the transformed Agent Run Input before provider execution. |
 | Custom-run-backed | Receives the transformed Agent Run Input; `driver.run` decides how to use context values. |
 
 ## Inspect and verify

@@ -52,7 +52,7 @@ External Chat Platform Adapters remain explicit application dependencies configu
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives message-shaped input and can stream chat output through the model-backed path. |
-| Harness-backed | Receives the prepared invocation input and chat context; harness-specific chat behavior depends on the harness adapter. |
+| Provider-backed | Receives the prepared invocation input and chat context; provider chat behavior follows the provider adapter. |
 | Custom-run-backed | Receives the chat trigger input and context; `driver.run` owns the response shape. |
 
 ## Inspect and verify

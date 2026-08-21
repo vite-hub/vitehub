@@ -56,11 +56,11 @@ describe("landing page", () => {
 
     expect(source).toContain("Any agent, anywhere.");
     expect(normalizedSource).toContain(
-      "Bring any model or harness, compose your own Capabilities around a persistent Workspace",
+      "Bring any model or coding provider, compose your own Capabilities around a persistent Workspace",
     );
     for (const term of [
       "driver.model",
-      "driver.harness",
+      "driver.provider",
       "driver.run",
       "instructions.md",
       "workspace.sources",

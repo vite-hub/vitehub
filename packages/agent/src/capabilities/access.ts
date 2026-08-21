@@ -1,4 +1,4 @@
-import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
+import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
@@ -314,12 +314,12 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       if (!context.workspace) {
         throw new Error("[vitehub] access({ workspace }) requires an explicit workspace.")
       }
-      if ("diff" in context.workspace && context.driver?.kind !== "harness") {
-        throw new Error("[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for harness Agent Drivers.")
+      if ("diff" in context.workspace && context.driver?.kind !== "provider") {
+        throw new Error("[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for provider Agent Drivers.")
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
-      const sourceResolutionScope = withHarnessWorkspacePaths(scope, workspaceMaterializationPaths(context))
+      const sourceResolutionScope = withProviderWorkspacePaths(scope, workspaceMaterializationPaths(context))
       const sourceResolutionOptions = {
         invocation: {
           context: agentInvocationSourceContext(context.context),
@@ -327,14 +327,15 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         },
         selectedWorkspaceScope: toWorkspaceSelectedScope(sourceResolutionScope),
       }
-      const resolvedDefinition = context.workspaceDefinition
+      const sourceResolutionDisabled = isTrustedSourceFreeInspection(context.context)
+      const resolvedDefinition = context.workspaceDefinition && !sourceResolutionDisabled
         ? await workspaceRuntime.resolveWorkspaceSources(context.workspaceDefinition, sourceResolutionOptions)
-        : undefined
-      const hasSourceResolvers = context.workspaceDefinition
+        : context.workspaceDefinition
+      const hasSourceResolvers = context.workspaceDefinition && !sourceResolutionDisabled
         ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
         : false
-      const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), workspaceMaterializationPaths(context))
-      const sourceResolution = resolvedDefinition
+      const finalScope = withProviderWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), workspaceMaterializationPaths(context))
+      const sourceResolution = resolvedDefinition && !sourceResolutionDisabled
         ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
             ...sourceResolutionOptions,
             selectedWorkspaceScope: toWorkspaceSelectedScope(finalScope),
@@ -436,7 +437,7 @@ function finalizeResolvedWorkspaceScope(
   }
 }
 
-function withHarnessWorkspacePaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): ResolvedWorkspaceScope {
+function withProviderWorkspacePaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): ResolvedWorkspaceScope {
   if (scope.all || !paths?.length) return scope
   return {
     ...scope,

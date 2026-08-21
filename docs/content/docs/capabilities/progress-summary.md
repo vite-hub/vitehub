@@ -24,7 +24,6 @@ export default defineAgent({
       driver: {
         kind: 'codex',
         model: 'gpt-5.6-luna',
-        reasoningEffort: 'low',
       },
     }),
   ],
@@ -73,7 +72,7 @@ Configure a `driver`, `model`, or `execute` option for summary generation. Witho
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Uses an explicit summary model or the Agent model. |
-| Harness-backed | Uses an independent Harness Driver, including its model and reasoning settings. |
+| Provider-backed | Uses an independent Agent Driver, including its model and environment settings. |
 | Custom-run-backed | Uses an independent custom Driver or the `execute` callback. |
 
 ## Verify the result

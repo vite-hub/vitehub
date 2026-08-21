@@ -56,7 +56,7 @@ Workspace Sources do not own authorization. Grant a Source by key from each Acce
 
 ## Requirements
 
-`access({ workspace })` requires an explicit Workspace. Model-backed and custom-run-backed Agents receive a read-only scoped Workspace; writable Workspace access is supported only for Harness Agent Drivers and remains limited to the selected scope.
+`access({ workspace })` requires an explicit Workspace. Model-backed and custom-run-backed Agents receive a read-only scoped Workspace; writable Workspace access is supported only for Provider Agent Drivers and remains limited to the selected scope.
 An admin role is required for an all-Workspace scope.
 
 `access({ chat })` requires a resolver that returns an allow or reject decision for the chat surface.
@@ -67,7 +67,7 @@ Use trusted Agent Invoker or platform identity metadata; do not treat model text
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the scoped Workspace and any explicitly authored Agent instructions. |
-| Harness-backed | Receives the scoped Workspace behavior; model-facing instructions are not passed unless a harness-compatible surface supports them. |
+| Provider-backed | Receives the scoped Workspace behavior; model-facing instructions are not passed unless a provider-compatible surface supports them. |
 | Custom-run-backed | Receives the prepared context value and scoped Workspace; `driver.run` decides how to use them. |
 
 ## Inspect and verify

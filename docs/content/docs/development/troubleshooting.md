@@ -17,7 +17,7 @@ Identify whether the failure comes from discovery, generated files, provider res
 | Provider build fails | Provider Selection and required resource ids | [Provider output](/docs/reference/provider-output) |
 | Agent CLI cannot inspect or invoke | Running Vite server and `hubAgent()` registration | [CLI](/docs/development/cli) |
 | Agent changed behaviour | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/agents/evals) |
-| Agent proof times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stalled harness/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/agents/evals) |
+| Agent proof times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stalled provider/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/agents/evals) |
 | Runtime error lacks context | Package error family and diagnostics output | [Errors and diagnostics](/docs/reference/errors-diagnostics) |
 
 ## Discovery failures
@@ -59,7 +59,7 @@ If the proof is timing out before it reaches the interesting failure, increase t
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json
 ```
 
-When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms> of inactivity`, first decide whether the streamed invocation is expected to stay silent longer than the default timeout. If so, rerun with `vitehub agent dev --timeout <ms>`. If the timeout is surprising, inspect the Agent Driver boundary and any Workspace or harness session setup before changing prompts. For Capability CLI and `!` Workspace commands, the same option is a wall-clock command deadline because those operations do not emit Agent Invocation Stream events.
+When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms> of inactivity`, first decide whether the streamed invocation is expected to stay silent longer than the default timeout. If so, rerun with `vitehub agent dev --timeout <ms>`. If the timeout is surprising, inspect the Agent Driver boundary and any Workspace or provider session setup before changing prompts. For Capability CLI and `!` Workspace commands, the same option is a wall-clock command deadline because those operations do not emit Agent Invocation Stream events.
 
 ## When to escalate
 

@@ -155,36 +155,6 @@ describe("agent test runner", () => {
     expect(result.trace?.events.at(-1)?.name).toBe("agent.invocation.finish")
   })
 
-  it("collects harness-native raw tool steps for eval scorers", async () => {
-    const { createAgentTestRunner } = await import("../src/test.ts")
-    const agent = {
-      generate: vi.fn(async () => ({
-        finishReason: "stop",
-        raw: {
-          steps: [{
-            content: [
-              { input: { command: "pwd" }, toolCallId: "call-1", toolName: "bash", type: "tool-call" },
-              { output: { stdout: "/workspace" }, toolCallId: "call-1", type: "tool-result" },
-            ],
-          }],
-        },
-        text: "done",
-      })),
-      stream: vi.fn(),
-      tools: {},
-      version: "agent-v1",
-    }
-
-    const result = await createAgentTestRunner(adapterDefinition(agent), {
-      runtimeConfig: {},
-    }).run({ prompt: "Use the shell" })
-
-    expect(result.toolSteps).toEqual([{
-      toolCalls: [{ input: { command: "pwd" }, toolCallId: "call-1", toolName: "shell" }],
-      toolResults: [{ output: { stdout: "/workspace" }, toolCallId: "call-1", toolName: "shell" }],
-    }])
-  })
-
   it("captures capability finish extensions", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { runAgentForTest } = await import("../src/test.ts")

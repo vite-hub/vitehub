@@ -1,4 +1,4 @@
-import { defaultAgentDiscordGatewayRoute, defaultAgentWebhookRoute } from "./internal/routes.ts"
+import { defaultAgentDiscordGatewayRoute, defaultAgentInspectionRoute, defaultAgentWebhookRoute } from "./internal/routes.ts"
 
 import type { AgentModuleOptions, ResolvedAgentModuleOptions } from "./types.ts"
 
@@ -13,6 +13,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
   }
 
   const discordGatewayRoute = normalizeAgentRouteOption(options?.routes?.discordGateway, defaultAgentDiscordGatewayRoute)
+  const inspectionRoute = normalizeAgentRouteOption(options?.routes?.inspection, defaultAgentInspectionRoute)
   return {
     execution: options?.execution || "inline",
     imports: options?.imports !== false,
@@ -34,6 +35,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
     },
     routes: {
       discordGateway: discordGatewayRoute,
+      inspection: inspectionRoute,
       webhooks: defaultAgentWebhookRoute,
     },
     runtime: options?.runtime || "auto",

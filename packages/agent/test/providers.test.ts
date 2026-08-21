@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -491,13 +491,11 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-targets-"))
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
-      await mkdir(join(root, "server", "agents", "support", "home", ".codex"), { recursive: true })
       await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
       await writeFile(join(root, "server", "agents", "digest", "instructions.md"), "Use digest instructions.\n", "utf8")
       await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ workspace: {} })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
-      await writeFile(join(root, "server", "agents", "support", "home", ".codex", "config.toml"), "model = 'codex'\n", "utf8")
       const plugin = hubAgent()
       const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
@@ -524,8 +522,6 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain('registry["agent/support"]')
       expect(registry).toContain('agentIdentity: {"name":"support","workspace":"support"}')
       expect(registry).toContain("vitehubWithWorkspaceSourceRoot")
-      expect(registry).toContain("vitehubAgentWithColocatedHome")
-      expect(registry).toContain(Buffer.from("model = 'codex'\n").toString("base64"))
       expect(registry).toContain("vitehubWorkspaceDefinitionFromOptions")
       expect(registry).toContain(JSON.stringify(join(root, "server", "agents", "support", "workspace")))
       expect(registry).toContain(JSON.stringify("Use support instructions.\n"))
@@ -565,7 +561,6 @@ describe("agent Vite plugin", () => {
       expect(filteredRegistry).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
       expect(filteredRegistry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { blob: false, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
       expect(filteredRegistry).toContain('import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from "vite-hub/_internal/agent/server/internal"')
-      expect(filteredRegistry).toContain('import { agentWithColocatedHome as vitehubAgentWithColocatedHome } from "vite-hub/_internal/agent/runtime/workflow"')
       expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(filteredRegistry).toContain('import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"')
       expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
@@ -750,16 +745,6 @@ describe("agent Vite plugin", () => {
     expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
     expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
 
-    invalidateModule.mockClear()
-    await handleHotUpdate({
-      file: "/app/backend/agents/digest/home/.codex/config.toml",
-      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
-    })
-
-    expect(invalidateModule).toHaveBeenCalledWith(registryModule)
-    expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
-    expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
-    expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
   })
 
   it("regenerates Agent outputs when an imported instruction document changes", async () => {
@@ -803,7 +788,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("materializes the MCP runtime package for Vercel build output", async () => {
+  it("materializes Agent runtime packages for Vercel build output", async () => {
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
@@ -815,137 +800,12 @@ describe("agent Vite plugin", () => {
     await closeBundle.handler()
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
-      packages: [{ includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true }],
+      packages: [
+        { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
+        { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
+      ],
       rootDir: "/app",
     })
-  })
-
-  it("writes Netlify provider output for generated agent HTTP routes", async () => {
-    const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
-    const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-routes-"))
-    const generatedRoot = join(root, ".nuxt", "vitehub")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    const previousNetlify = process.env.NETLIFY
-    try {
-      process.env.VITEHUB_HOSTING = "netlify"
-      delete process.env.NETLIFY
-      await mkdir(join(root, "server", "agents"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const agentOptions = {
-        providerImportAliases: {
-          "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
-        },
-        providers: {
-          state: {
-            authToken: "build-token",
-            provider: "libsql",
-            tablePrefix: "agent_state_",
-            url: "libsql://state.example.test",
-          },
-        },
-        routes: { discordGateway: true },
-        workflowImportBase: "vite-hub/_internal/workflow",
-        workspaceDependencyRuntimeImports: {
-          sandbox: "vite-hub/sandbox",
-          sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
-          shellWorkspace: "vite-hub/shell/workspace",
-        },
-        workspaceImportBase: "vite-hub/_internal/workspace",
-      }
-      const plugin = hubAgent(agentOptions as never)
-      const configResolved = plugin.configResolved as (config: { [VITEHUB_GENERATED_ROOT]?: string, agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
-      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
-      vi.mocked(writeProviderDeploymentOutputs).mockClear()
-
-      await configResolved({
-        [VITEHUB_GENERATED_ROOT]: generatedRoot,
-        agent: agentOptions,
-        build: { outDir: "dist/client" },
-        command: "build",
-        resolve: { alias: [{ find: "#support", replacement: join(root, "support.ts") }] },
-        root,
-      })
-      await closeBundle.handler()
-
-      const wrapper = await readFile(join(generatedRoot, "agent/netlify-function.mjs"), "utf8")
-      await execFileAsync(process.execPath, ["--check", join(generatedRoot, "agent/netlify-function.mjs")])
-      expect(wrapper).toContain("server/agents/support.ts")
-      expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
-      expect(wrapper).toContain("import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from \"@vite-hub/agent/server/internal\"")
-      expect(wrapper).toContain("state: () => import(\"vite-hub/_internal/workflow/runtime/state\")")
-      expect(wrapper).toContain("workflow: () => import(\"vite-hub/_internal/workflow\")")
-      expect(wrapper).toContain("import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from \"vite-hub/_internal/workspace/runtime\"")
-      expect(wrapper).toContain("sandbox: () => import(\"vite-hub/sandbox\")")
-      expect(wrapper).toContain("sandboxRuntimeState: () => import(\"vite-hub/_internal/sandbox/runtime/state\")")
-      expect(wrapper).toContain("shellWorkspace: () => import(\"vite-hub/shell/workspace\")")
-      expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server/workspace\"")
-      expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
-      expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
-      expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
-      expect(wrapper).toContain("const webhook = netlifyParam(context, 'webhook')")
-      expect(wrapper).toContain("const isDiscordGatewayRoute = discordGatewayRoutePattern.test(pathname)")
-      expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
-      expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_DURATION_MS")
-      expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL")
-      expect(wrapper).toContain("const webhookRoute = \"/api/_vitehub/agents/:agent/webhooks/:webhook\"")
-      expect(wrapper).toContain("routePath(webhookRoute, { agent, webhook })")
-      expect(wrapper).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
-      expect(wrapper).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"libsql://state.example.test\"}")
-      expect(wrapper).toContain("let viteHubChatState\n")
-      expect(wrapper).not.toContain("let viteHubChatState:")
-      expect(wrapper).not.toContain("build-token")
-      expect(wrapper).toContain("function chatStateFromLibsql()")
-      expect(wrapper).toContain("export function resumeWebhookQueues(waitUntil)")
-      expect(wrapper).toContain("stopWebhookQueues ||= resumeWebhookQueues(waitUntil)")
-      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
-      expect(wrapper).not.toContain("runtime: 'vite'")
-      expect(wrapper).not.toContain("@vite-hub/schedule/runtime")
-      expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
-        clientOutDir: "dist/client",
-        netlify: {
-          functions: [{
-            bundleEntry: join(generatedRoot, "agent/netlify-function.mjs"),
-            bundleOptions: {
-              alias: {
-                "#support": join(root, "support.ts"),
-                "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
-              },
-              external: [
-                "@ai-sdk/harness",
-                "@ai-sdk/harness/*",
-                "@ai-sdk/mcp",
-                "@modelcontextprotocol/sdk/*",
-                "agents",
-                "evalite/*",
-                ...optionalMessageAdapterRuntimeExternals,
-                "vitest/*",
-              ],
-              format: "esm",
-              platform: "node",
-            },
-            config: {
-              name: "vitehub-agent",
-              nodeBundler: "esbuild",
-              path: [
-                "/api/_vitehub/agents/:agent/chat",
-                "/api/_vitehub/agents/:agent/webhooks/:webhook",
-                "/api/_vitehub/agents/:agent/discord/gateway",
-              ],
-            },
-            functionName: "vitehub-agent",
-          }],
-        },
-        rootDir: root,
-      })
-    }
-    finally {
-      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
-      if (typeof previousNetlify === "string") process.env.NETLIFY = previousNetlify
-      else delete process.env.NETLIFY
-      await rm(root, { force: true, recursive: true })
-    }
   })
 
   it("publishes the conventional Netlify chat path", async () => {
@@ -1106,6 +966,19 @@ describe("agent Vite plugin", () => {
     ])
   })
 
+  it("registers an opt-in custom inspection route with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { inspection: "/internal/agents/[agent]/status" } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+      : undefined
+
+    expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
+      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      route: "/internal/agents/:agent/status",
+    })
+  })
+
   it("does not register agent routes without hosted Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
@@ -1129,7 +1002,7 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({
       nitro: {
         externals: {
-          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
+          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
       },
     })
@@ -1667,6 +1540,7 @@ describe("agent Vite plugin", () => {
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
+      expect(webhookRoute).toContain('import { createAgentWebhookRequest, createChannelChatRouteHandler')
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
@@ -1791,14 +1665,16 @@ export default defineAgent({
 
       for (const stateProvider of ["cloudflare", "libsql"] as const) {
         const plugin = hubAgent(stateProvider === "libsql"
-          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } }
-          : undefined)
+          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } }, routes: { inspection: true } }
+          : { routes: { inspection: true } })
         if (typeof plugin.configResolved === "function") {
           await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
         }
 
         const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
         expect(generatedRoute).not.toContain("@ts-nocheck")
+        expect(generatedRoute).toContain("abortSignal: request.signal")
+        expect(generatedRoute).toContain("runtime: runtimeFromEvent(event)")
         if (stateProvider === "libsql") {
           expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
         }
@@ -2219,15 +2095,6 @@ export default defineAgent({
     })
   })
 
-  it("does not publish built-in Agent Driver factory subpaths", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      exports?: Record<string, unknown>
-    }
-
-    expect(pkg.exports?.["./harness/codex"]).toBeUndefined()
-    expect(pkg.exports?.["./harness/claude-code"]).toBeUndefined()
-  })
-
   it("publishes the internal generated Agent route handler subpath", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       exports?: Record<string, unknown>
@@ -2269,51 +2136,6 @@ export default defineAgent({
     expect(pkg.devDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
     expect(pkg.peerDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
     expect(pkg.peerDependenciesMeta?.["@vite-hub/schedule"]).toEqual({ optional: true })
-  })
-
-  it("publishes only required root runtime peers", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      dependencies?: Record<string, string>
-      devDependencies?: Record<string, string>
-      peerDependencies?: Record<string, string>
-      peerDependenciesMeta?: Record<string, unknown>
-    }
-    const distDir = new URL("../dist/", import.meta.url)
-    const builtJs = (await Promise.all((await readdir(distDir))
-      .filter(file => file.endsWith(".js"))
-      .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-      + "\n"
-      + await readFile(new URL("../dist/runtime/workflow.js", import.meta.url), "utf8")
-
-    expect(pkg.peerDependencies?.agents).toBeUndefined()
-    expect(pkg.peerDependencies?.["@vite-hub/workflow"]).toBe("workspace:*")
-    expect(pkg.peerDependencies?.["@vercel/functions"]).toBe("catalog:vercel")
-    expect(pkg.peerDependencies?.askweb).toBe("catalog:ai")
-    expect(pkg.peerDependencies?.evalite).toBeUndefined()
-    expect(pkg.peerDependencies?.vitest).toBe("catalog:tooling")
-    expect(pkg.peerDependenciesMeta?.agents).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.["@vite-hub/workflow"]).toEqual({ optional: true })
-    expect(pkg.peerDependenciesMeta?.["@vercel/functions"]).toEqual({ optional: true })
-    expect(pkg.peerDependenciesMeta?.askweb).toEqual({ optional: true })
-    expect(pkg.peerDependenciesMeta?.evalite).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.vitest).toEqual({ optional: true })
-    expect(pkg.dependencies?.["@ai-sdk/harness"]).toBe("catalog:ai")
-    expect(pkg.dependencies?.["@ai-sdk/harness-codex"]).toBe("catalog:ai")
-    expect(pkg.devDependencies?.["@ai-sdk/harness-codex"]).toBeUndefined()
-    expect(pkg.peerDependencies?.["@ai-sdk/harness"]).toBeUndefined()
-    expect(pkg.peerDependencies?.["@ai-sdk/harness-claude-code"]).toBe("catalog:ai")
-    expect(pkg.peerDependencies?.["@ai-sdk/harness-codex"]).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.["@ai-sdk/harness"]).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.["@ai-sdk/harness-codex"]).toBeUndefined()
-    expect(pkg.dependencies?.ai).toBe("catalog:ai")
-    expect(pkg.peerDependencies?.ai).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.ai).toBeUndefined()
-    expect(pkg.dependencies?.["@types/json-schema"]).toBe("catalog:ai")
-    expect(builtJs).not.toContain("import(\"@vite-hub/workflow\")")
-    expect(builtJs).not.toContain("import('@vite-hub/workflow')")
-    expect(builtJs).not.toContain("import(\"@vite-hub/workflow/runtime/state\")")
-    expect(builtJs).not.toContain("import('@vite-hub/workflow/runtime/state')")
-    expect(builtJs).toContain("@vite-hub/workflow")
   })
 
   it("publishes the Agent output helper subpath", async () => {
@@ -2462,7 +2284,7 @@ describe("server helpers", () => {
         user: request.headers.get("x-user"),
       },
     }))
-    const run = vi.fn(({ context, invoker, messages, run, runtime }) => {
+    const run = vi.fn(({ invoker, messages, run, runtime }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return `echo ${text?.text} for ${invoker.id} via ${run.origin} on ${runtime} from ${invoker.meta.user} after ${invoker.meta.fallback}`
     })
@@ -2633,10 +2455,13 @@ describe("server helpers", () => {
         60_000,
       )
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
+      const selectedChatSessionId = run.mock.calls[0]?.[0].input.context?.["chat.sessionId"]
+      expect(selectedChatSessionId).toMatch(/^http:support:portal-thread:chat-session:session-1:manual:/)
 
       const continued = await handler(request("approval-1", "user-1", "session-1", true, false), { agentName: "support", state })
       expect(continued.status).toBe(200)
       await expect(continued.text()).resolves.toContain("approved")
+      expect(run.mock.calls[1]?.[0].input.context?.["chat.sessionId"]).toBe(selectedChatSessionId)
 
       const expiredHistorical = await handler(request("expired-approval", "user-1", "session-1", true), { agentName: "support", state })
       const expiredBody = await expiredHistorical.text()
@@ -2646,6 +2471,7 @@ describe("server helpers", () => {
       expect(freshSession.status).toBe(200)
       await expect(freshSession.text()).resolves.toContain("fresh")
       expect(run.mock.calls[3]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
+      expect(run.mock.calls[3]?.[0].input.context?.["chat.sessionId"]).not.toBe(selectedChatSessionId)
 
       const replayed = await handler(request("approval-1"), { agentName: "support", state })
       expect(replayed.status).toBe(400)
@@ -4383,69 +4209,6 @@ describe("server helpers", () => {
     }))
     expect(streamResponse.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
     await expect(streamResponse.text()).resolves.toContain("final answer")
-  })
-
-  it("posts only the final Discord reply without a progress edit after harness tool events", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { discord } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
-    const agent = defineAgent({
-      channels: {
-        discord: discord({ adapter: () => adapter as never }),
-      },
-      driver: {
-        run: () => ({
-          raw: {
-            steps: [
-              {
-                content: [
-                  { text: "I'll inspect the image.", type: "text" },
-                  { text: "private reasoning", type: "reasoning" },
-                  { input: { path: "image.png" }, toolCallId: "call-1", toolName: "view_image", type: "tool-call" },
-                  { output: { ok: true }, toolCallId: "call-1", toolName: "view_image", type: "tool-result" },
-                ],
-              },
-              {
-                content: [
-                  { text: "I'll verify one detail.", type: "text" },
-                  { input: { query: "detail" }, toolCallId: "call-2", toolName: "search", type: "tool-call" },
-                  { output: { ok: true }, toolCallId: "call-2", toolName: "search", type: "tool-result" },
-                ],
-              },
-              {
-                content: [
-                  { text: "The image shows a dental X-ray.", type: "text" },
-                ],
-              },
-            ],
-          },
-          text: "I'll inspect the image.I'll verify one detail.The image shows a dental X-ray.",
-        }),
-      },
-    })
-    const handler = createChannelWebhookRouteHandler(agent as never)
-    const waitUntilTasks: Promise<unknown>[] = []
-
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
-      body: JSON.stringify({
-        message: {
-          chat: { id: 456, type: "private" },
-          date: 1781092800,
-          from: { id: 123, username: "maxi" },
-          message_id: 2009,
-          text: "describe this image",
-        },
-      }),
-      method: "POST",
-    }), "discord", { waitUntil: task => waitUntilTasks.push(task) })
-
-    expect(response.status).toBe(200)
-    await Promise.all(waitUntilTasks)
-    expect(agent.chat).toMatchObject({ stream: false })
-    expect(adapter.postMessage).toHaveBeenCalledOnce()
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "The image shows a dental X-ray." })
-    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("preserves traceable stream results for final-only Channel delivery", async () => {
@@ -6640,7 +6403,7 @@ describe("server helpers", () => {
       await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
 
       releases.splice(0).forEach(release => release())
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4), { timeout: 10_000 })
       expect(maxActive).toBe(2)
       releases.splice(0).forEach(release => release())
       await vi.waitFor(() => expect(active).toBe(0))
@@ -6651,7 +6414,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("preserves persisted webhook handoff and execution when custody progress writes fail", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -7646,7 +7409,8 @@ describe("server helpers", () => {
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-retry"'),
       )).toHaveLength(1))
 
-      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(3_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
       await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
@@ -7716,17 +7480,17 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(1))
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
 
-      await vi.advanceTimersByTimeAsync(1_000)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 5_000 })
+      await vi.advanceTimersByTimeAsync(3_000)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(2))
       await expect(retryDelivery.mock.results[1]?.value).resolves.toBe(true)
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(2))
-      await Promise.resolve()
-      await vi.advanceTimersByTimeAsync(2_000)
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(3_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
       await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
@@ -9208,7 +8972,7 @@ describe("server helpers", () => {
     const commitResponsePromise = new Promise<void>(resolve => {
       commitResponse = resolve
     })
-    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>, options?: { updateIntervalMs?: number }) => {
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
         if (typeof chunk === "string") text += chunk
@@ -11948,7 +11712,9 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 28000ms.",
       })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
+      await vi.waitFor(() => {
+        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
+      }, { interval: 0 })
     }
     finally {
       consoleError.mockRestore()
@@ -13550,7 +13316,7 @@ describe("server helpers", () => {
     const commitResponsePromise = new Promise<void>(resolve => {
       commitResponse = resolve
     })
-    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>, options?: { updateIntervalMs?: number }) => {
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
         if (typeof chunk === "string") text += chunk

@@ -63,7 +63,7 @@ The Capability requires either an explicit model option or an Agent model resolv
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Runs the pre-invocation gate before model execution. |
-| Harness-backed | Runs the pre-invocation gate before harness execution when a model resolver is available. |
+| Provider-backed | Runs the pre-invocation gate before provider execution when a model resolver is available. |
 | Custom-run-backed | Runs before `driver.run`; rejected requests do not reach custom code. |
 
 ## Inspect and verify
