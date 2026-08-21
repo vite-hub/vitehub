@@ -264,12 +264,17 @@ describe("hubEmail", () => {
     try {
       expect(server.config.plugins.find(plugin => plugin.name === "@vite-hub/email/vite"))
         .toHaveProperty("api.getDefinition")
-      await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toMatchObject({
+      const contributions = await Promise.all([
+        workflow.vitehub?.workflow?.prepareScheduleRuntime?.(),
+        workflow.vitehub?.workflow?.prepareScheduleRuntime?.(),
+      ])
+      expect(contributions[0]).toMatchObject({
         bundleAlias: {
           [EMAIL_DEFINITION_ID]: join(root, ".vitehub", "email", "definition.mjs"),
           "#vitehub/emails/monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
         },
       })
+      expect(contributions[1]).toMatchObject({ bundleAlias: contributions[0]?.bundleAlias })
       await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
         .resolves.toContain("Hello {{name}}")
     }

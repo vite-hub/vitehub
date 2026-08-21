@@ -338,6 +338,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let buildStarted = false
   let materialized = false
   let materializationRequested = false
+  let providerImportAliases: Promise<Record<string, string>> | undefined
   let watchFiles = new Set<string>()
 
   const updateTemplateRoots = (nextProjectRoot: string, nextServerDirs = serverDirs) => {
@@ -383,12 +384,14 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     },
     vitehub: {
       providerOutput: {
-        async getImportAliases(): Promise<Record<string, string>> {
-          const templates = await prepareTypes({ materialize: true, projectRoot, serverDirs })
-          return {
+        getImportAliases(): Promise<Record<string, string>> {
+          providerImportAliases ??= prepareTypes({ materialize: true, projectRoot, serverDirs }).then(templates => ({
             ...(definition ? { [EMAIL_DEFINITION_ID]: definition.handler } : {}),
             ...Object.fromEntries(Object.entries(templates).map(([name, replacement]) => [`${emailTemplatePrefix}${name}`, replacement])),
-          }
+          })).finally(() => {
+            providerImportAliases = undefined
+          })
+          return providerImportAliases
         },
       },
     },
