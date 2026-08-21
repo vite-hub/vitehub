@@ -11,45 +11,42 @@ pnpm add @vite-hub/box
 ## Prepare a trusted-host Box
 
 ```ts
-import { defineAgent } from "@vite-hub/agent";
+import { resolveBox } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
-export default defineAgent<any, { ref: string; remote: string; sha: string }>({
-  box: {
-    runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
-    checkout: {
-      ref: ({ input }) => input.options?.ref,
-      remote: ({ input }) => input.options?.remote,
-      sha: ({ input }) => input.options?.sha,
+const box = await resolveBox({
+  runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
+  checkout: {
+    ref: "refs/pull/985/head",
+    remote: "https://github.com/vite-hub/vitehub.git",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+  },
+  env: {
+    GH_TOKEN: () => useServerEnv().githubToken.unseal(),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+  },
+  home: {
+    files: {
+      ".gitconfig": { from: ".vitehub/box/gitconfig" },
+      ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
     },
-    env: {
-      GH_TOKEN: () => useServerEnv().githubToken.unseal(),
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-    },
-    home: {
-      files: {
-        ".gitconfig": { from: ".vitehub/box/gitconfig" },
-        ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
-      },
-      state: {
-        ".codex": {
-          key: "babysitter/codex",
-          seed: {
-            "auth.json": {
-              contents: () => useServerEnv().codexAuthJson.unseal(),
-            },
+    state: {
+      ".codex": {
+        key: "babysitter/codex",
+        seed: {
+          "auth.json": {
+            contents: () => useServerEnv().codexAuthJson.unseal(),
           },
         },
       },
     },
-    requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
-  driver: "codex",
-});
+  requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
+}, {});
 ```
 
-Agent and Sandbox orchestration use the same active Interface under the hood. Direct callers can inspect preparation without resolving secrets, then open an invocation session:
+Direct callers can inspect preparation without resolving secrets, then open a session:
 
 ```ts
 import { resolveBox } from "@vite-hub/box";
@@ -156,7 +153,7 @@ requires: [
 ];
 ```
 
-Core does not contain provider names or auth-file formats. The `"codex"` Agent Driver contributes its own generic `codex login status` check when it uses direct OpenAI authentication.
+Core does not contain provider names or auth-file formats. Declare every executable and authentication check required by the process that will run in the Box.
 
 Requirement names, commands, and argv are inspectable declaration metadata. They verify or select executables, but they do not restrict filesystem access, network egress, inherited credentials, or child processes. Inspect `box.plan.executionAuthority` for those boundaries, and keep credentials in `env` or Home files rather than arguments.
 

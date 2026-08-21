@@ -757,6 +757,7 @@ async function* runProvider(
   let originalGeneratedInstructionLink: string | undefined
   let originalGeneratedInstructionMode: number | undefined
   let generatedInstructionFileExisted = false
+  let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
   let releaseDeferredRuntimeStopped: (() => void) | undefined
@@ -889,7 +890,7 @@ async function* runProvider(
       runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
-    if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
+    if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     const attachments = await waitForProviderOperation(
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
       effectiveSignal,
@@ -924,7 +925,7 @@ async function* runProvider(
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
-    if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
+    if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
       rejectAbort = reject
@@ -1030,6 +1031,14 @@ async function* runProvider(
     const deferredCleanup = deferredRuntimeCleanup || deferredWorkspaceCleanup
     if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
+    if (sessionKey) {
+      if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
+        resumeCursors.set(sessionKey, pendingResumeCursor)
+      }
+      else {
+        resumeCursors.delete(sessionKey)
+      }
+    }
     if (cleanupErrors.length) {
       throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
     }
