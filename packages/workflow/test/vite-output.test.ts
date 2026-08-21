@@ -132,6 +132,34 @@ it("installs the Email definition when the WDK flow has only named exports", asy
   expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
 })
 
+it("restores native output when Email installation fails", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-rollback-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const externalFile = join(workflowRoot, "v1", "flow.func", "index.mjs")
+  const externalRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowDir, { recursive: true })
+  await mkdir(resolve(externalFile, ".."), { recursive: true })
+  await writeFile(join(workflowDir, "01-collect.ts"), "export default async function collect(input) { return input }\n")
+  await writeFile(externalFile, "external flow\n")
+  await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute] })}\n`)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    importBase: "@vite-hub/workflow",
+    providerImportAliases: { "#vitehub/email/definition": join(rootDir, "missing-email-definition.mjs") },
+    rootDir,
+    workflow: { provider: "vercel" },
+  })).rejects.toThrow()
+
+  await expect(readFile(externalFile, "utf8")).resolves.toBe("external flow\n")
+  const routes = JSON.parse(await readFile(configFile, "utf8")).routes
+  expect(routes).toContainEqual(externalRoute)
+  expect(routes.filter((route: unknown) => JSON.stringify(route).includes("/.well-known/workflow/v1/"))).toEqual([externalRoute])
+  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(false)
+})
+
 it("removes stale WDK functions and routes", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-clean-wdk-")
   const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
