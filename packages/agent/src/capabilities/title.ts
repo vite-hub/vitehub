@@ -11,9 +11,8 @@ import {
   resetMessageChannelTitleDelivery,
 } from "../internal/channels.ts"
 import { createAgentChatData, getMessageText } from "../messages.ts"
-import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
+import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
-import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
 import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
 
@@ -277,9 +276,7 @@ function titleAdapterRunContext(
   }
   return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
-    box: context.box,
     context: context.context,
-    harnessSandboxProvider: context.harnessSandboxProvider,
     toolStepReporter: context.runtimeContext.toolStepReporter,
     input: titleDriverInput(input, prompt),
     invoker: context.invoker,
@@ -330,13 +327,9 @@ async function generateTitleWithDriver(
     return await titleResultText(await driver.run(titleRunContext(context, input, prompt) as never))
   }
   const runContext = titleAdapterRunContext(context, input, prompt)
-  if (driver.kind === "harness") {
-    const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
-    const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
-    return await titleResultText(await createHarnessAgentAdapter({
-      ...resolvedDriver,
-      harness: quietExpectedAuxiliaryHarnessCancellation(resolvedDriver.harness as object),
-    } as never).generate(runContext as never))
+  if (driver.kind === "provider") {
+    const { createProviderAgentAdapter } = await import("../provider-agent.ts")
+    return await titleResultText(await createProviderAgentAdapter(driver).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   return await titleResultText(await createAiSdkAdapter({

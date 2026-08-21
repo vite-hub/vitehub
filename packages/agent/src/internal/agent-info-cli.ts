@@ -117,7 +117,7 @@ function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   const driver = config?.driver
   if (!driver) return "unavailable"
   if (driver.kind === "model") return driver.model?.id ? `Model-backed Agent Driver (${driver.model.id})` : "Model-backed Agent Driver"
-  if (driver.kind === "harness") return driver.harness?.provider ? `Harness-backed Agent Driver (${driver.harness.provider})` : "Harness-backed Agent Driver"
+  if (driver.kind === "provider") return driver.provider?.provider ? `Provider Agent Driver (${driver.provider.provider})` : "Provider Agent Driver"
   if (driver.kind === "run") return "Custom-run Agent Driver"
   return "Unknown Agent Driver"
 }
@@ -172,6 +172,7 @@ function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionM
 
 function agentInfoMetadata(metadata: AgentInspectionMetadata): AgentInspectionMetadata {
   return {
+    ...(metadata.capabilities ? { capabilities: metadata.capabilities } : {}),
     ...(metadata.config ? { config: metadata.config } : {}),
     files: metadata.files || [],
     instructions: metadata.instructions || [],

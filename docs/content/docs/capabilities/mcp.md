@@ -107,7 +107,7 @@ The external MCP Server owns its own credentials, availability, and tool behavio
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives normalized MCP tools. |
-| Harness-backed | Receives normalized MCP tools through the Harness tool bridge; runtime connection and cleanup still run around the invocation. |
+| Provider-backed | Receives normalized MCP tools through the provider MCP bridge; runtime connection and cleanup still run around the invocation. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides whether to call MCP clients or tools through custom code. |
 
 ## Inspect and verify

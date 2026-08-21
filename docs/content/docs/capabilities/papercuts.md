@@ -104,7 +104,7 @@ The tool description tells the Agent not to include secrets or customer data, bu
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `report_papercut` and the optional `papercuts` Capability CLI tool. |
-| Harness-backed | Receives the same Capability tools through the Harness Agent tool bridge. |
+| Provider-backed | Receives the same Capability tools through the Provider Agent tool bridge. |
 | Custom-run-backed | Receives resolved tools in the run context; `driver.run` decides whether to call them. |
 
 ## Inspect and verify

@@ -447,7 +447,7 @@ finally {
 
 Pass `{ readOnly: true }` to `createWorkspaceDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
-Workspace owns the file tree and commit behavior. Box owns execution and provider adapters. Sandbox composes both for discovered named work, while Agent Definitions compose them for harness execution.
+Workspace owns the file tree and commit behavior. Box and Sandbox own independent execution environments. Provider Agent Drivers materialize a selected Workspace into their local working directory.
 
 ### Run sessions from the CLI
 

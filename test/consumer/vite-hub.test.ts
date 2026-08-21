@@ -17,9 +17,6 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const fixtureRoot = resolve(repoRoot, "fixtures/consumer/vite-hub")
 const maxBuffer = 64 * 1024 * 1024
 const optionalPackages = [
-  "@ai-sdk/harness",
-  "@ai-sdk/harness-claude-code",
-  "@ai-sdk/harness-codex",
   "@ai-sdk/mcp",
   "@chat-adapter/discord",
   "@cloudflare/sandbox",
@@ -249,6 +246,7 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "allowBuilds:",
     "  esbuild: true",
     "  msgpackr-extract: false",
+    "blockExoticSubdeps: false",
     "overrides:",
     // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
@@ -326,6 +324,18 @@ async function assertEffectMsgpackFallback(appDir: string) {
     ...process.env,
     MSGPACKR_NATIVE_ACCELERATION_DISABLED: "true",
   })
+}
+
+async function assertProviderRuntimeLoads(appDir: string) {
+  const script = [
+    "import { createRequire } from \"node:module\"",
+    "import { pathToFileURL } from \"node:url\"",
+    "const viteHubRequire = createRequire(import.meta.resolve(\"vite-hub/package.json\"))",
+    "const agentPackage = viteHubRequire.resolve(\"@vite-hub/agent/package.json\")",
+    "const runtime = await import(import.meta.resolve(\"@t3tools/provider-runtime\", pathToFileURL(agentPackage)))",
+    "if (typeof runtime.createProviderRuntime !== \"function\") throw new Error(\"provider runtime did not load\")",
+  ].join("\n")
+  await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
 
 async function assertBlobDriverPackagesOwned(appDir: string) {
@@ -483,41 +493,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           import { progressSummary, title } from "vite-hub/agent/capabilities"
           import { webChat } from "vite-hub/agent/channels"
 
-          const lifecycle = (type: "continue-turn" | "resume-session") => ({
-            data: {},
-            harnessId: "quiet-progress",
-            specificationVersion: "harness-v1" as const,
-            type,
-          })
-          const harness = {
-            builtinTools: {},
-            harnessId: "quiet-progress",
-            specificationVersion: "harness-v1" as const,
-            async doStart(options: any) {
-              return {
-                isResume: false,
-                sessionId: options.sessionId,
-                async doCompact() {},
-                async doContinueTurn() { throw new Error("Unexpected continuation") },
-                async doDestroy() {},
-                async doDetach() { return lifecycle("resume-session") },
-                async doPromptTurn(turn: any) {
-                  return {
-                    done: new Promise((_resolve, reject) => {
-                      turn.abortSignal?.addEventListener("abort", () => {
-                        console.log("HARNESS_PROGRESS_CANCELLED")
-                        reject(turn.abortSignal.reason)
-                      }, { once: true })
-                    }),
-                    async submitToolResult() {},
-                  }
-                },
-                async doStop() { return lifecycle("resume-session") },
-                async doSuspendTurn() { return lifecycle("continue-turn") },
-              }
-            },
-          }
-
           class HybridResult {
             async *[Symbol.asyncIterator]() {
               yield { text: "GENERIC_OUTPUT", type: "text-delta" }
@@ -550,7 +525,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
                 console.log("PROGRESS_TICK")
                 return "Checking inventory"
               }, intervalMs: 50 }),
-              progressSummary({ driver: { harness }, id: "quiet-progress", intervalMs: 50 }),
             ],
             channels: { web: webChat() },
             driver: { run: () => new HybridResult() },
@@ -644,7 +618,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(server.value.disabledBody).not.toContain("DISABLED_OUTPUT")
       expect(events.at(-1)?.type).toBe("finish")
       expect(logs.match(/PROGRESS_TICK/g)?.length).toBeGreaterThan(1)
-      expect(logs).toContain("HARNESS_PROGRESS_CANCELLED")
       expect(logs).not.toMatch(/AbortError|progressSummary\(\) generation failed|unhandledRejection/i)
     }
     finally {
@@ -914,6 +887,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await assertOptionalPackagesUnreachable(appDir)
       await assertBlobDriverPackagesOwned(appDir)
       await assertEffectMsgpackFallback(appDir)
+      await assertProviderRuntimeLoads(appDir)
 
       await run("pnpm", ["run", "typecheck"], appDir)
       const emailSecretSentinel = "re_vitehub-email-build-secret"

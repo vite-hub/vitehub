@@ -31,44 +31,7 @@ describe("built-in Agent Driver selection", () => {
   ] as const)("selects %s by literal name", (name, provider) => {
     const driver = normalizeAgentDriver({ driver: name } as never);
 
-    expect(driver).toMatchObject({ kind: "harness", provider });
-  });
-
-  it("selects configured Codex by tag before its model option", () => {
-    const driver = normalizeAgentDriver({
-      driver: { kind: "codex", model: "gpt-5.6-codex", reasoningEffort: "high" },
-    } as never);
-
-    expect(driver).toMatchObject({ kind: "harness", provider: "codex" });
-  });
-
-  it("requires Claude Code to yield its local sandbox to a Box explicitly", () => {
-    const box = { runtime: "trusted-host" as const };
-
-    expect(() => defineAgent({ box, driver: "claude-code", runtime: false }))
-      .toThrow("defineAgent({ box }) owns harness execution");
-    expect(() => defineAgent({
-      box,
-      driver: { kind: "claude-code", sandbox: false },
-      runtime: false,
-    })).not.toThrow();
-  });
-
-  it("normalizes bounded driver capacity for custom and built-in drivers", () => {
-    const capacity = {
-      concurrency: 2,
-      queue: { maxPending: 20, timeout: 300_000 },
-    };
-
-    for (const driver of [
-      { capacity, model: {} },
-      { capacity, harness: {} },
-      { capacity, run: () => "ok" },
-      { capacity, kind: "codex" },
-      { capacity, kind: "claude-code" },
-    ]) {
-      expect(normalizeAgentDriver({ driver } as never)).toMatchObject({ capacity });
-    }
+    expect(driver).toMatchObject({ kind: "provider", provider });
   });
 
   it.each([

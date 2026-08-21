@@ -8,7 +8,7 @@ icon: i-lucide-rocket
 
 ViteHub is a server layer for Vite with two ways in. Server Primitives give
 application code stable APIs for infrastructure, while Agents compose those
-primitives with models, coding harnesses, or application-owned logic.
+primitives with models, coding providers, or application-owned logic.
 
 Agents can use Server Primitives. Server Primitives also work on their own.
 Start with the path that matches the result your product needs today.

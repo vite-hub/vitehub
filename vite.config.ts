@@ -13,7 +13,7 @@ export default defineConfig({
       },
     ],
     rules: {
-      // Preserve existing findings through the exact-diagnostic baseline.
+      // Preserve existing findings through a counted stable-attribute baseline.
       "anti-slop/no-chained-type-assertions": "warn",
       "anti-slop/no-conditional-empty-object-spread": "warn",
       "anti-slop/no-known-value-widening": "warn",

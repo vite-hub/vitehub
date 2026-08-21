@@ -1,15 +1,18 @@
 import { defineRule } from "@oxlint/plugins";
 
 import type { ESTree } from "@oxlint/plugins";
+import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
+import { collectTypeAliases } from "../shared/type-aliases.ts";
 
-function referencedAliasName(type: ESTree.TSType): string | null {
-	if (type.type === "TSParenthesizedType") return referencedAliasName(type.typeAnnotation);
-	if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return null;
-	return type.typeArguments === null ||
-		type.typeArguments === undefined ||
-		type.typeArguments.params.length === 0
-		? type.typeName.name
-		: null;
+type TypeBinding = {
+	type: ESTree.TSType;
+	bindings: ReadonlyMap<string, TypeBinding>;
+};
+
+function typeName(type: ESTree.TSTypeName): string {
+	return type.type === "Identifier"
+		? type.name
+		: `${typeName(type.left)}.${type.right.name}`;
 }
 
 /** Ban named aliases that merely conceal TypeScript's unknown top type. */
@@ -26,44 +29,60 @@ export const noUnknownTypeAliasesRule = defineRule({
 		},
 	},
 	createOnce(context) {
-		const aliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
+		let findAlias: ReturnType<typeof collectTypeAliases>;
 
-		const resolvesToUnknown = (type: ESTree.TSType, visited = new Set<string>()): boolean => {
+		const resolvesToUnknown = (
+			type: ESTree.TSType,
+			from: ESTree.Node,
+			bindings: ReadonlyMap<string, TypeBinding> = new Map(),
+			visited = new Set<string>(),
+			shadowed = new Set<string>(),
+		): boolean => {
 			if (type.type === "TSUnknownKeyword") return true;
 			if (type.type === "TSParenthesizedType")
-				return resolvesToUnknown(type.typeAnnotation, visited);
-			const name = referencedAliasName(type);
-			if (name === null || visited.has(name)) return false;
-			const alias = aliases.get(name);
-			if (
-				alias === undefined ||
-				(alias.typeParameters !== null && alias.typeParameters !== undefined)
-			) {
-				return false;
+				return resolvesToUnknown(type.typeAnnotation, from, bindings, visited, shadowed);
+			if (type.type === "TSUnionType")
+				return type.types.some((member) =>
+					resolvesToUnknown(member, from, bindings, visited, shadowed),
+				);
+			if (type.type !== "TSTypeReference") return false;
+			const name = typeName(type.typeName);
+			const bound = bindings.get(name);
+			if (bound !== undefined) {
+				return resolvesToUnknown(bound.type, from, bound.bindings, visited, shadowed);
+			}
+			if (visited.has(name) || shadowed.has(name)) return false;
+			const alias = findAlias(name, from);
+			if (alias === undefined) return false;
+			const parameters = alias.typeParameters?.params ?? [];
+			const arguments_ = type.typeArguments?.params ?? [];
+			if (arguments_.length > parameters.length) return false;
+			const nextBindings = new Map(bindings);
+			for (const [index, parameter] of parameters.entries()) {
+				const argument = arguments_[index] ?? parameter.default;
+				if (argument === null || argument === undefined) return false;
+				nextBindings.set(parameter.name.name, {
+					type: argument,
+					bindings: arguments_[index] === undefined ? nextBindings : bindings,
+				});
 			}
 			const nextVisited = new Set(visited);
 			nextVisited.add(name);
-			return resolvesToUnknown(alias.typeAnnotation, nextVisited);
+			return resolvesToUnknown(alias.typeAnnotation, alias, nextBindings, nextVisited, new Set());
 		};
 
 		return {
 			Program(node) {
-				aliases.clear();
-				for (const statement of node.body) {
-					const declaration =
-						statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
-					if (declaration?.type === "TSTypeAliasDeclaration") {
-						aliases.set(declaration.id.name, declaration);
-					}
-				}
-				for (const alias of aliases.values()) {
-					if (!resolvesToUnknown(alias.typeAnnotation, new Set([alias.id.name]))) continue;
+				findAlias = collectTypeAliases(node, context.sourceCode.visitorKeys);
+			},
+			TSTypeAliasDeclaration(alias) {
+				const shadowed = lexicalTypeParameterNames(alias, context.sourceCode.visitorKeys);
+				if (!resolvesToUnknown(alias.typeAnnotation, alias, new Map(), new Set([alias.id.name]), shadowed)) return;
 					context.report({
 						node: alias.id,
 						messageId: "unknownAlias",
 						data: { alias: alias.id.name },
 					});
-				}
 			},
 		};
 	},

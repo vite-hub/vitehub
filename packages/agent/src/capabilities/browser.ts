@@ -11,7 +11,7 @@ export interface BrowserCapabilityOptions {
 
 const defaultBrowserSkillContent = `# Browser
 
-Use the \`agent-browser\` CLI through the bash tool for headless browser work.
+Use the \`agent-browser\` CLI through the provider's shell for headless browser work.
 
 - Run \`agent-browser --help\` before non-trivial browser work.
 - Create \`screenshots/\` before screenshots, then save screenshots inside that workspace directory.
@@ -35,10 +35,12 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
   const skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({
-    bash: [{ command, description: "Run headless browser." }],
     id: "browser",
     metadata: { command, skillPath, sourceKey },
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
+    prepare(context) {
+      if (context.driver?.kind !== "provider") throw new Error("[vitehub] browser() requires a Provider Agent Driver.")
+    },
     workspace: {
       sources: {
         [sourceKey]: {

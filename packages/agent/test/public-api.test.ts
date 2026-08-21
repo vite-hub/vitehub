@@ -94,13 +94,6 @@ it("keeps Effect out of provider and browser bundle graphs", async () => {
   }
 })
 
-it("loads the optional Claude Code peer only after the built-in driver is selected", async () => {
-  const bundle = await readBundleGraph(new URL("../dist/index.js", import.meta.url))
-
-  expect(moduleSpecifiers(bundle)).not.toContain("@ai-sdk/harness-claude-code")
-  expect(bundle).toContain(`const claudeCodePackage = "@ai-sdk/harness-claude-code"`)
-})
-
 it.each([
   'import { Effect } from "effect"',
   'export type { Effect } from "effect/Effect"',

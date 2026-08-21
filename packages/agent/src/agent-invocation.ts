@@ -21,10 +21,11 @@ export interface AgentInvocationControlResult<TOutput = unknown> {
   outcome: AgentInvocationControlOutcome
 }
 
-export type AgentInvocationInputMode = "follow-up" | "steer"
+export type AgentInvocationInputMode = "follow-up" | "respond" | "steer"
 
 export interface AgentInvocationInputSupport {
   followUp: boolean
+  respond: boolean
   steer: boolean
 }
 
@@ -102,6 +103,9 @@ export function createAgentInvocationController<
     get followUp() {
       return resolveSupport()?.followUp === true
     },
+    get respond() {
+      return resolveSupport()?.respond === true
+    },
     get steer() {
       return resolveSupport()?.steer === true
     },
@@ -111,7 +115,7 @@ export function createAgentInvocationController<
     id,
     inspect: adapter.inspect,
     async sendInput(input: AgentRunInput<CALL_OPTIONS>, options: { mode: AgentInvocationInputMode }) {
-      const supported = options.mode === "steer" ? support.steer : support.followUp
+      const supported = options.mode === "steer" ? support.steer : options.mode === "respond" ? support.respond : support.followUp
       if (!supported || !adapter.sendInput) return { id, outcome: "unsupported" as const }
       return adapter.sendInput(input, options)
     },

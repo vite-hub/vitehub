@@ -90,6 +90,10 @@ export function markAuxiliaryMessageChannelInstructionContext<TContext extends o
   return context
 }
 
+export function isAuxiliaryAgentAdapterContext(context: object): boolean {
+  return auxiliaryMessageChannelInstructionContexts.has(context)
+}
+
 export function markMessageChannelInstructionConsumer<TConsumer extends object>(
   consumer: TConsumer,
 ): TConsumer {

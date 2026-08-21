@@ -152,7 +152,7 @@ ViteHub writes the generated `browser` binding, a compatible default `compatibil
 
 Cloudflare Computer is an optional preview runtime for [Boxes](/docs/agents/boxes#choose-a-runtime). The application owns its `withWorkspace()` Durable Object, execution backends, Worker Loader or Container bindings, migrations, compatibility flags, and deployment lifecycle. ViteHub accepts that configured Durable Object namespace through `{ kind: 'cloudflare-computer' }`; current Provider Output does not create or modify Computer infrastructure.
 
-Keep the Computer filesystem and backend configuration at the Cloudflare boundary. Agent definitions should declare Box inputs and select a registered backend ID without importing Computer filesystem or execution APIs.
+Keep the Computer filesystem and backend configuration at the Cloudflare boundary. Box callers should supply inputs and select a registered backend ID without importing Computer filesystem or execution APIs.
 
 ## Production notes
 

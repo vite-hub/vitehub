@@ -128,7 +128,7 @@ There is no compatibility shim. `memoryRateLimitStore()` and `RateLimitStore` ar
 
 ## Verify it
 
-Run repeated Agent Invocations with the same identity. The first `limit` invocations should reach the Agent Driver; the next should fail with code `RATE_LIMIT_REJECTED` before model, harness, or custom-run execution.
+Run repeated Agent Invocations with the same identity. The first `limit` invocations should reach the Agent Driver; the next should fail with code `RATE_LIMIT_REJECTED` before model, provider, or custom-run execution.
 
 For local tests, use a dedicated memory driver instance. For Cloudflare, resolve the request binding in the limiter resolver and test the deployed binding because the native decision depends on request-scoped Worker environment.
 

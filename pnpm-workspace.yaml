@@ -1,6 +1,8 @@
 packages:
   - "docs"
   - "packages/*"
+catalog:
+  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@67cf65b129d2c52a20199243565ecb8bd63c7af1
 
 ignoredOptionalDependencies:
   - fallow-type-aware
@@ -8,16 +10,8 @@ ignoredOptionalDependencies:
 catalogMode: prefer
 
 catalogs:
-  browser:
-    "@cloudflare/playwright": ^1.3.5
-    playwright-core: ^1.61.1
-  effect:
-    effect: 4.0.0-beta.99
   ai:
     "@ai-sdk/gateway": 4.0.26
-    "@ai-sdk/harness": 1.0.39
-    "@ai-sdk/harness-claude-code": 1.0.40
-    "@ai-sdk/harness-codex": 1.0.41
     "@ai-sdk/mcp": 2.0.0
     "@ai-sdk/vue": 4.0.38
     "@modelcontextprotocol/sdk": ^1.29.0
@@ -32,6 +26,9 @@ catalogs:
     ai: 6.0.228
   auth:
     better-auth: ^1.6.23
+  browser:
+    "@cloudflare/playwright": ^1.3.5
+    playwright-core: ^1.61.1
   chat:
     "@chat-adapter/discord": 4.38.0
     "@chat-adapter/telegram": 4.38.0
@@ -41,6 +38,8 @@ catalogs:
     "@libsql/client": ^0.17.4
     drizzle-kit: ^0.31.10
     drizzle-orm: ^0.45.2
+  effect:
+    effect: 4.0.0-beta.99
   email:
     unemail: 0.5.0
   esbuild-v27:
@@ -52,9 +51,6 @@ catalogs:
     "@nuxt/ui": ^4.9.0
     docus: ^5.12.3
     nuxt: ^4.4.8
-  runtime:
-    "@standard-schema/spec": ^1.1.0
-    valibot: ^1.4.2
   realtime:
     "@tiptap/core": ^3.29.2
     "@tiptap/extension-collaboration": ^3.29.2
@@ -70,6 +66,9 @@ catalogs:
     y-protocols: ^1.0.6
     y-websocket: ^3.0.0
     yjs: ^13.6.27
+  runtime:
+    "@standard-schema/spec": ^1.1.0
+    valibot: ^1.4.2
   sandbox:
     "@cloudflare/computer": ^0.1.1
     "@cloudflare/sandbox": ^0.8.14
@@ -114,12 +113,12 @@ catalogs:
     vitest: ^4.1.4
     vue-tsc: ^3.3.7
   ui:
-    comark: 0.5.1
     "@iconify-json/lucide": ^1.2.117
     "@iconify-json/ph": ^1.2.2
     "@iconify-json/simple-icons": ^1.2.90
     "@iconify-json/vscode-icons": ^1.2.67
     "@vueuse/core": ^14.3.0
+    comark: 0.5.1
     motion-v: ^2.2.1
     vue: ^3.5.0
   unjs:
@@ -151,8 +150,8 @@ catalogs:
     workflow: 5.0.0-beta.35
   workspace:
     isomorphic-git: ^1.38.7
-    mountx: 0.0.2
     minimatch: ^10.2.5
+    mountx: 0.0.2
     mrmime: ^2.0.1
     picomatch: ^4.0.5
     tinyglobby: ^0.2.17
@@ -170,5 +169,3 @@ packageExtensions:
   "@nuxt/content@3":
     dependencies:
       h3: ^1.15.11
-patchedDependencies:
-  '@ai-sdk/harness-codex@1.0.41': patches/@ai-sdk__harness-codex@1.0.41.patch

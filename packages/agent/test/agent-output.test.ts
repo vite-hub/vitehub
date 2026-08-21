@@ -217,49 +217,6 @@ describe("agent output helpers", () => {
     expect(toAgentRunResult(value).text).toBe("final result")
   })
 
-  it("selects final assistant text after harness tool boundaries", () => {
-    const raw = {
-      steps: [{
-        content: [
-          { text: "I'll inspect the image.", type: "text" },
-          { input: { path: "image.png" }, toolCallId: "call-1", toolName: "view_image", type: "tool-call" },
-          { output: { ok: true }, toolCallId: "call-1", toolName: "view_image", type: "tool-result" },
-          { text: "The image shows ", type: "text" },
-          { textDelta: "a dental X-ray.", type: "text-delta" },
-        ],
-      }],
-    }
-
-    expect(finalTextFromAgentOutput({ raw, text: "I'll inspect the image.The image shows a dental X-ray." }))
-      .toBe("The image shows a dental X-ray.")
-  })
-
-  it("keeps only text after the last of multiple harness tools", () => {
-    expect(finalTextFromAgentOutput({
-      steps: [
-        {
-          content: [
-            { text: "First check.", type: "text" },
-            { toolCallId: "call-1", toolName: "search", type: "tool-call" },
-            { toolCallId: "call-1", toolName: "search", type: "tool-result" },
-          ],
-        },
-        {
-          content: [
-            { text: "Second check.", type: "text" },
-            { toolCallId: "call-2", toolName: "read", type: "tool-call" },
-            { toolCallId: "call-2", toolName: "read", type: "tool-result" },
-          ],
-        },
-        {
-          content: [
-            { text: "Final answer.", type: "text" },
-          ],
-        },
-      ],
-    })).toBe("Final answer.")
-  })
-
   it("selects final text from a later step text field", () => {
     expect(finalTextFromAgentOutput({
       steps: [

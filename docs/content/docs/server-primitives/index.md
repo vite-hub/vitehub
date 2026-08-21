@@ -10,7 +10,7 @@ icon: i-lucide-server-cog
 
 Use ViteHub primitives directly from routes, handlers, jobs, and workers, then expose them to Agents only when needed. Server primitives are useful even when the app has no Agent Definition.
 
-Start with the first primitive when you want a runnable path, use Concepts when the framework model is unclear, and move to Agents only when a model or harness should receive controlled abilities.
+Start with the first primitive when you want a runnable path, use Concepts when the framework model is unclear, and move to Agents only when a model or coding provider should receive controlled abilities.
 
 ::u-page-grid{class="not-prose mt-8"}
   :::u-page-card

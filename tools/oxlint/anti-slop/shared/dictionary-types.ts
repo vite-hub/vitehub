@@ -1,4 +1,5 @@
 import type { ESTree } from "@oxlint/plugins";
+import { collectTypeAliases, type TypeAliasFinder } from "./type-aliases.ts";
 
 const BUILT_INS = new Set([
 	"Record",
@@ -37,6 +38,7 @@ export type WideningTarget = {
 
 export type TypeEnvironment = {
 	readonly aliases: ReadonlyMap<string, ESTree.TSTypeAliasDeclaration>;
+	readonly findAlias: TypeAliasFinder;
 	readonly interfaces: ReadonlyMap<string, readonly ESTree.TSInterfaceDeclaration[]>;
 	readonly shadowedBuiltIns: ReadonlySet<string>;
 };
@@ -48,7 +50,10 @@ function declaredStatement(statement: ESTree.Statement): ESTree.Node | null {
 		: statement;
 }
 
-export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment {
+export function createTypeEnvironment(
+	program: ESTree.Program,
+	visitorKeys: Readonly<Record<string, readonly string[]>>,
+): TypeEnvironment {
 	const aliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
 	const interfaces = new Map<string, ESTree.TSInterfaceDeclaration[]>();
 	const shadowedBuiltIns = new Set<string>();
@@ -83,6 +88,11 @@ export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment 
 			continue;
 		}
 
+		if (declaration?.type === "TSImportEqualsDeclaration") {
+			if (BUILT_INS.has(declaration.id.name)) shadowedBuiltIns.add(declaration.id.name);
+			continue;
+		}
+
 		if (
 			(declaration?.type === "ClassDeclaration" ||
 				declaration?.type === "FunctionDeclaration") &&
@@ -92,15 +102,61 @@ export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment 
 		}
 	}
 
-	return { aliases, interfaces, shadowedBuiltIns };
+	return { aliases, findAlias: collectTypeAliases(program, visitorKeys), interfaces, shadowedBuiltIns };
 }
 
-function typeReferenceName(type: ESTree.TSTypeReference): string | null {
-	return type.typeName.type === "Identifier" ? type.typeName.name : null;
+function typeName(type: ESTree.TSTypeName): string {
+	return type.type === "Identifier" ? type.name : `${typeName(type.left)}.${type.right.name}`;
+}
+
+function typeReferenceName(type: ESTree.TSTypeReference): string {
+	return typeName(type.typeName);
 }
 
 function isBuiltIn(name: string, environment: TypeEnvironment): boolean {
 	return BUILT_INS.has(name) && !environment.shadowedBuiltIns.has(name);
+}
+
+function declarationName(node: ESTree.Node): string | null {
+	if (
+		node.type === "TSTypeAliasDeclaration" ||
+		node.type === "TSInterfaceDeclaration" ||
+		node.type === "TSEnumDeclaration" ||
+		node.type === "TSImportEqualsDeclaration" ||
+		node.type === "ClassDeclaration" ||
+		node.type === "FunctionDeclaration"
+	) {
+		return node.id?.name ?? null;
+	}
+	return null;
+}
+
+function isLexicallyShadowed(name: string, from: ESTree.Node): boolean {
+	let current: ESTree.Node | null = from;
+	while (current !== null && current.type !== "Program") {
+		if (
+			"typeParameters" in current &&
+			current.typeParameters !== null &&
+			current.typeParameters !== undefined &&
+			current.typeParameters.params.some((parameter) => parameter.name.name === name)
+		) return true;
+		if (current.type === "BlockStatement" || current.type === "TSModuleBlock") {
+			for (const statement of current.body) {
+				const declaration = declaredStatement(statement);
+				if (declaration !== null && declarationName(declaration) === name) return true;
+			}
+		}
+		current = current.parent;
+	}
+	return false;
+}
+
+export function isUnshadowedBuiltIn(
+	name: string,
+	environment: TypeEnvironment,
+	from: ESTree.Node,
+): boolean {
+	return isBuiltIn(name, environment) && !isLexicallyShadowed(name, from);
 }
 
 function isUnappliedReferenceTo(type: ESTree.TSType, name: string): boolean {
@@ -153,6 +209,61 @@ function isEffectivelyEmptyInterface(
 		type.extends.length === 0 &&
 		(type.body.body.length === 0 || type.body.body.every(isEffectivelyEmptyMember))
 	);
+}
+
+function lexicalDeclaration(
+	name: string,
+	from: ESTree.Node,
+): ESTree.TSTypeAliasDeclaration | readonly ESTree.TSInterfaceDeclaration[] | null | undefined {
+	let current: ESTree.Node | null = from;
+	while (current !== null && current.type !== "Program") {
+		if (
+			"typeParameters" in current &&
+			(current.typeParameters?.params ?? []).some((parameter) => parameter.name.name === name)
+		) return null;
+		if (current.type === "BlockStatement" || current.type === "TSModuleBlock") {
+			const interfaces: ESTree.TSInterfaceDeclaration[] = [];
+			for (const statement of current.body) {
+				const declaration = declaredStatement(statement as ESTree.Statement);
+				if (declaration?.type === "TSTypeAliasDeclaration" && declaration.id.name === name)
+					return declaration;
+				if (declaration?.type === "TSInterfaceDeclaration" && declaration.id.name === name)
+					interfaces.push(declaration);
+				else if (declaration !== null && declarationName(declaration) === name) return null;
+			}
+			if (interfaces.length > 0) return interfaces;
+		}
+		current = current.parent;
+	}
+	return undefined;
+}
+
+function aliasFor(
+	name: string,
+	from: ESTree.Node,
+	environment: TypeEnvironment,
+): ESTree.TSTypeAliasDeclaration | undefined {
+	const lexical = lexicalDeclaration(name, from);
+	if (lexical !== undefined) {
+		return (lexical as ESTree.Node | null)?.type === "TSTypeAliasDeclaration"
+			? (lexical as ESTree.TSTypeAliasDeclaration)
+			: undefined;
+	}
+	return environment.findAlias(name, from) ?? environment.aliases.get(name);
+}
+
+function interfacesFor(
+	name: string,
+	from: ESTree.Node,
+	environment: TypeEnvironment,
+): readonly ESTree.TSInterfaceDeclaration[] | undefined {
+	const lexical = lexicalDeclaration(name, from);
+	if (lexical !== undefined) {
+		return Array.isArray(lexical)
+			? (lexical as readonly ESTree.TSInterfaceDeclaration[])
+			: undefined;
+	}
+	return environment.interfaces.get(name);
 }
 
 function resolvedSubstitutionArgument(
@@ -218,7 +329,7 @@ function unsafeDirectValue(
 	if (unwrapped.type !== "TSTypeReference") return null;
 	const name = typeReferenceName(unwrapped);
 	if (name === null) return null;
-	if (TRANSPARENT_WRAPPERS.has(name) && isBuiltIn(name, environment)) {
+	if (TRANSPARENT_WRAPPERS.has(name) && isUnshadowedBuiltIn(name, environment, unwrapped)) {
 		const wrapped = unwrapped.typeArguments?.params[0];
 		return wrapped === undefined
 			? null
@@ -230,11 +341,11 @@ function unsafeDirectValue(
 			? null
 			: unsafeDirectValue(substitution, environment, substitutions, resolvingAliases);
 	}
-	const interfaceDeclarations = environment.interfaces.get(name);
+	const interfaceDeclarations = interfacesFor(name, unwrapped, environment);
 	if (interfaceDeclarations !== undefined) {
 		return isEffectivelyEmptyInterface(interfaceDeclarations) ? "empty-object" : null;
 	}
-	const alias = environment.aliases.get(name);
+	const alias = aliasFor(name, unwrapped, environment);
 	if (alias === undefined || resolvingAliases.has(name)) return null;
 	const nextSubstitutions = aliasSubstitution(alias, unwrapped, substitutions);
 	if (nextSubstitutions === null) return null;
@@ -276,26 +387,29 @@ function dictionaryValueTypes(
 			: dictionaryValueTypes(substitution, environment, substitutions, resolvingAliases);
 	}
 
-	if (TRANSPARENT_WRAPPERS.has(name) && isBuiltIn(name, environment)) {
+	if (TRANSPARENT_WRAPPERS.has(name) && isUnshadowedBuiltIn(name, environment, unwrapped)) {
 		const wrapped = unwrapped.typeArguments?.params[0];
 		return wrapped === undefined
 			? []
 			: dictionaryValueTypes(wrapped, environment, substitutions, resolvingAliases);
 	}
 
-	if (name === "Record" && isBuiltIn(name, environment)) {
+	if (name === "Record" && isUnshadowedBuiltIn(name, environment, unwrapped)) {
 		const value = unwrapped.typeArguments?.params[1] ?? null;
 		return value === null ? [] : [{ type: value, substitutions }];
 	}
 
-	if ((name === "Pick" || name === "Omit") && isBuiltIn(name, environment)) {
+	if (
+		(name === "Pick" || name === "Omit") &&
+		isUnshadowedBuiltIn(name, environment, unwrapped)
+	) {
 		const source = unwrapped.typeArguments?.params[0];
 		return source === undefined
 			? []
 			: dictionaryValueTypes(source, environment, substitutions, resolvingAliases);
 	}
 
-	const alias = environment.aliases.get(name);
+	const alias = aliasFor(name, unwrapped, environment);
 	if (alias === undefined || resolvingAliases.has(name)) return [];
 	const nextSubstitutions = aliasSubstitution(alias, unwrapped, substitutions);
 	if (nextSubstitutions === null) return [];
@@ -355,12 +469,13 @@ export function classifyWideningTarget(
 	if (unwrapped.type !== "TSTypeReference") return null;
 	const name = typeReferenceName(unwrapped);
 	if (name === null) return null;
-	if (TRANSPARENT_WRAPPERS.has(name) && isBuiltIn(name, environment)) {
+	if (TRANSPARENT_WRAPPERS.has(name) && isUnshadowedBuiltIn(name, environment, unwrapped)) {
 		const wrapped = unwrapped.typeArguments?.params[0];
 		return wrapped === undefined ? null : classifyWideningTarget(wrapped, environment);
 	}
-	if (name === "Record" && isBuiltIn(name, environment)) return { kind: "open dictionary" };
-	const alias = environment.aliases.get(name);
+	if (name === "Record" && isUnshadowedBuiltIn(name, environment, unwrapped))
+		return { kind: "open dictionary" };
+	const alias = aliasFor(name, unwrapped, environment);
 	if (alias === undefined) return null;
 	if ((alias.typeParameters?.params.length ?? 0) > 0) {
 		const substitutions = aliasSubstitution(alias, unwrapped, new Map());
@@ -405,7 +520,7 @@ function isBroadMappedKey(
 	if (substitution !== undefined && !isUnappliedReferenceTo(substitution, name)) {
 		return isBroadMappedKey(substitution, environment, substitutions);
 	}
-	return name === "PropertyKey" && isBuiltIn(name, environment);
+	return name === "PropertyKey" && isUnshadowedBuiltIn(name, environment, unwrapped);
 }
 
 function classifyAliasBroadTarget(
@@ -441,13 +556,13 @@ function classifyAliasBroadTarget(
 					resolvingAliases,
 				);
 	}
-	if (TRANSPARENT_WRAPPERS.has(name) && isBuiltIn(name, environment)) {
+	if (TRANSPARENT_WRAPPERS.has(name) && isUnshadowedBuiltIn(name, environment, unwrapped)) {
 		const wrapped = unwrapped.typeArguments?.params[0];
 		return wrapped === undefined
 			? null
 			: classifyAliasBroadTarget(wrapped, environment, substitutions, resolvingAliases);
 	}
-	if (name === "Record" && isBuiltIn(name, environment)) {
+	if (name === "Record" && isUnshadowedBuiltIn(name, environment, unwrapped)) {
 		return { kind: "open dictionary" };
 	}
 	const alias = environment.aliases.get(name);

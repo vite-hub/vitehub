@@ -372,9 +372,9 @@ describe("agent capability runtime", () => {
     expect(Object.keys(resolved.tools || {})).toEqual(["inventory"])
     expect(resolved.tools?.inventory?.description).toContain("`items list --json`")
     expect(resolved.tools?.inventory?.description).not.toContain("`inventory items list --json`")
-    expect((resolved.tools?.inventory?.inputSchema as { properties: { input: unknown } }).properties.input).toEqual({})
+    expect((resolved.tools!.inventory!.inputSchema as { properties: { input: unknown } }).properties.input).toEqual({})
 
-    await expect(resolved.tools?.inventory?.execute?.({
+    await expect(resolved.tools!.inventory!.execute!({
       argv: ["items", "list", "--json"],
       input: { limit: 3 },
     })).resolves.toMatchObject({
@@ -747,48 +747,6 @@ describe("agent capability runtime", () => {
     ])
   })
 
-  it("creates one global bash tool from capability bash contributions", async () => {
-    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const session = {
-      close: vi.fn(),
-      commit: vi.fn(),
-      exec: vi.fn(async (command: string, args: string[] = []) => ({ args, command, exitCode: 0, stderr: "", stdout: "ok\n" })),
-    }
-    const workspace = {
-      ...writableWorkspace(),
-      startSession: vi.fn(async () => session),
-    }
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        defineCapability({ id: "noop" }),
-        defineCapability({
-          bash: [
-            { command: "agent-browser", description: "Run headless browser." },
-            "node",
-          ],
-          id: "browser",
-        }),
-      ],
-    }, runtime(), {}, workspace as never, "write")
-
-    expect(Object.keys(resolved.tools || {})).toEqual(["bash"])
-    expect(resolved.tools?.bash?.description).toContain("agent-browser (Run headless browser.)")
-    await expect(resolved.tools?.bash?.execute?.({
-      args: ["--help"],
-      command: "agent-browser",
-      cwd: "screenshots",
-    })).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
-    expect(session.exec).toHaveBeenCalledWith("agent-browser", ["--help"], {
-      cwd: "/workspace/screenshots",
-      env: undefined,
-      timeout: 60_000,
-    })
-    expect(session.commit).toHaveBeenCalledWith({ message: "bash command" })
-    expect(session.close).toHaveBeenCalledOnce()
-    await expect(resolved.tools?.bash?.execute?.({ command: "pnpm" })).rejects.toThrow("not allowed")
-  })
-
   it("applies browser workspace source contributions", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
@@ -796,6 +754,7 @@ describe("agent capability runtime", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [browser({ skillContent: "# Browser\nUse bash.\n" })],
     }, runtime(), {}, emptyWorkspace() as never, "write", {
+      driverKind: "provider",
       workspaceDefinition: {
         name: "review",
         sources: {},
@@ -807,7 +766,7 @@ describe("agent capability runtime", () => {
       mediaType: "text/markdown",
       workspacePath: "skills/browser/SKILL.md",
     })
-    expect(Object.keys(resolved.tools || {})).toEqual(["bash"])
+    expect(resolved.tools).toBeUndefined()
     expect(resolved.registries.workspaceContributions).toEqual([
       {
         capabilityId: "browser",
@@ -824,6 +783,7 @@ describe("agent capability runtime", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [browser()],
     }, runtime(), {}, emptyWorkspace() as never, "write", {
+      driverKind: "provider",
       workspaceDefinition: {
         name: "review",
         sources: {},
@@ -838,40 +798,6 @@ describe("agent capability runtime", () => {
     expect(content).toContain("save screenshots inside that workspace directory")
     expect(content).not.toContain("blob_edit")
     expect(content).not.toContain("Blob")
-  })
-
-  it("keeps default Blob writes out of Harness workspace materialization", async () => {
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { blob } = await import("../src/capabilities.ts")
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [blob({ mode: "write" })],
-    }, runtime(), {}, emptyWorkspace() as never, "write", {
-      driverKind: "harness",
-      workspaceDefinition: {
-        name: "review",
-        sources: {},
-      },
-    })
-
-    expect(resolved.workspaceMaterializationPaths).toEqual([])
-  })
-
-  it("adds explicit Blob asset paths for Harness workspace materialization", async () => {
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { blob } = await import("../src/capabilities.ts")
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [blob({ mode: "write", assetPaths: true })],
-    }, runtime(), {}, emptyWorkspace() as never, "write", {
-      driverKind: "harness",
-      workspaceDefinition: {
-        name: "review",
-        sources: {},
-      },
-    })
-
-    expect(resolved.workspaceMaterializationPaths).toEqual(["screenshots"])
   })
 
   it("applies Access Source grants to capability workspace contribution sources", async () => {

@@ -1,6 +1,6 @@
 ---
 title: Child invocations
-description: Start, inspect, steer, and cancel child Agent work from trusted code.
+description: Start, inspect, respond to, and cancel child Agent work from trusted code.
 navigation.order: 51
 navigation.group: Advanced execution
 icon: i-lucide-workflow
@@ -40,19 +40,19 @@ if (cancellation.outcome === 'accepted') {
 
 `accepted` means the runtime accepted the request; inspect again for the observed terminal state. A provider may return `unsupported`, and terminal invocations return `invalid-state`.
 
-## Steer when supported
+## Respond to provider requests
 
 Check the controller's current support before sending input, then handle the operation result because support can change with lifecycle state.
 
 ```ts
-if (child.support.steer) {
+if (child.support.respond) {
   const result = await child.sendInput(
-    { prompt: 'Focus on migration risk.' },
-    { mode: 'steer' },
+    { messages: [responseMessage] },
+    { mode: 'respond' },
   )
 }
 ```
 
-Inline harness runtimes can report steering while an active prompt controller is available. Follow-up and Workflow-backed input remain unsupported until their runtime adapters provide equivalent ordering and lifecycle semantics.
+Inline provider runtimes accept approval decisions and `data-agent-input` answers while the matching provider request is pending. Text steering, follow-up turns, and Workflow-backed input remain unsupported until their runtime adapters provide equivalent ordering and lifecycle semantics.
 
 The `subagents()` Capability uses the same start seam but returns a serializable tool result and waits for the child. The model cannot choose or reuse the trusted child id.
