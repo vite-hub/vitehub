@@ -11,6 +11,7 @@ import type { OtlpHttpJsonOptions } from "../telemetry.ts"
 export interface OtlpCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends OtlpHttpJsonOptions<TRuntimeConfig> {
   content?: AgentTelemetryContentOptions
+  live?: boolean
 }
 
 export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
@@ -25,6 +26,7 @@ export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
     telemetry: {
       ...(options.content ? { content: options.content } : {}),
       exporter: otlpHttpJson(options),
+      ...(options.live ? { live: true } : {}),
     },
   })
 }

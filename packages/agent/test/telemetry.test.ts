@@ -78,10 +78,11 @@ describe("Agent telemetry", () => {
     expect(otlp({
       content: { instructions: true },
       endpoint: "https://traces.example/v1/traces",
+      live: true,
     })).toMatchObject({
       id: "otlp",
       metadata: { protocol: "http/json" },
-      telemetry: { content: { instructions: true }, exporter: expect.any(Function) },
+      telemetry: { content: { instructions: true }, exporter: expect.any(Function), live: true },
     })
     expect(() => otlp({ endpoint: "" })).toThrow("otlp({ endpoint })")
   })
@@ -291,6 +292,47 @@ describe("Agent telemetry", () => {
       }],
     })
     expect(JSON.stringify(exported.spans)).not.toContain("secret prompt")
+  })
+
+  it("exports live trace snapshots while an invocation is running", async () => {
+    let release!: () => void
+    let progressRecorded!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const progress = new Promise<void>(resolve => { progressRecorded = resolve })
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "live-telemetry",
+        telemetry: { exporter: telemetry, live: true },
+      })],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({ name: "application.progress", type: "run" })
+          progressRecorded()
+          await gate
+          return "ok"
+        },
+      },
+    })
+
+    const active = runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-live" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await progress
+    await vi.waitFor(() => expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({
+      spans: [expect.objectContaining({
+        events: expect.arrayContaining([expect.objectContaining({ name: "application.progress" })]),
+      })],
+    })), { timeout: 2_500 })
+
+    release()
+    await active
+    await Promise.all(tasks)
+    expect(telemetry.mock.calls.at(-1)?.[0].spans[0].status).toEqual({ code: "OK" })
   })
 
   it("exports separate spans when invocations reuse a host trace and log", async () => {

@@ -12,11 +12,12 @@ const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: unknown) =
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
-import { defineAgent } from "../src/index.ts"
+import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
 
@@ -79,7 +80,7 @@ function context(threadId: string, overrides: Record<string, unknown> = {}) {
     messages: [],
     prompt: "hello",
     runtime: {
-      memo: (_key: string, create: () => unknown) => create(),
+      memo: <T>(_key: string, create: () => T) => create(),
       run: { runId: `run-${threadId}`, threadId },
       runtime: "vite",
       runtimeConfig: {},
@@ -240,6 +241,43 @@ describe("Provider Agent Driver", () => {
       driver: { kind: "provider", provider: "codex" },
       instructions: ["System instructions"],
     })
+  })
+
+  it("persists provider-native activity through a complete Agent invocation", async () => {
+    const threadId = "thread-provider-invocation-trace"
+    const runId = "run-provider-invocation-trace"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "Inspecting", streamKind: "reasoning_text" }, { turnId: "turn-1" }),
+      event("item.started", threadId, { data: { command: "git status" }, itemType: "command_execution", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("item.completed", threadId, { data: { output: "clean" }, itemType: "command_execution", status: "completed", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "Done", streamKind: "assistant_text" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: codexDriver(),
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, {
+      memo: <T>(_key: string, create: () => T) => create(),
+      run: { runId, threadId },
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })
+
+    const invocation = await invocations.getByRunId(runId)
+    expect(invocation?.observations.map(observation => observation.name)).toEqual(expect.arrayContaining([
+      "agent.reasoning",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.message",
+      "agent.stream.finish",
+    ]))
   })
 
   it.each([

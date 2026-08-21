@@ -231,6 +231,8 @@ export interface AgentTelemetryContentOptions {
 export interface AgentTelemetryRegistration<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   content?: AgentTelemetryContentOptions
   exporter: AgentTelemetry<TRuntimeConfig>
+  /** Export throttled snapshots while the invocation is still running. */
+  live?: boolean
 }
 
 export interface AgentCapabilityTelemetryContext {
