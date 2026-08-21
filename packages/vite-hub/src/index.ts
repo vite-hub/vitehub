@@ -10,7 +10,7 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubDb } from "@vite-hub/database/vite"
-import { hubEmail } from "@vite-hub/email/vite"
+import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
@@ -706,6 +706,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       runtimeEnvImport: "vite-hub/env/server",
     } as unknown as EmailVitePluginOptions))
   }
+  else plugins.push(hubEmailOptionalPeerResolver())
   if (options.kv) {
     plugins.push(hubKv(presetKVOptions || undefined))
   }
@@ -731,6 +732,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.schedule) {
     plugins.push(hubSchedule({
+      ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       importBase: `${generatedImportBase}/schedule`,
       providerImportAliases,
