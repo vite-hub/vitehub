@@ -2409,7 +2409,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         if (mergedDelivery) await settleChannelDeliveryInvocation(mergedDelivery, status, status)
       }
       const handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
-      clearInterval(heartbeat)
+      const handoffHeartbeat = setInterval(() => {
+        void resolved.state.extendLock(handoffLock, ttlMs)
+      }, Math.max(1, Math.floor(ttlMs / 3)))
       type DurableSteerQueueEntry = { message?: { deliveryIds?: string[], input?: AgentRunInput, resolvedInvoker?: boolean, run?: AgentRunMetadata } }
       let queued: DurableSteerQueueEntry | null = null
       try {
@@ -2465,6 +2467,8 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         throw error
       }
       finally {
+        clearInterval(heartbeat)
+        clearInterval(handoffHeartbeat)
         await resolved.state.releaseLock(handoffLock).catch(() => undefined)
       }
     }
@@ -3613,8 +3617,11 @@ async function handleChatSdkMessage(
       const durableTyping = typing || startChatTypingRefresh(thread, context)
       typing = undefined
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
-      const steerStartHeartbeat = steerLock
-        ? setInterval(() => void state.state.extendLock(steerLock, steerTtlMs), Math.max(1, Math.floor(steerTtlMs / 3)))
+      const steerStartLocks = [steerLock, steerHandoffLock].filter((lock): lock is Lock => lock != null)
+      const steerStartHeartbeat = steerStartLocks.length
+        ? setInterval(() => {
+            for (const lock of steerStartLocks) void state.state.extendLock(lock, steerTtlMs)
+          }, Math.max(1, Math.floor(steerTtlMs / 3)))
         : undefined
       try {
         await runAgent(agent as never, runContext as never, workflowInput as never)
@@ -3626,10 +3633,23 @@ async function handleChatSdkMessage(
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
         if (reclaimedMessage?.input && steerQueue) {
+          const newer = await state.state.dequeue(steerQueue) as { message?: typeof reclaimedMessage } | null
+          const newerBinding = newer?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
+          const newerDeliveryId = isRecord(newerBinding) && typeof newerBinding.deliveryId === "string" ? newerBinding.deliveryId : undefined
           await state.state.enqueue(steerQueue, {
             enqueuedAt: Date.now(),
             expiresAt: Number.MAX_SAFE_INTEGER,
-            message: reclaimedMessage,
+            message: {
+              ...reclaimedMessage,
+              deliveryIds: [
+                ...reclaimedMessage.deliveryIds ?? [],
+                ...newer?.message?.deliveryIds ?? [],
+                ...(newerDeliveryId ? [newerDeliveryId] : []),
+              ],
+              input: mergeDurableSteerInput(reclaimedMessage.input, newer?.message?.input ?? reclaimedMessage.input),
+              resolvedInvoker: newer?.message?.resolvedInvoker ?? reclaimedMessage.resolvedInvoker,
+              run: newer?.message?.run ?? reclaimedMessage.run,
+            },
           } as never, 1).catch(() => undefined)
         }
         if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)

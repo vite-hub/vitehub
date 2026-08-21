@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 
-import type { AgentMessageDeliveryKind } from "../src/index.ts"
+import type { AgentMessageDeliveryKind, AgentRunInput } from "../src/index.ts"
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
@@ -10387,11 +10387,15 @@ describe("server helpers", () => {
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-workflow-state-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
-    let workflowPayload: { input?: { timeout?: number } } | undefined
-    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: typeof workflowPayload }>) => {
-      workflowPayload = params
+    let rejectReplacement!: (error: Error) => void
+    const replacement = new Promise<never>((_resolve, reject) => { rejectReplacement = reject })
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params ?? {})
+      if (createBatch.mock.calls.length === 2 || createBatch.mock.calls.length === 3) await replacement
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const run = vi.fn(() => "internal output")
@@ -10421,7 +10425,7 @@ describe("server helpers", () => {
 
       expect(response.status).toBe(200)
       expect(createBatch).toHaveBeenCalledOnce()
-      expect(workflowPayload?.input?.timeout).toBeUndefined()
+      expect(workflowPayloads[0]?.input?.timeout).toBeUndefined()
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
       expect(run).not.toHaveBeenCalled()
       await Promise.all(waitUntilTasks)
@@ -10431,6 +10435,38 @@ describe("server helpers", () => {
         waitUntil: task => waitUntilTasks.push(task),
       })).resolves.toMatchObject({ status: 200 })
       expect(createBatch).toHaveBeenCalledOnce()
+
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      const handoffKey = acquireLock.mock.calls.find(([key]) => key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      expect(handoffKey).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+      const replacementHandler = handler(chatWebhookRequest(91_108), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } } },
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
+      await state.forceReleaseLock(handoffKey!)
+      const newerInput = workflowPayloads[0]?.input
+      expect(newerInput?.messages?.[0]).toBeDefined()
+      await state.enqueue(`${ownershipKey}:queue`, {
+        enqueuedAt: Date.now(),
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        message: {
+          input: { ...newerInput, messages: [{ ...newerInput!.messages![0]!, id: "91109" }] },
+          resolvedInvoker: true,
+        },
+      } as never, 1)
+      rejectReplacement(new Error("Workflow handoff failed"))
+      await expect(replacementHandler).rejects.toThrow("Workflow provider operation failed")
+
+      await handler(chatWebhookRequest(91_110), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } } },
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+      expect(workflowPayloads.at(-1)?.input?.messages?.map(message => message.id)).toEqual(["91107", "91109", "91110"])
     }
     finally {
       resetWorkflowRuntime()
