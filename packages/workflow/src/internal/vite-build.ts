@@ -11,6 +11,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import { transformSync } from "esbuild"
 import type { Plugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
@@ -164,7 +165,13 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
       return
     }
     const source = readFileSync(file, "utf8")
-    if (/(?:^|[{};])\s*["']use workflow["'];?/.test(source)) {
+    const parsedSource = transformSync(source, {
+      format: "esm",
+      legalComments: "none",
+      loader: /\.[cm]?[jt]sx$/.test(file) ? "tsx" : "ts",
+      minifySyntax: true,
+    }).code
+    if (/^\s*["']use workflow["'];?/m.test(parsedSource)) {
       const colocated = definitionDirs.some((definitionDir) => {
         const path = relative(definitionDir, file)
         return !path.startsWith("..") && !isAbsolute(path)
