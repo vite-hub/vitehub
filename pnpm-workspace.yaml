@@ -1,4 +1,3 @@
 patchedDependencies:
-  '@t3tools/provider-runtime@0.0.33': patches/@t3tools__provider-runtime@0.0.33.patch
   '@vite-hub/agent@0.0.1': patches/@vite-hub__agent@0.0.1.patch
   '@vite-hub/workspace': patches/@vite-hub__workspace.patch

@@ -29,6 +29,7 @@ const capabilities = [title({
       content: { inputs: true, instructions: true, outputs: true },
       endpoint: consoleClient.endpoint('/api/otlp/v1/traces'),
       headers: consoleClient.headers,
+      live: true,
       resource: { 'service.namespace': 'vitehub' },
     })]
   : [])] as const
