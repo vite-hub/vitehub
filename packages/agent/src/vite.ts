@@ -750,6 +750,24 @@ function routeUsesParam(route: false | string | undefined, param: string): boole
   return agentRouteUsesParam(route, param)
 }
 
+function agentRoutesOverlap(left: string, right: string): boolean {
+  const leftSegments = normalizeAgentRoute(left).split("/")
+  const rightSegments = normalizeAgentRoute(right).split("/")
+  return leftSegments.length === rightSegments.length && leftSegments.every((segment, index) => {
+    const other = rightSegments[index]!
+    return segment === other || segment.startsWith(":") || other.startsWith(":")
+  })
+}
+
+function validateInspectionRoute(routes: ResolvedAgentModuleOptions["routes"]): void {
+  if (!routes.inspection) return
+  const conflictingRoute = [defaultAgentChatRoute, routes.webhooks, routes.discordGateway]
+    .find(route => route && agentRoutesOverlap(routes.inspection as string, route))
+  if (conflictingRoute) {
+    throw new TypeError(`[vitehub] Agent inspection route conflicts with the generated route ${JSON.stringify(conflictingRoute)}.`)
+  }
+}
+
 function generatedWebhookRoute(route: false | string | undefined): string {
   return route ? normalizeNitroRoute(route) : ""
 }
@@ -2438,6 +2456,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
+    if (normalized) validateInspectionRoute(normalized.routes)
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
     const schedule = hasScheduleVitePlugin(config)
     const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)

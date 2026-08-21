@@ -90,6 +90,7 @@ async function createDeploymentRuntimeFixture(
   adapter: "deno" | "netlify" | "nitro" = "nitro",
   supportName = "support",
   inspectionRoute: true | string = true,
+  discordGatewayRoute?: true | string,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -161,7 +162,7 @@ async function createDeploymentRuntimeFixture(
             url: "file:catalog.sqlite",
           },
         },
-        routes: { inspection: inspectionRoute },
+        routes: { discordGateway: discordGatewayRoute, inspection: inspectionRoute },
         ...(adapter === "deno" ? { runtime: "deno" } : {}),
       }),
       {
@@ -361,6 +362,27 @@ describe("generated Agent deployment catalog", () => {
       .rejects.toThrow("Multi-Agent inspection routes require an agent route parameter.")
 
     runtime = await createDeploymentRuntimeFixture("nitro", "support", "/internal/agents/:agent/inspection")
+  })
+
+  it("rejects inspection routes that overlap generated routes", async () => {
+    await runtime!.close()
+    runtime = undefined
+
+    for (const route of [
+      "/api/_vitehub/agents/[agent]/chat",
+      "/api/_vitehub/agents/[agent]/webhooks/custom",
+    ]) {
+      await expect(createDeploymentRuntimeFixture("nitro", "support", route))
+        .rejects.toThrow("Agent inspection route conflicts with the generated route")
+    }
+    await expect(createDeploymentRuntimeFixture(
+      "nitro",
+      "support",
+      "/api/_vitehub/agents/[agent]/discord/gateway",
+      true,
+    )).rejects.toThrow("Agent inspection route conflicts with the generated route")
+
+    runtime = await createDeploymentRuntimeFixture()
   })
 
   it("passes the configured state adapter and waitUntil to route handlers", async () => {
