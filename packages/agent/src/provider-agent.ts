@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
@@ -62,6 +62,7 @@ export interface ProviderAgentAdapterOptions<TRuntimeConfig extends AgentRuntime
 
 interface GeneratedProviderFile {
   content?: Uint8Array
+  directories: string[]
   existed: boolean
   link?: string
   mode?: number
@@ -70,11 +71,13 @@ interface GeneratedProviderFile {
 
 async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
   let parent = root
+  const directories: string[] = []
   for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
     parent = join(parent, segment)
     const parentEntry = await lstat(parent).catch(() => undefined)
     if (parentEntry?.isSymbolicLink()) throw new Error(`[vitehub] Generated provider file parent must not be a symbolic link: ${parent}`)
     if (parentEntry && !parentEntry.isDirectory()) throw new Error(`[vitehub] Generated provider file parent must be a directory: ${parent}`)
+    if (!parentEntry) directories.push(parent)
   }
   const entry = await lstat(path).catch(() => undefined)
   if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
@@ -82,6 +85,7 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   }
   const generated = {
     content: entry?.isFile() ? await readFile(path) : undefined,
+    directories,
     existed: entry !== undefined,
     link: entry?.isSymbolicLink() ? await readlink(path) : undefined,
     mode: entry?.isFile() ? entry.mode : undefined,
@@ -105,6 +109,12 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
   else if (generated.existed) {
     await writeFile(generated.path, generated.content!)
     if (generated.mode !== undefined) await chmod(generated.path, generated.mode)
+  }
+  for (const directory of generated.directories.reverse()) {
+    await rmdir(directory).catch((error) => {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
+    })
   }
 }
 

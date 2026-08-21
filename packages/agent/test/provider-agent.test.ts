@@ -813,6 +813,8 @@ describe("Provider Agent Driver", () => {
       commit: vi.fn(async () => undefined),
       diff: vi.fn(async () => {
         await expect(access(`${root}/skills/review/SKILL.md`)).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(access(`${root}/skills/review`)).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(access(`${root}/skills`)).rejects.toMatchObject({ code: "ENOENT" })
         return { entries: [] }
       }),
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
