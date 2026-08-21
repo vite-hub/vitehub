@@ -164,7 +164,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
       return
     }
     const source = readFileSync(file, "utf8")
-    if (/^\s*["']use workflow["'];?/m.test(source)) {
+    if (/(?:^|[{};])\s*["']use workflow["'];?/.test(source)) {
       const colocated = definitionDirs.some((definitionDir) => {
         const path = relative(definitionDir, file)
         return !path.startsWith("..") && !isAbsolute(path)
