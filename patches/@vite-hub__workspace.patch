@@ -1,0 +1,32 @@
+diff --git a/dist/host-BJ0osb-7.js b/dist/host-BJ0osb-7.js
+--- a/dist/host-BJ0osb-7.js
++++ b/dist/host-BJ0osb-7.js
+@@ -171,7 +171,7 @@
+ }
+ function toWorkspaceEntry(root, entry) {
+ 	return {
+-		metadata: entry.type === "symlink" ? { gitMode: "120000" } : void 0,
++		metadata: entry.type === "symlink" ? { gitMode: "120000" } : entry.type === "file" && entry.executable !== void 0 ? { gitMode: entry.executable ? "100755" : "100644" } : void 0,
+ 		path: fromHostPath(root, entry.path),
+ 		size: entry.size,
+ 		type: entry.type === "directory" ? "directory" : "file"
+@@ -212,7 +212,7 @@
+ async function listHostEntries(host, root, path = "", recursive = false, include, includeGit = false) {
+ 	await assertHostWorkspaceRoot(host, root);
+ 	return (await mapWithConcurrency((await host.files.list(toHostPath(root, path), { recursive })).map((entry) => toWorkspaceEntry(root, entry)).filter((entry) => !include || include(entry)), hostInspectionConcurrency, async (workspaceEntry) => {
+-		if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry;
++		if (workspaceEntry.type !== "file" || workspaceEntry.metadata?.gitMode) return workspaceEntry;
+ 		return (await host.exec("test", ["-x", workspaceEntry.path], { cwd: root })).code === 0 ? {
+ 			...workspaceEntry,
+ 			metadata: {
+diff --git a/dist/types-Y18g7o0_.d.ts b/dist/types-Y18g7o0_.d.ts
+--- a/dist/types-Y18g7o0_.d.ts
++++ b/dist/types-Y18g7o0_.d.ts
+@@ -125,6 +125,7 @@
+   };
+ }
+ interface WorkspaceSessionHostFileEntry {
++  executable?: boolean;
+   path: string;
+   size?: number;
+   type: "directory" | "file" | "symlink";

@@ -1,0 +1,19 @@
+diff --git a/dist/provider-agent-DX_33LrM.js b/dist/provider-agent-DX_33LrM.js
+index ec86ba0c82a39dc0c250f40ac5fbb7d50fe9bd3b..242d9112cf01dfb71ec98f756f98b5dcef0984e3 100644
+--- a/dist/provider-agent-DX_33LrM.js
++++ b/dist/provider-agent-DX_33LrM.js
+@@ -322,9 +322,13 @@ function localWorkspaceHost() {
+ 					for (const entry of await readdir(directory, { withFileTypes: true })) {
+ 						const target = join(directory, entry.name);
+ 						const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file";
++						const stats = type === "file" ? await lstat(target) : void 0;
+ 						entries.push({
+ 							path: target,
+-							...type === "file" ? { size: (await lstat(target)).size } : {},
++							...stats ? {
++								executable: Boolean(stats.mode & 73),
++								size: stats.size
++							} : {},
+ 							type
+ 						});
+ 						if (options?.recursive && type === "directory") await visit(target);
