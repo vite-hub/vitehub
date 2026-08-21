@@ -429,7 +429,9 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     serverRootDir: roots.projectRoot,
   })
   const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options)
-  const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string" ? options.nitro.preset : ""
+  const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string"
+    ? options.nitro.preset
+    : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING || ""
   const vercelDefinitions = options.command === "build" && options.providerOutput === "standalone" && nitroPreset.startsWith("vercel")
     ? definitions.filter(definition => definition.runtimeOnly !== true)
     : []
@@ -597,7 +599,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           ...workflow?.bundleAlias,
         },
         ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
-        clientOutDir: resolved.build.outDir,
+        clientOutDir: resolve(resolved.root, resolved.build.outDir),
         definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
         rootDir: projectRoot ?? resolved.root,
         runtimeImport: internalOptions.runtimeImport,

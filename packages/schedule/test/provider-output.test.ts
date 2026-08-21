@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
 import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
@@ -33,6 +33,31 @@ afterAll(async () => {
 })
 
 describe("schedule provider output", () => {
+  it("serializes Schedule output with other provider output writers", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-lock-")
+    const configFile = join(rootDir, ".vercel", "output", "config.json")
+    let release!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>(resolve => { markStarted = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const owner = withProviderDeploymentOutputLock(rootDir, async () => {
+      markStarted()
+      await gate
+    })
+    await started
+
+    const generation = generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(existsSync(configFile)).toBe(false)
+
+    release()
+    await Promise.all([owner, generation])
+    expect(JSON.parse(await readFile(configFile, "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 0 * * *",
+    }])
+  })
+
   it("keeps esbuild external in built provider output code", async () => {
     const distDir = join(packageRoot, "dist")
     const outputFiles = (await readdir(distDir)).filter(file => file.endsWith(".js"))

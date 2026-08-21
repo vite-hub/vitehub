@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
@@ -580,7 +580,7 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
   ])
 }
 
-export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(options.rootDir, productName)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
@@ -620,4 +620,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     rootDir: options.rootDir,
   })
   return artifacts
+}
+
+export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+  return await withProviderDeploymentOutputLock(options.rootDir, async () => await generateProviderOutputsWithinLock(options))
 }

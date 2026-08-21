@@ -372,12 +372,22 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     routes: [...(workflowConfig.routes ?? []), ...viteHubRoutes],
   }, null, 2)}\n`, "utf8")
   const generatedFiles = await collectVercelNativeWorkflowFiles(workflowRoot)
+  const ownedFiles = Object.fromEntries(Object.entries(generatedFiles)
+    .filter(([file, digest]) => previousFiles[file] !== digest || previousFiles[file] === previousOwnership?.files[file]))
+  const routeTargetsOwnedFunction = (route: unknown) => {
+    if (!route || typeof route !== "object") return false
+    const target = ["dest", "src"]
+      .map(key => (route as Record<string, unknown>)[key])
+      .find(value => typeof value === "string" && value.includes("/.well-known/workflow/v1/"))
+    if (typeof target !== "string") return false
+    const functionName = target.match(/\/\.well-known\/workflow\/v1\/([^/?]+)/)?.[1]
+    return Boolean(functionName && Object.keys(ownedFiles).some(file => file.startsWith(`v1/${functionName}.func/`)))
+  }
   const ownership: VercelNativeWorkflowOwnership = {
-    files: Object.fromEntries(Object.entries(generatedFiles)
-      .filter(([file, digest]) => previousFiles[file] !== digest || previousFiles[file] === previousOwnership?.files[file])),
-    routes: (workflowConfig.routes ?? [])
+    files: ownedFiles,
+    routes: [...new Map([...(workflowConfig.routes ?? []), ...preservedRoutes].map(route => [JSON.stringify(route), route])).values()]
       .filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
-      .filter(route => !externalWorkflowRoutes.has(JSON.stringify(route)))
+      .filter(route => !externalWorkflowRoutes.has(JSON.stringify(route)) || routeTargetsOwnedFunction(route))
       .map(route => JSON.stringify(route)),
     version: 1,
   }

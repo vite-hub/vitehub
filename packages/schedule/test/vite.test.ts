@@ -628,6 +628,26 @@ describe("Vite schedule integration", () => {
     expect(userConfig).not.toHaveProperty("nitro.plugins")
   })
 
+  it.each(["NITRO_PRESET", "SERVER_PRESET"])("adds standalone schedules to Vercel Nitro config selected by %s", async (environmentVariable) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-env-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
+    vi.stubEnv(environmentVariable, "vercel")
+    try {
+      const nitro = await createScheduleNitroConfig({
+        command: "build",
+        providerOutput: "standalone",
+        root,
+      })
+      expect(nitro).toMatchObject({
+        vercel: { config: { crons: [{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" }] } },
+      })
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("can force Nitro plugin output for suffix schedules", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-force-nitro-"))
     await mkdir(join(root, "src"), { recursive: true })
