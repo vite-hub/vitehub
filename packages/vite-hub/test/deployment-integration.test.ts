@@ -119,6 +119,30 @@ describe("built-in deployment preset integration", () => {
     }
   })
 
+  it("declares an auto-provisionable KV binding in Cloudflare Nitro output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-kv-binding-"))
+    try {
+      const config = await resolveConfig({
+        root,
+        plugins: [vitehub({
+          blob: false,
+          env: false,
+          kv: true,
+          preset: "cloudflare",
+          queue: false,
+          rateLimit: false,
+        })],
+      }, "build")
+
+      expect((config as typeof config & {
+        nitro?: { cloudflare?: { wrangler?: { kv_namespaces?: Array<{ binding: string, id?: string }> } } }
+      }).nitro?.cloudflare?.wrangler?.kv_namespaces).toEqual([{ binding: "KV" }])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("declares exact required Server Env secrets in Cloudflare output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-required-secrets-"))
     try {

@@ -113,4 +113,26 @@ describe("hubKv", () => {
     expect(code).not.toContain(`from "unstorage/drivers/cloudflare-kv-binding"`)
     expect(code).toContain("cloudflare-kv-binding")
   })
+
+  it("contributes ID-less Cloudflare KV bindings to Nitro-owned output", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const config = {
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            observability: { enabled: true },
+          },
+        },
+      },
+    }
+    const configure = plugin.config as unknown as (value: typeof config) => void | Promise<void>
+
+    await configure(config)
+
+    expect(config.nitro.cloudflare.wrangler).toEqual({
+      kv_namespaces: [{ binding: "KV" }],
+      observability: { enabled: true },
+    })
+  })
 })
