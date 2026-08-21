@@ -1,6 +1,6 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
-import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "./access-runtime.ts"
+import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, workspaceOverrideSymbol } from "./access-runtime.ts"
 import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
@@ -771,6 +771,9 @@ async function applyCapabilityWorkspaceContributions<
   assertSelectedWorkspaceSourceGrants(selectedWorkspaceScope, [definition, declaredWorkspaceDefinition])
   if (!registries.length) return
   assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
+  if (isTrustedSourceFreeInspection(context.context)) {
+    return { definition, registries, workspace: context.workspace }
+  }
   const resolvedDefinition = await workspaceRuntime.resolveWorkspaceSources(definition, {
     invocation: {
       context: agentInvocationSourceContext(context.context),

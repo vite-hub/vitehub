@@ -966,6 +966,19 @@ describe("agent Vite plugin", () => {
     ])
   })
 
+  it("registers an opt-in custom inspection route with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { inspection: "/internal/agents/[agent]/status" } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+      : undefined
+
+    expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
+      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      route: "/internal/agents/:agent/status",
+    })
+  })
+
   it("does not register agent routes without hosted Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
@@ -1527,6 +1540,7 @@ describe("agent Vite plugin", () => {
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
+      expect(webhookRoute).toContain('import { createAgentWebhookRequest, createChannelChatRouteHandler')
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
@@ -1651,14 +1665,16 @@ export default defineAgent({
 
       for (const stateProvider of ["cloudflare", "libsql"] as const) {
         const plugin = hubAgent(stateProvider === "libsql"
-          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } }
-          : undefined)
+          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } }, routes: { inspection: true } }
+          : { routes: { inspection: true } })
         if (typeof plugin.configResolved === "function") {
           await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
         }
 
         const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
         expect(generatedRoute).not.toContain("@ts-nocheck")
+        expect(generatedRoute).toContain("abortSignal: request.signal")
+        expect(generatedRoute).toContain("runtime: runtimeFromEvent(event)")
         if (stateProvider === "libsql") {
           expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
         }

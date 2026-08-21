@@ -1,4 +1,4 @@
-import { normalizeWorkspaceSourcesMetadata, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { normalizeWorkspaceSourcesMetadata, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -6,6 +6,10 @@ import {
   type ExecutionAuthority,
 } from "@vite-hub/runtime"
 
+import {
+  hasTrustedWorkspaceAccessScope,
+  markTrustedSourceFreeInspection,
+} from "./access-runtime.ts"
 import {
   capabilityWorkspaceSources,
   normalizeCapabilities,
@@ -20,6 +24,7 @@ import {
   resolveAgentInvoker,
 } from "./invoker.ts"
 import {
+  collectStaticInstructionCoverage,
   createInstructionCoverage,
   composeInstructionDocument,
   resolveInstructionImports,
@@ -35,6 +40,7 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityMode,
   AgentDefinition,
+  AgentInspectionCapabilityMetadata,
   AgentInspectionConfigMetadata,
   AgentInspectionConfigValue,
   AgentInspectionDriverMetadata,
@@ -45,6 +51,7 @@ import type {
   AgentInspectionModelMetadata,
   AgentInspectionToolDefinition,
   AgentInspectionWarning,
+  AgentInspectionValue,
   AgentDriver,
   AgentDriverKind,
   AgentInvocationContextStore,
@@ -147,13 +154,14 @@ export interface AgentInspectionMetadataResolutionOptions<
   Name extends WorkspaceName = WorkspaceName,
 > extends WorkspaceAgentDefaults<Name> {
   input?: AgentRunInput
+  resolveSources?: boolean
   runtime?: Partial<ResolvedAgentRuntimeContext<TRuntimeConfig>>
 }
 
 export interface AgentInspectionSourceMaterializationOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name> {
+> extends Omit<AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>, "resolveSources"> {
   path?: string
   source?: string
   sources?: string[]
@@ -622,6 +630,64 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
     : undefined
 }
 
+function secretInspectionMetadataKey(key: string): boolean {
+  const normalized = key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|cookies?|credentials?|passwords?|private[-_]?key|secrets?|sessions?|signing[-_]?key|tokens?)(?:$|[-_])/i
+    .test(normalized)
+}
+
+function inspectionMetadataValue(
+  value: unknown,
+  key = "",
+  depth = 0,
+  seen = new WeakSet<object>(),
+): AgentInspectionValue | undefined {
+  if (secretInspectionMetadataKey(key)) return "[redacted]"
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined
+  if (!value || typeof value !== "object" || depth >= 8 || seen.has(value)) return
+
+  seen.add(value)
+  const resolved = Array.isArray(value)
+    ? value.flatMap((item) => {
+        const entry = inspectionMetadataValue(item, "", depth + 1, seen)
+        return entry === undefined ? [] : [entry]
+      })
+    : Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null
+      ? Object.fromEntries(Object.entries(value)
+          .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+          .flatMap(([entryKey, item]) => {
+            const entry = inspectionMetadataValue(item, entryKey, depth + 1, seen)
+            return entry === undefined ? [] : [[entryKey, entry]]
+          }))
+      : undefined
+  seen.delete(value)
+  if (!Array.isArray(resolved) && resolved && Object.keys(resolved).length === 0) return
+  return resolved
+}
+
+function capabilityInspectionMetadata(
+  capabilities: readonly AgentCapabilityDefinition[],
+): AgentInspectionCapabilityMetadata[] {
+  return normalizeCapabilities(capabilities)
+    .flatMap((capability) => {
+      const metadata = inspectionMetadataValue(capability.metadata)
+      return isRecord(metadata) && Object.keys(metadata).length
+        ? [{ id: capability.id, metadata: metadata as Record<string, AgentInspectionValue> }]
+        : []
+    })
+    .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+}
+
+function capabilityInspectionMetadataProjection(
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+): Pick<AgentInspectionMetadata, "capabilities"> | Record<string, never> {
+  const metadata = capabilityInspectionMetadata(capabilities || [])
+  return metadata.length ? { capabilities: metadata } : {}
+}
+
 function providerMetadata(driver: { model?: string, permissions?: AgentInspectionProviderMetadata["permissions"], provider: string }): AgentInspectionProviderMetadata {
   return {
     ...(driver.model ? { model: driver.model } : {}),
@@ -771,8 +837,20 @@ function workspaceMetadataFiles<
   Name extends WorkspaceName,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  context?: AgentInvocationContextStore,
 ): AgentInspectionFileTreeItem[] {
-  const sources = normalizedSourcesFromOptions(options)
+  const access = context && hasTrustedWorkspaceAccessScope(context)
+    ? context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], sources?: readonly string[] } }>("access")
+    : undefined
+  const scope = access?.workspaceScope
+  const pathIntersects = (left: string, right: string) => !left || !right || left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)
+  const sources = normalizedSourcesFromOptions(options).filter(source => {
+    if (!scope || scope.all || scope.sources?.includes(source.key)) return true
+    const grantPaths = source.requestOnly || source.probeKeys?.length || source.mountPath
+      ? workspaceSourceGrantPaths(source.key, source)
+      : []
+    return scope.paths?.some(path => grantPaths.some(grantPath => pathIntersects(path, grantPath)))
+  })
   return sources.sort((left, right) => left.key.localeCompare(right.key)).map((source) => {
     const materialize = sourceMaterialize(source)
     const mountPath = sourceMountPath(source)
@@ -1037,6 +1115,7 @@ function workspaceMetadataInstructions<
   Name extends WorkspaceName,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  resolveLocalInstructions = true,
 ): string[] {
   const configuredInstructions = modelDriverInstructions(options)
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
@@ -1046,7 +1125,7 @@ function workspaceMetadataInstructions<
   const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
     if (typeof part === "function") {
-      const localInstructions = readLocalWorkspaceInstructions(options)
+      const localInstructions = resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined
       if (localInstructions) return [localInstructions]
       return ["Dynamic system instructions resolver configured."]
     }
@@ -1055,6 +1134,34 @@ function workspaceMetadataInstructions<
   if (defaultInstructions) instructions.unshift(defaultInstructions)
   const content = instructions.join("\n\n").trim()
   return content ? [content] : []
+}
+
+async function staticWorkspaceMetadataInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  definition: WorkspaceDefinition,
+  context: AgentInvocationContextStore,
+): Promise<{ instructions: string[], warnings: AgentInspectionWarning[] }> {
+  const instructions = workspaceMetadataInstructions(options, false)
+  const coverage = await collectStaticInstructionCoverage(instructions.join("\n\n"))
+  const configuredInstructions = modelDriverInstructions(options)
+  const hasDynamicInstructions = (Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions])
+    .some(instruction => typeof instruction === "function")
+  const visibleSources = new Set(workspaceMetadataFiles(options, context).map(file => file.source).filter(Boolean))
+  const visibleDefinition = definition.sources
+    ? {
+        ...definition,
+        sources: Object.fromEntries(Object.entries(definition.sources).filter(([key]) => visibleSources.has(key))),
+      }
+    : definition
+  return {
+    instructions,
+    warnings: hasDynamicInstructions
+      ? []
+      : instructionCoverageWarnings(coverage, visibleDefinition, staticAgentCapabilities(options.capabilities), workspaceAgentDriverKind(options)),
+  }
 }
 
 function readLocalWorkspaceInstructions<
@@ -1078,6 +1185,13 @@ function readColocatedAgentInstructionsRaw<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
+  const embedded = workspaceDefinitionFromOptions(options).sources?.[colocatedAgentInstructionsSourceKey] as {
+    content?: unknown
+    source?: { content?: unknown }
+  } | undefined
+  const embeddedContent = embedded?.content ?? embedded?.source?.content
+  if (typeof embeddedContent === "string" && embeddedContent.trim()) return embeddedContent.trim()
+
   const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
@@ -1270,6 +1384,10 @@ async function createInspectionMetadataWorkspace<
   const workspace = useWorkspace(workspaceName)
   const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults, defaultsOverride.runtime?.agentIdentity)
 
+  if (defaultsOverride.resolveSources === false) {
+    return { options, workspace }
+  }
+
   if (hasAccessCapability(selection.capabilities)) {
     return { options, workspace }
   }
@@ -1337,6 +1455,7 @@ async function resolveMetadataCapabilitySelection<
   const capabilities = await resolveAgentCapabilityDefinitions(settings.capabilities, {
     ...agentInvocationCallbackContextValues(invocationContext),
     ...callbackContext,
+    abortSignal: input.abortSignal,
     actor: invoker,
     context: invocationContext,
     driver: { kind: driverKind },
@@ -1366,6 +1485,9 @@ async function resolveWorkspaceMetadataCapabilityContext<
 ) {
   const { capabilities: capabilityDefinitions, driverKind, input, invocationContext, invoker, runtime } = selection
   const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution, resolution.runtime?.agentIdentity)
+  if (resolution.resolveSources === false) {
+    markTrustedSourceFreeInspection(invocationContext)
+  }
   const capabilities = await resolveAgentCapabilities({
     capabilities: capabilityDefinitions,
     hooks: options.hooks as never,
@@ -1387,6 +1509,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
     metadataContext: {
       ...agentInvocationCallbackContextValues(invocationContext),
       ...agentCallbackContext(runtime),
+      abortSignal: input.abortSignal,
       actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
@@ -1435,14 +1558,16 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
   const settings = agentSettings(definition)
   if (!settings) {
     const definedChannelInstructions = inspectMessageChannelInstructions(definition.channels)
+    const capabilities = capabilityInspectionMetadataProjection(definition.capabilities)
     if (!definedChannelInstructions.length) {
-      return { files: [], ...agentInspectionMetadata(definition as never), tools: [] }
+      return { ...capabilities, files: [], ...agentInspectionMetadata(definition as never), tools: [] }
     }
     const adapter = await definition.resolve(createInspectionMetadataRuntime(resolution))
     const channelInstructions = consumesMessageChannelInstructions(adapter)
       ? definedChannelInstructions
       : []
     return {
+      ...capabilities,
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition as never),
@@ -1469,6 +1594,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     const context = {
       ...agentInvocationCallbackContextValues(selection.invocationContext),
       ...agentCallbackContext(selection.runtime),
+      abortSignal: selection.input.abortSignal,
       actor: selection.invoker,
       context: selection.invocationContext,
       driver: { kind: selection.driverKind },
@@ -1486,6 +1612,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       ...(uiMessageStream ? { uiMessageStream } : {}),
     }
     return {
+      ...capabilityInspectionMetadataProjection(selection.capabilities),
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition as never),
@@ -1504,7 +1631,9 @@ export function createAgentInspectionMetadata<
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   const channelInstructions = agentChannelMetadataInstructions(definition)
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
+    const capabilities = agentSettings(definition)?.capabilities || definition.capabilities
     return {
+      ...capabilityInspectionMetadataProjection(Array.isArray(capabilities) ? capabilities : undefined),
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition),
@@ -1514,6 +1643,7 @@ export function createAgentInspectionMetadata<
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   return {
+    ...capabilityInspectionMetadataProjection(Array.isArray(options.capabilities) ? options.capabilities : undefined),
     files: workspaceMetadataFiles(options),
     instructions: [...workspaceMetadataInstructions(options), ...channelInstructions],
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
@@ -1554,23 +1684,34 @@ export async function resolveAgentInspectionMetadata<
       workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
       capabilityContext.metadataContext,
     )
-    const instructionMetadata = await resolveWorkspaceMetadataInstructions(
-      capabilityContext.options as never,
-      capabilityContext.workspace as never,
-      defaultsOverride,
-      capabilityContext.definition,
-      capabilityContext.metadataContext.context,
-    )
+    const instructionMetadata = defaultsOverride.resolveSources === false
+      ? await staticWorkspaceMetadataInstructions(
+          capabilityContext.options as never,
+          capabilityContext.definition,
+          capabilityContext.metadataContext.context,
+        )
+      : await resolveWorkspaceMetadataInstructions(
+          capabilityContext.options as never,
+          capabilityContext.workspace as never,
+          defaultsOverride,
+          capabilityContext.definition,
+          capabilityContext.metadataContext.context,
+        )
 
     return {
-      files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
+      ...capabilityInspectionMetadataProjection(capabilityContext.options.capabilities as AgentCapabilityDefinition[]),
+      files: defaultsOverride.resolveSources === false
+        ? workspaceMetadataFiles(capabilityContext.options as never, capabilityContext.metadataContext.context)
+        : await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,
         ...agentChannelMetadataInstructions(workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>),
       ],
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
-      tools: await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
+      tools: defaultsOverride.resolveSources === false
+        ? workspaceMetadataTools(capabilityContext.options as never)
+        : await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
       ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),
     }
   })
@@ -1588,20 +1729,21 @@ export async function materializeAgentInspectionSourceMetadata<
     return await resolveNonWorkspaceAgentInspectionMetadata(definition, options)
   }
 
+  const resolution = { ...options, resolveSources: true }
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
-  const selection = await resolveMetadataCapabilitySelection(workspaceOptions, options)
+  const selection = await resolveMetadataCapabilitySelection(workspaceOptions, resolution)
   validateAgentCapabilityComposition(selection.capabilities, {
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })
-  const metadataWorkspace = await createInspectionMetadataWorkspace(workspaceDefinition, options, selection)
+  const metadataWorkspace = await createInspectionMetadataWorkspace(workspaceDefinition, resolution, selection)
   if (!metadataWorkspace) {
     return createAgentInspectionMetadata(definition)
   }
   const capabilityContext = await resolveWorkspaceMetadataCapabilityContext(
     metadataWorkspace.options as never,
     metadataWorkspace.workspace as never,
-    options,
+    resolution,
     selection as never,
   )
   return await withMetadataCapabilityCleanup(capabilityContext, async () => {
@@ -1636,6 +1778,7 @@ export async function materializeAgentInspectionSourceMetadata<
     )
 
     return {
+      ...capabilityInspectionMetadataProjection(capabilityContext.options.capabilities as AgentCapabilityDefinition[]),
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,

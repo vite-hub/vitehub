@@ -297,6 +297,7 @@ export type {
   AgentDeliveryArtifactPlacement,
   AgentDefinition,
   AgentDefinitionCliOptions,
+  AgentInspectionCapabilityMetadata,
   AgentInspectionConfigMetadata,
   AgentInspectionConfigValue,
   AgentInspectionDriverMetadata,
@@ -306,6 +307,7 @@ export type {
   AgentInspectionModelExecutionMetadata,
   AgentInspectionModelMetadata,
   AgentInspectionToolDefinition,
+  AgentInspectionValue,
   AgentDriver,
   AgentDriverCapacityOptions,
   AgentDriverCapacityQueueOptions,
@@ -1991,6 +1993,7 @@ async function createAgentInvocationContext<
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
           ...callbackContext,
+          abortSignal: input.abortSignal,
           actor: invoker,
           context: invocationContext,
           driver: { kind: driverKind },

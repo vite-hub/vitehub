@@ -1286,6 +1286,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const fetchAgentInfo = vi.fn(async () => Response.json({
       inspection: {
+        capabilities: [{ id: "runtime", metadata: { status: "ready" } }],
         config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
         files: [],
         instructions: [],
@@ -1307,6 +1308,7 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(0)
     expect(JSON.parse(stdout.output())).toEqual({
+      capabilities: [{ id: "runtime", metadata: { status: "ready" } }],
       config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
       files: [],
       instructions: [],

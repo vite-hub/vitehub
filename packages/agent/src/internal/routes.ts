@@ -1,5 +1,6 @@
 export const defaultAgentChatRoute = "/api/_vitehub/agents/[agent]/chat"
 export const defaultAgentDiscordGatewayRoute = "/api/_vitehub/agents/[agent]/discord/gateway"
+export const defaultAgentInspectionRoute = "/api/_vitehub/agents/[agent]/inspection"
 export const defaultAgentWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
 
 export function normalizeAgentRoute(route: string): string {

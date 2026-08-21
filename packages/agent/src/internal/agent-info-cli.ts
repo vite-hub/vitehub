@@ -172,6 +172,7 @@ function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionM
 
 function agentInfoMetadata(metadata: AgentInspectionMetadata): AgentInspectionMetadata {
   return {
+    ...(metadata.capabilities ? { capabilities: metadata.capabilities } : {}),
     ...(metadata.config ? { config: metadata.config } : {}),
     files: metadata.files || [],
     instructions: metadata.instructions || [],

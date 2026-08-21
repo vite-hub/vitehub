@@ -750,6 +750,24 @@ function routeUsesParam(route: false | string | undefined, param: string): boole
   return agentRouteUsesParam(route, param)
 }
 
+function agentRoutesOverlap(left: string, right: string): boolean {
+  const leftSegments = normalizeAgentRoute(left).split("/")
+  const rightSegments = normalizeAgentRoute(right).split("/")
+  return leftSegments.length === rightSegments.length && leftSegments.every((segment, index) => {
+    const other = rightSegments[index]!
+    return segment === other || segment.startsWith(":") || other.startsWith(":")
+  })
+}
+
+function validateInspectionRoute(routes: ResolvedAgentModuleOptions["routes"]): void {
+  if (!routes.inspection) return
+  const conflictingRoute = [defaultAgentChatRoute, routes.webhooks, routes.discordGateway]
+    .find(route => route && agentRoutesOverlap(routes.inspection as string, route))
+  if (conflictingRoute) {
+    throw new TypeError(`[vitehub] Agent inspection route conflicts with the generated route ${JSON.stringify(conflictingRoute)}.`)
+  }
+}
+
 function generatedWebhookRoute(route: false | string | undefined): string {
   return route ? normalizeNitroRoute(route) : ""
 }
@@ -1514,6 +1532,11 @@ function generatedRuntimeHelpers(): string[] {
     "  const context = runtimeEvent.context?.cloudflare?.context || runtimeEvent.context?._platform?.cloudflare?.context || runtimeEvent.node?.req?.runtime?.cloudflare?.context",
     "  return env && typeof env === 'object' ? { env, ...(context ? { context } : {}) } : undefined",
     "}",
+    "",
+    "function runtimeFromEvent(event: H3Event) {",
+    "  if (cloudflareFromEvent(event)) return 'cloudflare-agents' as const",
+    "  if (typeof process === 'object' && (process.env.VERCEL || process.env.VERCEL_ENV)) return 'vercel' as const",
+    "}",
   ]
 }
 
@@ -1644,6 +1667,7 @@ async function generateAgentDeploymentCatalog(
   options: {
     agentImportBase: string
     channelHandlers?: boolean
+    inspection?: false | string
     typescript?: boolean
     workspaceImportBase: string
     workspaceRuntimeImport?: string
@@ -1651,6 +1675,9 @@ async function generateAgentDeploymentCatalog(
 ): Promise<GeneratedAgentDeploymentCatalog> {
   const channelHandlers = options.channelHandlers !== false
   const typescript = options.typescript === true
+  if (options.inspection && definitions.length > 1 && !routeUsesParam(options.inspection, "agent")) {
+    throw new TypeError("[vitehub] Multi-Agent inspection routes require an agent route parameter.")
+  }
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
@@ -1672,12 +1699,19 @@ async function generateAgentDeploymentCatalog(
   }
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
+  const serverInternalImports = [
+    channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
+    ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute"] : []),
+  ].filter(Boolean).join(", ")
 
   return {
     imports: [
       `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
-      ...(channelHandlers
-        ? [`import { createAgentWebhookRequest, createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
+      ...(options.inspection
+        ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
+        : []),
+      ...(channelHandlers || options.inspection
+        ? [`import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
         : []),
       ...(options.workspaceRuntimeImport ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
       ...hostedWorkspaceRuntime.imports,
@@ -1712,7 +1746,7 @@ async function generateAgentDeploymentCatalog(
       ...(options.workspaceRuntimeImport
         ? [`setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`, ""]
         : []),
-      `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+      `const agents${typescript ? ": Record<string, AgentInput>" : ""} = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
       `const agentIdentities${typescript ? ": Record<string, AgentHostIdentity>" : ""} = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
       ...(channelHandlers
         ? [
@@ -1721,6 +1755,29 @@ async function generateAgentDeploymentCatalog(
           ]
         : []),
       "const agentNames = Object.keys(agents)",
+      ...(options.inspection
+        ? [
+            "",
+            `async function agentInspectionResponse(name${typescript ? ": string | undefined" : ""}, request${typescript ? ": Request" : ""}, runtime${typescript ? ": Partial<ResolvedAgentRuntimeContext>" : ""} = {})${typescript ? ": Promise<Response>" : ""} {`,
+            "  const headers = { 'cache-control': 'private, no-store' }",
+            "  if (request.method !== 'GET') return Response.json({ message: 'Method not allowed.', status: 405 }, { headers, status: 405 })",
+            "  const selectedName = name || (agentNames.length === 1 ? agentNames[0] : undefined)",
+            "  const agent = selectedName ? agents[selectedName] : undefined",
+            "  if (!selectedName || !agent) return Response.json({ message: 'Unknown ViteHub agent.', status: 404 }, { headers, status: 404 })",
+            "  try {",
+            "    const inspection = await resolveAgentInspectionMetadata(agent, {",
+            "      input: { abortSignal: request.signal, context: { invoker: { id: 'inspection', kind: 'inspection' } }, messages: [] },",
+            "      resolveSources: false,",
+            "      runtime: { ...runtime, agentIdentity: agentIdentities[selectedName], request },",
+            "    })",
+            "    return Response.json({ ...inspection, name: selectedName }, { headers })",
+            "  }",
+            "  catch {",
+            "    return Response.json({ message: 'Agent inspection failed.', status: 500 }, { headers, status: 500 })",
+            "  }",
+            "}",
+          ]
+        : []),
     ],
   }
 }
@@ -1728,7 +1785,7 @@ async function generateAgentDeploymentCatalog(
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -1738,6 +1795,7 @@ async function generateAgentWebhookRouteHandler(
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
+    inspection: options.inspectionRoute,
     typescript: true,
     workspaceImportBase,
     workspaceRuntimeImport: subpath(workspaceImportBase, "runtime"),
@@ -1839,12 +1897,25 @@ async function generateAgentWebhookRouteHandler(
         ]
       : []),
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
+    ...(options.inspectionRoute
+      ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.inspectionRoute))})`]
+      : []),
     "",
     "export default defineEventHandler(async (event) => {",
     "  const pathname = getRequestURL(event).pathname",
     "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
+    ...(options.inspectionRoute ? ["  const isInspectionRoute = inspectionRoutePattern.test(pathname)"] : []),
     "  const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
     `  const webhook = ${webhookSelector}`,
+    ...(options.inspectionRoute
+      ? [
+          "  if (isInspectionRoute) {",
+          "    const cloudflare = cloudflareFromEvent(event)",
+          "    const request = createAgentWebhookRequest({ headers: getRequestHeaders(event), method: event.method || 'GET', node: event.node, signal: event.req?.signal, url: getRequestURL(event) })",
+          `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption || ", runtime: runtimeFromEvent(event)"}, waitUntil: waitUntilFromEvent(event) })`,
+          "  }",
+        ]
+      : []),
     "  if (!agent) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
@@ -1865,7 +1936,7 @@ async function generateAgentWebhookRouteHandler(
 async function generateAgentNetlifyFunctionRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { discordGatewayRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -1875,6 +1946,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
+    inspection: options.inspectionRoute,
     workspaceImportBase,
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
@@ -1914,6 +1986,9 @@ async function generateAgentNetlifyFunctionRouteHandler(
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(defaultAgentChatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     `const discordGatewayRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.discordGatewayRoute))})`,
+    ...(options.inspectionRoute
+      ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.inspectionRoute))})`]
+      : []),
     ...(options.libsqlState ? ["let stopWebhookQueues"] : []),
     "",
     "export default async function viteHubAgentNetlifyFunction(request, context) {",
@@ -1921,14 +1996,21 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "  const pathname = new URL(request.url).pathname",
     "  const isChatRoute = chatRoutePattern.test(pathname)",
     "  const isDiscordGatewayRoute = discordGatewayRoutePattern.test(pathname)",
+    ...(options.inspectionRoute ? ["  const isInspectionRoute = inspectionRoutePattern.test(pathname)"] : []),
     "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
     "  const agent = netlifyParam(context, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
     `  const webhook = ${webhookSelector}`,
+    ...(options.inspectionRoute
+      ? [
+          "  const waitUntil = waitUntilFromContext(context)",
+          `  if (isInspectionRoute) return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}event: context, waitUntil${runtimeRouteOption} })`,
+        ]
+      : []),
     "  const handler = agent ? (isDiscordGatewayRoute ? discordGatewayHandlers[agent] : isWebhookRoute ? webhookHandlers[agent] : isChatRoute ? chatHandlers[agent] : undefined) : undefined",
     "  if (!handler) {",
     "    return Response.json({ message: 'Unknown ViteHub agent.', status: 404 }, { status: 404 })",
     "  }",
-    "  const waitUntil = waitUntilFromContext(context)",
+    ...(options.inspectionRoute ? [] : ["  const waitUntil = waitUntilFromContext(context)"]),
     ...(options.libsqlState ? ["  stopWebhookQueues ||= resumeWebhookQueues(waitUntil)"] : []),
     "  if (isDiscordGatewayRoute) {",
     "    const secret = process.env.VITEHUB_DISCORD_GATEWAY_SECRET",
@@ -1955,7 +2037,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
@@ -2121,7 +2203,7 @@ async function writeAgentDiscordGatewayRouteHandler(
 async function generateAgentDenoServer(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -2130,6 +2212,7 @@ async function generateAgentDenoServer(
   const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
+    inspection: options.inspectionRoute,
     typescript: true,
     workspaceImportBase,
     workspaceRuntimeImport: definitions.some(definition => definition.workspace)
@@ -2192,15 +2275,25 @@ async function generateAgentDenoServer(
     "",
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(defaultAgentChatRoute, ["agent"]))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute, ["agent", "webhook"]))})`,
+    ...(options.inspectionRoute
+      ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.inspectionRoute, ["agent"]))})`]
+      : []),
     "",
     "async function handleRequest(request) {",
     "  const pathname = new URL(request.url).pathname",
     "  const chatMatch = chatRoutePattern.exec(pathname)",
+    ...(options.inspectionRoute ? ["  const inspectionMatch = inspectionRoutePattern.exec(pathname)"] : []),
     "  const webhookMatch = webhookRoutePattern.exec(pathname)",
+    ...(options.inspectionRoute ? ["  const isInspectionRoute = Boolean(inspectionMatch)"] : []),
     "  const isWebhookRoute = Boolean(webhookMatch)",
-    "  const groups = (webhookMatch || chatMatch)?.groups || {}",
+    `  const groups = (${options.inspectionRoute ? "inspectionMatch || " : ""}webhookMatch || chatMatch)?.groups || {}`,
     "  const agent = groups.agent ? decodeRouteParam(groups.agent) : (agentNames.length === 1 ? agentNames[0] : undefined)",
     "  const webhook = decodeRouteParam(groups.webhook)",
+    ...(options.inspectionRoute
+      ? [
+          `  if (isInspectionRoute) return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}runtime: 'deno' })`,
+        ]
+      : []),
     "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler || (!chatMatch && !webhookMatch)) return jsonError(404, 'Unknown ViteHub agent route.')",
     `  return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver" : ""} }) : await handler(request, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver" : ""} })`,
@@ -2221,7 +2314,7 @@ async function generateAgentDenoServer(
 
 async function writeAgentDenoServer(
   root: string,
-  options: { libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDenoServer)
@@ -2248,7 +2341,7 @@ async function writeAgentDenoServer(
 
 async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
-  options: { discordGatewayRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
@@ -2274,11 +2367,12 @@ async function writeAgentNetlifyFunctionRouteHandler(
   return handlerPath
 }
 
-function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false | string, webhookRoute?: false | string }): object {
+function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, webhookRoute?: false | string }): object {
   const paths = [
     normalizeNitroRoute(defaultAgentChatRoute),
     options.webhookRoute ? normalizeNitroRoute(options.webhookRoute) : undefined,
     options.discordGatewayRoute ? normalizeNitroRoute(options.discordGatewayRoute) : undefined,
+    options.inspectionRoute ? normalizeNitroRoute(options.inspectionRoute) : undefined,
   ].filter((path): path is string => Boolean(path))
 
   return {
@@ -2297,6 +2391,7 @@ async function writeNetlifyAgentProviderOutput(
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
     discordGatewayRoute: options.routes.discordGateway,
+    inspectionRoute: options.routes.inspection,
     libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options, config),
     webhookRoute: options.routes.webhooks,
   }, serverDirs ?? [join(config.root, "server")])
@@ -2316,6 +2411,7 @@ async function writeNetlifyAgentProviderOutput(
         },
         config: createNetlifyAgentFunctionConfig({
           discordGatewayRoute: options.routes.discordGateway,
+          inspectionRoute: options.routes.inspection,
           webhookRoute: options.routes.webhooks,
         }),
         functionName: netlifyAgentFunctionName,
@@ -2364,6 +2460,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
+    if (normalized) validateInspectionRoute(normalized.routes)
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
     const schedule = hasScheduleVitePlugin(config)
     const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
@@ -2377,6 +2474,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             join(generatedRoot, generatedAgentDenoServer),
             join(config.root, ".vitehub", "schedule", "deno-cron.mjs"),
           ),
+          inspectionRoute: normalized.routes.inspection,
           libsqlState: resolveLibsqlAgentState(normalized, config),
           runtimeCapabilities: standaloneRuntimeCapabilities,
           schedule,
@@ -2391,6 +2489,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await writeAgentWebhookRouteHandler(generatedRoot, {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
+          inspectionRoute: normalized.routes.inspection,
           libsqlState: resolveLibsqlAgentState(normalized, config),
           processDiscordGateway,
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
@@ -2609,6 +2708,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         && getInternalAgentOptions(agent)?.processDiscordGateway,
       )
       const nitroHandlers = [
+        ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.inspection
+          ? [{
+              handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
+              route: normalizeNitroRoute(resolved.routes.inspection),
+            }]
+          : []),
         ...(resolved && hasHostedAgents && !denoOutput
           ? [{
               handler: join(generatedRoot, generatedAgentWebhookRouteHandler),

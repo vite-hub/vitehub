@@ -951,6 +951,7 @@ export interface AgentCapabilitiesResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>, AgentInvocationCallbackContextValues {
+  abortSignal?: AbortSignal
   driver: {
     kind: AgentDriverKind
   }
@@ -1310,10 +1311,12 @@ export type AgentRouteOption = boolean | string
 
 export interface AgentRoutesOptions {
   discordGateway?: AgentRouteOption
+  inspection?: AgentRouteOption
 }
 
 export interface ResolvedAgentRoutesOptions {
   discordGateway: false | string
+  inspection: false | string
   webhooks: string
 }
 
@@ -1660,6 +1663,15 @@ export interface AgentInspectionToolDefinition {
 
 export type AgentInspectionConfigValue = boolean | null | number | string
 
+export type AgentInspectionValue = boolean | null | number | string | AgentInspectionValue[] | {
+  [key: string]: AgentInspectionValue
+}
+
+export interface AgentInspectionCapabilityMetadata {
+  id: string
+  metadata: Record<string, AgentInspectionValue>
+}
+
 export interface AgentInspectionModelMetadata {
   dynamic?: boolean
   id?: string
@@ -1700,6 +1712,7 @@ export interface AgentInspectionConfigMetadata {
 }
 
 export interface AgentInspectionMetadata {
+  capabilities?: AgentInspectionCapabilityMetadata[]
   config?: AgentInspectionConfigMetadata
   files?: AgentInspectionFileTreeItem[]
   instructions?: string[]
