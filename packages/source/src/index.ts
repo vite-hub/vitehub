@@ -1,4 +1,5 @@
-export { defineSource, defineSources } from "./core/define.ts"
+export { defineCollection } from "./core/collection.ts"
+export { createSource, defineSource, defineSources } from "./core/define.ts"
 export {
   clearSources,
   getRegisteredSource,

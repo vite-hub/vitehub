@@ -3,7 +3,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 
 import {
+  createSource,
   custom,
+  defineCollection,
   defineSource,
   defineSources,
   registerSources,
@@ -48,6 +50,110 @@ declare global {
 }
 
 describe("@vite-hub/source types", () => {
+  it("infers Collection aliases, keys, values, and enumerable items", async () => {
+    function reader<const TKey extends string, TData>(key: TKey, data: TData) {
+      return {
+        async get(requested: TKey) {
+          return { data, key: requested }
+        },
+        async items() {
+          return [{ data, key }]
+        },
+      }
+    }
+
+    const keyedDefinition = defineSource(context => ({
+      async get(month: "2026-07") {
+        return { month, rootDir: context.rootDir }
+      },
+    }))
+    const collection = defineCollection({
+      sources: {
+        count: reader("same", 1),
+        keyed: createSource(keyedDefinition, { rootDir: "/recaps" }),
+        title: reader("same", "Title"),
+      },
+    })
+
+    expectTypeOf(await collection.get(["count", "same"]))
+      .toEqualTypeOf<{ data: number, key: "same" }>()
+    expectTypeOf(await collection.get(["keyed", "2026-07"]))
+      .toEqualTypeOf<{ month: "2026-07", rootDir: string }>()
+    expectTypeOf((await collection.items())[0]!.source).toEqualTypeOf<"count" | "title">()
+
+    const variants = defineCollection({
+      sources: {
+        variant: {
+          async get(key: "a" | "b") { return key },
+          async items(): Promise<Array<{ key: "a", a: number } | { key: "b", b: string }>> {
+            return [{ key: "a", a: 1 }]
+          },
+        },
+      },
+    })
+    const variant = (await variants.items())[0]!
+    if (variant.key === "a")
+      expectTypeOf(variant.a).toBeNumber()
+    else
+      expectTypeOf(variant.b).toBeString()
+
+    // @ts-expect-error Collection aliases are inferred
+    await collection.get(["missing", "same"])
+    // @ts-expect-error Source keys are inferred per alias
+    await collection.get(["count", "different"])
+    const source = "count" as "count" | "keyed"
+    // @ts-expect-error A union alias must remain correlated with its Source key
+    await collection.get([source, "2026-07"])
+    const conditionalReader = Math.random() > 0.5
+      ? { async get(key: "a" | "shared") { return key } }
+      : { async get(key: "b" | "shared") { return key } }
+    const conditionalCollection = defineCollection({ sources: { conditional: conditionalReader } })
+    await conditionalCollection.get(["conditional", "shared"])
+    // @ts-expect-error A key must be accepted by every possible reader variant
+    await conditionalCollection.get(["conditional", "a"])
+    const enumerableUnion = Math.random() > 0.5
+      ? { async get(key: "a" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
+      : { async get(key: "b" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
+    const enumerableCollection = defineCollection({ sources: { enumerable: enumerableUnion } })
+    const emittedIdentity = (await enumerableCollection.items())[0]!.identity
+    await enumerableCollection.get(emittedIdentity)
+    // @ts-expect-error Enumerable union readers cannot emit a variant-only key
+    defineCollection({ sources: { invalidUnion: (Math.random() > 0.5 ? reader("a", 1) : reader("b", 2)) } })
+    const mixedUnion = Math.random() > 0.5
+      ? { async get(key: "a" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
+      : { async get(key: "b" | "shared") { return key } }
+    const mixedCollection = defineCollection({ sources: { mixed: mixedUnion } })
+    const mixedIdentity = (await mixedCollection.items())[0]!.identity
+    await mixedCollection.get(mixedIdentity)
+    // @ts-expect-error Mixed reader unions cannot emit a variant-only key either
+    defineCollection({ sources: { invalidMixed: (Math.random() > 0.5 ? reader("a", 1) : { async get(key: "b") { return key } }) } })
+    interface OverloadedReader {
+      get(key: "a"): Promise<{ a: number }>
+      get(key: "b"): Promise<{ b: string }>
+    }
+    const overloadedReader = null as unknown as OverloadedReader
+    // @ts-expect-error Overloaded get methods have an ambiguous Collection contract
+    defineCollection({ sources: { overloaded: overloadedReader } })
+    const conditionalGeneric = null as unknown as {
+      get<TKey extends string>(key: TKey): Promise<TKey extends "a" ? { a: number } : never>
+    }
+    // @ts-expect-error Generic key-dependent get methods cannot be represented by the Collection return type
+    defineCollection({ sources: { conditionalGeneric } })
+    interface GenericItems {
+      a: { a: number }
+      b: { b: string }
+    }
+    const indexedGeneric = null as unknown as {
+      get<TKey extends keyof GenericItems>(key: TKey): Promise<GenericItems[TKey]>
+    }
+    // @ts-expect-error Generic key-dependent get methods must use an explicit union-parameter contract
+    defineCollection({ sources: { indexedGeneric } })
+    // @ts-expect-error enumerable item keys must be accepted by the Source reader
+    defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
+    // @ts-expect-error Collection aliases must be strings
+    defineCollection({ sources: { 0: reader("same", 1) } })
+  })
+
   it("accepts SDK clients and transports without exposing SDK types", () => {
     const client = new Client({ name: "test", version: "1.0.0" })
     const transport = new StreamableHTTPClientTransport(new URL("https://example.com/mcp"))
