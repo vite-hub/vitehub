@@ -427,6 +427,11 @@ function isTraceRunTerminal(event: TraceEventLogEntry): boolean {
   return isTraceRunFinish(event) || isTraceRunError(event)
 }
 
+function isTraceRunFailureEvidence(event: TraceEventLogEntry): boolean {
+  return event.name === "run.error"
+    || (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true)
+}
+
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
   const groups = new Map<string, TraceEventLogEntry[]>()
   for (const event of events) {
@@ -539,7 +544,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     const indexed = { entry, index: run.count }
     if (run.count < firstEntries) run.first.push(indexed)
     else run.tail[(run.count - firstEntries) % tailEntries] = indexed
-    if (isTraceRunError(entry)) run.failure = indexed
+    if (isTraceRunFailureEvidence(entry)) run.failure = indexed
     if (isTraceRunTerminal(entry)) run.terminal = indexed
     run.count += 1
   }
