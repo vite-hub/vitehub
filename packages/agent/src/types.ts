@@ -951,6 +951,7 @@ export interface AgentCapabilitiesResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>, AgentInvocationCallbackContextValues {
+  abortSignal?: AbortSignal
   driver: {
     kind: AgentDriverKind
   }
