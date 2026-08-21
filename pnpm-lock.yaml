@@ -1005,6 +1005,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/workflow':
+        specifier: workspace:*
+        version: link:../workflow
       publint:
         specifier: catalog:tooling
         version: 0.3.21

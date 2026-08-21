@@ -43,6 +43,10 @@ interface AgentWorkflowRegistryPlugin extends Plugin {
   }
 }
 
+interface EmailDefinitionPlugin extends Plugin {
+  api?: { getDefinition?: () => { handler: string } | undefined }
+}
+
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
 type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
@@ -82,8 +86,12 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
 
   function providerImportAliases(): Record<string, string> {
     if (!resolved) return { ...internalOptions?.providerImportAliases }
+    const emailDefinition = (resolved.plugins as EmailDefinitionPlugin[])
+      .find(plugin => plugin.name === "@vite-hub/email/vite")
+      ?.api?.getDefinition?.()
     return {
       ...resolveStringAliases(resolved),
+      ...(emailDefinition ? { "#vitehub/email/definition": emailDefinition.handler } : {}),
       ...internalOptions?.providerImportAliases,
     }
   }
@@ -107,6 +115,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     const workflowApi = workflowRequire?.resolve("workflow/api")
     return {
       bundleAlias: {
+        ...providerImportAliases(),
         [`${importBase}/runtime/state`]: projectRequire.resolve(`${importBase}/runtime/state`),
         [`${importBase}/runtime/vercel-vite`]: projectRequire.resolve(`${importBase}/runtime/vercel-vite`),
         ...(workflowApi && workflowRequire
