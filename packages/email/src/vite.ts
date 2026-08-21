@@ -189,6 +189,11 @@ function emailTemplateName(id: string): string | undefined {
   return name
 }
 
+export function resolveEmailTemplateModulePath(root: string, id: string): string | undefined {
+  const name = emailTemplateName(id)
+  return name ? resolve(root, `${encodeURIComponent(name)}.mjs`) : undefined
+}
+
 function exactIdPattern(id: string): RegExp {
   return new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
 }
@@ -318,13 +323,17 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let materializationRequested = false
   let watchFiles = new Set<string>()
 
+  const updateTemplateRoots = (nextProjectRoot: string, nextServerDirs = serverDirs) => {
+    const nextTemplatesRoots = (nextServerDirs ?? [resolve(nextProjectRoot, "server")]).map(directory => resolve(directory, "emails"))
+    if (nextProjectRoot !== projectRoot || nextTemplatesRoots.join("\0") !== templatesRoots.join("\0")) materialized = false
+    projectRoot = nextProjectRoot
+    templatesRoots = nextTemplatesRoots
+    materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
+  }
+
   const prepareTypes = async (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => {
     if (options.materialize) materializationRequested = true
-    const nextTemplatesRoots = (options.serverDirs ?? [resolve(options.projectRoot, "server")]).map(directory => resolve(directory, "emails"))
-    if (nextTemplatesRoots.join("\0") !== templatesRoots.join("\0") || options.projectRoot !== projectRoot) materialized = false
-    projectRoot = options.projectRoot
-    templatesRoots = nextTemplatesRoots
-    materializedRoot = resolve(options.projectRoot, ".vitehub", "email", "templates")
+    updateTemplateRoots(options.projectRoot, options.serverDirs)
     const templates = await discoverEmailTemplates(templatesRoots)
     const files = templates.map(template => template.file)
     const names = templates.map(template => template.name)
@@ -342,7 +351,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     }
     return Object.fromEntries(names
       .toSorted((left, right) => right.length - left.length || left.localeCompare(right))
-      .map(name => [name, resolve(materializedRoot, `${encodeURIComponent(name)}.mjs`)]))
+      .map(name => [name, resolveEmailTemplateModulePath(materializedRoot, `${emailTemplatePrefix}${name}`)!]))
   }
   const prepareTypesOnce = async () => {
     await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && !materialized, projectRoot, serverDirs })
@@ -360,12 +369,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const hosting = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>))
       cloudflare = hosting === "cloudflare"
       vercel = hosting === "vercel"
-      const nextProjectRoot = resolveViteHubProjectRoot(config.root ?? process.cwd())
-      const nextTemplatesRoots = (serverDirs ?? [resolve(nextProjectRoot, "server")]).map(directory => resolve(directory, "emails"))
-      if (nextProjectRoot !== projectRoot || nextTemplatesRoots.join("\0") !== templatesRoots.join("\0")) materialized = false
-      projectRoot = nextProjectRoot
-      templatesRoots = nextTemplatesRoots
-      materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
+      updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       const emailTemplatePaths = cloudflare || vercel
         ? await prepareTypes({ materialize: true, projectRoot, serverDirs })
@@ -381,11 +385,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       }
     },
     async configResolved(config) {
-      const nextProjectRoot = resolveViteHubProjectRoot(config.root)
-      const nextTemplatesRoots = (serverDirs ?? [resolve(nextProjectRoot, "server")]).map(directory => resolve(directory, "emails"))
-      if (nextProjectRoot !== projectRoot || nextTemplatesRoots.join("\0") !== templatesRoots.join("\0")) materialized = false
-      projectRoot = nextProjectRoot
-      templatesRoots = nextTemplatesRoots
+      updateTemplateRoots(resolveViteHubProjectRoot(config.root))
       await prepareTypesOnce()
       definition = {
         ...configured,

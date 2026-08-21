@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { createEmail } from "../src/client.ts"
-import { EMAIL_DEFINITION_ID, hubEmail } from "../src/vite.ts"
+import { EMAIL_DEFINITION_ID, hubEmail, resolveEmailTemplateModulePath } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 
@@ -42,6 +42,14 @@ afterEach(async () => {
 })
 
 describe("hubEmail", () => {
+  it("owns generated template module paths", () => {
+    expect(resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/monthly/detail"))
+      .toBe("/tmp/templates/monthly%2Fdetail.mjs")
+    expect(resolveEmailTemplateModulePath("/tmp/templates", "other/module")).toBeUndefined()
+    expect(() => resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/../secret"))
+      .toThrow("Invalid Email template")
+  })
+
   it("generates a server-only Unemail definition without resolving credentials at config time", async () => {
     const root = await createTempProject()
     const secret = "re_build-secret-sentinel"

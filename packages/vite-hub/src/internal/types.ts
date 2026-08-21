@@ -55,9 +55,7 @@ async function writeViteHubTypes(root: string): Promise<void> {
   )
 }
 
-export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
-  api: { prepareTypes: typeof writeViteHubTypes }
-} {
+export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin {
   let projectRoot: string | undefined
   const refreshGeneratedTypes = async () => {
     if (projectRoot) await writeViteHubTypes(projectRoot)
@@ -66,9 +64,6 @@ export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
   return {
     name: "vite-hub/types",
     enforce: "post",
-    api: {
-      prepareTypes: writeViteHubTypes,
-    },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
       await refreshGeneratedTypes()

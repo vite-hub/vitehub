@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
+import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { mergeConfig } from "vite"
 
@@ -46,16 +47,9 @@ const agentVueComposables = ["useAgent", "useChat"]
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
-  const prefix = "#vitehub/emails/"
   return {
     name: "vite-hub/nuxt-email-templates",
-    resolveId(id) {
-      if (!id.startsWith(prefix)) return
-      const name = id.slice(prefix.length)
-      const segments = name.split("/")
-      if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) return
-      return join(root, `${encodeURIComponent(name)}.mjs`)
-    },
+    resolveId: id => resolveEmailTemplateModulePath(root, id),
   }
 }
 
@@ -365,15 +359,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ),
   ]
   const envPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
-    api?: {
-      prepareTypes?: (config: EnvViteConfigOptions | undefined, viteRoot: string) => Promise<void>
-      resolveProjectRoot?: (viteRoot: string) => string
-    }
+    api?: { resolveProjectRoot?: (viteRoot: string) => string }
   } | undefined
   if (envPlugin) {
     for (const plugin of replayPlugins) deploymentOutputEnvPluginHandler(plugin)?.(envPlugin)
   }
-  if (options.env !== false) await envPlugin?.api?.prepareTypes?.(viteConfig.env, viteRoot)
   const emailPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
     api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>> }
   } | undefined
@@ -382,10 +372,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? {}
-  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
-    api?: { prepareTypes?: (root: string) => Promise<void> }
-  } | undefined
-  await typesPlugin?.api?.prepareTypes?.(projectRoot)
 
   viteConfig.define = {
     ...viteConfig.define,
