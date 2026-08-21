@@ -105,12 +105,20 @@ describe("@vite-hub/source types", () => {
     // @ts-expect-error A union alias must remain correlated with its Source key
     await collection.get([source, "2026-07"])
     const conditionalReader = Math.random() > 0.5
-      ? reader("a" as "a" | "shared", 1)
-      : reader("b" as "b" | "shared", 2)
+      ? { async get(key: "a" | "shared") { return key } }
+      : { async get(key: "b" | "shared") { return key } }
     const conditionalCollection = defineCollection({ sources: { conditional: conditionalReader } })
     await conditionalCollection.get(["conditional", "shared"])
     // @ts-expect-error A key must be accepted by every possible reader variant
     await conditionalCollection.get(["conditional", "a"])
+    const enumerableUnion = Math.random() > 0.5
+      ? { async get(key: "a" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
+      : { async get(key: "b" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
+    const enumerableCollection = defineCollection({ sources: { enumerable: enumerableUnion } })
+    const emittedIdentity = (await enumerableCollection.items())[0]!.identity
+    await enumerableCollection.get(emittedIdentity)
+    // @ts-expect-error Enumerable union readers cannot emit a variant-only key
+    defineCollection({ sources: { invalidUnion: (Math.random() > 0.5 ? reader("a", 1) : reader("b", 2)) } })
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
     defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
     // @ts-expect-error Collection aliases must be strings

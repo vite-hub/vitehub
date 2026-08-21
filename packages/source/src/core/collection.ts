@@ -22,7 +22,7 @@ type CollectionSourceItem<TReader> =
   TReader extends { items(): Promise<Array<infer TItem extends { key: string }>> } ? TItem : never
 
 type ValidCollectionSource<TReader> =
-  TReader extends { items(): Promise<Array<infer TItem extends { key: string }>> }
+  [TReader] extends [{ items(): Promise<Array<infer TItem extends { key: string }>> }]
     ? Exclude<TItem["key"], CollectionSourceKey<TReader>> extends never ? TReader : never
     : TReader
 
