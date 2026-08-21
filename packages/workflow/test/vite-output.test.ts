@@ -45,7 +45,7 @@ it("detects compact user-authored native Vercel workflow directives", async () =
   const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
   await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native: durable })\n`)
-  await writeFile(nativeFile, `export async function durable() { "use workflow"; return "durable" }\n`)
+  await writeFile(nativeFile, `export async function durable() { /* durable prologue */ "use workflow"; return "durable" }\n`)
 
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
 })
