@@ -56,6 +56,15 @@ function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
   return {
     attributes: otlpAttributes(span.attributes),
     endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime),
+    ...(span.events?.length
+      ? {
+          events: span.events.map(event => ({
+            attributes: otlpAttributes(event.attributes),
+            name: event.name,
+            timeUnixNano: unixNanos(event.time, fallbackEndTime),
+          })),
+        }
+      : {}),
     kind: 1,
     name: span.name,
     ...(span.parentSpanId ? { parentSpanId: span.parentSpanId } : {}),

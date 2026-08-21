@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { createTraceEventLog } from "@vite-hub/runtime"
+import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: unknown) => providerRuntimes.shift()))
@@ -16,6 +16,7 @@ import { defineAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
+import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
 
@@ -201,6 +202,7 @@ describe("Provider Agent Driver", () => {
       event("content.delta", threadId, { delta: "files", streamKind: "reasoning_text" }, { turnId: "turn-1" }),
       event("turn.plan.updated", threadId, { explanation: "Inspect first", plan: [{ status: "inProgress", step: "Read files" }] }, { turnId: "turn-1" }),
       event("item.started", threadId, { data: { command: "git status" }, itemType: "command_execution", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "working\r\u001B[2Kdone\n", streamKind: "command_output" }, { itemId: "tool-1", turnId: "turn-1" }),
       event("tool.progress", threadId, { summary: "Checking status", toolName: "Shell", toolUseId: "tool-1" }, { turnId: "turn-1" }),
       event("item.completed", threadId, { data: { output: "clean" }, itemType: "command_execution", status: "completed", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
       event("turn.diff.updated", threadId, { unifiedDiff: "diff --git a/a b/a" }, { turnId: "turn-1" }),
@@ -209,7 +211,8 @@ describe("Provider Agent Driver", () => {
     ])
     const traceLog = createTraceEventLog({ content: "content" })
     const runContext = context(threadId)
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    setAgentTelemetryConfiguration(runContext.context, { driver: { kind: "provider" }, runtime: { name: "vite" } })
+    const adapter = createProviderAgentAdapter({ instructions: "System instructions", provider: "codex" })
 
     await adapter.generate({ ...runContext, runtime: { ...runContext.runtime, traceLog } } as never)
 
@@ -217,6 +220,7 @@ describe("Provider Agent Driver", () => {
       "agent.reasoning",
       "agent.plan.updated",
       "agent.tool.start",
+      "agent.tool.output",
       "agent.tool.progress",
       "agent.tool.finish",
       "agent.change.updated",
@@ -224,7 +228,56 @@ describe("Provider Agent Driver", () => {
       "agent.stream.finish",
     ])
     expect(traceLog.entries()[0]?.attributes?.["message.content"]).toBe("Inspecting files")
+    expect(traceLog.entries().find(entry => entry.name === "agent.tool.output")?.attributes).toMatchObject({
+      "step.id": "tool-1",
+      "tool.id": "tool-1",
+      "tool.output": "working\r\u001B[2Kdone\n",
+      "vitehub.activity.body": "working\r\u001B[2Kdone\n",
+      "vitehub.activity.kind": "tool",
+    })
     expect(traceLog.entries().find(entry => entry.name === "agent.tool.progress")?.attributes?.["tool.output"]).toBe("Checking status")
+    expect(getAgentTelemetryConfiguration(runContext.context)?.value).toMatchObject({
+      driver: { kind: "provider", provider: "codex" },
+      instructions: ["System instructions"],
+    })
+  })
+
+  it.each([
+    {
+      events: (threadId: string) => [
+        event("item.started", threadId, { data: { command: "pnpm test" }, itemType: "command_execution", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+        event("content.delta", threadId, { delta: "failed output\n", streamKind: "command_output" }, { itemId: "tool-1", turnId: "turn-1" }),
+        event("item.completed", threadId, { detail: "Command failed", itemType: "command_execution", status: "failed", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+        event("turn.completed", threadId, { errorMessage: "Command failed", state: "failed" }, { turnId: "turn-1" }),
+      ],
+      name: "failed",
+    },
+    {
+      events: (threadId: string) => [
+        event("item.started", threadId, { data: { command: "pnpm test --watch" }, itemType: "command_execution", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+        event("content.delta", threadId, { delta: "watch output\n", streamKind: "command_output" }, { itemId: "tool-1", turnId: "turn-1" }),
+        event("turn.aborted", threadId, { reason: "cancelled" }, { turnId: "turn-1" }),
+      ],
+      name: "aborted",
+    },
+  ])("keeps command output correlated when a Provider turn is $name", async ({ events }) => {
+    const threadId = `thread-command-${crypto.randomUUID()}`
+    runtime(threadId, events(threadId))
+    const traceLog = createTraceEventLog({ content: "content" })
+    const runContext = context(threadId)
+
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate({
+      ...runContext,
+      runtime: { ...runContext.runtime, traceLog },
+    } as never)).rejects.toThrow()
+
+    const tool = traceEventsToOpenTelemetrySpans(traceLog.entries(), { content: "content" })
+      .find(span => span.attributes?.["vitehub.step.id"] === "tool-1")
+    expect(tool).toMatchObject({
+      attributes: { "gen_ai.tool.call.id": "tool-1", "tool.id": "tool-1" },
+      status: { code: "ERROR" },
+    })
+    expect(tool?.events?.map(item => item.name)).toContain("agent.tool.output")
   })
 
   it("preserves failed and cancelled Provider task outcomes in traces", async () => {

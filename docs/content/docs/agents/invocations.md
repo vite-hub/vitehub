@@ -144,23 +144,28 @@ export default defineAgent({
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
-Use the Agent telemetry option to send completed invocation spans to an OTLP/HTTP JSON receiver:
+Attach the `otlp()` Capability to send completed invocation traces to any OTLP/HTTP JSON receiver:
 
 ```ts [server/agents/support.ts]
-import { defineAgent, otlpHttpJson } from '@vite-hub/agent'
+import { defineAgent } from '@vite-hub/agent'
+import { otlp } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   name: 'support',
-  telemetry: otlpHttpJson({
-    endpoint: 'https://console.example/v1/traces',
-    headers: { authorization: `Bearer ${process.env.CONSOLE_TOKEN!}` },
-    resource: { 'service.namespace': 'quiver' },
-  }),
+  capabilities: [
+    otlp({
+      endpoint: 'https://traces.example/v1/traces',
+      headers: { authorization: `Bearer ${process.env.OTLP_TOKEN!}` },
+      resource: { 'service.namespace': 'quiver' },
+    }),
+  ],
   driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 
-Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports only metadata, even when the invocation uses a caller-supplied content trace log, and includes setup failures that occur before the Driver starts. Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Receivers should deduplicate spans by trace and span id because retries can deliver the same invocation more than once.
+Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports standard OTLP spans with `gen_ai.*` attributes and a `vitehub.agent.configured` root-span event for Agent, Capability, Driver, tool, runtime, and Workspace metadata. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently; the configuration event remains distinct from user prompt events.
+
+Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Receivers should deduplicate spans by trace and span id because retries can deliver the same invocation more than once. See [`otlp()`](/docs/capabilities/otlp) for privacy and Capability-contribution details.
 
 To persist a queryable invocation journal, attach Agent Invocations to the Agent Definition. Storage durability and recovery guarantees still depend on the selected store and host lifecycle. The SQLite adapter accepts a local SQLite or remote libSQL URL:
 

@@ -161,12 +161,19 @@ export interface TraceRunView {
 export interface OpenTelemetrySpanView {
   attributes?: Record<string, unknown>
   endTime?: string
+  events?: OpenTelemetrySpanEventView[]
   name: string
   parentSpanId?: string
   spanId: string
   startTime: string
   status: { code: "ERROR" | "OK", message?: string }
   traceId: string
+}
+
+export interface OpenTelemetrySpanEventView {
+  attributes?: Record<string, unknown>
+  name: string
+  time: string
 }
 
 export interface OpenTelemetrySpanViewOptions {
@@ -409,7 +416,7 @@ function stepId(event: TraceEventLogEntry): string | undefined {
 function stepStatus(event: TraceEventLogEntry): TraceStepStatus {
   return event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
     ? "failed"
-    : /\.(?:progress|request|start|started|updated)$/.test(event.name)
+    : /\.(?:output|progress|request|start|started|summary|updated)$/.test(event.name)
       ? "running"
       : "completed"
 }
@@ -573,6 +580,11 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
     const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
+    const spanEvents = (events: TraceEventLogEntry[]): OpenTelemetrySpanEventView[] => events.map(event => ({
+      ...(event.attributes ? { attributes: event.attributes } : {}),
+      name: event.name,
+      time: event.timestamp,
+    }))
     const errorMessage = firstString(...run.events.slice().reverse().map(event => event.attributes?.["error.message"]))
     return [
       {
@@ -583,6 +595,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
           "vitehub.trace.id": rawTraceId,
         },
         endTime: run.endTime,
+        events: spanEvents(run.events.filter(event => !stepId(event))),
         name: "vitehub.run",
         ...(parentSpanId ? { parentSpanId } : {}),
         spanId,
@@ -600,6 +613,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
           "vitehub.step.id": step.id,
         },
         endTime: step.endTime || run.endTime,
+        events: spanEvents(step.events),
         name: step.name,
         parentSpanId: spanId,
         spanId: openTelemetryId(`${spanId}:${step.id}`, 16),

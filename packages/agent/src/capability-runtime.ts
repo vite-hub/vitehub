@@ -110,6 +110,8 @@ export interface AgentCapabilityRegistries {
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
+  telemetry: Array<{ capabilityId: string, registration: NonNullable<AgentCapabilityDefinition["telemetry"]> }>
+  telemetryMetadata: Array<{ capabilityId: string, metadata: Record<string, unknown> }>
   triggers: ResolvedAgentTriggerDefinition[]
   workspaceContributions: Array<{ capabilityId: string, rules: string[], sources: string[] }>
 }
@@ -857,6 +859,8 @@ export async function resolveAgentCapabilities<
     outputRenderers: [],
     providerTools: [],
     stateRequirements: [],
+    telemetry: [],
+    telemetryMetadata: [],
     triggers: [],
     workspaceContributions: [],
   }
@@ -1078,6 +1082,14 @@ export async function resolveAgentCapabilities<
             }
           },
         },
+        telemetry: {
+          metadata(metadata) {
+            if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+              throw new TypeError(`[vitehub] Capability "${capability.id}" telemetry.metadata() requires a metadata object.`)
+            }
+            registries.telemetryMetadata.push({ capabilityId: capability.id, metadata })
+          },
+        },
         tools: {
           add(value) {
             if (!value) return
@@ -1091,6 +1103,9 @@ export async function resolveAgentCapabilities<
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContexts.push({ capability, context: capabilityContext })
+      if (capability.telemetry) {
+        registries.telemetry.push({ capabilityId: capability.id, registration: capability.telemetry })
+      }
       if (capability.finish) {
         addFinishExtensionProvider(
           capability.id,

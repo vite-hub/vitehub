@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { defineAgent, otlpHttpJson, runAgent } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, type AgentTelemetry } from "../src/index.ts"
+import { otlp } from "../src/capabilities.ts"
+import { otlpHttpJson } from "../src/telemetry.ts"
+
+function telemetryCapability(exporter: AgentTelemetry) {
+  return defineCapability({ id: "test-telemetry", telemetry: { exporter } })
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -30,6 +36,7 @@ describe("Agent telemetry", () => {
       spans: [{
         attributes: { "usage.record": { usage: { totalTokens: 12 } } },
         endTime: "2026-01-01T00:00:00.010Z",
+        events: [{ attributes: { state: "ready" }, name: "agent.ready", time: "2026-01-01T00:00:00.001Z" }],
         name: "vitehub.run",
         spanId: "0123456789abcdef",
         startTime: "2026-01-01T00:00:00.000Z",
@@ -60,6 +67,113 @@ describe("Agent telemetry", () => {
       status: { code: 1 },
       traceId: "0123456789abcdef0123456789abcdef",
     })
+    expect(span.events).toEqual([{
+      attributes: [{ key: "state", value: { stringValue: "ready" } }],
+      name: "agent.ready",
+      timeUnixNano: String(BigInt(Date.parse("2026-01-01T00:00:00.001Z")) * 1_000_000n),
+    }])
+  })
+
+  it("configures OTLP as a Capability", () => {
+    expect(otlp({
+      content: { instructions: true },
+      endpoint: "https://traces.example/v1/traces",
+    })).toMatchObject({
+      id: "otlp",
+      metadata: { protocol: "http/json" },
+      telemetry: { content: { instructions: true }, exporter: expect.any(Function) },
+    })
+    expect(() => otlp({ endpoint: "" })).toThrow("otlp({ endpoint })")
+  })
+
+  it("exports a distinct redacted Agent configuration event", async () => {
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        telemetryCapability(telemetry),
+        defineCapability({
+          id: "custom",
+          metadata: { apiKey: "definition-secret", feature: "sessions" },
+          prepare(context) {
+            context.telemetry.metadata({ connected: true, token: "runtime-secret" })
+          },
+        }),
+      ],
+      driver: { run: () => "ok" },
+      name: "support",
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-config" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { prompt: "user prompt" })
+    await Promise.all(tasks)
+
+    const root = telemetry.mock.calls[0]![0].spans[0]
+    const configured = root.events.find((event: { name: string }) => event.name === "vitehub.agent.configured")
+    expect(configured.attributes["vitehub.agent.configuration"]).toMatchObject({
+      agent: { name: "support" },
+      capabilities: expect.arrayContaining([{
+        id: "custom",
+        metadata: { apiKey: "[redacted]", connected: true, feature: "sessions", token: "[redacted]" },
+      }]),
+      driver: { kind: "run" },
+      runtime: { name: "unknown" },
+    })
+    expect(JSON.stringify(configured)).not.toContain("user prompt")
+    expect(JSON.stringify(configured)).not.toContain("runtime-secret")
+    expect(JSON.stringify(configured)).not.toContain("definition-secret")
+  })
+
+  it("opts into input and output trace content independently", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
+    const inputs = vi.fn()
+    const instructions = vi.fn()
+    const outputs = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "input-traces", telemetry: { content: { inputs: true }, exporter: inputs } }),
+        defineCapability({ id: "instruction-traces", telemetry: { content: { instructions: true }, exporter: instructions } }),
+        defineCapability({ id: "output-traces", telemetry: { content: { outputs: true }, exporter: outputs } }),
+      ],
+      driver: {
+        instructions: "system instructions",
+        model: new MockLanguageModelV3({
+          doGenerate: {
+            content: [{ text: "assistant answer", type: "text" }],
+            finishReason: { raw: "stop", unified: "stop" },
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 2, total: 2 },
+            },
+            warnings: [],
+          },
+        }),
+      },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-content" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { prompt: "user prompt" })
+    await Promise.all(tasks)
+
+    expect(inputs.mock.calls[0]![0].spans[0].attributes).toMatchObject({ "input.prompt": "user prompt" })
+    expect(inputs.mock.calls[0]![0].spans[0].attributes).not.toHaveProperty("result.text")
+    expect(outputs.mock.calls[0]![0].spans[0].attributes).toMatchObject({ "result.text": "assistant answer" })
+    expect(outputs.mock.calls[0]![0].spans[0].attributes).not.toHaveProperty("input.prompt")
+    const configuration = (exporter: typeof inputs) => exporter.mock.calls[0]![0].spans[0].events
+      .find((event: { name: string }) => event.name === "vitehub.agent.configured")
+      .attributes["vitehub.agent.configuration"]
+    expect(configuration(inputs)).not.toHaveProperty("instructions")
+    expect(configuration(outputs)).not.toHaveProperty("instructions")
+    expect(configuration(instructions)).toMatchObject({ instructions: ["system instructions"] })
   })
 
   it("retries transient OTLP responses", async () => {
@@ -97,8 +211,8 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
+      capabilities: [telemetryCapability(telemetry)],
       name: "support",
-      telemetry,
       version: "1.0.0",
       driver: {
         async run(context) {
@@ -152,7 +266,7 @@ describe("Agent telemetry", () => {
       traceLog,
       waitUntil(task: PromiseLike<unknown>) { tasks.push(Promise.resolve(task)) },
     }
-    const agent = defineAgent({ telemetry, driver: { run: () => "ok" } })
+    const agent = defineAgent({ capabilities: [telemetryCapability(telemetry)], driver: { run: () => "ok" } })
 
     await runAgent(agent, runtime, {})
     await runAgent(agent, runtime, {})
@@ -170,8 +284,10 @@ describe("Agent telemetry", () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()
     const agent = defineAgent({
-      capabilities: () => { throw new Error("Capability setup failed") },
-      telemetry,
+      capabilities: [
+        telemetryCapability(telemetry),
+        defineCapability({ id: "broken", prepare() { throw new Error("Capability setup failed") } }),
+      ],
       driver: { run: () => "unreachable" },
     })
 
@@ -193,8 +309,8 @@ describe("Agent telemetry", () => {
   it("exports run-event binding failures when waitUntil also throws", async () => {
     const telemetry = vi.fn()
     const agent = defineAgent({
+      capabilities: [telemetryCapability(telemetry)],
       runEvents: {} as never,
-      telemetry,
       driver: { run: () => "unreachable" },
     })
 
@@ -213,7 +329,7 @@ describe("Agent telemetry", () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()
     const agent = defineAgent({
-      telemetry,
+      capabilities: [telemetryCapability(telemetry)],
       driver: { model: () => { throw new Error("Model resolution failed") } },
     })
 
@@ -238,7 +354,7 @@ describe("Agent telemetry", () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()
     const agent = defineAgent({
-      telemetry,
+      capabilities: [telemetryCapability(telemetry)],
       driver: {
         capacity: { concurrency: 1 },
         async run() {
@@ -272,7 +388,7 @@ describe("Agent telemetry", () => {
     const tasks: Promise<unknown>[] = []
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     const agent = defineAgent({
-      telemetry: () => { throw new Error("Console unavailable") },
+      capabilities: [telemetryCapability(() => { throw new Error("Console unavailable") })],
       driver: { run: () => "ok" },
     })
 
@@ -295,7 +411,7 @@ describe("Agent telemetry", () => {
     cyclic.self = cyclic
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
-      telemetry: vi.fn(),
+      capabilities: [telemetryCapability(vi.fn())],
       driver: {
         async run(context) {
           await context.traceLog?.append({ attributes: { details: cyclic }, name: "application.content", type: "run" })
@@ -318,7 +434,7 @@ describe("Agent telemetry", () => {
 
   it("does not let waitUntil registration failures change Agent output", async () => {
     const telemetry = vi.fn()
-    const agent = defineAgent({ telemetry, driver: { run: () => "ok" } })
+    const agent = defineAgent({ capabilities: [telemetryCapability(telemetry)], driver: { run: () => "ok" } })
 
     await expect(runAgent(agent, {
       memo: vi.fn(),

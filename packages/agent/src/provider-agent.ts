@@ -14,6 +14,7 @@ import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
+import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
@@ -727,6 +728,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): Strea
   switch (event.type) {
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
+      if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
       return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started":
       return isProviderToolItem(event.itemId, event.payload.itemType)
@@ -941,6 +943,16 @@ async function* runProvider<
       const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
       if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
     }
+    updateAgentTelemetryConfiguration(context.context, {
+      driver: {
+        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+        provider: options.provider,
+      },
+      ...(instructions ? { instructions: [instructions] } : {}),
+      ...(Object.keys(context.tools || {}).length || context.providerTools?.length
+        ? { tools: [...Object.keys(context.tools || {}), ...(context.providerTools || []).map(tool => tool.name)].sort().map(name => ({ name })) }
+        : {}),
+    })
     if (instructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))

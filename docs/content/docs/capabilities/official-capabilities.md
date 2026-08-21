@@ -30,6 +30,7 @@ import {
   mcp,
   memory,
   openapi,
+  otlp,
   papercuts,
   progressSummary,
   rateLimit,
@@ -78,6 +79,7 @@ import {
 | Email | [`email()`](/docs/capabilities/email) | The Agent should send authorized plain-text messages through the configured Email primitive. |
 | Sandbox execution | [`sandbox()`](/docs/capabilities/sandbox) | The Agent may run an allowlisted executable in an isolated runtime. |
 | Schedules | [`schedule()`](/docs/capabilities/schedule) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
+| OTLP traces | [`otlp()`](/docs/capabilities/otlp) | Completed Agent Invocation traces should be exported to an OpenTelemetry receiver. |
 
 ### External context
 

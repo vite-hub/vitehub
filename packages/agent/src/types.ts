@@ -218,9 +218,55 @@ export interface AgentTelemetryExportContext<TRuntimeConfig extends AgentRuntime
   spans: readonly OpenTelemetrySpanView[]
 }
 
-export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = (
-  context: AgentTelemetryExportContext<TRuntimeConfig>,
-) => MaybePromise<void>
+export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
+  bivarianceHack(context: AgentTelemetryExportContext<TRuntimeConfig>): MaybePromise<void>
+}["bivarianceHack"]
+
+export interface AgentTelemetryContentOptions {
+  inputs?: boolean
+  instructions?: boolean
+  outputs?: boolean
+}
+
+export interface AgentTelemetryRegistration<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  content?: AgentTelemetryContentOptions
+  exporter: AgentTelemetry<TRuntimeConfig>
+}
+
+export interface AgentCapabilityTelemetryContext {
+  metadata: (metadata: Record<string, unknown>) => void
+}
+
+export interface AgentTelemetryCapabilityMetadata {
+  id: string
+  metadata?: Record<string, AgentInspectionValue>
+}
+
+export interface AgentTelemetryConfiguration {
+  agent?: {
+    name?: string
+    version?: string
+  }
+  capabilities?: AgentTelemetryCapabilityMetadata[]
+  driver: {
+    kind: AgentDriverKind
+    model?: {
+      id?: string
+      provider?: string
+    }
+    provider?: string
+  }
+  instructions?: string[]
+  runtime: {
+    name: string
+  }
+  tools?: Array<{ name: string }>
+  workspace?: {
+    mode: AgentCapabilityMode
+    name?: string
+    sources?: string[]
+  }
+}
 
 export interface AgentChannelDelivery {
   agentName: string
@@ -894,6 +940,7 @@ export interface AgentCapabilityRuntimeContext<
   state: {
     require: (name: string, options?: { optional?: boolean }) => void
   }
+  telemetry: AgentCapabilityTelemetryContext
   tools: {
     add: (tools: AgentToolSet | undefined) => void
     transform: (transform: AgentToolTransform) => void
@@ -927,6 +974,7 @@ export interface AgentCapabilityDefinition<
   prepare?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   requires?: AgentCapabilityRequirement[]
   resolve?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  telemetry?: AgentTelemetryRegistration<TRuntimeConfig>
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
   workspaceSources?: WorkspaceDefinition["sources"]
@@ -1221,7 +1269,6 @@ type AgentSharedSettings<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
-  telemetry?: AgentTelemetry<TRuntimeConfig>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
@@ -1261,7 +1308,6 @@ export interface AgentDefinition<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
-  telemetry?: AgentTelemetry<TRuntimeConfig>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>

@@ -12363,16 +12363,21 @@ describe("agent message protocol", () => {
     })
 
     it("retains telemetry work through Workflow completion", async () => {
-      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const telemetry = deferred<void>()
       const telemetryStarted = deferred<void>()
       let completed = false
       const agent = defineAgent({
-        telemetry: () => {
-          telemetryStarted.resolve()
-          return telemetry.promise
-        },
+        capabilities: [defineCapability({
+          id: "telemetry",
+          telemetry: {
+            exporter: () => {
+              telemetryStarted.resolve()
+              return telemetry.promise
+            },
+          },
+        })],
         driver: { run: () => "done" },
       })
 

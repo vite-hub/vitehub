@@ -19,8 +19,9 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
+import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -171,7 +172,7 @@ import type {
   AgentSettings,
   AgentStaticCapabilitiesList,
   IsTypedAgentStaticCapabilitiesList,
-  AgentTelemetry,
+  AgentTelemetryContentOptions,
   AgentToolSet,
   AgentToolStepItem,
   AgentUsageRecord,
@@ -199,6 +200,7 @@ import type {
   WorkspaceName,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
+import type { OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 export type {
   AgentInvocationAnnotationValue,
@@ -424,7 +426,9 @@ export type {
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
   AgentTelemetry,
+  AgentTelemetryContentOptions,
   AgentTelemetryExportContext,
+  AgentTelemetryRegistration,
   AgentTriggerContext,
   AgentTriggerDefinition,
   AgentTriggerInvokeResult,
@@ -448,9 +452,6 @@ export type {
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
-
-export { otlpHttpJson } from "./telemetry.ts"
-export type { OtlpHttpJsonOptions, OtlpResourceAttributes } from "./telemetry.ts"
 
 export {
   createAgentInspectionMetadata,
@@ -1310,7 +1311,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, telemetry, uiMessageStream, version, workspace } = options
+  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" ? driver.run : undefined
   const capabilitiesResolver = typeof capabilities === "function"
@@ -1375,7 +1376,6 @@ function defineBaseAgent<
     name,
     runtime,
     runEvents,
-    telemetry,
     run,
     uiMessageStream,
     version,
@@ -1976,7 +1976,7 @@ type AgentInvocationContext<
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   startTask?: Promise<void>
-  telemetry?: AgentTelemetry<TRuntimeConfig>
+  telemetry: AgentCapabilityRegistries["telemetry"]
   telemetryAgent: { name?: string, version?: string }
   telemetryInvocationId: string
   instructions?: string
@@ -2097,13 +2097,80 @@ function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeConte
   return invocationTraceLog
 }
 
+function agentContentTraceLog(
+  destination: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>,
+): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
+  const content = createTraceEventLog({ content: "content" })
+  const traceLog = {
+    async append(event: Parameters<typeof destination.append>[0]) {
+      const [entry] = await Promise.all([
+        content.append(event),
+        destination.append(event),
+      ])
+      return entry
+    },
+    entries: () => content.entries(),
+  }
+  if (agentInvocationJournalTraceLogSymbol in destination) {
+    Object.defineProperty(traceLog, agentInvocationJournalTraceLogSymbol, { value: true })
+  }
+  return traceLog
+}
+
+function agentCapabilityTelemetry(
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+): AgentCapabilityRegistries["telemetry"] {
+  return normalizeCapabilities(capabilities || []).flatMap(capability => capability.telemetry
+    ? [{ capabilityId: capability.id, registration: capability.telemetry }]
+    : [])
+}
+
+function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
+  if (!isTraceContentAttributeKey(key)) return false
+  if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
+  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "vitehub.activity.body") return content.outputs === true
+  return false
+}
+
+function withAgentTelemetryContent(
+  metadata: readonly OpenTelemetrySpanView[],
+  content: readonly OpenTelemetrySpanView[],
+  policy: AgentTelemetryContentOptions,
+): OpenTelemetrySpanView[] {
+  const attributes = (safe: Record<string, unknown> | undefined, full: Record<string, unknown> | undefined) => {
+    const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
+    const allowed = Object.fromEntries(Object.entries(full || {}).filter(([key]) => allowedAgentTelemetryContent(key, policy)))
+    const omitted = Array.isArray(safe?.["content.omitted"])
+      ? safe["content.omitted"].filter(key => typeof key !== "string" || !allowedAgentTelemetryContent(key, policy))
+      : undefined
+    return {
+      ...safeAttributes,
+      ...allowed,
+      ...(omitted?.length ? { "content.omitted": omitted } : {}),
+    }
+  }
+  return metadata.map((span, index) => {
+    const full = content[index]
+    if (!full) return span
+    return {
+      ...span,
+      attributes: attributes(span.attributes, full.attributes),
+      events: span.events?.map((event, eventIndex) => ({
+        ...event,
+        attributes: attributes(event.attributes, full.events?.[eventIndex]?.attributes),
+      })),
+    }
+  })
+}
+
 function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
-  telemetry: AgentTelemetry<TRuntimeConfig> | undefined,
+  telemetry: AgentCapabilityRegistries["telemetry"],
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  context: AgentInvocationContextStore,
   agent: { name?: string, version?: string },
   invocationId: string,
 ): void {
-  if (!telemetry || !runtime.traceLog) return
+  if (!telemetry.length || !runtime.traceLog) return
   const task = Promise.resolve()
     .then(async () => {
       const events = runtime.traceLog!.entries().filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
@@ -2112,19 +2179,57 @@ function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
       const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
       if (!run || run.status === "running") return
       const name = runtime.agentIdentity?.name || agent.name
-      const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) => index
-        ? span
-        : {
-            ...span,
-            attributes: {
-              ...span.attributes,
-              "gen_ai.operation.name": "invoke_agent",
-              ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
-              ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
-              "vitehub.runtime.name": runtime.runtime,
-            },
-          })
-      await telemetry({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans })
+      const configuration = getAgentTelemetryConfiguration(context)
+      const model = configuration?.value.driver.model
+      const provider = model?.provider || configuration?.value.driver.provider
+      const metadataSpans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" })
+      let contentSpans: OpenTelemetrySpanView[] | undefined
+      await Promise.all(telemetry.map(async ({ registration }) => {
+        const selectedSpans = registration.content?.inputs || registration.content?.outputs
+          ? withAgentTelemetryContent(
+              metadataSpans,
+              contentSpans ||= traceEventsToOpenTelemetrySpans(run.events, { content: "content" }),
+              registration.content,
+            )
+          : metadataSpans
+        const baseSpans = selectedSpans.map((span, index) => index
+          ? span
+          : {
+              ...span,
+              attributes: {
+                ...span.attributes,
+                "gen_ai.operation.name": "invoke_agent",
+                ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
+                ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
+                ...(provider ? { "gen_ai.provider.name": provider } : {}),
+                ...(model?.id ? { "gen_ai.request.model": model.id } : {}),
+                "vitehub.runtime.name": runtime.runtime,
+              },
+            })
+        let configurationValue = configuration?.value
+        if (configurationValue && !registration.content?.instructions) {
+          const { instructions: _instructions, ...metadataConfiguration } = configurationValue
+          configurationValue = metadataConfiguration
+        }
+        const spans = configurationValue && baseSpans[0]
+          ? baseSpans.map((span, index) => index
+            ? span
+            : {
+                ...span,
+                events: [
+                  {
+                    attributes: {
+                      "vitehub.agent.configuration": configurationValue,
+                    },
+                    name: "vitehub.agent.configured",
+                    time: span.startTime,
+                  },
+                  ...(span.events || []),
+                ],
+              })
+          : baseSpans
+        await registration.exporter({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans })
+      }))
     })
     .catch(() => console.error("[vitehub] Agent telemetry export failed."))
   Object.defineProperty(task, agentTelemetryTask, { value: true })
@@ -2160,11 +2265,14 @@ async function createAgentInvocationContext<
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
       }
-  const tracedRuntimeContext = definition?.telemetry && tracedRuntimeContextBase.traceLog
+  const initialTelemetry = agentCapabilityTelemetry(definition?.capabilities)
+  const tracedRuntimeContext = initialTelemetry.length && tracedRuntimeContextBase.traceLog
     ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId) }
     : tracedRuntimeContextBase
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
+  let failureTelemetry = initialTelemetry
+  const telemetryTraceLogWrapped = initialTelemetry.length > 0
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
     runtimeContext = boundRunEvents
@@ -2212,6 +2320,7 @@ async function createAgentInvocationContext<
       ...(definition?.capabilities || []),
       ...channelCapabilities,
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
+    failureTelemetry = agentCapabilityTelemetry(resolvedCapabilityDefinitions)
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
       driverKind,
@@ -2262,6 +2371,12 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
+    if (!telemetryTraceLogWrapped && runtimeContext.traceLog && capabilities.registries.telemetry.length) {
+      runtimeContext = { ...runtimeContext, traceLog: agentInvocationTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId) }
+    }
+    if (runtimeContext.traceLog && capabilities.registries.telemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)) {
+      runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog) }
+    }
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
@@ -2307,6 +2422,49 @@ async function createAgentInvocationContext<
       ? await resolveWorkspaceInstructionBindings(activeWorkspaceDefinition, activeWorkspace as ReadonlyWorkspaceFacade | undefined)
       : undefined
 
+    const capabilityTelemetryMetadata = new Map<string, Record<string, unknown>>()
+    for (const capability of resolvedCapabilityDefinitions) {
+      capabilityTelemetryMetadata.set(capability.id, { ...capabilityTelemetryMetadata.get(capability.id), ...capability.metadata })
+    }
+    for (const contribution of capabilities.registries.telemetryMetadata) {
+      capabilityTelemetryMetadata.set(contribution.capabilityId, {
+        ...capabilityTelemetryMetadata.get(contribution.capabilityId),
+        ...contribution.metadata,
+      })
+    }
+    const settings = (definition as AgentDefinition & { __vitehubAgentSettings?: AgentSettings } | undefined)?.__vitehubAgentSettings
+    const configuredDriver = settings ? normalizeAgentDriver(settings) : undefined
+    if (capabilities.registries.telemetry.length) setAgentTelemetryConfiguration(invocationContext, {
+      agent: {
+        ...(definition?.name ? { name: definition.name } : {}),
+        ...(definition?.version ? { version: definition.version } : {}),
+      },
+      capabilities: [...capabilityTelemetryMetadata.entries()]
+        .map(([id, metadata]) => {
+          const safeMetadata = safeAgentTelemetryMetadata(metadata)
+          return { id, ...(safeMetadata ? { metadata: safeMetadata } : {}) }
+        })
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      driver: {
+        kind: driverKind,
+        ...(configuredDriver?.kind === "provider" ? { provider: configuredDriver.provider } : {}),
+      },
+      ...(instructions ? { instructions: [instructions] } : {}),
+      runtime: {
+        name: runtimeContext.runtime,
+      },
+      ...(tools ? { tools: Object.keys(tools).sort().map(name => ({ name })) } : {}),
+      ...(activeWorkspaceDefinition
+        ? {
+            workspace: {
+              mode: workspaceMode,
+              ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
+              ...(activeWorkspaceDefinition.sources ? { sources: Object.keys(activeWorkspaceDefinition.sources).sort() } : {}),
+            },
+          }
+        : {}),
+    })
+
     const invocation = {
       ...callbackContext,
       actor: invoker,
@@ -2344,7 +2502,7 @@ async function createAgentInvocationContext<
       runtimeContext,
       startTask: undefined as Promise<void> | undefined,
       startedAt,
-      telemetry: definition?.telemetry,
+      telemetry: capabilities.registries.telemetry,
       telemetryAgent: { name: definition?.name, version: definition?.version },
       telemetryInvocationId,
       tools,
@@ -2385,7 +2543,7 @@ async function createAgentInvocationContext<
       run: context.run,
       runtime: runtimeContext,
     }, error)
-    scheduleAgentTelemetry(definition?.telemetry, runtimeContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
+    scheduleAgentTelemetry(failureTelemetry, runtimeContext, invocationContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
   }
 }
@@ -2436,7 +2594,7 @@ type InvocationRunContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
-  telemetry?: AgentTelemetry<TRuntimeConfig>
+  telemetry: AgentCapabilityRegistries["telemetry"]
   telemetryAgent: { name?: string, version?: string }
   telemetryInvocationId: string
   tools?: AgentToolSet
@@ -3386,7 +3544,7 @@ async function finishAgentInvocation<
     throw finishError
   }
   finally {
-    scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent, context.telemetryInvocationId)
+    scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.context, context.telemetryAgent, context.telemetryInvocationId)
   }
 }
 

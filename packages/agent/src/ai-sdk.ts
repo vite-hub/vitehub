@@ -17,6 +17,7 @@ import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
+import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -1195,6 +1196,17 @@ async function createAgent(
     type: "provider-defined",
   }]))
   const toolSet = { ...resolvedTools, ...providerTools }
+  const telemetryModel = model && typeof model === "object" ? model as { modelId?: unknown, provider?: unknown } : undefined
+  updateAgentTelemetryConfiguration(context.context, {
+    driver: {
+      model: {
+        ...(typeof telemetryModel?.modelId === "string" ? { id: telemetryModel.modelId } : {}),
+        ...(typeof telemetryModel?.provider === "string" ? { provider: telemetryModel.provider } : {}),
+      },
+    },
+    ...(instructions ? { instructions: [instructions] } : {}),
+    ...(Object.keys(toolSet).length ? { tools: Object.keys(toolSet).sort().map(name => ({ name })) } : {}),
+  })
   const {
     instructions: _instructions,
     execution: _execution,

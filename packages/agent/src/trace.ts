@@ -164,6 +164,21 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
   const data = record(event.data)
   const kind = typeof data?.kind === "string" ? data.kind : undefined
   const value = record(data?.value)
+  if (kind === "content.delta" && value?.streamKind === "command_output") {
+    return {
+      attributes: {
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.call.id": event.id,
+        "step.id": event.id,
+        "tool.id": event.id,
+        "tool.output": value.delta,
+        "vitehub.activity.body": value.delta,
+        "vitehub.activity.kind": "tool",
+      },
+      name: "agent.tool.output",
+      type: "run",
+    }
+  }
   if (kind === "tool.progress" || kind === "tool.summary") {
     return {
       attributes: {

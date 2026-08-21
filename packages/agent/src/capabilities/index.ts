@@ -129,6 +129,12 @@ export {
   mcp,
 } from "./mcp.ts"
 export {
+  otlp,
+} from "./otlp.ts"
+export type {
+  OtlpCapabilityOptions,
+} from "./otlp.ts"
+export {
   webSearch,
 } from "./web-search/index.ts"
 

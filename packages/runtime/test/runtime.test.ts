@@ -654,6 +654,23 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("keeps streamed tool output open so an aborted run fails the child span", () => {
+    const events = [
+      { attributes: { "step.id": "tool-1" }, name: "agent.tool.start", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" as const },
+      { attributes: { "step.id": "tool-1", "tool.output": "still running\n" }, name: "agent.tool.output", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+      { attributes: { "error.message": "cancelled" }, name: "agent.invocation.error", sequence: 3, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "error" as const },
+    ]
+
+    expect(deriveTraceRuns(events)[0]?.steps[0]).toMatchObject({
+      endTime: undefined,
+      status: "running",
+    })
+    expect(traceEventsToOpenTelemetrySpans(events)[1]).toMatchObject({
+      endTime: "2026-01-01T00:00:00.020Z",
+      status: { code: "ERROR" },
+    })
+  })
+
   it("bounds OpenTelemetry event aggregation while preserving terminal events", () => {
     const events = Array.from({ length: 2_000 }, (_, index) => ({
       attributes: { "agent.run.id": "run-1", index },
