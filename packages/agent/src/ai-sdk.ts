@@ -1025,7 +1025,7 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
       invoker: context.invoker,
       run: context.runtime.run,
       runtime: context.runtime,
-    })],
+    }, new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : [])))],
     isEnabled: existing.isEnabled ?? true,
     recordInputs: existing.recordInputs ?? false,
     recordOutputs: existing.recordOutputs ?? false,

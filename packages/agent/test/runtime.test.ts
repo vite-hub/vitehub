@@ -1169,6 +1169,32 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("exports product actions from AI SDK telemetry integrations", async () => {
+    const { aiSdkTelemetryIntegration } = await import("../src/trace.ts")
+    const traceLog = createTraceEventLog()
+    const invocationContext = new Map<string, unknown>()
+    const telemetry = aiSdkTelemetryIntegration({
+      context: {
+        entries: () => invocationContext.entries(),
+        get: (key: string) => invocationContext.get(key),
+        has: (key: string) => invocationContext.has(key),
+        set: (key: string, value: unknown) => invocationContext.set(key, value),
+        toJSON: () => Object.fromEntries(invocationContext),
+      },
+      input: {},
+      invoker: { id: "test", kind: "user" },
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, traceLog, waitUntil: vi.fn() },
+    }, new Map([["repository_host_write", { kind: "action", name: "repository-host.write" }]]))
+
+    await telemetry.onToolExecutionStart?.({ toolCallId: "action-1", toolName: "repository_host_write" } as never)
+
+    expect(traceLog.entries()[0]?.attributes).toMatchObject({
+      "tool.name": "repository_host_write",
+      "vitehub.action.name": "repository-host.write",
+      "vitehub.activity.kind": "action",
+    })
+  })
+
   it("captures yielded usage in runAgent invocation data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

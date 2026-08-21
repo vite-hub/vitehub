@@ -203,10 +203,11 @@ interface ObservationBudget {
 }
 
 function boundedObservationValue(value: unknown, budget: ObservationBudget, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
-  if (budget.items <= 0 || budget.stringLength <= 0) return "[truncated]"
+  if (budget.items <= 0) return "[truncated]"
   budget.items--
   if (value === undefined) return undefined
   if (typeof value === "string") {
+    if (budget.stringLength <= 0) return "[truncated]"
     const length = Math.min(value.length, maxStringLength, budget.stringLength)
     budget.stringLength -= length
     return value.slice(0, length)

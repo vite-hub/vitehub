@@ -1,7 +1,7 @@
 import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { agentErrorDetails } from "./agent-error.ts"
-import type { StreamEvent } from "./messages.ts"
+import type { AgentActivity, StreamEvent } from "./messages.ts"
 import type {
   AgentInvocationContextStore,
   AgentChannelDeliveryEffectIntent,
@@ -389,17 +389,24 @@ function firstString(...values: unknown[]): string | undefined {
 
 export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
+  toolActivities?: ReadonlyMap<string, AgentActivity>,
 ): Telemetry {
   const modelAttributes = (event: unknown) => ({
     "model.id": firstString(valueFromPath(event, ["model", "modelId"]), valueFromPath(event, ["model", "id"]), valueFromPath(event, ["modelId"])),
     "model.provider": firstString(valueFromPath(event, ["model", "provider"]), valueFromPath(event, ["provider"])),
     "model.call.id": firstString(valueFromPath(event, ["id"]), valueFromPath(event, ["callId"]), valueFromPath(event, ["requestId"])) || "model",
   })
-  const toolAttributes = (event: unknown) => ({
-    "step.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])) || "tool",
-    "tool.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])),
-    "tool.name": firstString(valueFromPath(event, ["toolCall", "toolName"]), valueFromPath(event, ["toolName"]), valueFromPath(event, ["name"]), valueFromPath(event, ["tool", "name"])),
-  })
+  const toolAttributes = (event: unknown) => {
+    const name = firstString(valueFromPath(event, ["toolCall", "toolName"]), valueFromPath(event, ["toolName"]), valueFromPath(event, ["name"]), valueFromPath(event, ["tool", "name"]))
+    const activity = name ? toolActivities?.get(name) : undefined
+    return {
+      "step.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])) || "tool",
+      "tool.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])),
+      "tool.name": name,
+      "vitehub.action.name": activity?.kind === "action" ? activity.name : undefined,
+      "vitehub.activity.kind": activity?.kind || "tool",
+    }
+  }
 
   return {
     async onLanguageModelCallEnd(event) {

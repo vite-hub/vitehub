@@ -343,6 +343,32 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(observation).length).toBeLessThan(70 * 1024)
   })
 
+  it("preserves metadata after exhausting the observation content budget", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: {
+            "message.content": "x".repeat(64 * 1024),
+            "result.ok": true,
+            "usage.totalTokens": 42,
+          },
+          name: "agent.message",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("content-budget-metadata"), {})
+
+    const attributes = (await invocations.getByRunId("content-budget-metadata"))?.observations
+      .find(event => event.name === "agent.message")?.attributes
+    expect(attributes).toMatchObject({ "result.ok": true, "usage.totalTokens": 42 })
+  })
+
   it("normalizes non-finite observation numbers across stores", async () => {
     const memory = createMemoryAgentInvocationStore()
     const persistedObservations: unknown[] = []
