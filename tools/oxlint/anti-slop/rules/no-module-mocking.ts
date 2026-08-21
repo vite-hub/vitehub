@@ -48,16 +48,22 @@ function isTestFrameworkObject(
   });
 }
 
-function moduleMockCall(sourceCode: SourceCode, callee: ESTree.Expression): boolean {
+function moduleMockCall(
+  sourceCode: SourceCode,
+  callee: ESTree.Expression,
+  visited = new Set<Variable>(),
+): boolean {
   if (callee.type === "Identifier") {
     const variable = resolveVariable(sourceCode, callee);
-    return variable?.defs.some((definition) => {
+    if (variable === null || visited.has(variable)) return false;
+    visited.add(variable);
+    return variable.defs.some((definition) => {
       if (definition.type !== "Variable" || definition.node.type !== "VariableDeclarator") {
         return false;
       }
       const { id, init } = definition.node;
       if (init === null) return false;
-      if (id.type === "Identifier") return moduleMockCall(sourceCode, init);
+      if (id.type === "Identifier") return moduleMockCall(sourceCode, init, visited);
       if (id.type !== "ObjectPattern" || !isTestFrameworkObject(sourceCode, init)) return false;
       return id.properties.some((property) => {
         if (property.type !== "Property" || property.value.type !== "Identifier") return false;
