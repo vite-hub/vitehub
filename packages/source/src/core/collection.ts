@@ -40,6 +40,18 @@ type CollectionItem<TSources extends CollectionSources> = {
   [TSource in Extract<keyof TSources, string>]: TaggedCollectionItem<TSource, TSources[TSource]>
 }[Extract<keyof TSources, string>]
 
+type CollectionIdentity<TSources extends CollectionSources> = {
+  [TSource in Extract<keyof TSources, string>]: readonly [
+    source: TSource,
+    key: CollectionSourceKey<TSources[TSource]>,
+  ]
+}[Extract<keyof TSources, string>]
+
+type CollectionIdentityValue<TSources extends CollectionSources, TIdentity> =
+  TIdentity extends readonly [infer TSource extends Extract<keyof TSources, string>, string]
+    ? CollectionSourceValue<TSources[TSource]>
+    : never
+
 interface CollectionDefinition<TSources extends CollectionSources> {
   readonly sources: TSources
     & ValidCollectionSources<TSources>
@@ -47,10 +59,9 @@ interface CollectionDefinition<TSources extends CollectionSources> {
 }
 
 interface CollectionReader<TSources extends CollectionSources> {
-  get<TSource extends Extract<keyof TSources, string>>(identity: readonly [
-    source: TSource,
-    key: CollectionSourceKey<TSources[TSource]>,
-  ]): Promise<CollectionSourceValue<TSources[TSource]>>
+  get<const TIdentity extends CollectionIdentity<TSources>>(
+    identity: TIdentity,
+  ): Promise<CollectionIdentityValue<TSources, TIdentity>>
   items(): Promise<Array<CollectionItem<TSources>>>
 }
 
@@ -59,9 +70,9 @@ export function defineCollection<const TSources extends CollectionSources>(
 ): CollectionReader<TSources> {
   const sources: TSources = collection.sources
 
-  async function get<TSource extends Extract<keyof TSources, string>>(
-    identity: readonly [source: TSource, key: CollectionSourceKey<TSources[TSource]>],
-  ): Promise<CollectionSourceValue<TSources[TSource]>> {
+  async function get<const TIdentity extends CollectionIdentity<TSources>>(
+    identity: TIdentity,
+  ): Promise<CollectionIdentityValue<TSources, TIdentity>> {
     if (!Array.isArray(identity) || identity.length !== 2
       || typeof identity[0] !== "string" || typeof identity[1] !== "string") {
       throw new TypeError("[vitehub] Collection identity must be a [source, key] string tuple.")
@@ -72,7 +83,7 @@ export function defineCollection<const TSources extends CollectionSources>(
       throw sourceError(`[vitehub] Collection source alias ${JSON.stringify(source)} is not defined.`)
     }
 
-    return await (sources[source].get as (key: string) => Promise<CollectionSourceValue<TSources[TSource]>>)(key)
+    return await (sources[source].get as (key: string) => Promise<CollectionIdentityValue<TSources, TIdentity>>)(key)
   }
 
   async function items(): Promise<Array<CollectionItem<TSources>>> {

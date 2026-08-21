@@ -101,6 +101,9 @@ describe("@vite-hub/source types", () => {
     await collection.get(["missing", "same"])
     // @ts-expect-error Source keys are inferred per alias
     await collection.get(["count", "different"])
+    const source = "count" as "count" | "keyed"
+    // @ts-expect-error A union alias must remain correlated with its Source key
+    await collection.get([source, "2026-07"])
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
     defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
     // @ts-expect-error Collection aliases must be strings
