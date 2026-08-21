@@ -2942,10 +2942,14 @@ describe("defineAgent workspace option", () => {
         array: [1, undefined, Number.POSITIVE_INFINITY, "ok"],
         authorizationHeader: "authorization-value",
         circular,
+        cookie: "cookie-value",
         credentialSource: "credential-value",
         nested: { token: "token-value", visible: "yes" },
         privateKey: "private-key-value",
+        sessionCookie: "session-cookie-value",
+        sessionId: "session-id-value",
         signingKey: "signing-key-value",
+        SSHPrivateKey: "ssh-private-key-value",
         unsupported: new Date(),
       },
       prepare,
@@ -2964,13 +2968,17 @@ describe("defineAgent workspace option", () => {
 
     expect(metadata.capabilities?.map(capability => capability.id)).toEqual(["alpha", "zeta"])
     expect(Object.keys(metadata.capabilities?.[0]?.metadata || {})).toEqual([
+      "SSHPrivateKey",
       "apiKey",
       "array",
       "auth",
       "authorizationHeader",
+      "cookie",
       "credentialSource",
       "nested",
       "privateKey",
+      "sessionCookie",
+      "sessionId",
       "signingKey",
       "zeta",
     ])
@@ -2979,10 +2987,14 @@ describe("defineAgent workspace option", () => {
       array: [1, "ok"],
       auth: "[redacted]",
       authorizationHeader: "[redacted]",
+      cookie: "[redacted]",
       credentialSource: "[redacted]",
       nested: { token: "[redacted]", visible: "yes" },
       privateKey: "[redacted]",
+      sessionCookie: "[redacted]",
+      sessionId: "[redacted]",
       signingKey: "[redacted]",
+      SSHPrivateKey: "[redacted]",
     })
     expect(metadata.capabilities?.[0]?.metadata).not.toHaveProperty("circular")
     expect(metadata.capabilities?.[0]?.metadata).not.toHaveProperty("unsupported")

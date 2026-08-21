@@ -626,8 +626,11 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
 }
 
 function secretInspectionMetadataKey(key: string): boolean {
-  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|credentials?|passwords?|private[-_]?key|secrets?|signing[-_]?key|tokens?)(?:$|[-_])/i
-    .test(key.replace(/([a-z0-9])([A-Z])/g, "$1-$2"))
+  const normalized = key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|cookies?|credentials?|passwords?|private[-_]?key|secrets?|sessions?|signing[-_]?key|tokens?)(?:$|[-_])/i
+    .test(normalized)
 }
 
 function inspectionMetadataValue(
