@@ -726,7 +726,7 @@ function readAgentSkills(file: string): Record<string, { content: string, encodi
 
 function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
   return [
-    `  ${JSON.stringify(definition.name)}: Object.assign(async () => {`,
+    `  ${JSON.stringify(definition.name)}: async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
@@ -734,7 +734,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     `    const entry = { options: { rootStep: false }, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
-    "  }),",
+    "  },",
   ].join("\n")
 }
 

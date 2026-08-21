@@ -47,10 +47,6 @@ function resolveCloudflareBinding(event: unknown, binding: string | undefined, n
   return ((binding ? env?.[binding] : undefined) || env?.[getCloudflareWorkflowBindingName(name)]) as CloudflareWorkflowBinding | undefined
 }
 
-function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
-  return resolveCloudflareBinding(event, binding, name)
-}
-
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
   cancelled: "cancelled",
   complete: "completed",
@@ -79,7 +75,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
   return {
     cancel: () => unsupportedOperation("cloudflare", "cancellation"),
     async get({ event, id, name }) {
-      const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
+      const binding = resolveCloudflareBinding(event, config.binding, name)
       if (binding) {
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
