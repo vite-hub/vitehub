@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
 import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
@@ -33,6 +33,31 @@ afterAll(async () => {
 })
 
 describe("schedule provider output", () => {
+  it("serializes Schedule output with other provider output writers", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-lock-")
+    const configFile = join(rootDir, ".vercel", "output", "config.json")
+    let release!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>(resolve => { markStarted = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const owner = withProviderDeploymentOutputLock(rootDir, async () => {
+      markStarted()
+      await gate
+    })
+    await started
+
+    const generation = generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(existsSync(configFile)).toBe(false)
+
+    release()
+    await Promise.all([owner, generation])
+    expect(JSON.parse(await readFile(configFile, "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 0 * * *",
+    }])
+  })
+
   it("keeps esbuild external in built provider output code", async () => {
     const distDir = join(packageRoot, "dist")
     const outputFiles = (await readdir(distDir)).filter(file => file.endsWith(".js"))
@@ -78,12 +103,93 @@ describe("schedule provider output", () => {
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+    expect(await readFile(vercelFunction, "utf8")).not.toContain("setWorkflowRuntimeRegistry")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("export const config = {")
     expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
     await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
+  })
+
+  it("installs a composed Workflow runtime in Vercel schedule functions", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-workflow-output-")
+    const workflowDir = join(rootDir, ".vitehub", "workflow")
+    await mkdir(workflowDir, { recursive: true })
+    const workflowRegistry = join(workflowDir, "registry.mjs")
+    const state = join(workflowDir, "state.mjs")
+    const vercelRuntime = join(workflowDir, "vercel-runtime.mjs")
+    const workflowApi = join(workflowDir, "workflow-api.mjs")
+    const workflowRuntime = join(workflowDir, "workflow-runtime.mjs")
+    await writeFile(workflowRegistry, "export default { recap: async () => ({}) }\n")
+    await writeFile(state, "export function setWorkflowRuntimeConfig(value) { globalThis.__workflowConfig = value }\nexport function setWorkflowRuntimeRegistry(value) { globalThis.__workflowRegistry = value }\n")
+    await writeFile(vercelRuntime, "export function setVercelWorkflowRuntimeModules() { globalThis.__workflowModules = true }\nexport async function runWithVercelWorkflowRuntimeEvent(req, res, run) { globalThis.__workflowEvent = { req, res }; return await run() }\n")
+    await writeFile(workflowApi, "export const api = true\n")
+    await writeFile(workflowRuntime, "export const runtime = true\n")
+    let workflowTransformWorkingDir: string | undefined
+
+    await generateProviderOutputs({
+      bundleAlias: {
+        "test-workflow/runtime/state": state,
+        "test-workflow/runtime/vercel-vite": vercelRuntime,
+        "workflow/api": workflowApi,
+        "workflow/runtime": workflowRuntime,
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+      workflow: {
+        bundleAlias: {},
+        bundlePlugins: [{
+          name: "test-workflow-transform",
+          setup(build) {
+            workflowTransformWorkingDir = build.initialOptions.absWorkingDir
+          },
+        }],
+        importBase: "test-workflow",
+        native: true,
+        registryFile: workflowRegistry,
+      },
+    })
+
+    const vercelFunction = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")
+    const output = await readFile(vercelFunction, "utf8")
+    expect(output).toContain("__workflowModules")
+    expect(output).toContain("__workflowConfig")
+    expect(output).toContain("__workflowRegistry")
+    expect(output).toContain("__workflowEvent")
+    expect(workflowTransformWorkingDir).toBe(rootDir)
+  })
+
+  it("installs inline Workflow definitions without Workflow DevKit", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-inline-workflow-output-")
+    const workflowDir = join(rootDir, ".vitehub", "workflow")
+    await mkdir(workflowDir, { recursive: true })
+    const workflowRegistry = join(workflowDir, "registry.mjs")
+    const state = join(workflowDir, "state.mjs")
+    await writeFile(workflowRegistry, "export default { recap: async () => ({}) }\n")
+    const vercelRuntime = join(workflowDir, "vercel-runtime.mjs")
+    await writeFile(state, "export function setWorkflowRuntimeConfig(value) { globalThis.__workflowConfig = value }\nexport function setWorkflowRuntimeRegistry(value) { globalThis.__workflowRegistry = value }\n")
+    await writeFile(vercelRuntime, "export async function runWithVercelWorkflowRuntimeEvent(req, res, run) { globalThis.__workflowEvent = { req, res }; return await run() }\n")
+
+    await generateProviderOutputs({
+      bundleAlias: { "test-workflow/runtime/state": state, "test-workflow/runtime/vercel-vite": vercelRuntime },
+      clientOutDir: "dist/client",
+      rootDir,
+      workflow: {
+        bundleAlias: {},
+        importBase: "test-workflow",
+        native: false,
+        registryFile: workflowRegistry,
+      },
+    })
+
+    const output = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")
+    expect(output).toContain("__workflowConfig")
+    expect(output).toContain("__workflowRegistry")
+    expect(output).toContain("__workflowEvent")
+    expect(output).not.toContain("workflow/api")
+    expect(output).not.toContain("workflow/runtime")
+    expect(output).not.toContain("setVercelWorkflowRuntimeModules")
   })
 
   it("creates Netlify scheduled function output contributions", async () => {

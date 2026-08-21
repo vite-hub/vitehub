@@ -86,7 +86,7 @@ interface NetlifyProviderDeploymentCleanup {
   outputRoot?: string
 }
 
-interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
+export interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   afterWrite?: () => Promise<void>
   cloudflare?: CloudflareProviderDeploymentOutput
   cleanup?: {
@@ -99,7 +99,7 @@ interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
 }
 
 const composedProviderOutputKey = Symbol.for("vitehub.composedProviderOutput")
-const providerDeploymentOutputWrites = new Map<string, Promise<void>>()
+const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
 
 export interface ComposedProviderOutput {
   runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
@@ -356,15 +356,22 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
   await options.afterWrite?.()
 }
 
-export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
-  const key = resolve(options.rootDir)
+export async function withProviderDeploymentOutputLock<T>(
+  rootDir: string,
+  operation: (write: (options: ProviderDeploymentOutputOptions) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  const key = resolve(rootDir)
   const previous = providerDeploymentOutputWrites.get(key) ?? Promise.resolve()
-  const write = previous.catch(() => undefined).then(() => writeProviderDeploymentOutputsNow(options))
+  const write = previous.catch(() => undefined).then(() => operation(writeProviderDeploymentOutputsNow))
   providerDeploymentOutputWrites.set(key, write)
   try {
-    await write
+    return await write
   }
   finally {
     if (providerDeploymentOutputWrites.get(key) === write) providerDeploymentOutputWrites.delete(key)
   }
+}
+
+export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
+  await withProviderDeploymentOutputLock(options.rootDir, async write => await write(options))
 }
