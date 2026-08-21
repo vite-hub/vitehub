@@ -822,6 +822,16 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
   })))
 }
 
+export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): Promise<AgentRunInput<CALL_OPTIONS>> {
+  const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
+  delete workflowInput.abortSignal
+  if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
+  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
+  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
+  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
+  return cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>
+}
+
 async function runAgentAsWorkflow<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -867,20 +877,15 @@ async function runAgentAsWorkflow<
   const workflowName = resolveAgentWorkflowName(agent, binding, context)
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
-  const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
-  delete workflowInput.abortSignal
-  if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
-  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
-  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
-  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
+  const workflowInput = await portableAgentWorkflowInput(input)
   const inheritedRun = options.fresh && context.run
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
-    input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
+    input: workflowInput,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),

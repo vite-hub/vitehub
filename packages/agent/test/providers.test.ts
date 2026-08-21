@@ -10277,19 +10277,20 @@ describe("server helpers", () => {
       await handler(chatWebhookRequest(91_120), "telegram", runtime)
       await vi.waitFor(() => expect(inputs).toHaveLength(1))
       await handler(chatWebhookRequest(91_121), "telegram", runtime)
+      await handler(chatWebhookRequest(91_125), "telegram", runtime)
       await new Promise(resolve => setTimeout(resolve, 25))
       expect(inputs).toHaveLength(1)
 
       pending = undefined
       releasePending()
       await vi.waitFor(() => expect(inputs).toHaveLength(2))
-      expect(inputs[1]?.messages?.at(-1)?.id).toBe("91121")
+      expect(inputs[1]?.messages?.map(message => message.id)).toEqual(["91121", "91125"])
 
       pending = new Promise<void>(resolve => { releasePending = resolve })
       await handler(chatWebhookRequest(91_122), "telegram", runtime)
       await vi.waitFor(() => expect(inputs).toHaveLength(3))
       await handler(chatWebhookRequest(91_123), "telegram", runtime)
-      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer"))?.[0]
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
       await state.forceReleaseLock(ownershipKey!)
       await handler(chatWebhookRequest(91_124), "telegram", runtime)
