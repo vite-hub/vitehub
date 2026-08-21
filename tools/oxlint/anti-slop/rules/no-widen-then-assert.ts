@@ -31,7 +31,11 @@ const functionBoundaryTypes = new Set([
 
 function unwrapExpressionParentheses(expression: ESTree.Expression): ESTree.Expression {
   let current = expression;
-  while (current.type === "ParenthesizedExpression") current = current.expression;
+  while (
+    current.type === "ParenthesizedExpression" ||
+    current.type === "TSNonNullExpression" ||
+    current.type === "TSSatisfiesExpression"
+  ) current = current.expression;
   return current;
 }
 

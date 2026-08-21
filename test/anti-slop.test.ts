@@ -149,4 +149,34 @@ describe("anti-slop lexical type resolution", () => {
     expect(result).toContain("anti-slop(no-shape-in-symbol-names)");
     expect(result).toContain("anti-slop(no-object-parameters)");
   });
+
+  test("resolves composed generic aliases and transparent assertion expressions", () => {
+    const result = diagnostics(`
+        type Identity<T> = T;
+        type Wrapper<T> = Identity<T>;
+        type Defaulted<T, U = T> = U;
+        type SelectSecond<T, U> = U;
+        type Reused<T> = SelectSecond<string, T>;
+        type Payload = Identity<unknown>;
+        function accept(value: Wrapper<object>) { return value; }
+        function acceptDefault(value: Defaulted<object>) { return value; }
+        function acceptReused(value: Reused<object>) { return value; }
+        function consume(value: Identity<unknown>) { return value; }
+        function load(): Identity<unknown> { throw new Error(); }
+        const precise = { id: "ok" };
+        const widened: unknown = precise;
+        // SAFETY: fixture intentionally recreates the discarded type.
+        const asserted = widened! as { id: string };
+        void asserted;
+      `);
+    for (const code of [
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-widen-then-assert)",
+    ]) {
+      expect(result).toContain(code);
+    }
+  });
 });

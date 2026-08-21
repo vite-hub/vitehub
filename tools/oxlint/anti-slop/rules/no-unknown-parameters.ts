@@ -1,6 +1,9 @@
 import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
+import { collectTypeBindings, type TypeBinding } from "../shared/lexical-type-bindings.ts";
+import { resolvesThroughTypeAliases } from "../shared/type-alias-resolution.ts";
+
 type Parameter = ESTree.ParamPattern;
 type ParameterOwner =
   | ESTree.ArrowFunctionExpression
@@ -39,12 +42,6 @@ function parameterName(parameter: Parameter, sourceText: string): string {
     : sourceText.replace(/\s*:\s*unknown\s*$/u, "");
 }
 
-function includesUnknown(type: ESTree.TSType): boolean {
-  if (type.type === "TSUnknownKeyword") return true;
-  if (type.type === "TSParenthesizedType") return includesUnknown(type.typeAnnotation);
-  return type.type === "TSUnionType" && type.types.some(includesUnknown);
-}
-
 /** Disallow unknown inputs except explicitly named error-cause enrichment. */
 export const noUnknownParametersRule = defineRule({
   meta: {
@@ -59,13 +56,19 @@ export const noUnknownParametersRule = defineRule({
     },
   },
   createOnce(context) {
+    const bindings: TypeBinding[] = [];
     const checkParameters = (node: ParameterOwner) => {
       for (const parameter of node.params) {
         const annotation = parameterAnnotation(parameter);
         if (
           annotation === null ||
           annotation === undefined ||
-          !includesUnknown(annotation.typeAnnotation)
+          !resolvesThroughTypeAliases(
+            annotation.typeAnnotation,
+            bindings,
+            context.sourceCode.visitorKeys,
+            (type) => type.type === "TSUnknownKeyword",
+          )
         ) {
           continue;
         }
@@ -80,6 +83,10 @@ export const noUnknownParametersRule = defineRule({
     };
 
     return {
+      Program(node) {
+        bindings.length = 0;
+        collectTypeBindings(node, context.sourceCode.visitorKeys, bindings);
+      },
       ArrowFunctionExpression: checkParameters,
       FunctionDeclaration: checkParameters,
       FunctionExpression: checkParameters,

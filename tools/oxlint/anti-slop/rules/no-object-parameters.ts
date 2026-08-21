@@ -2,12 +2,11 @@ import { defineRule } from "@oxlint/plugins";
 
 import type { ESTree, SourceCode } from "@oxlint/plugins";
 
-import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
 import {
 	collectTypeBindings,
-	visibleTypeBinding,
 	type TypeBinding,
 } from "../shared/lexical-type-bindings.ts";
+import { resolvesThroughTypeAliases } from "../shared/type-alias-resolution.ts";
 
 type Parameter = ESTree.ParamPattern;
 type ParameterOwner =
@@ -54,66 +53,16 @@ export const noObjectParametersRule = defineRule({
 	createOnce(context) {
 		const bindings: TypeBinding[] = [];
 
-		const visibleAlias = (name: string, site: ESTree.Node) => {
-			const binding = visibleTypeBinding(name, site, bindings);
-			return binding?.type === "TSTypeAliasDeclaration" ? binding : undefined;
-		};
-
-		const resolvesToObject = (
-			type: ESTree.TSType,
-			shadowedAliases: ReadonlySet<string>,
-			substitutions: ReadonlyMap<string, ESTree.TSType> = new Map(),
-			visited = new Set<string>(),
-		): boolean => {
-			if (type.type === "TSObjectKeyword") return true;
-			if (type.type === "TSParenthesizedType")
-				return resolvesToObject(type.typeAnnotation, shadowedAliases, substitutions, visited);
-			if (type.type === "TSUnionType") {
-				return type.types.some((member) =>
-					resolvesToObject(member, shadowedAliases, substitutions, visited),
-				);
-			}
-			if (
-				type.type !== "TSTypeReference" ||
-				type.typeName.type !== "Identifier" ||
-				visited.has(type.typeName.name) ||
-				shadowedAliases.has(type.typeName.name)
-			) {
-				return false;
-			}
-			const substitution = substitutions.get(type.typeName.name);
-			if (substitution !== undefined) {
-				return resolvesToObject(substitution, shadowedAliases, substitutions, visited);
-			}
-			const alias = visibleAlias(type.typeName.name, type);
-			if (alias === undefined) return false;
-			const nextSubstitutions = new Map(substitutions);
-			const parameters = alias.typeParameters?.params ?? [];
-			const arguments_ = type.typeArguments?.params ?? [];
-			for (const [index, parameter] of parameters.entries()) {
-				const argument = arguments_[index] ?? parameter.default;
-				if (argument === null || argument === undefined) return false;
-				nextSubstitutions.set(parameter.name.name, argument);
-			}
-			const nextVisited = new Set(visited);
-			nextVisited.add(type.typeName.name);
-			return resolvesToObject(
-				alias.typeAnnotation,
-				shadowedAliases,
-				nextSubstitutions,
-				nextVisited,
-			);
-		};
-
 		const checkParameters = (node: ParameterOwner) => {
-			const shadowedAliases = lexicalTypeParameterNames(
-				node,
-				context.sourceCode.visitorKeys,
-			);
 			for (const parameter of node.params) {
 				const annotation = parameterAnnotation(parameter);
 				if (annotation === null || annotation === undefined) continue;
-				if (!resolvesToObject(annotation.typeAnnotation, shadowedAliases)) continue;
+				if (!resolvesThroughTypeAliases(
+					annotation.typeAnnotation,
+					bindings,
+					context.sourceCode.visitorKeys,
+					(type) => type.type === "TSObjectKeyword",
+				)) continue;
 				context.report({
 					node: annotation.typeAnnotation,
 					messageId: "objectParameter",
