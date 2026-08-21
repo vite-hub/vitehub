@@ -108,6 +108,33 @@ it("removes stale WDK output when the Vercel provider is disabled", async () => 
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
 })
 
+it("serializes native Vercel generation with disabled-provider cleanup", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-concurrent-cleanup-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "01-collect.ts"), "export default async function collect(input) { return input }\n")
+
+  await Promise.all([
+    generateProviderOutputs({
+      clientOutDir: join(rootDir, "dist"),
+      importBase: "@vite-hub/workflow",
+      rootDir,
+      workflow: { provider: "vercel" },
+    }),
+    generateProviderOutputs({
+      clientOutDir: join(rootDir, "dist"),
+      rootDir,
+      workflow: { provider: "openworkflow", sqlite: { path: ":memory:" } },
+    }),
+  ])
+
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  expect(existsSync(workflowRoot)).toBe(false)
+  const routes = JSON.parse(await readFile(configFile, "utf8")).routes ?? []
+  expect(routes.some((route: unknown) => JSON.stringify(route).includes("/.well-known/workflow/v1/"))).toBe(false)
+}, buildOutputTestTimeout)
+
 function resolvePlaygroundNodeModules() {
   const nodeModules = join(playgroundDir, "node_modules")
   return existsSync(nodeModules) ? nodeModules : resolve(playgroundDir, "../../node_modules")

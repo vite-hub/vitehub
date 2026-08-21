@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
-import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
@@ -17,7 +17,7 @@ import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as VitePlugin } from "vite"
 
 export const workflowPackageName = "@vite-hub/workflow"
@@ -923,7 +923,10 @@ function createVercelOutput(
   }
 }
 
-export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
+async function generateProviderOutputsWithinLock(
+  options: GenerateProviderOutputsOptions,
+  writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
+): Promise<GeneratedWorkflowArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
     workflow: options.importBase,
@@ -972,4 +975,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()
   return artifacts
+}
+
+export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
+  return await withProviderDeploymentOutputLock(options.rootDir, async write => await generateProviderOutputsWithinLock(options, write))
 }

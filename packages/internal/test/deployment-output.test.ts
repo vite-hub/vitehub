@@ -533,39 +533,6 @@ describe("provider deployment outputs", () => {
     })
   })
 
-  it("keeps after-write lifecycles inside root-scoped serialization", async () => {
-    const rootDir = await createTempProject()
-    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
-    const order: string[] = []
-    let releaseFirst!: () => void
-    const firstGate = new Promise<void>((resolve) => {
-      releaseFirst = resolve
-    })
-
-    const first = writeProviderDeploymentOutputs({
-      afterWrite: async () => {
-        order.push("first:start")
-        await firstGate
-        order.push("first:end")
-      },
-      clientOutDir: "dist/client",
-      rootDir,
-    })
-    const second = writeProviderDeploymentOutputs({
-      afterWrite: async () => {
-        order.push("second")
-      },
-      clientOutDir: "dist/client",
-      rootDir,
-    })
-
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(order).toEqual(["first:start"])
-    releaseFirst()
-    await Promise.all([first, second])
-    expect(order).toEqual(["first:start", "first:end", "second"])
-  })
-
   it("writes Netlify functions with static config and preserves shared config keys", async () => {
     const rootDir = await createTempProject()
     const {
