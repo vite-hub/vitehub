@@ -23,7 +23,7 @@ export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePath
 
   if (!options.allowEmpty && !normalized) throw workspacePathError(path)
   if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) throw workspacePathError(path)
-  if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw workspacePathError(path)
+  if (!options.allowReserved && (parts.some(part => part.toLowerCase() === ".git") || parts[0] === ".vitehub")) throw workspacePathError(path)
 
   return normalized
 }

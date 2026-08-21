@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { getTranscriptionResults, streamTranscription, title, transcribe } from "../src/capabilities.ts"
+import { getTranscriptionResults, openRouterTranscriptionModel, streamTranscription, title, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
 import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
 
@@ -149,12 +149,239 @@ describe("agent transcription", () => {
 
   it("normalizes audio extensions and bytes", async () => {
     expect(audioExtensionFor("audio/mpeg; codecs=mp3")).toBe("mp3")
+    expect(audioExtensionFor("audio/mp3")).toBe("mp3")
+    expect(audioExtensionFor("audio/unknown", "")).toBe("")
     expect(audioExtensionFor("audio/opus")).toBe("ogg")
     await expect(audioBytes({
       data: "data:audio/ogg;codecs=opus;base64,AQI=",
       mediaType: "audio/ogg",
       type: "audio",
     })).resolves.toEqual(new Uint8Array([1, 2]))
+  })
+
+  it("sends OpenRouter transcription models namespaced model ids with normal JSON output", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      text: "voice transcript",
+      usage: { seconds: 1.25 },
+    }), {
+      headers: { "content-type": "application/json", "x-generation-id": "gen-1" },
+      status: 200,
+    }))
+    try {
+      const model = openRouterTranscriptionModel({
+        apiKey: () => "secret",
+        model: "openai/gpt-4o-transcribe",
+      })
+      const result = await model.doGenerate({
+        audio: new Uint8Array([1, 2, 3]),
+        headers: { "x-vitehub": "agent" },
+        mediaType: "audio/ogg; codecs=opus",
+        providerOptions: {
+          openrouter: {
+            language: "en",
+            provider: { order: ["openai"] },
+            temperature: 0.2,
+          },
+        },
+      })
+
+      expect(request).toHaveBeenCalledOnce()
+      const [url, init] = request.mock.calls[0] || []
+      expect(url).toBe("https://openrouter.ai/api/v1/audio/transcriptions")
+      expect(init?.method).toBe("POST")
+      expect(Object.fromEntries(new Headers(init?.headers).entries())).toMatchObject({
+        authorization: "Bearer secret",
+        "content-type": "application/json",
+        "x-vitehub": "agent",
+      })
+      expect(JSON.parse(String(init?.body))).toEqual({
+        input_audio: { data: "AQID", format: "ogg" },
+        language: "en",
+        model: "openai/gpt-4o-transcribe",
+        provider: { order: ["openai"] },
+        response_format: "json",
+        temperature: 0.2,
+      })
+      expect(result).toMatchObject({
+        durationInSeconds: 1.25,
+        response: { modelId: "openai/gpt-4o-transcribe" },
+        text: "voice transcript",
+      })
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
+  it("exposes retryable OpenRouter provider failures to AI SDK transcription retries", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("null", { status: 503 }))
+    try {
+      const model = openRouterTranscriptionModel({
+        apiKey: "secret",
+        model: "openai/gpt-4o-transcribe",
+      })
+
+      await expect(model.doGenerate({
+        audio: new Uint8Array([1]),
+        mediaType: "audio/wav",
+      })).rejects.toMatchObject({
+        isRetryable: true,
+        statusCode: 503,
+      })
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
+  it("normalizes OpenRouter response stream failures for AI SDK transcription retries", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new ReadableStream({
+      start(controller) {
+        controller.error(new Error("connection reset"))
+      },
+    }), { status: 200 }))
+    try {
+      const model = openRouterTranscriptionModel({
+        apiKey: "secret",
+        model: "openai/gpt-4o-transcribe",
+      })
+
+      await expect(model.doGenerate({
+        audio: new Uint8Array([1]),
+        mediaType: "audio/wav",
+      })).rejects.toMatchObject({
+        isRetryable: true,
+        message: "OpenRouter transcription response failed.",
+        statusCode: 200,
+      })
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
+  it("rejects unsupported OpenRouter transcription provider options", async () => {
+    const model = openRouterTranscriptionModel({
+      apiKey: "secret",
+      model: "openai/gpt-4o-transcribe",
+    })
+
+    await expect(model.doGenerate({
+      audio: new Uint8Array([1]),
+      mediaType: "audio/wav",
+      providerOptions: { openrouter: { unsupported: true } },
+    })).rejects.toThrow("Unsupported OpenRouter transcription provider option: unsupported")
+  })
+
+  it("validates OpenRouter transcription credentials, provider options, and response shapes", async () => {
+    const model = openRouterTranscriptionModel({
+      apiKey: "secret",
+      model: "openai/gpt-4o-transcribe",
+    })
+    const input = { audio: new Uint8Array([1]), mediaType: "audio/wav" }
+
+    await expect(openRouterTranscriptionModel({
+      apiKey: () => "",
+      model: "openai/gpt-4o-transcribe",
+    }).doGenerate(input)).rejects.toMatchObject({ name: "AI_LoadAPIKeyError" })
+    await expect(model.doGenerate({ ...input, providerOptions: { openrouter: { language: "" } } }))
+      .rejects.toThrow("language must be a non-empty string")
+    await expect(model.doGenerate({ ...input, providerOptions: { openrouter: { temperature: -0.1 } } }))
+      .rejects.toThrow("temperature must be between 0 and 1")
+    await expect(model.doGenerate({ ...input, providerOptions: { openrouter: { temperature: 1.1 } } }))
+      .rejects.toThrow("temperature must be between 0 and 1")
+    await expect(model.doGenerate({ ...input, providerOptions: { openrouter: { provider: [] } } }))
+      .rejects.toThrow("provider routing options must be an object")
+
+    const request = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("unavailable", { status: 502 }))
+      .mockResolvedValueOnce(new Response("not json", { status: 200 }))
+      .mockResolvedValueOnce(new Response("null", { status: 200 }))
+    try {
+      await expect(model.doGenerate(input)).rejects.toMatchObject({
+        isRetryable: true,
+        responseBody: "unavailable",
+        statusCode: 502,
+      })
+      await expect(model.doGenerate(input)).rejects.toMatchObject({ name: "AI_InvalidResponseDataError" })
+      await expect(model.doGenerate(input)).rejects.toMatchObject({ name: "AI_InvalidResponseDataError" })
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
+  it("accepts OpenRouter temperature boundaries and rejects unsupported audio formats", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ text: "ok" })))
+    const model = openRouterTranscriptionModel({ apiKey: "secret", model: "openai/gpt-4o-transcribe" })
+    try {
+      await expect(model.doGenerate({
+        audio: new Uint8Array([1]),
+        mediaType: "audio/mp3",
+        providerOptions: { openrouter: { temperature: 0 } },
+      })).resolves.toMatchObject({ text: "ok" })
+      await expect(model.doGenerate({
+        audio: new Uint8Array([1]),
+        mediaType: "audio/wav",
+        providerOptions: { openrouter: { temperature: 1 } },
+      })).resolves.toMatchObject({ text: "ok" })
+      await expect(model.doGenerate({ audio: new Uint8Array([1]), mediaType: "audio/unknown" }))
+        .rejects.toThrow("does not support audio/unknown")
+      expect(request).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({
+        input_audio: { format: "mp3" },
+        temperature: 0,
+      })
+      expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ temperature: 1 })
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
+  it("normalizes request failures while preserving OpenRouter transcription aborts", async () => {
+    const model = openRouterTranscriptionModel({ apiKey: "secret", model: "openai/gpt-4o-transcribe" })
+    const input = { audio: new Uint8Array([1]), mediaType: "audio/wav" }
+    const connectionError = new Error("connection reset")
+    const abortError = new DOMException("aborted", "AbortError")
+    const controller = new AbortController()
+    controller.abort(abortError)
+    const request = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(connectionError)
+      .mockRejectedValueOnce(abortError)
+    try {
+      await expect(model.doGenerate(input)).rejects.toMatchObject({
+        cause: connectionError,
+        isRetryable: true,
+      })
+      await expect(model.doGenerate({ ...input, abortSignal: controller.signal })).rejects.toBe(abortError)
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
+  it("runs the OpenRouter model through the transcribe Capability contract", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ text: "voice transcript" })))
+    try {
+      const capability = transcribe({
+        model: openRouterTranscriptionModel({ apiKey: "secret", model: "openai/gpt-4o-transcribe" }),
+      })
+      const context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "AQI=", mediaType: "audio/wav", type: "audio" }],
+          role: "user",
+        }),
+      ])
+
+      await capability.input?.(context.context as never)
+
+      expect(context.messages.at(-1)?.parts).toEqual([{ id: "text-0", text: "voice transcript", type: "text" }])
+      expect(getTranscriptionResults(context.invocationContext)).toMatchObject([{ transcript: "voice transcript" }])
+    }
+    finally {
+      request.mockRestore()
+    }
   })
 
   it("resolves lazy audio bytes with size limits", async () => {
@@ -447,6 +674,56 @@ describe("agent transcription", () => {
         model: "mock-transcription-model",
       }))
       expect(context.messages.at(-1)?.parts.at(-1)).toMatchObject({ text: "voice transcript", type: "text" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it.each([
+    [402, false, "TRANSCRIPTION_QUOTA_EXCEEDED", "[vitehub] Transcription provider quota is exhausted."],
+    [408, true, "TRANSCRIPTION_PROVIDER_FAILED", "[vitehub] Transcription provider failed."],
+    [409, true, "TRANSCRIPTION_PROVIDER_FAILED", "[vitehub] Transcription provider failed."],
+  ] as const)("normalizes retry-exhausted HTTP %s transcription errors", async (status, isRetryable, code, message) => {
+    const { APICallError, LoadAPIKeyError, RetryError } = await import("ai")
+    const providerError = new APICallError({
+      isRetryable,
+      message: "Private provider failure.",
+      requestBodyValues: {},
+      responseBody: "private billing details",
+      statusCode: status,
+      url: "https://provider.example/audio/transcriptions",
+    })
+    const retryError = new RetryError({
+      errors: [providerError],
+      message: "Failed after 3 attempts.",
+      reason: "maxRetriesExceeded",
+    })
+    vi.doMock("ai", () => ({
+      APICallError,
+      LoadAPIKeyError,
+      RetryError,
+      createDownload: vi.fn(() => vi.fn()),
+      transcribe: vi.fn(async () => { throw retryError }),
+    }))
+    try {
+      const capability = transcribe({ model: "mock-transcription-model" })
+      const context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: new Uint8Array([1, 2, 3]), mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+
+      const error = await Promise.resolve(capability.input?.(context.context as never)).catch((error: unknown) => error)
+
+      expect(error).toMatchObject({
+        cause: retryError,
+        code,
+        message,
+      })
+      expect(JSON.stringify(error)).not.toContain("private billing details")
+      expect(context.messages.at(-1)?.parts).toHaveLength(1)
     }
     finally {
       vi.doUnmock("ai")

@@ -35,18 +35,20 @@ function translateNonRetryableError(
 function wrapCloudflareWorkflowStep(
   step: WorkflowProviderStep | undefined,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
+  env: CloudflareWorkerEnv,
+  runtimeEvent: () => unknown,
 ): WorkflowProviderStep | undefined {
-  if (!step?.do || !createNonRetryableError) return step
+  if (!step?.do) return step
   return {
     async do<TResult>(name: string, options: WorkflowStepOptions, run: () => TResult | Promise<TResult>): Promise<TResult> {
-      return await step.do!(name, options, async () => {
+      return await step.do!(name, options, async () => await runWithActiveCloudflareEnv(env, async () => await runWithWorkflowRuntimeEvent(runtimeEvent(), async () => {
         try {
           return await run()
         }
         catch (error) {
           throw translateNonRetryableError(error, createNonRetryableError)
         }
-      })
+      })))
     },
     ...(step.sleep ? { sleep: step.sleep.bind(step) } : {}),
   }
@@ -55,7 +57,9 @@ function wrapCloudflareWorkflowStep(
 export async function runCloudflareWorkflow({ config, createNonRetryableError, env, event, name, registry, step }: RunCloudflareWorkflowOptions): Promise<unknown> {
   setWorkflowRuntimeConfig(config)
   setWorkflowRuntimeRegistry(registry)
-  const providerStep = wrapCloudflareWorkflowStep(step, createNonRetryableError)
+  let runtimeEvent: unknown
+  const providerStep = wrapCloudflareWorkflowStep(step, createNonRetryableError, env, () => runtimeEvent)
+  runtimeEvent = { env, step: providerStep }
 
   return await runWithActiveCloudflareEnv(env, async () => {
     const definition = await loadWorkflowDefinition(name)
@@ -64,7 +68,7 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
     }
 
     try {
-      return await runWithWorkflowRuntimeEvent({ env, step: providerStep }, () => runWorkflowHandler({
+      return await runWithWorkflowRuntimeEvent(runtimeEvent, () => runWorkflowHandler({
         id: event?.instanceId || event?.id,
         name,
         payload: event?.payload,

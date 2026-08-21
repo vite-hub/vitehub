@@ -77,6 +77,8 @@ find dist -maxdepth 4 -type f | sort
 
 Agent routes should come from generated Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
 
+Required secret Server Env declarations with one exact Env Source are written to `secrets.required` in the generated Wrangler configuration, including each configured named Wrangler environment because secrets are not inherited. Wrangler reuses an existing Worker secret and stops deployment when that binding is absent; ViteHub records only the binding name and never resolves or writes its value during build. Optional secrets, non-secret values, defaults, and alternative source lists remain runtime-only because Wrangler's required list cannot express fallback names.
+
 ### Workers Builds
 
 Use Nitro's generated deployment command for production and non-production Workers Builds:
@@ -142,7 +144,7 @@ export default defineConfig({
 })
 ```
 
-ViteHub writes the generated `browser` binding plus the `nodejs_compat` and `no_websocket_standard_binary_type` flags, then uses Kitesurf by default. Browser Definitions import runtime helpers from `vite-hub/browser`; provider modules and the generated `wrangler.json` are not application import surfaces.
+ViteHub writes the generated `browser` binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag. Browser Definitions import runtime helpers from `vite-hub/browser`; provider modules and the generated `wrangler.json` are not application import surfaces.
 
 `wrangler dev` can run Browser Run against a local browser. Set `browser: { remote: true }` to keep Worker code local while connecting its Browser binding to Cloudflare, which is useful when a proof must exercise the hosted Browser Run service.
 

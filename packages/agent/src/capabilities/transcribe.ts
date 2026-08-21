@@ -1,6 +1,7 @@
 import { defineCapability } from "../capability-runtime.ts"
 import { appendMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
 import type {
   AgentCapabilityRuntimeContext,
@@ -179,16 +180,16 @@ function normalizeAudioMediaType(mediaType = ""): string {
   return mediaType.toLowerCase().split(";")[0]?.trim() || ""
 }
 
-export function audioExtensionFor(mediaType = ""): string {
+export function audioExtensionFor(mediaType = "", fallback = "ogg"): string {
   const normalized = normalizeAudioMediaType(mediaType)
   if (normalized === "audio/aac") return "aac"
   if (normalized === "audio/flac" || normalized === "audio/x-flac") return "flac"
-  if (normalized === "audio/mpeg") return "mp3"
+  if (normalized === "audio/mp3" || normalized === "audio/mpeg") return "mp3"
   if (normalized === "audio/mp4" || normalized === "audio/x-m4a") return "m4a"
   if (normalized === "audio/ogg" || normalized === "audio/opus") return "ogg"
   if (normalized === "audio/wav" || normalized === "audio/x-wav") return "wav"
   if (normalized === "audio/webm") return "webm"
-  return "ogg"
+  return fallback
 }
 
 function bytesFromBase64(value: string): Uint8Array {
@@ -281,6 +282,33 @@ async function resolveTranscribeOptions(options: TranscribeOptions): Promise<Sta
   return typeof options === "function" ? await options() : options
 }
 
+function normalizeAiSdkTranscriptionError(aiSdk: typeof import("ai"), cause: unknown): unknown {
+  if (isTranscriptionAbortError(cause) || isTranscriptionError(cause)) return cause
+  const providerError = aiSdk.RetryError.isInstance(cause) ? cause.lastError : cause
+  if (isTranscriptionAbortError(providerError)) return providerError
+  if (aiSdk.LoadAPIKeyError?.isInstance(providerError)) {
+    return transcriptionError("TRANSCRIPTION_AUTHENTICATION_FAILED", { cause })
+  }
+  if (!aiSdk.APICallError.isInstance(providerError)) {
+    return transcriptionError("TRANSCRIPTION_PROVIDER_FAILED", { cause })
+  }
+  const status = providerError.statusCode
+  const code = status === 401 || status === 403
+    ? "TRANSCRIPTION_AUTHENTICATION_FAILED"
+    : status === 402
+      ? "TRANSCRIPTION_QUOTA_EXCEEDED"
+      : status === 429
+        ? "TRANSCRIPTION_RATE_LIMITED"
+        : status === undefined
+          ? "TRANSCRIPTION_NETWORK_FAILED"
+          : providerError.isRetryable
+            ? "TRANSCRIPTION_PROVIDER_FAILED"
+            : status >= 400 && status < 500
+              ? "TRANSCRIPTION_INVALID_REQUEST"
+              : "TRANSCRIPTION_PROVIDER_FAILED"
+  return transcriptionError(code, { cause, status })
+}
+
 async function runTranscription(options: StaticTranscribeOptions, audio: AudioPart, abortSignal?: AbortSignal): Promise<string> {
   if ("execute" in options && options.execute) {
     return transcriptText(await options.execute({ audio }))
@@ -298,13 +326,19 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
   }
   const transcribe = Object.hasOwn(aiSdk, "transcribe") ? aiSdk.transcribe : aiSdk.experimental_transcribe
   if (!transcribe) throw new TypeError("[vitehub] transcribe() requires ai.transcribe or ai.experimental_transcribe.")
-  const result = await transcribe({
-    ...transcribeOptions,
-    abortSignal,
-    audio: await toAiSdkAudio(audio, maxBytes),
-    download: transcribeOptions.download ?? aiSdk.createDownload({ maxBytes }),
-  })
-  return result.text
+  const aiAudio = await toAiSdkAudio(audio, maxBytes)
+  try {
+    const result = await transcribe({
+      ...transcribeOptions,
+      abortSignal,
+      audio: aiAudio,
+      download: transcribeOptions.download ?? aiSdk.createDownload({ maxBytes }),
+    })
+    return result.text
+  }
+  catch (cause) {
+    throw normalizeAiSdkTranscriptionError(aiSdk, cause)
+  }
 }
 
 function isWritableWorkspace(workspace: unknown): workspace is WritableWorkspaceFacade {

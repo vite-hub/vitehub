@@ -7,7 +7,8 @@ import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
-import { materializeAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
+import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
+import { enrichAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -112,7 +113,9 @@ const devPayloadMaxLength = 1200
 let devUsagePricing: AgentUsagePricing | undefined
 
 function defaultDevUsagePricing() {
-  return devUsagePricing ??= vercelAiGatewayPricing()
+  return devUsagePricing ??= vercelAiGatewayPricing({
+    fetch: (...args) => globalThis.fetch(...args),
+  })
 }
 
 function writeEvalUsage(context: AgentCliContext): void {
@@ -344,15 +347,7 @@ function formatUsageNote(summary: string): string {
 
 async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageRecord> {
   try {
-    if (record.cost) return { ...record, cost: materializeAgentUsageCost(record.cost) }
-    if (!record.usage) return record
-    const cost = await defaultDevUsagePricing()({
-      model: record.model,
-      response: record.response,
-      run: record.run,
-      usage: record.usage,
-    })
-    return cost ? { ...record, cost: materializeAgentUsageCost(cost) } : record
+    return await enrichAgentUsageCost(record, defaultDevUsagePricing())
   }
   catch {
     return record
@@ -1326,14 +1321,24 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       },
       {
         description: "External Channel registration workflows.",
-        features: [{
-          description: "Inspect and synchronize provider-owned Channel webhooks for a deployed stage.",
-          name: "sync",
-          run: async (args, context) => await runAgentChannelSyncCli(args, context, {
-            rootDir: options?.rootDir,
-          }),
-          usage: "vitehub channels sync --stage <name> --url <https-origin> [--apply --confirm-origin <https-origin>]",
-        }],
+        features: [
+          {
+            description: "Download one deployed Channel conversation and its attachments.",
+            name: "history",
+            run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
+              rootDir: options?.rootDir,
+            }),
+            usage: "vitehub channels history --stage <name> --url <https-origin> --output <directory> [--thread <id>]",
+          },
+          {
+            description: "Inspect and synchronize provider-owned Channel webhooks for a deployed stage.",
+            name: "sync",
+            run: async (args, context) => await runAgentChannelSyncCli(args, context, {
+              rootDir: options?.rootDir,
+            }),
+            usage: "vitehub channels sync --stage <name> --url <https-origin> [--apply --confirm-origin <https-origin>]",
+          },
+        ],
         name: "channels",
       },
     ],

@@ -111,9 +111,25 @@ describe("SQLite Agent State Provider", () => {
     expect(second?.deliveryId).toBe("delivery-3")
     await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
 
+    const client = createClient({ url })
+    await client.execute({
+      args: [first!.scope, first!.deliveryId],
+      sql: "UPDATE test_agent_state_webhook_queue SET lease_expires_at = 0 WHERE scope = ? AND delivery_id = ?",
+    })
+    await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, "wrong-token", 30_000)).resolves.toBe(false)
+    await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, first!.leaseToken, 30_000)).resolves.toBe(true)
+    await client.execute({
+      args: [first!.scope, first!.deliveryId],
+      sql: "UPDATE test_agent_state_webhook_queue SET lease_expires_at = 0 WHERE scope = ? AND delivery_id = ?",
+    })
+    const competingDelivery = { ...webhookDelivery("delivery-competing", "pr-competing"), scope: "webhook:review:linear:" }
+    await expect(queue.enqueueWebhookDelivery(competingDelivery)).resolves.toBe(true)
+    const competingLease = await queue.claimWebhookDelivery(competingDelivery.scope)
+    expect(competingLease?.deliveryId).toBe(competingDelivery.deliveryId)
+    await expect(queue.extendWebhookDeliveryLease(first!.scope, first!.deliveryId, first!.leaseToken, 30_000)).resolves.toBe(false)
+    await queue.completeWebhookDelivery(competingLease!.scope, competingLease!.deliveryId, competingLease!.leaseToken)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
-    const client = createClient({ url })
     await expect(client.execute({
       args: [first!.scope, first!.deliveryId],
       sql: "SELECT status, value FROM test_agent_state_webhook_queue WHERE scope = ? AND delivery_id = ?",
@@ -125,6 +141,31 @@ describe("SQLite Agent State Provider", () => {
     await queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)
     await queue.completeWebhookDelivery(third!.scope, third!.deliveryId, third!.leaseToken)
     await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "delivery-4" })
+    await state.disconnect()
+  })
+
+  it("renews delayed steering ownership after its execution lease renews", async () => {
+    const { state, url } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    const execution = webhookDelivery("delivery-execution", "pr-1")
+    const steering = webhookDelivery("delivery-steering", "pr-1")
+
+    await queue.enqueueWebhookDelivery(execution)
+    const executionLease = await queue.claimWebhookDelivery(execution.scope)
+    expect(executionLease?.deliveryId).toBe(execution.deliveryId)
+    await expect(queue.claimWebhookSteering(steering, "steering-token", Date.now() + 1_000)).resolves.toBe(true)
+
+    const client = createClient({ url })
+    await client.execute({
+      args: [execution.deliveryId, steering.deliveryId],
+      sql: "UPDATE test_agent_state_webhook_queue SET lease_expires_at = 0 WHERE delivery_id IN (?, ?)",
+    })
+    await expect(queue.extendWebhookDeliveryLease(execution.scope, execution.deliveryId, executionLease!.leaseToken, 30_000)).resolves.toBe(true)
+    await expect(queue.extendWebhookDeliveryLease(steering.scope, steering.deliveryId, "wrong-token", 30_000)).resolves.toBe(false)
+    await expect(queue.extendWebhookDeliveryLease(steering.scope, steering.deliveryId, "steering-token", 30_000)).resolves.toBe(true)
+
+    client.close()
     await state.disconnect()
   })
 

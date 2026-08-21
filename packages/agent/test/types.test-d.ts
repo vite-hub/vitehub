@@ -1,8 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
-import type { LanguageModel } from "ai"
+import type { LanguageModel, TranscriptionModel } from "ai"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
+import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, openRouterTranscriptionModel, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
 import { gmail, type GmailCapabilityMode, type GmailCapabilityOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -10,7 +10,7 @@ import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
-import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
+import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -110,7 +110,6 @@ describe("agent public types", () => {
         concurrencyKey: "pull-request:1",
         concurrencyLimit: 1,
         deliveryId: "delivery-steer",
-        // @ts-expect-error Successful busy steering bypasses queue-time rehydration.
         rehydrate: () => ({
           input: { prompt: "fresh", options: { mode: "fresh" } },
           webhook: { concurrencyLimit: 1, deliveryId: "delivery-steer" },
@@ -184,6 +183,7 @@ describe("agent public types", () => {
           expectTypeOf<AgentErrorHookEvent>().toMatchTypeOf<{ error: unknown }>()
           expectTypeOf(event.error).toEqualTypeOf<unknown>()
           expectTypeOf(event.errorMessage).toEqualTypeOf<string>()
+          expectTypeOf(event.publicError).toEqualTypeOf<AgentPublicError>()
           // @ts-expect-error Agent Error Hooks do not receive successful results.
           void event.result
           // @ts-expect-error Agent Error Hooks do not receive successful text.
@@ -304,6 +304,11 @@ describe("agent public types", () => {
     } satisfies StandardSchemaV1<unknown, { summary: string, title: string }>
     const agent = defineAgent({
       driver: { output: { schema }, run: () => "{}" },
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.result).toEqualTypeOf<{ summary: string, title: string } | undefined>()
+        },
+      },
       runtime: false,
     })
     const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
@@ -837,6 +842,13 @@ describe("agent public types", () => {
         },
       },
     })
+
+    const openRouterTranscription = openRouterTranscriptionModel({
+      apiKey: () => "secret",
+      model: "openai/gpt-4o-transcribe",
+    })
+    expectTypeOf(openRouterTranscription).toMatchTypeOf<TranscriptionModel>()
+    transcribe({ model: openRouterTranscription })
 
     const streamingTranscription = streamTranscription({
       audio: new ReadableStream<Uint8Array>(),

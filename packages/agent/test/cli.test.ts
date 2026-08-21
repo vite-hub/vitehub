@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -7,7 +7,8 @@ import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/wor
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli } from "../src/cli.ts"
-import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
+import { runAgentChannelHistoryCli } from "../src/internal/channel-history-cli.ts"
+import { channelRegistration, runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 import { createTelegramChannelSyncProvider } from "../src/internal/telegram-channel-sync.ts"
@@ -53,7 +54,7 @@ describe("agent CLI", () => {
         name: "agent",
       }, {
         description: "External Channel registration workflows.",
-        features: [expect.objectContaining({ name: "sync" })],
+        features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
       }],
     })
@@ -71,7 +72,7 @@ describe("agent CLI", () => {
         name: "agent",
       }, {
         description: "External Channel registration workflows.",
-        features: [expect.objectContaining({ name: "sync" })],
+        features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
       }],
     })
@@ -184,6 +185,227 @@ describe("agent CLI", () => {
       schemaVersion: 1,
       stage: "staging",
     })
+  })
+
+  it("downloads Channel history and materializes attachments", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
+    const stdout = stream()
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe("https://example.com/api/_vitehub/agents/calories/webhooks/telegram")
+      if (init?.method === "HEAD") {
+        expect(new Headers(init.headers).has("x-test-secret")).toBe(false)
+        return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+      }
+      const headers = new Headers(init?.headers)
+      expect(headers.get("x-vitehub-channel-history")).toBe("1")
+      expect(headers.get("x-test-secret")).toBe("webhook-secret")
+      expect(init?.body).toBe(JSON.stringify({ threadId: "telegram:123" }))
+      return Response.json({
+        messages: [{
+          attachments: [{ data: Buffer.from([1, 2, 3]).toString("base64"), mimeType: "image/jpeg", name: "meal.jpg", type: "image" }],
+          formatted: { data: "preserve me", type: "text" },
+          id: "1",
+          text: "Lunch",
+          threadId: "telegram:123",
+        }],
+        schemaVersion: 1,
+        threadId: "telegram:123",
+      })
+    })
+    try {
+      const exitCode = await runAgentChannelHistoryCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+        "--output", "archives/export",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        stderr,
+        stdout,
+      }, {
+        fetch: fetcher as never,
+        loadTargets: async () => [{
+          agent: "calories",
+          channel: "telegram",
+          defaultThreadId: "telegram:123",
+          mode: "webhook",
+          provider: "telegram",
+          registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+        }],
+      })
+
+      expect(exitCode).toBe(0)
+      expect(stderr.output()).toBe("")
+      expect(stdout.output()).toContain("Downloaded 1 messages")
+      await expect(readFile(join(rootDir, "archives/export/media/0001-meal.jpg"))).resolves.toEqual(Buffer.from([1, 2, 3]))
+      await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"file": "media/0001-meal.jpg"')
+      await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"data": "preserve me"')
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("selects a webhook registration for Channel history", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-webhook-"))
+    const loadTargets = vi.fn(async () => [{
+      agent: "calories",
+      channel: "telegram",
+      mode: "webhook" as const,
+      provider: "telegram",
+      registration: { id: "secondary", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+    }])
+    try {
+      const exitCode = await runAgentChannelHistoryCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+        "--output", "export",
+        "--thread", "telegram:123",
+        "--webhook", "secondary",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir: "/repo",
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: async (_input, init) => init?.method === "HEAD"
+          ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+          : Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" }),
+        loadTargets,
+      })
+
+      expect(exitCode).toBe(0)
+      expect(loadTargets).toHaveBeenCalledWith(expect.objectContaining({ registration: "secondary" }))
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("uses deployed webhook IDs when selecting Channel history registrations", async () => {
+    const channel = {
+      kind: "http",
+      webhooks: [
+        { path: "/first", secretToken: "first" },
+        { path: "/second", secretToken: "second" },
+      ],
+    } as never
+
+    await expect(channelRegistration("support", channel, {}, "support-2")).resolves.toMatchObject({
+      id: "support-2",
+      path: "/second",
+      secretToken: "second",
+    })
+    await expect(channelRegistration("support", channel, {}, "support"))
+      .rejects.toThrow("no unique webhook registration named support")
+    await expect(channelRegistration("support", { kind: "http", webhooks: { id: "primary" } } as never, {}, "other"))
+      .rejects.toThrow("no unique webhook registration named other")
+    await expect(channelRegistration("support", { kind: "http", webhooks: { id: "primary" } } as never, {}, "other", true))
+      .resolves.toBeUndefined()
+  })
+
+  it("publishes Channel history atomically and preserves existing output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-lifecycle-"))
+    const stdout = stream()
+    const stderr = stream()
+    const fetcher = vi.fn(async () => new Response("unavailable", { status: 503 }))
+    const target = {
+      agent: "calories",
+      channel: "telegram",
+      defaultThreadId: "telegram:123",
+      mode: "webhook" as const,
+      provider: "telegram",
+      registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+    }
+    const loadTargets = vi.fn(async () => [target])
+    const run = async () => await runAgentChannelHistoryCli([
+      "--stage", "production",
+      "--thread", "telegram:123",
+      "--url", "https://example.com",
+      "--output", "archives/export",
+    ], {
+      cwd: rootDir,
+      env: {},
+      rootDir,
+      stderr,
+      stdout,
+    }, {
+      fetch: fetcher as never,
+      loadTargets,
+    })
+
+    try {
+      await expect(run()).resolves.toBe(1)
+      expect(loadTargets).toHaveBeenCalledWith(expect.objectContaining({ resolveDefaultThread: false }))
+      await expect(readdir(join(rootDir, "archives"))).resolves.toEqual([])
+
+      await mkdir(join(rootDir, "archives/export"))
+      await writeFile(join(rootDir, "archives/export/existing.txt"), "keep")
+      await expect(run()).resolves.toBe(1)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      await expect(readFile(join(rootDir, "archives/export/existing.txt"), "utf8")).resolves.toBe("keep")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("cleans aborted exports and preserves one concurrent winner", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-concurrent-"))
+    const target = {
+      agent: "calories",
+      channel: "telegram",
+      defaultThreadId: "telegram:123",
+      mode: "webhook" as const,
+      provider: "telegram",
+      registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+    }
+    const run = async (fetcher: typeof fetch) => await runAgentChannelHistoryCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--output", "export",
+    ], {
+      cwd: rootDir,
+      env: {},
+      rootDir,
+      stderr: stream(),
+      stdout: stream(),
+    }, {
+      fetch: fetcher,
+      loadTargets: async () => [target],
+    })
+
+    try {
+      await expect(run(async () => {
+        throw new DOMException("timed out", "TimeoutError")
+      })).resolves.toBe(1)
+      await expect(readdir(rootDir)).resolves.toEqual([])
+
+      let started = 0
+      let release!: () => void
+      const bothStarted = new Promise<void>((resolve) => { release = resolve })
+      const concurrentFetch = (marker: string) => async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        started += 1
+        if (started === 2) release()
+        await bothStarted
+        return Response.json({ marker, messages: [], schemaVersion: 1, threadId: "telegram:123" })
+      }
+      const results = await Promise.all([
+        run(concurrentFetch("first")),
+        run(concurrentFetch("second")),
+      ])
+      expect(results.sort()).toEqual([0, 1])
+      await expect(readdir(rootDir)).resolves.toEqual(["export"])
+      const published = JSON.parse(await readFile(join(rootDir, "export/history.json"), "utf8")) as { marker: string }
+      expect(["first", "second"]).toContain(published.marker)
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("redacts Telegram credentials from provider errors", async () => {
@@ -720,7 +942,10 @@ describe("agent CLI", () => {
         "  channels: {",
         "    telegram: telegram({",
         "      botToken: process.env.TELEGRAM_BOT_TOKEN,",
-        "      webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,",
+        "      webhooks: {",
+        "        secretHeader: 'x-telegram-bot-api-secret-token',",
+        "        secretToken: { resolve: () => process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN },",
+        "      },",
         "    }),",
         "  },",
         "  driver: { run: () => 'ok' },",
@@ -758,6 +983,52 @@ describe("agent CLI", () => {
         channel: "telegram",
         desired: { secretToken: "configured" },
       }])
+
+      await writeFile(join(rootDir, "server", "agents", "webhook-free.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { telegram } from "@vite-hub/agent/channels"',
+        "export default defineAgent({",
+        "  channels: {",
+        "    telegram: telegram({ botToken: process.env.TELEGRAM_BOT_TOKEN, webhooks: [] }),",
+        "  },",
+        "  driver: { run: () => 'ok' },",
+        "})",
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(rootDir, "server", "agents", "undeployed.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { discord } from "@vite-hub/agent/channels"',
+        "export default defineAgent({",
+        "  channels: { discord: discord() },",
+        "  driver: { run: () => 'ok' },",
+        "})",
+        "",
+      ].join("\n"), "utf8")
+
+      const historyFetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "HEAD") {
+          expect(new Headers(init.headers).has("x-telegram-bot-api-secret-token")).toBe(false)
+          return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        }
+        expect(new Headers(init?.headers).get("x-telegram-bot-api-secret-token")).toBe("stage-webhook-token")
+        return Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" })
+      })
+      const historyStderr = stream()
+      const historyExitCode = await runAgentChannelHistoryCli([
+        "--stage", "staging",
+        "--url", "https://staging.example.com",
+        "--output", "history-export",
+        "--thread", "telegram:123",
+      ], {
+        cwd: rootDir,
+        env: process.env,
+        rootDir,
+        stderr: historyStderr,
+        stdout: stream(),
+      }, { fetch: historyFetch as never })
+      expect(historyStderr.output()).toBe("")
+      expect(historyExitCode).toBe(0)
+      expect(historyFetch).toHaveBeenCalledTimes(2)
       expect(process.env.TELEGRAM_BOT_TOKEN).toBe("context-bot-token")
       expect(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN).toBeUndefined()
     }

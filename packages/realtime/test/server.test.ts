@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
+import type { JSONContent } from "@tiptap/core"
+import { marked } from "marked"
 import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
@@ -1049,6 +1052,50 @@ describe("tiptap-markdown documents", () => {
     expect(normalized).toContain("![Diagram](https://example.com/diagram.png)")
     expect(normalized).toContain("| One  | Two")
     expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
+  })
+
+  it("round-trips YAML frontmatter without turning it into document headings", () => {
+    const markdown = `---\nname: docs\ndescription: Shared editing\ndisabled: true\n---\n\n# Shared page`
+    const normalized = yDocToMarkdown(markdownToYDoc(markdown))
+
+    expect(normalized).toBe(markdown)
+    expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
+  })
+
+  it("preserves frontmatter independently of its first YAML token", () => {
+    const documents = [
+      "---\n---",
+      "---\n---\n\n# Page",
+      "---\n\n---\n\n# Page",
+      "---\n# comment\nname: docs\n---\n\n# Page",
+      "---\n\nname: docs\n---\n\n# Page",
+      "---\n\"navigation.order\": 1\n---\n\n# Page",
+      "---\n- docs\n- api\n---\n\n# Page",
+    ]
+
+    for (const markdown of documents) {
+      expect(yDocToMarkdown(markdownToYDoc(markdown))).toBe(markdown)
+    }
+  })
+
+  it("does not register frontmatter tokenizers on the shared Markdown parser", () => {
+    const extensions = marked.defaults.extensions
+
+    for (let index = 0; index < 5; index++) {
+      yDocToMarkdown(markdownToYDoc("---\nname: docs\n---\n\n# Page"))
+    }
+
+    expect(marked.defaults.extensions).toBe(extensions)
+  })
+
+  it("recognizes frontmatter only as the first document block", () => {
+    const leading = yDocToProsemirrorJSON(markdownToYDoc("---\r\nname: docs\r\n---\r\n\r\n# Page"), "default")
+    const later = yDocToProsemirrorJSON(markdownToYDoc("# Page\n\n---\nname: section\n---"), "default")
+    const nested = "> ---\n> name: quoted\n> ---"
+
+    expect(leading.content?.map((node: JSONContent) => node.type)).toEqual(["frontmatter", "heading"])
+    expect(later.content?.map((node: JSONContent) => node.type)).not.toContain("frontmatter")
+    expect(yDocToMarkdown(markdownToYDoc(nested))).toBe(nested)
   })
 
   it("conditionally writes the live document for a Workspace checkpoint", async () => {

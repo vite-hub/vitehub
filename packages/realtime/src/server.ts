@@ -1,8 +1,4 @@
 import { Editor } from "@tiptap/core"
-import Image from "@tiptap/extension-image"
-import { TableKit } from "@tiptap/extension-table"
-import { Markdown } from "@tiptap/markdown"
-import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { assertAuthOrigin } from "@vite-hub/auth/server"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
@@ -19,6 +15,7 @@ import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeCheckpoint, RealtimeDefinition, RealtimeRegistry } from "./types.ts"
 import { createRealtimeIdentity } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, realtimeCheckpointRejectedCode, realtimeSyncPendingCode } from "./protocol.ts"
+import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
@@ -35,18 +32,11 @@ const durableUpdateCompactionInterval = 128
 const messageSync = 0
 const fragmentName = "default"
 
-const editorExtensions = [
-  StarterKit.configure({ undoRedo: false }),
-  Image,
-  TableKit,
-  Markdown,
-]
-
 export function markdownToYDoc(markdown: string): Y.Doc {
   const editor = new Editor({
     content: markdown || { type: "doc", content: [{ type: "paragraph" }] },
     contentType: "markdown",
-    extensions: editorExtensions,
+    extensions: createRealtimeEditorExtensions(),
   })
   try {
     return prosemirrorJSONToYDoc(editor.schema, editor.getJSON(), fragmentName)
@@ -59,7 +49,7 @@ export function markdownToYDoc(markdown: string): Y.Doc {
 export function yDocToMarkdown(document: Y.Doc): string {
   const editor = new Editor({
     content: yDocToProsemirrorJSON(document, fragmentName),
-    extensions: editorExtensions,
+    extensions: createRealtimeEditorExtensions(),
   })
   try {
     return editor.getMarkdown()
@@ -73,7 +63,7 @@ export function replaceRealtimeDocument(document: Y.Doc, markdown: string): Uint
   const editor = new Editor({
     content: markdown || { type: "doc", content: [{ type: "paragraph" }] },
     contentType: "markdown",
-    extensions: editorExtensions,
+    extensions: createRealtimeEditorExtensions(),
   })
   const state = Y.encodeStateVector(document)
   try {

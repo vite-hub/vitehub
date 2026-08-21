@@ -219,6 +219,12 @@ async function readHostFile(host: WorkspaceSessionHost, root: string, path: stri
   return content ? { content, path: fromHostPath(root, path) } : undefined
 }
 
+function gitMetadataRoot(path: string) {
+  const parts = path.split("/")
+  const index = parts.findIndex(part => part.toLowerCase() === ".git")
+  return index === -1 ? undefined : parts.slice(0, index + 1).join("/")
+}
+
 async function listHostEntries(
   host: WorkspaceSessionHost,
   root: string,
@@ -239,7 +245,7 @@ async function listHostEntries(
       : workspaceEntry
   })
   return resolved
-    .filter(entry => entry.path && (includeGit || (entry.path !== ".git" && !entry.path.startsWith(".git/"))))
+    .filter(entry => entry.path && (includeGit || !gitMetadataRoot(entry.path)))
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
@@ -282,7 +288,7 @@ async function captureHostEntriesState(host: WorkspaceSessionHost, root: string,
 }
 
 function isInsideExcludedWriteBackPath(path: string, excluded: readonly string[]) {
-  return excluded.some(item => path === item || path.startsWith(`${item}/`))
+  return Boolean(gitMetadataRoot(path)) || excluded.some(item => path === item || path.startsWith(`${item}/`))
 }
 
 async function captureExcludedHostState(host: WorkspaceSessionHost, root: string, excluded: readonly string[]) {
@@ -298,8 +304,11 @@ function mergeExcludedHostState(
   materialized: Awaited<ReturnType<typeof captureExcludedHostState>>,
   excluded: readonly string[],
 ) {
-  const occupiedRoots = excluded.filter(root => Object.keys(before.snapshot.entries)
-    .some(path => path === root || path.startsWith(`${root}/`)))
+  const beforePaths = Object.keys(before.snapshot.entries)
+  const occupiedRoots = [...new Set([
+    ...excluded.filter(root => beforePaths.some(path => path === root || path.startsWith(`${root}/`))),
+    ...beforePaths.map(gitMetadataRoot).filter((path): path is string => Boolean(path)),
+  ])]
   const entries = Object.fromEntries(Object.entries(materialized.snapshot.entries)
     .filter(([path]) => !occupiedRoots.some(root => path === root || path.startsWith(`${root}/`))))
   const contents = new Map(materialized.contents)
@@ -319,7 +328,16 @@ async function restoreExcludedHostState(
   excluded: readonly string[],
   state: Awaited<ReturnType<typeof captureExcludedHostState>>,
 ) {
-  const roots = excluded.filter((path, index) => !excluded.some((parent, parentIndex) => parentIndex !== index && path.startsWith(`${parent}/`)))
+  const currentGitRoots = (await listHostEntries(
+    host,
+    root,
+    "",
+    true,
+    entry => Boolean(gitMetadataRoot(entry.path)),
+    true,
+  )).map(entry => gitMetadataRoot(entry.path)!)
+  const excludedRoots = [...new Set([...excluded, ...currentGitRoots])]
+  const roots = excludedRoots.filter((path, index) => !excludedRoots.some((parent, parentIndex) => parentIndex !== index && path.startsWith(`${parent}/`)))
   for (const path of roots.sort((left, right) => right.length - left.length)) {
     await removeHostPath(host, root, toHostPath(root, path), true)
   }
@@ -385,7 +403,7 @@ async function resetHostWorkspaceRoot(host: WorkspaceSessionHost, root: string) 
 }
 
 function isExcludedWriteBackPath(path: string, excluded: readonly string[]) {
-  return excluded.some(item => path === item || path.startsWith(`${item}/`) || item.startsWith(`${path}/`))
+  return Boolean(gitMetadataRoot(path)) || excluded.some(item => path === item || path.startsWith(`${item}/`) || item.startsWith(`${path}/`))
 }
 
 function filterWriteBackDiff(diff: WorkspaceDiff, excluded: readonly string[]): WorkspaceDiff {

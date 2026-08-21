@@ -1,62 +1,35 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   defineBrowser,
   executeBrowserDefinition,
   runBrowser,
 } from "../src/runtime.ts"
-import { createBrowser } from "../src/index.ts"
 
-import type {
-  BrowserController,
-  BrowserProvider,
-} from "../src/types.ts"
-import type { PlaywrightClient } from "../src/controllers/playwright.ts"
+import type { BrowserClient } from "../src/types.ts"
 
-interface TestConnection {
-  value: string
-}
+const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
+vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig }))
 
-function fixture() {
-  const close = vi.fn(async () => {})
-  const release = vi.fn(async () => {})
-  const page = { goto: vi.fn(async () => {}) }
-  const client = {
-    browser: { close: vi.fn() },
-    context: {},
-    page,
-  } as unknown as PlaywrightClient
-  const provider: BrowserProvider<TestConnection> = {
-    features: { liveHandoff: false },
-    isolation: "provider",
-    name: "fixture",
-    async open() {
-      return {
-        close,
-        connection: { value: "ready" },
-        id: "provider-session",
-      }
-    },
-  }
-  const controller: BrowserController<PlaywrightClient, TestConnection> = {
-    async attach(connection) {
-      expect(connection.value).toBe("ready")
-      return { client, release }
-    },
-    features: { attachExistingSession: false },
-    name: "playwright",
-  }
-  return {
-    browser: createBrowser({ provider }),
-    client,
-    close,
-    controller,
-    page,
-    release,
-  }
-}
+const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
+
+afterEach(() => {
+  delete runtime.__env__
+  runtimeConfig.provider = "cloudflare"
+})
 
 describe("Browser Definitions", () => {
+  it("reports an unconfigured runtime before opening a default binding", async () => {
+    runtimeConfig.provider = undefined
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await browser.open()
+    })
+
+    await expect(executeBrowserDefinition(definition, undefined)).rejects.toMatchObject({
+      code: "BROWSER_RUNTIME_NOT_CONFIGURED",
+    })
+  })
+
   it("returns an error-first result when a definition cannot run", async () => {
     const name: string = "missing"
     const [error, value] = await runBrowser(name)
@@ -65,52 +38,333 @@ describe("Browser Definitions", () => {
     expect(value).toBeUndefined()
   })
 
-  it("provides imperative sessions and closes them after the definition", async () => {
-    const { browser, close, controller, page, release } = fixture()
+  it("lets definitions use rendered content", async () => {
+    const quickAction = vi.fn(async () => new Response(
+      "<html><meta property=\"og:image\" content=\"https://example.com/card.png\"></html>",
+    ))
+    runtime.__env__ = { BROWSER: { quickAction } }
     const definition = defineBrowser(async (input: { url: string }, { browser }) => {
-      const session = await browser.open()
-      await session.page.goto(input.url)
-      return session.id
+      return await browser.content(input.url)
     })
 
-    await expect(executeBrowserDefinition(definition, { url: "https://example.com" }, {
-      client: browser,
-      controller,
-    })).resolves.toMatch(/^browser_/)
+    await expect(executeBrowserDefinition(definition, { url: "https://example.com" })).resolves.toContain("card.png")
 
-    expect(page.goto).toHaveBeenCalledWith("https://example.com")
-    expect(release).toHaveBeenCalledOnce()
-    expect(close).toHaveBeenCalledOnce()
+    expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
 
-  it("closes sessions when the definition throws", async () => {
-    const { browser, close, controller, release } = fixture()
-    const definition = defineBrowser(async (_input: undefined, { browser }) => {
+  it("runs generic browser actions without exposing the provider method", async () => {
+    const response = new Response(new Uint8Array([1, 2, 3]), {
+      headers: { "content-type": "image/png" },
+    })
+    const quickAction = vi.fn(async () => response)
+    runtime.__env__ = { BROWSER: { quickAction } }
+    const definition = defineBrowser(async (input: { url: string }, { browser }) => {
+      return await browser.run("screenshot", input)
+    })
+
+    await expect(executeBrowserDefinition(definition, { url: "https://example.com" })).resolves.toBe(response)
+
+    expect(quickAction).toHaveBeenCalledWith("screenshot", { url: "https://example.com" })
+  })
+
+  it("bounds stalled Browser Definition quick actions", async () => {
+    vi.useFakeTimers()
+    try {
+      runtime.__env__ = { BROWSER: { quickAction: async () => await new Promise(() => {}) } }
+      const definition = defineBrowser(async (input: { url: string }, { browser }) => {
+        return await browser.content(input.url)
+      })
+
+      const invocation = executeBrowserDefinition(definition, { url: "https://example.com" })
+      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("closes definition-owned page sessions", async () => {
+    const release = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async (method: string) => method === "Target.getTargets"
+              ? { targetInfos: [{ targetId: "page", type: "page" }] }
+              : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(() => ({ features: { liveHandoff: false }, id: "browser-1", provider: "test", state: "released" })),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
       await browser.open()
-      throw new Error("render failed")
+      return "ok"
     })
 
-    await expect(executeBrowserDefinition(definition, undefined, {
-      client: browser,
-      controller,
-    })).rejects.toThrow("render failed")
-
+    await expect(executeBrowserDefinition(definition, undefined, { client })).resolves.toBe("ok")
     expect(release).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("lets definitions close sessions early without double cleanup", async () => {
-    const { browser, close, controller, release } = fixture()
-    const definition = defineBrowser(async (_input: undefined, { browser }) => {
-      const session = await browser.open()
-      await session.close()
+  it("shares concurrent definition-owned page session cleanup", async () => {
+    let finishRelease!: () => void
+    const release = vi.fn(async () => await new Promise<void>(resolve => {
+      finishRelease = resolve
+    }))
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async (method: string) => method === "Target.getTargets"
+              ? { targetInfos: [{ targetId: "page", type: "page" }] }
+              : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      const pageSession = await browser.open()
+      const first = pageSession.close()
+      const second = pageSession.close()
+      expect(release).toHaveBeenCalledOnce()
+      expect(close).not.toHaveBeenCalled()
+      finishRelease()
+      await Promise.all([first, second])
     })
 
-    await executeBrowserDefinition(definition, undefined, {
-      client: browser,
-      controller,
+    await executeBrowserDefinition(definition, undefined, { client })
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("bounds stalled controller release during definition cleanup", async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn(async () => {})
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => ({
+            client: {
+              on: vi.fn(() => () => {}),
+              send: vi.fn(async (method: string) => method === "Target.getTargets"
+                ? { targetInfos: [{ targetId: "page", type: "page" }] }
+                : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+            },
+            release: vi.fn(async () => await new Promise(() => {})),
+          })),
+          close,
+          inspect: vi.fn(),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+      expect(close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds stalled provider closure during definition cleanup", async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn(async () => await new Promise<void>(() => {}))
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => ({
+            client: {
+              on: vi.fn(() => () => {}),
+              send: vi.fn(async (method: string) => method === "Target.getTargets"
+                ? { targetInfos: [{ targetId: "page", type: "page" }] }
+                : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+            },
+            release: vi.fn(async () => {}),
+          })),
+          close,
+          inspect: vi.fn(),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+      expect(close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds stalled controller attachment and closes the provider session", async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn(async () => {})
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => await new Promise(() => {})),
+          close,
+          inspect: vi.fn(() => ({ features: { liveHandoff: false }, id: "browser-1", provider: "test", state: "released" })),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+      expect(close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds stalled cleanup after controller attachment times out", async () => {
+    vi.useFakeTimers()
+    try {
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => await new Promise(() => {})),
+          close: vi.fn(async () => await new Promise(() => {})),
+          inspect: vi.fn(() => ({ features: { liveHandoff: false }, id: "browser-1", provider: "test", state: "released" })),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toBeInstanceOf(AggregateError)
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("continues to provider cleanup when controller release stalls", async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn(async () => {})
+      const client = {
+        open: vi.fn(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => ({
+            client: { on: vi.fn(() => () => {}), send: vi.fn(async () => ({ targetInfos: [] })) },
+            release: vi.fn(async () => await new Promise(() => {})),
+          })),
+          close,
+          inspect: vi.fn(() => ({ features: { liveHandoff: false }, id: "browser-1", provider: "test", state: "released" })),
+        })),
+      } as unknown as BrowserClient
+      const definition = defineBrowser(async (_input, { browser }) => {
+        await browser.open()
+      })
+
+      const invocation = executeBrowserDefinition(definition, undefined, { client })
+      const result = expect(invocation).rejects.toBeInstanceOf(AggregateError)
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+      expect(close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("releases the controller before closing a session when page setup fails", async () => {
+    const release = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async () => ({ targetInfos: [] })),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await browser.open()
     })
 
+    await expect(executeBrowserDefinition(definition, undefined, { client })).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+    })
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0]!)
+  })
+
+  it("does not retry session cleanup after a successful handler", async () => {
+    const release = vi.fn(async () => {
+      throw new Error("release failed")
+    })
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn(async () => ({
+        id: "browser-1",
+        attach: vi.fn(async () => ({
+          client: {
+            on: vi.fn(() => () => {}),
+            send: vi.fn(async (method: string) => method === "Target.getTargets"
+              ? { targetInfos: [{ targetId: "page", type: "page" }] }
+              : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+          },
+          release,
+        })),
+        close,
+        inspect: vi.fn(),
+      })),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await browser.open()
+      return "ok"
+    })
+
+    await expect(executeBrowserDefinition(definition, undefined, { client })).rejects.toThrow("release failed")
     expect(release).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
   })

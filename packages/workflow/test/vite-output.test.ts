@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
@@ -7,12 +8,386 @@ import { promisify } from "node:util"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
+import { cleanVercelNativeWorkflowOutput, generateProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const buildOutputTestTimeout = 60_000
 const tempNodeModuleBuildDirs = new Set([".vite-temp"])
 const tempDirs: string[] = []
+
+async function writeViteHubWorkflowOwnership(workflowRoot: string, files: string[], routes: unknown[]) {
+  const ownership = {
+    files: Object.fromEntries(await Promise.all(files.map(async file => [
+      file,
+      createHash("sha256").update(await readFile(join(workflowRoot, file))).digest("hex"),
+    ]))),
+    routes: routes.map(route => JSON.stringify(route)),
+    version: 1,
+  }
+  await writeFile(join(workflowRoot, ".vitehub-owned"), `${JSON.stringify(ownership)}\n`)
+}
+
+it("detects user-authored native Vercel workflow entries", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-entry-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native: durable })\n`)
+  await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
+})
+
+it("detects compact user-authored native Vercel workflow directives", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-compact-native-entry-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `import { durable } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native: durable })\n`)
+  await writeFile(nativeFile, `export async function durable() { /* durable prologue */ "use workflow"; return "durable" }\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
+})
+
+it("detects shorthand user-authored native Vercel workflow options", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-shorthand-native-option-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `import { durable as native } from "./durable.js"\nexport default defineWorkflow(async () => "inline", { native })\n`)
+  await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(true)
+})
+
+it("ignores workflow directive examples in comments", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-commented-native-entry-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `/*\n"use workflow"\n*/\nexport default defineWorkflow(async () => "inline")\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
+})
+
+it("ignores native entries imported only in comments", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-commented-native-import-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `// import { durable } from "../durable.js"\nexport default defineWorkflow(async () => "inline")\n`)
+  await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
+})
+
+it("ignores unrelated native functions imported by inline workflows", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-unrelated-native-import-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "workflows", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `import "./durable.js"\nexport default defineWorkflow(async () => "inline")\n`)
+  await writeFile(nativeFile, `export async function durable() { "use workflow" }\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
+})
+
+it("keeps suffix Workflow discovery relative to a nested Vite root", async () => {
+  const projectRoot = await createWorkspaceTempDir("vitehub-workflow-project-root-")
+  const viteRoot = join(projectRoot, "apps", "web")
+  await mkdir(join(viteRoot, "src"), { recursive: true })
+  await mkdir(join(projectRoot, "apps", "sibling", "src"), { recursive: true })
+  await writeFile(join(viteRoot, "src", "cleanup.workflow.ts"), "export default defineWorkflow(async () => undefined)\n")
+  await writeFile(join(projectRoot, "apps", "sibling", "src", "noise.workflow.ts"), "export default defineWorkflow(async () => undefined)\n")
+
+  const artifacts = await writeProviderEntries(projectRoot, false, {}, undefined, false, undefined, viteRoot)
+
+  expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
+})
+
+it("keeps generated native step imports scoped to each directory Workflow", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-isolation-")
+  for (const name of ["alpha", "beta"]) {
+    const workflowDir = join(rootDir, "server", "workflows", name)
+    await mkdir(workflowDir, { recursive: true })
+    await writeFile(join(workflowDir, `01-${name}.ts`), `export default async function ${name}(input) { return input }\n`)
+  }
+
+  const artifacts = await writeProviderEntries(rootDir, { provider: "vercel" })
+  const nativeContents = await Promise.all(artifacts.vercelNativeFiles.map(file => readFile(file, "utf8")))
+
+  expect(nativeContents).toHaveLength(2)
+  expect(nativeContents.filter(contents => contents.includes("01-alpha.ts"))).toHaveLength(1)
+  expect(nativeContents.filter(contents => contents.includes("01-beta.ts"))).toHaveLength(1)
+  expect(nativeContents.every(contents => !(contents.includes("01-alpha.ts") && contents.includes("01-beta.ts")))).toBe(true)
+})
+
+it("keeps generated native module paths stable when discovery order changes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-identity-")
+  const betaDir = join(rootDir, "server", "workflows", "beta")
+  await mkdir(betaDir, { recursive: true })
+  await writeFile(join(betaDir, "01-beta.ts"), "export default async function beta(input) { return input }\n")
+
+  const before = await writeProviderEntries(rootDir, { provider: "vercel" })
+  const [betaFile] = before.vercelNativeFiles
+
+  const alphaDir = join(rootDir, "server", "workflows", "alpha")
+  await mkdir(alphaDir, { recursive: true })
+  await writeFile(join(alphaDir, "01-alpha.ts"), "export default async function alpha(input) { return input }\n")
+  const after = await writeProviderEntries(rootDir, { provider: "vercel" })
+
+  expect(betaFile).toMatch(/\/vercel-native\/[a-f0-9]{64}\.mjs$/)
+  expect(after.vercelNativeFiles).toContain(betaFile)
+})
+
+it("keeps astral Unicode native module identities distinct", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-unicode-")
+  for (const name of ["😀", "😁"]) {
+    const workflowDir = join(rootDir, "server", "workflows", name)
+    await mkdir(workflowDir, { recursive: true })
+    await writeFile(join(workflowDir, "01-step.ts"), "export default async function step(input) { return input }\n")
+  }
+
+  const artifacts = await writeProviderEntries(rootDir, { provider: "vercel" })
+
+  expect(artifacts.vercelNativeFiles).toHaveLength(2)
+  expect(new Set(artifacts.vercelNativeFiles)).toHaveLength(2)
+})
+
+it("preserves WDK optional externals while installing the Email definition", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-bootstrap-")
+  const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
+  const emailDefinitionFile = join(rootDir, "email-definition.mjs")
+  await mkdir(resolve(flowFile, ".."), { recursive: true })
+  await writeFile(flowFile, `import credentials from "@aws-sdk/credential-provider-web-identity"\nexport { credentials }\nexport default async function handler() {}\n`)
+  await writeFile(emailDefinitionFile, "export default { handler: async () => undefined }\n")
+
+  await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
+
+  const combinedFlow = await readFile(flowFile, "utf8")
+  expect(combinedFlow).toContain("@aws-sdk/credential-provider-web-identity")
+  expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+  expect(combinedFlow).toMatch(/export\s*\{[^}]*\s+as\s+default/)
+})
+
+it("installs the Email definition when the WDK flow has only named exports", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-named-flow-")
+  const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
+  const emailDefinitionFile = join(rootDir, "email-definition.mjs")
+  await mkdir(resolve(flowFile, ".."), { recursive: true })
+  await writeFile(flowFile, "export async function POST() {}\n")
+  await writeFile(emailDefinitionFile, "export default { handler: async () => undefined }\n")
+
+  await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
+
+  const combinedFlow = await readFile(flowFile, "utf8")
+  expect(combinedFlow).toContain("POST")
+  expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+})
+
+it("restores prior owned native output when Email installation fails", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-rollback-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const externalFile = join(workflowRoot, "v1", "flow.func", "index.mjs")
+  const externalRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowDir, { recursive: true })
+  await mkdir(resolve(externalFile, ".."), { recursive: true })
+  await writeFile(join(workflowDir, "01-collect.ts"), "export default async function collect(input) { return input }\n")
+  await writeFile(externalFile, "prior owned flow\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["v1/flow.func/index.mjs"], [externalRoute])
+  await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute] })}\n`)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    importBase: "@vite-hub/workflow",
+    providerImportAliases: { "#vitehub/email/definition": join(rootDir, "missing-email-definition.mjs") },
+    rootDir,
+    workflow: { provider: "vercel" },
+  })).rejects.toThrow()
+
+  await expect(readFile(externalFile, "utf8")).resolves.toBe("prior owned flow\n")
+  const routes = JSON.parse(await readFile(configFile, "utf8")).routes
+  expect(routes).toContainEqual(externalRoute)
+  expect(routes.filter((route: unknown) => JSON.stringify(route).includes("/.well-known/workflow/v1/"))).toEqual([externalRoute])
+  const ownership = JSON.parse(await readFile(join(workflowRoot, ".vitehub-owned"), "utf8"))
+  expect(ownership.files).toHaveProperty("v1/flow.func/index.mjs")
+  expect(ownership.routes).toEqual([JSON.stringify(externalRoute)])
+})
+
+it("removes stale WDK functions and routes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-clean-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  const userRoute = { src: "/user", dest: "/user" }
+  await writeViteHubWorkflowOwnership(workflowRoot, ["stale.mjs"], [workflowRoute])
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute, userRoute] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  expect(existsSync(workflowRoot)).toBe(false)
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
+})
+
+it("preserves WDK output that replaced a prior ViteHub build", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-replaced-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "v1.mjs"), "vitehub\n")
+  await writeFile(join(workflowRoot, "package.json"), "{}\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["v1.mjs", "package.json"], [workflowRoute])
+  await writeFile(join(workflowRoot, "v1.mjs"), "external replacement\n")
+  await writeFile(join(workflowRoot, "external.mjs"), "external\n")
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  await expect(readFile(join(workflowRoot, "v1.mjs"), "utf8")).resolves.toBe("external replacement\n")
+  await expect(readFile(join(workflowRoot, "package.json"), "utf8")).resolves.toBe("{}\n")
+  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([workflowRoute])
+  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(false)
+})
+
+it("preserves the owned output unit when an external build removes one file", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-partial-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "flow.mjs"), "flow\n")
+  await writeFile(join(workflowRoot, "package.json"), "{}\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["flow.mjs", "package.json"], [workflowRoute])
+  await rm(join(workflowRoot, "flow.mjs"))
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  await expect(readFile(join(workflowRoot, "package.json"), "utf8")).resolves.toBe("{}\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([workflowRoute])
+  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(false)
+})
+
+it("retries route cleanup after an interrupted owned-output cleanup", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-retry-cleanup-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "v1.mjs"), "vitehub\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["v1.mjs"], [workflowRoute])
+  await writeFile(configFile, "invalid json\n")
+
+  await expect(cleanVercelNativeWorkflowOutput(rootDir)).rejects.toThrow()
+  expect(existsSync(join(workflowRoot, "v1.mjs"))).toBe(false)
+  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(true)
+
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute] })}\n`)
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  expect(existsSync(workflowRoot)).toBe(false)
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([])
+})
+
+it("preserves Workflow DevKit output not owned by ViteHub", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-unowned-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const externalRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "external.mjs"), "external\n")
+  await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toContainEqual(externalRoute)
+})
+
+it("rejects native generation that would replace unowned canonical WDK output", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-generate-with-unowned-wdk-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const externalRoute = { src: "/.well-known/workflow/v1/external", dest: "/.well-known/workflow/v1/external" }
+  const canonicalRoute = { src: "/.well-known/workflow/v1/webhook/(?<token>.*)", dest: "/.well-known/workflow/v1/webhook/[token]" }
+  const canonicalFlow = join(workflowRoot, "v1", "webhook", "[token].func", "index.mjs")
+  await mkdir(workflowDir, { recursive: true })
+  await mkdir(workflowRoot, { recursive: true })
+  await mkdir(resolve(canonicalFlow, ".."), { recursive: true })
+  await writeFile(join(workflowDir, "01-collect.ts"), "export default async function collect(input) { return input }\n")
+  await writeFile(join(workflowRoot, "external.mjs"), "previous ViteHub output\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["external.mjs"], [])
+  await writeFile(join(workflowRoot, "external.mjs"), "external\n")
+  await writeFile(canonicalFlow, "external canonical flow\n")
+  await mkdir(resolve(configFile, ".."), { recursive: true })
+  await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute, canonicalRoute] })}\n`)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    importBase: "@vite-hub/workflow",
+    rootDir,
+    workflow: { provider: "vercel" },
+  })).rejects.toThrow(/conflicts with existing unowned Workflow DevKit functions/)
+
+  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
+  await expect(readFile(canonicalFlow, "utf8")).resolves.toBe("external canonical flow\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([externalRoute, canonicalRoute])
+})
+
+it("removes stale WDK output when the Vercel provider is disabled", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-disable-vercel-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  const userRoute = { src: "/user", dest: "/user" }
+  await writeViteHubWorkflowOwnership(workflowRoot, ["stale.mjs"], [workflowRoute])
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute, userRoute] })}\n`)
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    rootDir,
+    workflow: { provider: "openworkflow", sqlite: { path: ":memory:" } },
+  })
+
+  expect(existsSync(workflowRoot)).toBe(false)
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
+})
+
+it("serializes native Vercel generation with disabled-provider cleanup", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-concurrent-cleanup-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "01-collect.ts"), "export default async function collect(input) { return input }\n")
+
+  await Promise.all([
+    generateProviderOutputs({
+      clientOutDir: join(rootDir, "dist"),
+      importBase: "@vite-hub/workflow",
+      rootDir,
+      workflow: { provider: "vercel" },
+    }),
+    generateProviderOutputs({
+      clientOutDir: join(rootDir, "dist"),
+      rootDir,
+      workflow: { provider: "openworkflow", sqlite: { path: ":memory:" } },
+    }),
+  ])
+
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  expect(existsSync(workflowRoot)).toBe(false)
+  const routes = JSON.parse(await readFile(configFile, "utf8")).routes ?? []
+  expect(routes.some((route: unknown) => JSON.stringify(route).includes("/.well-known/workflow/v1/"))).toBe(false)
+}, buildOutputTestTimeout)
 
 function resolvePlaygroundNodeModules() {
   const nodeModules = join(playgroundDir, "node_modules")
@@ -215,6 +590,7 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
+    expect(registry).toContain("options: { rootStep: false }")
     expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
     expect(registry).toContain(`${JSON.stringify(agentRecoveryName)}: async () => {`)
     expect(registry).toContain("workspaceAgentWithSourceRoot")
@@ -245,8 +621,13 @@ describe("Vite workflow provider outputs", () => {
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
-      .replace("plugins: [hubMarkdownTemplate(), hubWorkflow()],", `plugins: [hubMarkdownTemplate(), hubWorkflow(), { name: "nitro:main", config() {} }],`)
+      .replace("plugins: [hubMarkdownTemplate(), hubWorkflow()],", `plugins: [hubMarkdownTemplate(), { name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, hubWorkflow(), { name: "nitro:main", config() {} }],`)
       .replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
+    await mkdir(generatedWorkflowDir, { recursive: true })
+    await writeFile(join(rootDir, "server", "email.ts"), "export default { driver: () => ({ send: async () => ({}) }) }\n")
+    await writeFile(join(generatedWorkflowDir, "01-collect.ts"), "export default async function collect(input) { return { ...input, collected: true } }\n")
+    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email/server'\nexport default async function send(input) { await email.send(input); return input }\n")
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
       `export async function durable() {`,
       `  "use workflow"`,
@@ -266,10 +647,34 @@ describe("Vite workflow provider outputs", () => {
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
+    const [generatedNativeFile] = await readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))
+    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", generatedNativeFile), "utf8")
+    expect(generatedNative).toContain('"use workflow"')
+    expect(generatedNative).toContain('"use step"')
+    expect(generatedNative).not.toContain("vitehub.email.definition")
+    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
+    const nativeExport = `${getCloudflareWorkflowClassName("monthly-recap")}Native`
+    expect(registry).toContain(nativeExport)
+    expect(registry).toContain(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)
     expect(await readFile(join(rootDir, ".vercel", "output", "functions", "__workflow.func", "index.mjs"), "utf8")).toContain("workflowId")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"))).toBe(true)
+    const combinedFlow = await readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8")
+    expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "webhook", "[token].func", "index.mjs"))).toBe(true)
     expect(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).toContain("/.well-known/workflow/v1/webhook/")
+
+    await rm(generatedWorkflowDir, { recursive: true })
+    await execFileAsync("vp", ["build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
+    })
+    expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
+    await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
+      .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+    const rebuiltRoutes = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).routes as unknown[]
+    const workflowRoutes = rebuiltRoutes.filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
+    expect(workflowRoutes).toEqual([...new Set(workflowRoutes.map(route => JSON.stringify(route)))].map(route => JSON.parse(route)))
+
   }, buildOutputTestTimeout)
 
   it("rejects native Vercel entries outside discovered definition directories", async () => {

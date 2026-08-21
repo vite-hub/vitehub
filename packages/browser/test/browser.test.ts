@@ -60,17 +60,55 @@ describe("Browser Sessions", () => {
     expect(session.inspect().state).toBe("closed")
   })
 
+  it("shares concurrent session closure", async () => {
+    const { close, controller, provider } = fixture()
+    let resolveClose!: () => void
+    close.mockImplementation(async () => await new Promise<void>(resolve => {
+      resolveClose = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const first = session.close()
+    const second = session.close()
+    expect(close).toHaveBeenCalledOnce()
+    await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    resolveClose()
+    await Promise.all([first, second])
+    expect(session.inspect().state).toBe("closed")
+  })
+
   it("keeps failed session cleanup retryable", async () => {
-    const { close, provider } = fixture()
+    const { close, controller, provider } = fixture()
     close.mockRejectedValueOnce(new Error("temporary close failure"))
     const session = await createBrowser({ provider }).open()
 
     await expect(session.close()).rejects.toThrow("temporary close failure")
     expect(session.inspect().state).toBe("released")
+    await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
 
     await session.close()
     expect(close).toHaveBeenCalledTimes(2)
     expect(session.inspect().state).toBe("closed")
+  })
+
+  it("releases a late attachment after failed provider cleanup", async () => {
+    const { close, connection, controller, provider, release } = fixture()
+    let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void
+    close.mockRejectedValueOnce(new Error("temporary close failure"))
+    controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
+      resolveAttachment = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const attachment = session.attach(controller)
+    const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    await expect(session.close()).rejects.toThrow("temporary close failure")
+    resolveAttachment({ client: connection, release })
+
+    await result
+    expect(release).toHaveBeenCalledOnce()
+    await session.close()
+    expect(close).toHaveBeenCalledTimes(2)
   })
 
   it("retries failed cleanup for an expired handoff", async () => {
@@ -171,6 +209,88 @@ describe("Browser Sessions", () => {
 
     expect(session.inspect().state).toBe("controlled")
     await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    await control.release()
+    await session.close()
+  })
+
+  it("allows provider cleanup while controller release is stalled", async () => {
+    const { close, controller, provider } = fixture()
+    controller.attach = vi.fn(async (connection: TestConnection) => ({
+      client: connection,
+      release: async () => await new Promise<void>(() => {}),
+    }))
+    const session = await createBrowser({ provider }).open()
+    const control = await session.attach(controller)
+
+    void control.release()
+    await session.close()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(session.inspect().state).toBe("closed")
+  })
+
+  it("closes while controller attachment is pending and releases a late attachment", async () => {
+    const { close, connection, controller, provider, release } = fixture()
+    let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void
+    let resolveClose!: () => void
+    close.mockImplementation(async () => await new Promise<void>(resolve => {
+      resolveClose = resolve
+    }))
+    controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
+      resolveAttachment = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const attachment = session.attach(controller)
+    const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    const closing = session.close()
+    resolveAttachment({ client: connection, release })
+
+    await result
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    resolveClose()
+    await closing
+    expect(session.inspect().state).toBe("closed")
+  })
+
+  it("bounds stalled release of a late attachment", async () => {
+    vi.useFakeTimers()
+    try {
+      const { connection, controller, provider } = fixture()
+      let resolveAttachment!: (value: { client: TestConnection, release: () => Promise<void> }) => void
+      controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => Promise<void> }>(resolve => {
+        resolveAttachment = resolve
+      }))
+      const session = await createBrowser({ provider }).open()
+
+      const attachment = session.attach(controller)
+      const result = expect(attachment).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await session.close()
+      resolveAttachment({ client: connection, release: async () => await new Promise<void>(() => {}) })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await result
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects handoff while controller attachment is pending", async () => {
+    const { connection, controller, provider, release } = fixture()
+    let resolveAttachment!: (value: { client: TestConnection, release: () => void }) => void
+    controller.attach = vi.fn(async () => await new Promise<{ client: TestConnection, release: () => void }>(resolve => {
+      resolveAttachment = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+
+    const attachment = session.attach(controller)
+    await expect(session.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({
+      code: "BROWSER_SESSION_STATE",
+    })
+    resolveAttachment({ client: connection, release })
+    const control = await attachment
     await control.release()
     await session.close()
   })

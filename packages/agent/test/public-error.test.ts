@@ -25,6 +25,24 @@ describe("Agent public error seams", () => {
     })
   })
 
+  it("normalizes AI SDK provider failures without exposing provider payloads", () => {
+    expect(toAgentPublicError({
+      data: { error: { code: "insufficient_quota", message: "private balance" } },
+      name: "AI_APICallError",
+      statusCode: 429,
+    }, "http")).toEqual({
+      code: "PROVIDER_QUOTA_EXHAUSTED",
+      error: "AI provider quota is exhausted.",
+    })
+    expect(toAgentPublicError({
+      lastError: { name: "AI_APICallError", statusCode: 503 },
+      name: "AI_RetryError",
+    }, "http")).toEqual({
+      code: "PROVIDER_UNAVAILABLE",
+      error: "AI provider is temporarily unavailable. Try again later.",
+    })
+  })
+
   it("redacts unowned HTTP failures and hostile metadata", async () => {
     const hostile = new Proxy({}, {
       get() {

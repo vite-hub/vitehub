@@ -1,6 +1,6 @@
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
-import { defineAgent } from "vite-hub/agent"
+import { defineAgent, otlpHttpJson } from "vite-hub/agent"
 import type {
   BuiltInAgentDriver,
   BuiltInAgentDriverName,
@@ -50,7 +50,11 @@ export const nuxtModule = viteHubNuxtModule
 export const customAuthClient = createAuthClient({ basePath: "/auth" })
 export const userSession = useUserSession(customAuthClient)
 export const supportChat = useChat(useAgent("support"))
-export const builtInAgent = defineAgent({ driver: "codex", runtime: false })
+export const builtInAgent = defineAgent({
+  driver: "codex",
+  runtime: false,
+  telemetry: otlpHttpJson({ endpoint: "https://console.example/v1/traces" }),
+})
 export const builtInBox = { runtime: "trusted-host" } satisfies BoxDefinition
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
 export const configuredCodex = { kind: "codex", reasoningEffort: "high" } satisfies BuiltInAgentDriver

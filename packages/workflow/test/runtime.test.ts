@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -15,7 +15,7 @@ import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
-import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
+import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, getWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
 
 import type { VercelRun, VercelStep, VercelWorkflowRuntime } from "../src/runtime/vercel.ts"
@@ -545,6 +545,30 @@ describe("workflow runtime", () => {
     )
   })
 
+  it("restores Cloudflare runtime context inside provider step callbacks", async () => {
+    const step = {
+      do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await runWithActiveCloudflareEnv(undefined, run)),
+    } as WorkflowProviderStep
+
+    await expect(runCloudflareWorkflow({
+      config: { provider: "cloudflare" },
+      env: { REQUEST_ID: "step" },
+      event: { id: "run-1" },
+      name: "welcome",
+      registry: {
+        welcome: async () => ({
+          default: {
+            handler: async () => ({
+              active: getActiveCloudflareEnv()?.REQUEST_ID,
+              event: (getWorkflowRuntimeEvent() as { env?: { REQUEST_ID?: string } } | undefined)?.env?.REQUEST_ID,
+            }),
+          },
+        }),
+      },
+      step,
+    })).resolves.toEqual({ active: "step", event: "step" })
+  })
+
   it("converts explicitly non-retryable Cloudflare workflow errors", async () => {
     const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
     const converted = new Error("non-retryable: invalid input")
@@ -663,6 +687,44 @@ describe("workflow runtime", () => {
 
     expect(stepDo).toHaveBeenCalledTimes(2)
     expect(stepDo.mock.calls.map(call => call[0])).toEqual(["pipeline/01.first", "pipeline/02.second"])
+  })
+
+  it("does not replay a root handler after a completed write", async () => {
+    const transient = Object.assign(new Error("provider unavailable"), {
+      name: "AI_APICallError",
+      statusCode: 503,
+    })
+    let writes = 0
+    const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => Promise<unknown>) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          return await run()
+        }
+        catch (error) {
+          if (attempt === 3) throw error
+        }
+      }
+    })
+
+    await expect(runCloudflareWorkflow({
+      config: { provider: "cloudflare" },
+      env: {},
+      event: { id: "run-after-write" },
+      name: "agent",
+      registry: {
+        agent: async () => {
+          createWorkflow("agent", async () => {
+            writes += 1
+            throw transient
+          }, { rootStep: false })
+          return { default: takeInlineWorkflowDefinition("agent")! }
+        },
+      },
+      step: { do: stepDo } as WorkflowProviderStep,
+    })).rejects.toBe(transient)
+
+    expect(writes).toBe(1)
+    expect(stepDo).not.toHaveBeenCalled()
   })
 
   it("runs inline folder workflows through generated step wrappers", async () => {

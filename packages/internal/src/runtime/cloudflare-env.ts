@@ -7,7 +7,9 @@ export interface CloudflareWorkerExecutionContext {
 }
 
 let activeEnv: CloudflareWorkerEnv | undefined
-const activeEnvStorage = new AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>()
+const activeEnvStorageKey = Symbol.for("vitehub.cloudflare.env-storage")
+const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
+const activeEnvStorage = (runtimeGlobal[activeEnvStorageKey] ||= new AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>()) as AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>
 
 export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): void {
   activeEnv = env

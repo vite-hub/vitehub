@@ -33,6 +33,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
 | `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
 | `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, and named Browser runs. |
+| `vite-hub/browser/actions` | ViteHub Browser actions backed by Cloudflare Browser Run. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Channel Definitions and discovered named delivery. |
@@ -91,6 +92,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
 | `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
 | `@vite-hub/browser` | Browser Package | Browser Definitions, invocation-scoped sessions, and low-level Browser Client lifecycle. |
+| `@vite-hub/browser/actions` | Browser Package | ViteHub Browser actions backed by Cloudflare Browser Run. |
 | `@vite-hub/browser/controllers/cdp` and `@vite-hub/browser/controllers/playwright` | Browser Package | Raw CDP and Playwright Browser Session controllers. |
 | `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
 | `@vite-hub/box` | Box Package | Box Definitions, sessions, and built-in runtime selection. |

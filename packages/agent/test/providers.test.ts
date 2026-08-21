@@ -673,9 +673,19 @@ describe("agent Vite plugin", () => {
         root,
       } as never)
       const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
-      expect(cloudflareRegistry).toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
-      expect(cloudflareRegistry).toContain("context.cloudflare?.env?.CHAT_STATE")
+      expect(cloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
+      expect(cloudflareRegistry).toContain("(context.cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
+
+      await cloudflareConfigResolved({
+        command: "build",
+        createResolver: () => async (id: string) => `/app/node_modules/${id}`,
+        plugins: [],
+        root,
+      })
+      const nestedCloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      expect(nestedCloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
+      expect(nestedCloudflareRegistry).not.toContain("createLibsqlAgentState")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1666,6 +1676,9 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).not.toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
       expect(webhookRoute).toContain("const body = await readRawBody(event)")
+      expect(webhookRoute).toContain("createAgentWebhookRequest({")
+      expect(webhookRoute).toContain("node: event.node")
+      expect(webhookRoute).toContain("signal: event.req?.signal")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
       expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
@@ -1686,6 +1699,61 @@ describe("agent Vite plugin", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("preserves portable and Node webhook abort lifecycles", async () => {
+    const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
+    const portableController = new AbortController()
+    const portable = createAgentWebhookRequest({
+      method: "POST",
+      signal: portableController.signal,
+      url: "https://example.com/webhook",
+    })
+    expect(portable.signal.aborted).toBe(false)
+    portableController.abort(new Error("host stopped"))
+    expect(portable.signal.aborted).toBe(true)
+    expect(portable.signal.reason).toEqual(new Error("host stopped"))
+
+    let abortRequest!: () => void
+    let closeResponse!: () => void
+    const nodeResponse = { writableEnded: true }
+    const node = createAgentWebhookRequest({
+      method: "POST",
+      node: {
+        req: {
+          aborted: false,
+          once: vi.fn((_event, listener) => { abortRequest = listener }),
+        },
+        res: {
+          ...nodeResponse,
+          once: vi.fn((_event, listener) => { closeResponse = listener }),
+        },
+      },
+      signal: new AbortController().signal,
+      url: "https://example.com/webhook",
+    })
+    closeResponse()
+    expect(node.signal.aborted).toBe(false)
+    abortRequest()
+    expect(node.signal.aborted).toBe(true)
+    expect(node.signal.reason).toMatchObject({ name: "AbortError" })
+
+    let closeIncompleteResponse!: () => void
+    const incomplete = createAgentWebhookRequest({
+      method: "POST",
+      node: {
+        req: { aborted: false, once: vi.fn() },
+        res: {
+          writableEnded: false,
+          once: vi.fn((_event, listener) => { closeIncompleteResponse = listener }),
+        },
+      },
+      signal: new AbortController().signal,
+      url: "https://example.com/webhook",
+    })
+    closeIncompleteResponse()
+    expect(incomplete.signal.aborted).toBe(true)
+    expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
   })
 
   it("writes generated Nitro handlers that compile under strict TypeScript", async () => {
@@ -1762,10 +1830,11 @@ export default defineAgent({
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
+      expect(webhookRoute).toContain("import { createCloudflareAgentState, getActiveCloudflareEnv } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("filter(([, agent]) => hasChannelChatRoute(agent))")
       expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare:")
+      expect(webhookRoute).toContain("(cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
     }
     finally {
@@ -2061,7 +2130,7 @@ export default defineAgent({
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from \"@vite-hub/agent/server/internal\"")
+      expect(denoServer).toContain("createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from \"@vite-hub/agent/server/internal\"")
       expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(denoServer).toContain('await import("../schedule/deno-cron.mjs").catch')
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
@@ -6900,6 +6969,18 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const rehydrate = vi.fn((deliveryId: string) => ({
+      input: { prompt: `fresh ${deliveryId}` },
+      run: { runId: deliveryId },
+      webhook: {
+        busy: "steer" as const,
+        concurrencyGroup: "reviews",
+        concurrencyKey: "pr-42",
+        concurrencyLimit: 1,
+        concurrencyTtlMs: 1_000,
+        deliveryId,
+      },
+    }))
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
@@ -6950,6 +7031,7 @@ describe("server helpers", () => {
                     concurrencyLimit: 1,
                     concurrencyTtlMs: 1_000,
                     deliveryId,
+                    rehydrate: () => rehydrate(deliveryId),
                   },
                 }
               },
@@ -6984,6 +7066,7 @@ describe("server helpers", () => {
       const first = await handler(request("delivery-1"), "github", options)
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(rehydrate).toHaveBeenCalledWith("delivery-1")
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
 
       const waitUntilCount = waitUntilTasks.length
@@ -7633,6 +7716,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(1))
+      await Promise.resolve()
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 5_000 })
@@ -7641,6 +7725,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(2))
+      await Promise.resolve()
       await vi.advanceTimersByTimeAsync(2_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
@@ -8948,6 +9033,45 @@ describe("server helpers", () => {
     }
   })
 
+  it("starts typing only after chat context is accepted", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    let contextStarted!: () => void
+    let releaseContext!: () => void
+    const contextStartedPromise = new Promise<void>(resolve => { contextStarted = resolve })
+    const contextReleasePromise = new Promise<void>(resolve => { releaseContext = resolve })
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => {
+      contextStarted()
+      await contextReleasePromise
+      return Buffer.from([1, 2, 3])
+    } })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: () => ({ text: "ok" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ message: { chat: { id: 456, type: "private" }, document: { content: "context", file_name: "context.txt", mime_type: "text/plain" }, from: { id: 123 }, message_id: 44, text: "hello" } }),
+      method: "POST",
+    }), "telegram")
+    await contextStartedPromise
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+    releaseContext()
+    await vi.waitFor(() => expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined))
+    await expect(responsePromise).resolves.toMatchObject({ status: 200 })
+  })
+
   it("does not block chat webhook handling on typing status", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -9759,6 +9883,39 @@ describe("server helpers", () => {
     }
   })
 
+  it("posts the sanitized provider quota message to chat", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const error = Object.assign(new Error("private balance"), {
+      data: { error: { code: "insufficient_quota" } },
+      name: "AI_APICallError",
+      statusCode: 429,
+    })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => adapter as never },
+        webhooks: { telegram: {} },
+      })],
+      driver: { run: () => { throw error } },
+    })
+    const tasks: Promise<unknown>[] = []
+
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(chatWebhookRequest(90_003), "telegram", {
+        waitUntil: task => tasks.push(task),
+      })
+      expect(response.status).toBe(200)
+      await Promise.all(tasks)
+      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", "AI provider quota is exhausted.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("keeps name-spoofed rate-limit errors behind the generic chat fallback", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -9798,6 +9955,7 @@ describe("server helpers", () => {
     ["drop", "drop"],
     ["queue", "queue"],
     ["serial", "queue"],
+    ["steer", "queue"],
   ] as const)("maps ViteHub %s message concurrency to Chat SDK %s", async (concurrency, expectedConcurrency) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -11337,6 +11495,66 @@ describe("server helpers", () => {
     }
   })
 
+  it("replaces a manual placeholder with a safe transcription quota error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { transcribe } = await import("../src/capabilities.ts")
+    const { transcriptionError } = await import("../src/capabilities/transcription.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [
+        transcribe({ execute: () => { throw transcriptionError("TRANSCRIPTION_QUOTA_EXCEEDED") } }),
+      ],
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Mini no pudo completar el trabajo.",
+            fallbackStreamingPlaceholderText: "Pensando…",
+          },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = new Request("https://example.com/api/_vitehub/agents/mini/webhooks/telegram", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_id: "audio-file",
+            file_name: "audio.ogg",
+            file_size: 3,
+            mime_type: "audio/ogg",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 91_107,
+        },
+        update_id: 91_107,
+      }),
+      method: "POST",
+    })
+
+    try {
+      await expect(handler(request, "telegram")).rejects.toMatchObject({ code: "TRANSCRIPTION_QUOTA_EXCEEDED" })
+      expect(run).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Pensando…")
+      expect(adapter.editMessage).toHaveBeenCalledWith(
+        "telegram:456",
+        "sent-1",
+        "Audio transcription is unavailable because its provider quota is exhausted.",
+      )
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("restores manual placeholder ownership when completion cleanup fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -11714,7 +11932,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const responseError = handler(chatWebhookRequest(91_023), "telegram", {
+      const responseError = handler(chatWebhookRequest(91_023, 457), "telegram", {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
@@ -11730,7 +11948,7 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 28000ms.",
       })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
     }
     finally {
       consoleError.mockRestore()
@@ -12313,6 +12531,178 @@ describe("server helpers", () => {
       ["remember BROWSER-HISTORY", "reply 1", "what marker did I ask you to remember?"],
     ])
   })
+
+  it("exports authenticated Channel history with attachment data", async () => {
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const connect = vi.spyOn(state, "connect")
+    const attachmentFetchData = vi.fn<() => Promise<Buffer>>(async () => "data:image/jpeg;base64,AQID" as unknown as Buffer)
+    const adapter = createTestChatAdapter({ attachmentFetchData, persistThreadHistory: true })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => adapter as never },
+        stream: false,
+        webhooks: { telegram: { secretHeader: "x-test-secret", secretToken: "history-secret" } },
+      })],
+      driver: { run: () => "saved" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const webhookUrl = "https://example.com/api/_vitehub/agents/calories/webhooks/telegram"
+    await expect(handler(new Request(webhookUrl, {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456 },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 20,
+          photo: [{ file_id: "photo-1", file_name: "meal.jpg", file_size: 3 }],
+        },
+        update_id: 20,
+      }),
+      headers: { "x-test-secret": "history-secret" },
+      method: "POST",
+    }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
+    await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledTimes(1))
+
+    await expect(handler(new Request(webhookUrl, {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456 },
+          date: 1781092801,
+          document: {
+            file_name: "receipt.pdf",
+            file_size: 3,
+            mime_type: "application/pdf",
+            url: "https://cdn.example.com/receipt.pdf",
+          },
+          from: { id: 123, username: "maxi" },
+          message_id: 21,
+        },
+        update_id: 21,
+      }),
+      headers: { "x-test-secret": "history-secret" },
+      method: "POST",
+    }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
+    await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledTimes(2))
+    const fetchAttachment = vi.spyOn(globalThis, "fetch")
+
+    const connectsBeforeHistory = connect.mock.calls.length
+    const response = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(response.status).toBe(200)
+    const archive = await response.json() as { messages: Array<{ attachments: Array<{ data?: string, unavailable?: boolean }>, id: string }> }
+    expect(archive).toMatchObject({
+      messages: expect.arrayContaining([expect.objectContaining({
+        attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" })]),
+        id: "20",
+        threadId: "telegram:456",
+      }), expect.objectContaining({
+        attachments: expect.arrayContaining([expect.objectContaining({ name: "receipt.pdf", type: "file", unavailable: true, url: "https://cdn.example.com/receipt.pdf" })]),
+        id: "21",
+        threadId: "telegram:456",
+      })]),
+      provider: "telegram",
+      schemaVersion: 1,
+      threadId: "telegram:456",
+    })
+    expect(fetchAttachment).not.toHaveBeenCalled()
+    let finishLateRead!: (value: Buffer) => void
+    attachmentFetchData.mockImplementationOnce(() => new Promise(resolve => { finishLateRead = resolve }))
+    const abortController = new AbortController()
+    const abortedHistory = handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+      signal: abortController.signal,
+    }), "telegram", { state })
+    await vi.waitFor(() => expect(attachmentFetchData).toHaveBeenCalledTimes(2))
+    abortController.abort(new Error("client stopped waiting"))
+    const abortedResponse = await abortedHistory
+    expect(abortedResponse.status).toBe(200)
+    const abortedArchive = await abortedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
+    expect(abortedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
+    finishLateRead(Buffer.from([1, 2, 3]))
+    attachmentFetchData.mockResolvedValueOnce("data:text/plain,%ZZ" as unknown as Buffer)
+    const malformedResponse = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(malformedResponse.status).toBe(200)
+    const malformedArchive = await malformedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
+    expect(malformedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
+    const chatThread = (adapter._chatInstance()! as unknown as { thread: (id: string) => { allMessages: AsyncIterable<Message> } }).thread("telegram:456")
+    const threadPrototype = Object.getPrototypeOf(chatThread) as { allMessages: AsyncIterable<Message> }
+    const oversizedHistory = vi.spyOn(threadPrototype, "allMessages", "get").mockReturnValue({
+      [Symbol.asyncIterator]: async function* () {
+        yield new Message({
+          attachments: [],
+          author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+          formatted: { children: [], type: "root" },
+          id: "oversized",
+          metadata: { dateSent: new Date("2026-08-15T00:00:00.000Z"), edited: false },
+          raw: {},
+          text: "x".repeat(35 * 1024 * 1024),
+          threadId: "telegram:456",
+        })
+      },
+    })
+    const oversizedResponse = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(oversizedResponse.status).toBe(400)
+    await expect(oversizedResponse.json()).resolves.toMatchObject({ message: "Channel history archive exceeds the 35 MiB response limit." })
+    oversizedHistory.mockRestore()
+    const closeFailedHistory = vi.fn(async () => ({ done: true as const, value: undefined }))
+    const failedHistory = vi.spyOn(threadPrototype, "allMessages", "get").mockReturnValue({
+      [Symbol.asyncIterator]: () => ({
+        next: vi.fn(async () => { throw new Error("provider history failed") }),
+        return: closeFailedHistory,
+      }),
+    })
+    const failedResponse = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(failedResponse.status).toBe(400)
+    await expect(failedResponse.json()).resolves.toMatchObject({ message: "provider history failed" })
+    expect(closeFailedHistory).toHaveBeenCalledOnce()
+    failedHistory.mockRestore()
+    fetchAttachment.mockRestore()
+    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 5)
+    await state.disconnect()
+    await rm(stateDir, { force: true, recursive: true })
+  }, 15_000)
 
   it("keeps fetched thread history when the current chat message has no id", async () => {
     const { telegram } = await import("../src/channels.ts")

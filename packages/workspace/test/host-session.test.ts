@@ -1332,6 +1332,26 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/.git/config")).toBe("checkout")
   })
 
+  it("hides and rejects writes to nested Git metadata", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.mkdir("/workspace/nested/.Git", { recursive: true })
+    await host.files.write("/workspace/nested/.Git/config", new TextEncoder().encode("checkout"))
+
+    const session = await docs.startSession({ attach: true, host })
+    await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "nested/.Git/config" }),
+    ]))
+    await expect(session.writeFile("nested/.Git/config", "mutated")).rejects.toThrow("Workspace path escapes")
+    await expect(session.exec("write", ["nested/.Git/config", "mutated"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(session.exec("write", ["nested/.Git/new", "created"])).resolves.toMatchObject({ exitCode: 0 })
+    await session.commit({ message: "ignore nested Git metadata" })
+    await session.close()
+
+    expect(host.readText("/workspace/nested/.Git/config")).toBe("checkout")
+    expect(host.readText("/workspace/nested/.Git/new")).toBeUndefined()
+  })
+
   it("restores excluded host state after an attached commit", async () => {
     const docs = workspace()
     const host = memoryHost()

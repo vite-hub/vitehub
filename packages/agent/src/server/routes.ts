@@ -8,15 +8,16 @@ import { awaitAgentInvocationResult } from "../agent-invocation.ts"
 import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
-import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
+import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
 import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatSessionBaseId, resolveChatSessionId, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
+import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
-import { isAttachmentData } from "../messages.ts"
+import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
@@ -199,7 +200,6 @@ type AgentDefinitionWithCapabilities = {
   chat?: AgentChatOptions
 }
 
-const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
 const chatNativeStreamUpdateIntervalMs = 1
 const chatTypingRefreshIntervalMs = 4000
@@ -2467,10 +2467,12 @@ function createChatSdkConfig(
   const identity: ChatConfig["identity"] = options?.identity ?? (options?.transcripts
     ? ({ author }) => author.isBot === true ? null : `${adapterName}:${author.userId}`
     : undefined)
-  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial">(options, "concurrency")
+  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
-    concurrency: concurrency === "parallel" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
+    // TODO: forward active Chat messages through Agent Invocation steering once
+    // model and Workflow runtimes expose the same resumable input contract.
+    concurrency: concurrency === "parallel" ? "concurrent" : concurrency === "serial" || concurrency === "steer" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -2928,6 +2930,7 @@ function chatErrorHookArgs(
     : undefined
   return {
     error,
+    publicError: toAgentPublicError(error, "http"),
     history: input ? uiMessagesToAgentMessages(input.messages) : [],
     message: {
       id: inputMessage?.id || message.id,
@@ -3047,30 +3050,6 @@ async function deliverToManualDeliveryPlaceholder(
   return false
 }
 
-async function resolveChatErrorFallbackText(
-  options: AgentChatOptions | undefined,
-  args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
-  resolutionTimeout?: number,
-  resolutionAbort?: AbortController,
-  callbackDelivered?: () => boolean,
-): Promise<string | undefined> {
-  const fallback = options?.errorFallbackText
-  if (fallback === null) return undefined
-  if (typeof fallback === "function") {
-    try {
-      const resolved = await enforceChatInvocationTimeout(Promise.resolve(fallback(args)), resolutionTimeout, resolutionAbort)
-      return resolved || undefined
-    }
-    catch {
-      return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
-    }
-  }
-  if (typeof fallback === "string") return fallback
-  const publicError = toAgentPublicError(args.error, "http")
-  if (publicError.code === "RATE_LIMIT_REJECTED") return publicError.error
-  return defaultChatErrorFallbackText
-}
-
 interface ManualChatDeliveryState {
   errorFallback?: string
   placeholder?: unknown
@@ -3115,9 +3094,8 @@ async function postChatErrorFallback(
       callbackDelivered = true
       resolveCallbackDelivery?.()
     }),
-    fallbackResolutionTimeout,
-    fallbackResolutionAbort,
     () => callbackDelivered,
+    resolution => enforceChatInvocationTimeout(resolution, fallbackResolutionTimeout, fallbackResolutionAbort),
   )
   const fallback = typeof options?.errorFallbackText === "function"
     ? await Promise.race([fallbackResolution, callbackDelivery.then(() => undefined)])
@@ -3391,6 +3369,8 @@ async function handleChatSdkMessage(
       return
     }
 
+    const manualDelivery = options?.delivery === "manual"
+    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
@@ -3423,9 +3403,8 @@ async function handleChatSdkMessage(
       return
     }
 
+    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     assertChatDeliveryOptions(options || {})
-    const manualDelivery = options?.delivery === "manual"
-    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     run = invocation.run
     await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: run?.runId })
     await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: run?.runId })
@@ -3444,7 +3423,8 @@ async function handleChatSdkMessage(
       if (state.workflowCustodySupported === false) {
         throw new Error("[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider.")
       }
-      const durableTyping = startChatTypingRefresh(thread, context)
+      const durableTyping = typing || startChatTypingRefresh(thread, context)
+      typing = undefined
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
       try {
         await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({
@@ -3472,7 +3452,6 @@ async function handleChatSdkMessage(
       }
       return
     }
-    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
       const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
@@ -3793,6 +3772,301 @@ async function createChannelChat(
     handleChatSdkMessages(agent, await deliveryContext(), registration, thread, message, queuedMessage => queuedMessage.isMention ? "mention" : "subscribed", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
 
   return chat
+}
+
+function historyBytesToBase64(data: Uint8Array): string {
+  let binary = ""
+  for (let offset = 0; offset < data.length; offset += 0x8000) {
+    binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
+const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
+
+function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
+  const bytes = value instanceof Blob
+    ? undefined
+    : value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : value instanceof Uint8Array ? value : undefined
+  return bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
+}
+
+async function boundedChannelHistoryOperation(operation: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
+  return await new Promise((resolve, reject) => {
+    const abort = () => settle(reject, signal.reason)
+    const timeout = setTimeout(() => settle(reject, new DOMException("Attachment read timed out.", "TimeoutError")), 30_000)
+    const settle = (callback: (value: unknown) => void, value: unknown) => {
+      clearTimeout(timeout)
+      signal.removeEventListener("abort", abort)
+      callback(value)
+    }
+    if (signal.aborted) {
+      settle(reject, signal.reason)
+      return
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    Promise.resolve().then(operation).then(
+      value => settle(resolve, value),
+      error => settle(reject, error),
+    )
+  })
+}
+
+function channelHistoryStringByteLength(value: string, mediaType: string): number | undefined {
+  const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
+  const encoded = dataUrl?.[2] ?? value
+  const base64 = dataUrl
+    ? dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")
+    : !isTextAttachmentDataMediaType(mediaType)
+  if (base64) {
+    let length = 0
+    let padding = 0
+    for (const character of encoded) {
+      if (/\s/.test(character)) continue
+      length++
+      padding = character === "=" ? padding + 1 : 0
+    }
+    return Math.max(0, Math.floor(length * 3 / 4) - Math.min(padding, 2))
+  }
+  let bytes = 0
+  for (let index = 0; index < encoded.length;) {
+    if (dataUrl && encoded[index] === "%") {
+      if (!/^[\da-f]{2}$/i.test(encoded.slice(index + 1, index + 3))) return
+      bytes++
+      index += 3
+      continue
+    }
+    const codePoint = encoded.codePointAt(index)!
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    index += codePoint > 0xffff ? 2 : 1
+  }
+  return bytes
+}
+
+function isTextAttachmentDataMediaType(mediaType: string): boolean {
+  const normalized = mediaType.split(";", 1)[0]!.trim().toLowerCase()
+  return normalized.startsWith("text/") || normalized === "application/json" || normalized === "application/xml" || normalized.endsWith("+json") || normalized.endsWith("+xml")
+}
+
+async function channelHistoryAttachment(
+  attachment: Attachment,
+  adapter: Adapter,
+  budget: { remaining: number },
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const unavailable = (resolved: Attachment = attachment) => objectWithoutUndefined({
+    fetchMetadata: resolved.fetchMetadata,
+    height: resolved.height,
+    mimeType: resolved.mimeType,
+    name: resolved.name,
+    size: resolved.size,
+    type: resolved.type,
+    unavailable: true,
+    url: resolved.url,
+    width: resolved.width,
+  })
+  if (budget.remaining <= 0) return unavailable()
+  const rehydrate = (adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }).rehydrateAttachment
+  let resolved = attachment
+  try {
+    if (rehydrate && !attachment.fetchData) resolved = rehydrate.call(adapter, attachment)
+  }
+  catch {
+    return unavailable()
+  }
+  const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
+  let data: unknown = typeof resolved.size === "number" && resolved.size > maxBytes ? undefined : resolved.data
+  if (data instanceof Blob) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  const boundedLazySize = typeof resolved.size === "number" && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
+  if (!data && resolved.fetchData && boundedLazySize) {
+    try {
+      data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
+    }
+    catch {}
+  }
+  let bytes: Uint8Array | undefined
+  try {
+    if (typeof data === "string") {
+      const mediaType = resolved.mimeType || "application/octet-stream"
+      const byteLength = channelHistoryStringByteLength(data, mediaType)
+      bytes = byteLength !== undefined && byteLength <= maxBytes ? attachmentStringBytes(data, mediaType) : undefined
+    }
+    else bytes = channelHistoryAttachmentBytes(data)
+  }
+  catch {}
+  const boundedBytes = bytes && bytes.byteLength <= maxBytes ? bytes : undefined
+  if (boundedBytes) budget.remaining -= boundedBytes.byteLength
+  return objectWithoutUndefined({
+    data: boundedBytes ? historyBytesToBase64(boundedBytes) : undefined,
+    fetchMetadata: resolved.fetchMetadata,
+    height: resolved.height,
+    mimeType: resolved.mimeType,
+    name: resolved.name,
+    size: resolved.size,
+    type: resolved.type,
+    unavailable: !boundedBytes || undefined,
+    url: boundedBytes ? undefined : resolved.url,
+    width: resolved.width,
+  })
+}
+
+function boundedJsonByteLength(value: unknown, maxBytes: number, seen = new Set<object>()): number | undefined {
+  if (value === null) return 4
+  if (typeof value === "boolean") return value ? 4 : 5
+  if (typeof value === "number") return Number.isFinite(value) ? String(value).length : 4
+  if (typeof value === "string") {
+    let bytes = 2
+    for (let index = 0; index < value.length;) {
+      const codePoint = value.codePointAt(index)!
+      bytes += codePoint === 0x22 || codePoint === 0x5c
+        ? 2
+        : codePoint >= 0xd800 && codePoint <= 0xdfff
+          ? 6
+        : codePoint <= 0x1f
+          ? 6
+          : codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+      if (bytes > maxBytes) return
+      index += codePoint > 0xffff ? 2 : 1
+    }
+    return bytes
+  }
+  if (typeof value !== "object" || seen.has(value)) return
+  seen.add(value)
+  let bytes = Array.isArray(value) ? 2 : 2
+  const entries = Array.isArray(value) ? value.map((item, index) => [String(index), item] as const) : Object.entries(value)
+  for (let index = 0; index < entries.length; index++) {
+    const [key, item] = entries[index]!
+    const itemBytes = boundedJsonByteLength(item, maxBytes - bytes, seen)
+    if (itemBytes === undefined) return
+    bytes += itemBytes + (index ? 1 : 0)
+    if (!Array.isArray(value)) {
+      const keyBytes = boundedJsonByteLength(key, maxBytes - bytes, seen)
+      if (keyBytes === undefined) return
+      bytes += keyBytes + 1
+    }
+    if (bytes > maxBytes) return
+  }
+  seen.delete(value)
+  return bytes
+}
+
+function boundedUtf8ByteLength(value: string, maxBytes: number): number | undefined {
+  let bytes = 0
+  for (let index = 0; index < value.length;) {
+    const codePoint = value.codePointAt(index)!
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    if (bytes > maxBytes) return
+    index += codePoint > 0xffff ? 2 : 1
+  }
+  return bytes
+}
+
+async function channelHistoryMessage(
+  message: ChatSdkMessage,
+  adapter: Adapter,
+  budget: { remaining: number },
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const attachments: Record<string, unknown>[] = []
+  for (const attachment of message.attachments) {
+    attachments.push(await channelHistoryAttachment(attachment, adapter, budget, signal))
+  }
+  return objectWithoutUndefined({
+    attachments,
+    author: message.author,
+    formatted: message.formatted,
+    id: message.id,
+    isMention: message.isMention,
+    links: message.links,
+    metadata: objectWithoutUndefined({
+      dateSent: message.metadata.dateSent.toISOString(),
+      edited: message.metadata.edited,
+      editedAt: isoDate(message.metadata.editedAt),
+    }),
+    replyTo: message.replyTo ? await channelHistoryMessage(message.replyTo, adapter, budget, signal) : undefined,
+    text: message.text,
+    threadId: message.threadId,
+  })
+}
+
+async function createChannelHistoryResponse(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  options: AgentChannelWebhookRouteOptions,
+  request: Request,
+): Promise<Response> {
+  const body = await request.json().catch(() => undefined) as { threadId?: unknown } | undefined
+  if (!body || typeof body.threadId !== "string" || !body.threadId.trim()) {
+    return createBadRequest("Channel history export requires threadId.")
+  }
+  const baseChatOptions = getAgentChatOptions(agent)
+  const adapters = await resolveChatAdapters(baseChatOptions, context)
+  const adapterName = resolveChatAdapterName(adapters, registration)
+  const adapter = adapterName ? adapters[adapterName] : undefined
+  if (!adapter) return createJsonErrorResponse(500, "Channel history export could not resolve the configured Chat adapter.")
+  const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
+  const state = await resolveChatState(chatOptions, context, registration, options)
+  await state.state.connect()
+  const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options, undefined, state)
+  const messages: Record<string, unknown>[] = []
+  const attachmentBudget = { remaining: channelHistoryAttachmentMaxBytes }
+  let archiveBytes = 0
+  let completed = false
+  let iterator: AsyncIterator<ChatSdkMessage> | undefined
+  try {
+    const historyIterator = chat.thread(body.threadId.trim()).allMessages[Symbol.asyncIterator]()
+    iterator = historyIterator
+    while (true) {
+      const next = await boundedChannelHistoryOperation(() => historyIterator.next(), request.signal)
+      if (!next || typeof next !== "object" || !("done" in next)) throw new Error("Channel history provider returned an invalid result.")
+      const result = next as IteratorResult<ChatSdkMessage>
+      if (result.done) {
+        completed = true
+        break
+      }
+      const message = result.value
+      const archivedMessage = await channelHistoryMessage(message, adapter, attachmentBudget, request.signal)
+      const messageBytes = boundedJsonByteLength(archivedMessage, channelHistoryArchiveMaxBytes - archiveBytes)
+      if (messageBytes === undefined) throw new Error("Channel history archive exceeds the 35 MiB response limit.")
+      archiveBytes += messageBytes
+      messages.push(archivedMessage)
+      if (request.signal.aborted) break
+    }
+  }
+  catch (error) {
+    return createJsonErrorResponse(400, error instanceof Error ? error.message : "Channel history export failed.")
+  }
+  finally {
+    if (!completed && iterator?.return) {
+      try {
+        await boundedChannelHistoryOperation(() => iterator!.return!(), AbortSignal.timeout(30_000))
+      }
+      catch {}
+    }
+  }
+  const configuredHistory = isRecord(chatOptions?.threadHistory) ? chatOptions.threadHistory : {}
+  const archive = {
+    agent: context.agentIdentity?.name || "agent",
+    channel: registration.channelId || registration.id,
+    exportedAt: new Date().toISOString(),
+    messages,
+    provider: registration.provider,
+    retention: {
+      maxMessages: configuredHistory.maxMessages ?? 100,
+      ttlMs: configuredHistory.ttlMs ?? 7 * 24 * 60 * 60 * 1000,
+    },
+    schemaVersion: 1,
+    threadId: body.threadId.trim(),
+  }
+  const serialized = JSON.stringify(archive)
+  if (boundedUtf8ByteLength(serialized, channelHistoryArchiveMaxBytes) === undefined) {
+    return createJsonErrorResponse(400, "Channel history archive exceeds the 35 MiB response limit.")
+  }
+  return new Response(serialized, { headers: { "content-type": "application/json" } })
 }
 
 async function createChatWebhookHandler(
@@ -4555,6 +4829,21 @@ export function createChannelWebhookRouteHandler(
           status: 204,
         })
       }
+      if (request.headers.get(agentChannelHistoryHeader) === "1") {
+        const secret = await resolveMaybe(registration.secretToken, context)
+        if (!registration.secretHeader || !secret) {
+          return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
+        }
+        try {
+          await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
+        }
+        catch (error) {
+          const response = toHttpErrorResponse(error)
+          if (response) return response
+          throw error
+        }
+        return await createChannelHistoryResponse(agent, context, registration, handlerOptions, request)
+      }
       if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
         try {
           await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
@@ -4633,9 +4922,6 @@ export function createChannelWebhookRouteHandler(
             }
             if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
               return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured."))
-            }
-            if (invocation.webhook.busy === "steer" && invocation.webhook.rehydrate) {
-              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership cannot combine busy steering with rehydration."))
             }
             const concurrencyLimit = positiveWebhookConcurrencyLimit(invocation.webhook.concurrencyLimit)!
             if (!hasAgentWebhookQueue(webhookState.state)) {

@@ -1,5 +1,5 @@
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
-import { materializeAgentUsageCost, vercelAiGatewayPricing } from "../internal/usage-pricing.ts"
+import { enrichAgentUsageCost, vercelAiGatewayPricing } from "../internal/usage-pricing.ts"
 
 import type { AgentCapabilityDefinition, AgentRuntimeConfig, AgentUsageRecord } from "../types.ts"
 import type { AgentUsagePricing } from "../internal/usage-pricing.ts"
@@ -38,28 +38,11 @@ export function cost<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
       const record = event.invocation.usage
       if (!record) return record
 
-      if (!record.cost && record.usage) {
-        try {
-          const cost = await pricing({
-            model: record.model,
-            response: record.response,
-            run: record.run || event.invocation.run,
-            usage: record.usage,
-          })
-          if (cost) record.cost = materializeAgentUsageCost(cost)
-        }
-        catch {
-          return record
-        }
+      try {
+        Object.assign(record, await enrichAgentUsageCost(record, pricing, event.invocation.run))
       }
-
-      if (record.cost) {
-        try {
-          record.cost = materializeAgentUsageCost(record.cost)
-        }
-        catch {
-          return record
-        }
+      catch {
+        return record
       }
 
       return record

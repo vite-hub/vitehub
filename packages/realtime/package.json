@@ -42,6 +42,7 @@
   "dependencies": {
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-collaboration": "catalog:realtime",
+    "@tiptap/extension-document": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/markdown": "catalog:realtime",
@@ -52,6 +53,7 @@
     "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
     "lib0": "catalog:realtime",
+    "marked": "catalog:realtime",
     "pathe": "catalog:unjs",
     "y-protocols": "catalog:realtime",
     "y-websocket": "catalog:realtime",
@@ -59,7 +61,9 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@tiptap/pm": "catalog:realtime",
     "@vite-hub/internal": "workspace:*",
+    "linkedom": "^0.18.12",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
