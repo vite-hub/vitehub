@@ -329,7 +329,7 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
         && pendingText.messageId === event.messageId
         && pendingText.phase === event.phase
         && pendingText.role === event.role) {
-        pendingText = { ...pendingText, text: (pendingText.text + event.text).slice(0, 64 * 1024) }
+        pendingText = { ...pendingText, text: pendingText.text + event.text }
         return
       }
       await flush()

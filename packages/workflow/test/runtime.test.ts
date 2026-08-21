@@ -2100,6 +2100,7 @@ describe("workflow runtime", () => {
     const load = vi.fn(async () => { throw new Error("module startup failed") })
     const status = vi.fn(async () => "complete")
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    Object.assign(load, { internalAgentInvocationRecovery: true as const })
     setWorkflowRuntimeRegistry({ [name]: load })
     enterWorkflowRuntimeEvent({
       req: { runtime: { cloudflare: { env: {

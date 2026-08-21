@@ -39,12 +39,10 @@ import type {
   AgentAdapterRunContext,
   AgentProviderPermissions,
   AgentRuntimeConfig,
-  AgentRunCallbackContext,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
 } from "./types.ts"
-import type { BoxDefinition, BoxSession } from "@vite-hub/box"
 import type { AttachmentPart, Message, StreamEvent } from "./messages.ts"
 import type {
   ReadonlyWorkspaceFacade,
@@ -53,12 +51,12 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
+import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
-  box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>>
   env?: Record<string, string | undefined>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
@@ -571,37 +569,6 @@ async function resolveInstructions<
   }) : undefined
 }
 
-async function openProviderBox(
-  options: ProviderAgentAdapterOptions<any, any>,
-  context: AgentAdapterRunContext<any, any>,
-  signal: AbortSignal | undefined,
-): Promise<{ environment: Readonly<Record<string, string>>, session: BoxSession } | undefined> {
-  if (!options.box) return
-  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
-  const callbackContext = {
-    ...agentInvocationCallbackContextValues(context.context),
-    ...runtime,
-    actor: context.actor,
-    context: context.context,
-    input: context.input,
-    invoker: context.invoker,
-    run: context.runtime.run,
-  } as AgentRunCallbackContext
-  const { resolveBox } = await import("@vite-hub/box")
-  const box = await resolveBox(options.box, callbackContext)
-  if (box.plan.runtime !== "trusted-host") {
-    throw new Error(`[vitehub] Provider Agent Drivers support only trusted-host Boxes; received ${box.plan.runtime}.`)
-  }
-  const session = await box.open({ signal })
-  const { getTrustedHostBoxExecution } = await import("@vite-hub/box/_internal/trusted-host")
-  const execution = getTrustedHostBoxExecution(session)
-  if (!execution) {
-    await session.close()
-    throw new Error("[vitehub] Provider Agent Driver could not bind the trusted-host Box execution environment.")
-  }
-  return { environment: execution.environment, session }
-}
-
 function latestUserMessages(messages: Message[]): Message[] {
   const index = messages.findLastIndex(message => message.role === "user")
   return index === -1 ? messages.slice(-1) : messages.slice(index)
@@ -760,7 +727,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): Strea
   switch (event.type) {
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
-      return [{ data: { kind: "content", value: event.payload.delta }, type: "data-agent-event" }]
+      return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started":
       return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: event.payload.data, name: providerToolName(event) || event.payload.title || event.payload.itemType, type: "tool-call" }]
@@ -826,11 +793,14 @@ function isTerminalEvent(event: ProviderRuntimeEvent, turnId: TurnId): boolean {
   return event.turnId === turnId && (event.type === "turn.completed" || event.type === "turn.aborted")
 }
 
-async function* runProvider(
-  options: ProviderAgentAdapterOptions<any, any>,
+async function* runProvider<
+  CALL_OPTIONS,
+  TRuntimeConfig extends AgentRuntimeConfig,
+>(
+  options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
   resumeCursors: Map<string, unknown>,
   sessionLocks: Map<string, Promise<void>>,
-  context: AgentAdapterRunContext<any, any>,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
     throw new Error(`[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.`)
@@ -855,14 +825,10 @@ async function* runProvider(
     : undefined
   const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
-  let boxSession: BoxSession | undefined
-  let providerEnvironmentOverrides = options.env
+  const providerEnvironmentOverrides = options.env
   try {
     effectiveSignal?.throwIfAborted()
-    const box = await openProviderBox(options, context, effectiveSignal)
-    boxSession = box?.session
-    root = boxSession?.cwd ?? await mkdtemp(join(tmpdir(), "vitehub-provider-"))
-    if (box) providerEnvironmentOverrides = { ...options.env, ...box.environment }
+    root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
   }
   catch (error) {
     releaseSessionLock?.()
@@ -896,9 +862,7 @@ async function* runProvider(
     releaseDeferredRuntimeStopped = resolve
   })
   let rootCleanup: Promise<void> | undefined
-  const cleanupRoot = () => rootCleanup ??= boxSession
-    ? boxSession.close()
-    : rm(root, { force: true, recursive: true })
+  const cleanupRoot = () => rootCleanup ??= rm(root, { force: true, recursive: true })
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -908,7 +872,10 @@ async function* runProvider(
   })
   let clearActiveWorkspaceCommands: (() => void) | undefined
   let clearActiveWorkspaceFiles: (() => void) | undefined
-  const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
+  const observeLateCleanup = (cleanup: Promise<void>) => {
+    Object.defineProperty(cleanup, agentProviderCleanupTask, { value: true })
+    context.runtime.waitUntil(cleanup)
+  }
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
@@ -1183,10 +1150,7 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
     : undefined
   try {
     for await (const event of iterable) {
-      const providerData = event.type === "data-agent-event" ? record(event.data) : undefined
-      await tracer?.write(providerData?.kind === "content" && typeof providerData.value === "string"
-        ? { phase: "commentary", text: providerData.value, type: "text-delta" }
-        : event)
+      await tracer?.write(event)
       if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
       else if (event.type === "usage") usageRecord = event.usageRecord
       else if (event.type === "finish") finishReason = event.reason

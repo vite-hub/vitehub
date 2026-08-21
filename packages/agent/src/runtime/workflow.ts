@@ -7,6 +7,7 @@ import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../interna
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { agentInvocationRunId } from "../invocation-context.ts"
 import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
+import { agentProviderCleanupTask } from "../internal/provider-cleanup-task.ts"
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
@@ -280,7 +281,7 @@ export async function runAgentWorkflowDefinition<
   const payload = context.payload || {}
   const backgroundTasks: Promise<unknown>[] = []
   const waitUntil = (promise: Promise<unknown>): void => {
-    if (agentTelemetryTask in promise) backgroundTasks.push(Promise.resolve(promise))
+    if (agentTelemetryTask in promise || agentProviderCleanupTask in promise) backgroundTasks.push(Promise.resolve(promise))
     else void Promise.resolve(promise).catch(() => {})
   }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()

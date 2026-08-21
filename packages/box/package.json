@@ -26,7 +26,6 @@
   "exports": {
     ".": "./dist/index.js",
     "./_internal/cloudflare": "./dist/internal/cloudflare.js",
-    "./_internal/trusted-host": "./dist/internal/trusted-host.js",
     "./_internal/vercel": "./dist/internal/vercel.js",
     "./package.json": "./package.json"
   },

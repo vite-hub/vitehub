@@ -29,7 +29,6 @@ import type { ExecutionAuthority } from "@vite-hub/runtime";
 
 import type {
   BoxFileEntry,
-  BoxSession,
   BoxRuntimePlan,
   BoxRuntime,
   ResolvedBoxFile,
@@ -109,18 +108,6 @@ const trustedHostExecutionAuthority = {
   processes: "arbitrary",
 } as const satisfies ExecutionAuthority;
 
-export interface TrustedHostBoxExecution {
-  readonly environment: Readonly<Record<string, string>>;
-}
-
-const trustedHostBoxExecutions = new WeakMap<BoxSession, TrustedHostBoxExecution>();
-
-export function getTrustedHostBoxExecution(
-  session: BoxSession,
-): TrustedHostBoxExecution | undefined {
-  return trustedHostBoxExecutions.get(session);
-}
-
 export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxRuntime {
   const preparedInputs = new WeakMap<BoxRuntimeInput, Awaited<ReturnType<typeof resolveTrustedHostInput>>>();
   return markBuiltInBoxRuntime({
@@ -173,15 +160,11 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
           sessionId: openOptions?.id,
         },
       );
-      const boxSession = initializedSession ?? createBoxSession(
+      return initializedSession ?? createBoxSession(
         runtimeSession,
         openOptions,
         resolved.cwd ? join(runtimeSession.defaultWorkingDirectory, "workspace") : undefined,
       );
-      trustedHostBoxExecutions.set(boxSession, {
-        environment: Object.freeze({ ...runtimeSession.env }),
-      });
-      return boxSession;
     },
   });
 }

@@ -1,4 +1,4 @@
-import { access, chmod, lstat, mkdir, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 
 import { describe, expect, it, vi } from "vitest"
@@ -124,39 +124,6 @@ describe("Provider Agent Driver", () => {
     expect(requestedAfterTerminal).toBe(false)
   })
 
-  it("runs provider sessions in the resolved trusted-host Box", async () => {
-    const threadId = "thread-box"
-    const checkout = `/tmp/vitehub-provider-box-${crypto.randomUUID()}`
-    await mkdir(checkout, { recursive: true })
-    let resolvedCwd: string | undefined
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
-        resolvedCwd = await realpath((createProviderRuntime.mock.lastCall?.[0] as { cwd: string }).cwd)
-      },
-    })
-    const adapter = createProviderAgentAdapter({
-      box: {
-        cwd: ({ input }) => (input.options as { checkout: string }).checkout,
-        env: { PROVIDER_BOX: "selected" },
-        runtime: "trusted-host",
-      },
-      provider: "codex",
-    })
-
-    try {
-      await adapter.generate(context(threadId, { input: { options: { checkout }, prompt: "hello" } }) as never)
-
-      expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
-        environment: expect.objectContaining({ PROVIDER_BOX: "selected" }),
-      }))
-      expect(resolvedCwd).toBe(await realpath(checkout))
-      await expect(access(checkout)).resolves.toBeUndefined()
-    }
-    finally {
-      await rm(checkout, { force: true, recursive: true })
-    }
-  })
-
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
     const agent = defineAgent({ driver: "codex", runtime: false })
 
@@ -184,7 +151,7 @@ describe("Provider Agent Driver", () => {
 
     expect(events.map(item => item.type)).toEqual([
       "data-agent-event",
-      "data-agent-event",
+      "text-delta",
       "tool-call",
       "tool-result",
       "approval-request",
@@ -193,7 +160,7 @@ describe("Provider Agent Driver", () => {
       "usage",
       "finish",
     ])
-    expect(events[1]).toMatchObject({ data: { kind: "content", value: "thinking" } })
+    expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))

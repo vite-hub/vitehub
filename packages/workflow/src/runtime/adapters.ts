@@ -7,7 +7,7 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 import { runWorkflowHandler } from "./execute.ts"
 import { getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
-import { getWorkflowRunState, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
+import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
 import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult } from "../types.ts"
@@ -51,6 +51,9 @@ function resolveCloudflareBinding(event: unknown, binding: string | undefined, n
 
 function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
   const env = getCloudflareEnv(event)
+  if (getWorkflowRuntimeRegistry()?.[name]?.internalAgentInvocationRecovery) {
+    return env?.[getCloudflareWorkflowBindingName(name)] as CloudflareWorkflowBinding | undefined
+  }
   return ((binding ? env?.[binding] : undefined) || env?.[getCloudflareWorkflowBindingName(name)]) as CloudflareWorkflowBinding | undefined
 }
 

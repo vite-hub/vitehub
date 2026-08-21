@@ -424,7 +424,7 @@ function isTraceRunError(event: TraceEventLogEntry): boolean {
 }
 
 function isTraceRunTerminal(event: TraceEventLogEntry): boolean {
-  return isTraceRunFinish(event) || event.name === "agent.invocation.error" || event.name === "run.error"
+  return isTraceRunFinish(event) || isTraceRunError(event)
 }
 
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
@@ -520,24 +520,38 @@ function openTelemetryId(value: string, length: 16 | 32): string {
 
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
   const maxEntries = 1024
-  const entriesByRun = new Map<string, TraceEventLogEntry[]>()
+  const firstEntries = maxEntries / 2
+  const tailEntries = maxEntries / 2
+  const entriesByRun = new Map<string, {
+    count: number
+    first: Array<{ entry: TraceEventLogEntry, index: number }>
+    tail: Array<{ entry: TraceEventLogEntry, index: number } | undefined>
+    terminal?: { entry: TraceEventLogEntry, index: number }
+  }>()
   for (const entry of events) {
     const id = runId(entry)
-    const runEntries = entriesByRun.get(id)
-    if (runEntries) runEntries.push(entry)
-    else entriesByRun.set(id, [entry])
+    let run = entriesByRun.get(id)
+    if (!run) {
+      run = { count: 0, first: [], tail: Array.from({ length: tailEntries }) }
+      entriesByRun.set(id, run)
+    }
+    const indexed = { entry, index: run.count }
+    if (run.count < firstEntries) run.first.push(indexed)
+    else run.tail[(run.count - firstEntries) % tailEntries] = indexed
+    if (isTraceRunTerminal(entry)) run.terminal = indexed
+    run.count += 1
   }
-  const boundedEntries = [...entriesByRun.values()].flatMap((runEntries) => {
-    if (runEntries.length <= maxEntries) return runEntries
-    const terminalIndex = runEntries.findLastIndex(isTraceRunTerminal)
-    const tailSize = terminalIndex === -1 ? maxEntries / 2 : maxEntries / 2 - 1
-    const indexes = new Set([
-      ...runEntries.slice(0, maxEntries / 2).map((_entry, index) => index),
-      ...(terminalIndex === -1 ? [] : [terminalIndex]),
-      ...runEntries.slice(-tailSize).map((_entry, index) => runEntries.length - tailSize + index),
-    ])
-    return [...indexes].sort((left, right) => left - right).map(index => runEntries[index]!).map((entry, index) => index === 0
-      ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": runEntries.length, "vitehub.trace.truncated": true } }
+  const boundedEntries = [...entriesByRun.values()].flatMap((run) => {
+    const tail = run.tail.filter(entry => entry !== undefined).sort((left, right) => left.index - right.index)
+    const indexed = run.count <= maxEntries
+      ? [...run.first, ...tail]
+      : [...run.first, ...tail.slice(run.terminal ? 1 : 0), ...(run.terminal ? [run.terminal] : [])]
+    const entries = [...new Map(indexed.map(value => [value.index, value])).values()]
+      .sort((left, right) => left.index - right.index)
+      .map(value => value.entry)
+    if (run.count <= maxEntries) return entries
+    return entries.map((entry, index) => index === 0
+      ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": run.count, "vitehub.trace.truncated": true } }
       : entry)
   })
   const entries = boundedEntries.map(entry => options.content === "metadata"
