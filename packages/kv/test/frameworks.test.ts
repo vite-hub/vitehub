@@ -205,6 +205,34 @@ describe("hubKv", () => {
     expect(resolved.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "LATE" }])
   })
 
+  it("preserves a later manual namespace with the same binding", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const nitro = {}
+
+    const resolved = await resolveConfigWithNitro({
+      kv: { binding: "KV", driver: "cloudflare-kv-binding", namespaceId: "generated-id" },
+      nitro,
+      plugins: [
+        hubKv(),
+        { name: "nitro:main" },
+        {
+          name: "later-manual-namespace",
+          config: () => ({
+            nitro: {
+              cloudflare: {
+                wrangler: {
+                  kv_namespaces: [{ binding: "KV", id: "user-id" }],
+                },
+              },
+            },
+          }),
+        } as never,
+      ],
+    })
+
+    expect(resolved.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "user-id" }])
+  })
+
   it("contributes bindings after late Nitro ownership becomes mutable", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })

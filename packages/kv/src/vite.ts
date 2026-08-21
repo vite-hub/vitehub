@@ -163,25 +163,24 @@ interface NitroCloudflareKVTarget {
 function configureNitroCloudflareKV(
   config: { kv?: KVModuleOptions, nitro?: unknown },
   options: KVModuleOptions | undefined,
-  ownedBindings: Set<string>,
+  ownedNamespaces: Set<{ binding: string, id?: string }>,
 ): boolean {
   const { nitro } = config
   if (!nitro || typeof nitro !== "object" || Array.isArray(nitro)) return false
 
   const target = nitro as NitroCloudflareKVTarget
   const namespaces = target.cloudflare?.wrangler?.kv_namespaces
-  if (namespaces && ownedBindings.size) {
-    target.cloudflare!.wrangler!.kv_namespaces = namespaces.filter(namespace => !ownedBindings.has(namespace.binding))
+  if (namespaces && ownedNamespaces.size) {
+    target.cloudflare!.wrangler!.kv_namespaces = namespaces.filter(namespace => !ownedNamespaces.has(namespace))
   }
-  ownedBindings.clear()
+  ownedNamespaces.clear()
 
   const kv = resolveKVViteConfig(config.kv ?? options).kv
   if (kv) {
-    const existingBindings = new Set(target.cloudflare?.wrangler?.kv_namespaces?.map(namespace => namespace.binding))
-    const desiredBindings = createCloudflareKVWranglerConfig(kv)?.kv_namespaces?.map(namespace => namespace.binding) ?? []
+    const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
     configureCloudflareKV(target, kv)
-    for (const binding of desiredBindings) {
-      if (!existingBindings.has(binding)) ownedBindings.add(binding)
+    for (const namespace of target.cloudflare?.wrangler?.kv_namespaces ?? []) {
+      if (!existingNamespaces.has(namespace)) ownedNamespaces.add(namespace)
     }
   }
   return true
@@ -189,7 +188,7 @@ function configureNitroCloudflareKV(
 
 export function hubKv(options?: KVModuleOptions): KVVitePlugin {
   let nitroOwned = false
-  const ownedNitroBindings = new Set<string>()
+  const ownedNitroNamespaces = new Set<{ binding: string, id?: string }>()
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: KVViteRuntimeConfig | undefined
   const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options)
@@ -199,12 +198,12 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     enforce: "pre",
     api: { getConfig },
     config(config) {
-      nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroBindings)
+      nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces)
     },
     configResolved(config) {
       resolved = config
       runtimeConfig = resolveKVViteConfig(config.kv ?? options)
-      if (hasNitroConfigContext(config)) nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroBindings)
+      if (hasNitroConfigContext(config)) nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
