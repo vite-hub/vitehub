@@ -231,6 +231,55 @@ export function attachmentStringBytes(value: string, mediaType: string): Uint8Ar
   return base64Bytes(value)
 }
 
+export function attachmentStringByteLength(value: string, mediaType: string): number {
+  const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
+  if (!dataUrl) {
+    if (isTextAttachmentMediaType(mediaType)) return utf8ByteLength(value)
+    return base64ByteLength(value)
+  }
+  const encoded = dataUrl[2]!
+  if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
+    return base64ByteLength(encoded)
+  }
+  let byteLength = 0
+  for (let index = 0; index < encoded.length;) {
+    if (encoded.charCodeAt(index) === 37) {
+      const encodedByte = encoded.slice(index + 1, index + 3)
+      if (!/^[\da-f]{2}$/i.test(encodedByte)) throw new URIError("URI malformed")
+      byteLength++
+      index += 3
+      continue
+    }
+    const codePoint = encoded.codePointAt(index)!
+    byteLength += codePoint <= 0x7F ? 1 : codePoint <= 0x7FF ? 2 : codePoint <= 0xFFFF ? 3 : 4
+    index += codePoint > 0xFFFF ? 2 : 1
+  }
+  return byteLength
+}
+
+function base64ByteLength(value: string): number {
+  let normalizedLength = 0
+  let previous = ""
+  let last = ""
+  for (const character of value) {
+    if (/\s/.test(character)) continue
+    normalizedLength++
+    previous = last
+    last = character
+  }
+  const padding = last === "=" ? previous === "=" ? 2 : 1 : 0
+  return Math.floor(normalizedLength * 3 / 4) - padding
+}
+
+function utf8ByteLength(value: string): number {
+  let byteLength = 0
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!
+    byteLength += codePoint <= 0x7F ? 1 : codePoint <= 0x7FF ? 2 : codePoint <= 0xFFFF ? 3 : 4
+  }
+  return byteLength
+}
+
 function base64Bytes(value: string): Uint8Array {
   const normalized = value.replaceAll(/\s/g, "").replaceAll("-", "+").replaceAll("_", "/")
   const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=")

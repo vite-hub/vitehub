@@ -1,5 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { appendMessageText } from "../messages.ts"
+import { appendMessageText, attachmentStringByteLength, attachmentStringBytes } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
@@ -164,13 +164,17 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
   if (data instanceof Blob) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
   else if (data instanceof ArrayBuffer) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
-  else if (typeof data === "string") assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
+  else if (typeof data === "string" && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
 }
 
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
   if (data instanceof Blob) return await data.arrayBuffer()
+  if (typeof data === "string" && /^data:/i.test(data)) {
+    assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
+    return attachmentStringBytes(data, audio.mediaType)
+  }
   if (data) return data
   if (audio.url) return new URL(audio.url)
   throw new TypeError("[vitehub] transcribe() requires audio data, fetchData, or url.")
@@ -190,21 +194,6 @@ export function audioExtensionFor(mediaType = "", fallback = "ogg"): string {
   if (normalized === "audio/wav" || normalized === "audio/x-wav") return "wav"
   if (normalized === "audio/webm") return "webm"
   return fallback
-}
-
-function bytesFromBase64(value: string): Uint8Array {
-  if (typeof atob === "function") {
-    const binary = atob(value)
-    return Uint8Array.from(binary, char => char.charCodeAt(0))
-  }
-  return new Uint8Array(Buffer.from(value, "base64"))
-}
-
-function bytesFromAudioString(value: string): Uint8Array {
-  const dataUrl = /^data:([^,]*),(.*)$/i.exec(value)
-  if (dataUrl?.[1]?.toLowerCase().split(";").includes("base64")) return bytesFromBase64(dataUrl[2] || "")
-  if (dataUrl?.[2]) return new TextEncoder().encode(decodeURIComponent(dataUrl[2]))
-  return new TextEncoder().encode(value)
 }
 
 async function responseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
@@ -262,7 +251,11 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
   if (data instanceof ArrayBuffer) return new Uint8Array(data)
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
   if (typeof data === "string") {
-    const bytes = bytesFromAudioString(data)
+    if (/^data:/i.test(data)) {
+      assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
+      return attachmentStringBytes(data, audio.mediaType)
+    }
+    const bytes = new TextEncoder().encode(data)
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
