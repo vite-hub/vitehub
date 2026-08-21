@@ -286,7 +286,7 @@ const contentAttributeKeys = new Set([
   "text",
 ])
 
-function isContentAttributeKey(key: string): boolean {
+export function isTraceContentAttributeKey(key: string): boolean {
   if (key === "error.message") return false
   if (contentAttributeKeys.has(key)) return true
   return key.split(".").some((part, index) => index > 0 && contentAttributeKeys.has(part))
@@ -311,7 +311,7 @@ function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
     return undefined
   }
   const next = Object.fromEntries(entries.flatMap(([key, child]) => {
-    if (isContentAttributeKey(key)) {
+    if (isTraceContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }
@@ -332,7 +332,7 @@ function metadataAttributes(attributes: Record<string, unknown> | undefined): Re
   if (!attributes) return undefined
   const omitted: string[] = []
   const next = Object.fromEntries(Object.entries(attributes).flatMap(([key, value]) => {
-    if (isContentAttributeKey(key)) {
+    if (isTraceContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }

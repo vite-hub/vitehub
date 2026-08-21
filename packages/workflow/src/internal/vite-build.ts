@@ -734,7 +734,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     `    const entry = { options: { rootStep: false }, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
-    `  }, ${definition.source === "agent-workflow-recovery" ? "{ internalAgentInvocationRecovery: true }" : "{}"}),`,
+    "  }),",
   ].join("\n")
 }
 

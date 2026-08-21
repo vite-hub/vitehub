@@ -2099,15 +2099,16 @@ describe("workflow runtime", () => {
     const name = "vitehub-agent-invocation-recovery-welcome"
     const load = vi.fn(async () => { throw new Error("module startup failed") })
     const status = vi.fn(async () => "complete")
+    const generatedGet = vi.fn(async () => ({ id: "generated-run", status: async () => "failed" }))
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
-    Object.assign(load, { internalAgentInvocationRecovery: true as const })
     setWorkflowRuntimeRegistry({ [name]: load })
     enterWorkflowRuntimeEvent({
       req: { runtime: { cloudflare: { env: {
         [getCloudflareWorkflowBindingName(name)]: {
           createBatch: vi.fn(),
-          get: vi.fn(async () => ({ id: "recovery-run", status })),
+          get: generatedGet,
         },
+        WORKFLOW_CUSTOM: { createBatch: vi.fn(), get: vi.fn(async () => ({ id: "recovery-run", status })) },
       } } } },
     })
 
@@ -2117,6 +2118,7 @@ describe("workflow runtime", () => {
       status: "completed",
     })
     expect(load).not.toHaveBeenCalled()
+    expect(generatedGet).not.toHaveBeenCalled()
   })
 
   it("keeps an acknowledged Cloudflare start queued when status inspection is unavailable", async () => {

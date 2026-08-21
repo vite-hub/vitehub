@@ -1,4 +1,4 @@
-import { createTraceEventLog } from "@vite-hub/runtime"
+import { createTraceEventLog, isTraceContentAttributeKey } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
@@ -224,19 +224,6 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]))
 }
 
-function observationContentAttribute(key: string): boolean {
-  return [
-    "approval.input",
-    "input.messages",
-    "input.prompt",
-    "message.content",
-    "result.text",
-    "tool.input",
-    "tool.output",
-    "vitehub.activity.body",
-  ].includes(key)
-}
-
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   const budget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
@@ -245,7 +232,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
   const attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)
         .slice(0, MAX_OBSERVATION_ATTRIBUTES)
-        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, observationContentAttribute(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
+        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
     : undefined
   return {
     ...observation,
