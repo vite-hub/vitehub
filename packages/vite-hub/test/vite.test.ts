@@ -333,6 +333,12 @@ describe("vitehub", () => {
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
       hosting: "vercel",
     }))
+
+    vitehub({ preset: "netlify", schedule: true, workflow: true })
+
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      hosting: expect.anything(),
+    }))
   })
 
   it("uses framework subpaths in generated Env modules", () => {

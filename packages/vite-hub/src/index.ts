@@ -744,7 +744,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubWorkflow({
       ...(options.workflow && options.workflow !== true ? options.workflow : {}),
       agentImportBase: `${generatedImportBase}/agent`,
-      hosting: plan.nitroPreset,
+      ...(plan.preset === "netlify" ? {} : { hosting: plan.nitroPreset }),
       importBase: `${generatedImportBase}/workflow`,
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
