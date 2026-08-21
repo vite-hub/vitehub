@@ -391,7 +391,11 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   const preservedRoutes = (previousState?.routes ?? []).filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/") && !previouslyOwnedRoutes.has(JSON.stringify(route)))
   const currentRoutes = (viteHubConfig.routes ?? []).filter(route => !previouslyOwnedRoutes.has(JSON.stringify(route)))
   const viteHubRoutes = [...new Map([...currentRoutes, ...preservedRoutes].map(route => [JSON.stringify(route), route])).values()]
-  snapshot.config = Buffer.from(`${JSON.stringify({ ...viteHubConfig, routes: viteHubRoutes }, null, 2)}\n`)
+  const rollbackRoutes = [...new Map([
+    ...currentRoutes,
+    ...(previousState?.routes ?? []).filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/")),
+  ].map(route => [JSON.stringify(route), route])).values()]
+  snapshot.config = Buffer.from(`${JSON.stringify({ ...viteHubConfig, routes: rollbackRoutes }, null, 2)}\n`)
   const externalWorkflowRoutes = new Set(preservedRoutes
     .filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
     .map(route => JSON.stringify(route)))

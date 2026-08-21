@@ -132,7 +132,7 @@ it("installs the Email definition when the WDK flow has only named exports", asy
   expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
 })
 
-it("restores native output when Email installation fails", { timeout: buildOutputTestTimeout }, async () => {
+it("restores prior owned native output when Email installation fails", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-rollback-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")
   const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
@@ -142,7 +142,8 @@ it("restores native output when Email installation fails", { timeout: buildOutpu
   await mkdir(workflowDir, { recursive: true })
   await mkdir(resolve(externalFile, ".."), { recursive: true })
   await writeFile(join(workflowDir, "01-collect.ts"), "export default async function collect(input) { return input }\n")
-  await writeFile(externalFile, "external flow\n")
+  await writeFile(externalFile, "prior owned flow\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["v1/flow.func/index.mjs"], [externalRoute])
   await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute] })}\n`)
 
   await expect(generateProviderOutputs({
@@ -153,11 +154,13 @@ it("restores native output when Email installation fails", { timeout: buildOutpu
     workflow: { provider: "vercel" },
   })).rejects.toThrow()
 
-  await expect(readFile(externalFile, "utf8")).resolves.toBe("external flow\n")
+  await expect(readFile(externalFile, "utf8")).resolves.toBe("prior owned flow\n")
   const routes = JSON.parse(await readFile(configFile, "utf8")).routes
   expect(routes).toContainEqual(externalRoute)
   expect(routes.filter((route: unknown) => JSON.stringify(route).includes("/.well-known/workflow/v1/"))).toEqual([externalRoute])
-  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(false)
+  const ownership = JSON.parse(await readFile(join(workflowRoot, ".vitehub-owned"), "utf8"))
+  expect(ownership.files).toHaveProperty("v1/flow.func/index.mjs")
+  expect(ownership.routes).toEqual([JSON.stringify(externalRoute)])
 })
 
 it("removes stale WDK functions and routes", async () => {
