@@ -453,13 +453,21 @@ export const noWidenThenAssertRule = defineRule({
       const variable = resolvedVariableForIdentifier(scopes, expression);
       if (variable === null) return;
       if (environment === null) return;
+      const declarator = variableDeclarator(variable);
+      if (declarator === null) return;
       const lexicalEnvironment = environmentAt(
         environment,
         node,
         typeBindings,
         context.sourceCode.visitorKeys,
       );
-      const widened = widenedBinding(variable, scopes, lexicalEnvironment);
+      const declarationEnvironment = environmentAt(
+        environment,
+        declarator,
+        typeBindings,
+        context.sourceCode.visitorKeys,
+      );
+      const widened = widenedBinding(variable, scopes, declarationEnvironment);
       if (
         widened === null ||
         node.start <= widened.declaredAt ||

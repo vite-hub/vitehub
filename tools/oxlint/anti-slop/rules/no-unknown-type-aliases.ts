@@ -10,18 +10,35 @@ function isNode(value: unknown): value is ESTree.Node {
 	return typeof value === "object" && value !== null && "type" in value;
 }
 
-function collectAliases(
+type TypeBinding =
+	| ESTree.TSTypeAliasDeclaration
+	| ESTree.TSInterfaceDeclaration
+	| ESTree.TSEnumDeclaration
+	| ESTree.ClassDeclaration;
+
+function bindingName(binding: TypeBinding): string | null {
+	return binding.id?.name ?? null;
+}
+
+function collectBindings(
 	node: ESTree.Node,
 	visitorKeys: VisitorKeys,
-	aliases: ESTree.TSTypeAliasDeclaration[],
+	bindings: TypeBinding[],
 ): void {
-	if (node.type === "TSTypeAliasDeclaration") aliases.push(node);
+	if (
+		node.type === "TSTypeAliasDeclaration" ||
+		node.type === "TSInterfaceDeclaration" ||
+		node.type === "TSEnumDeclaration" ||
+		(node.type === "ClassDeclaration" && node.id !== null)
+	) {
+		bindings.push(node);
+	}
 	const record = node as unknown as Readonly<Record<string, unknown>>;
 	for (const key of visitorKeys[node.type] ?? []) {
 		const value = record[key];
-		if (isNode(value)) collectAliases(value, visitorKeys, aliases);
+		if (isNode(value)) collectBindings(value, visitorKeys, bindings);
 		else if (Array.isArray(value)) {
-			for (const child of value) if (isNode(child)) collectAliases(child, visitorKeys, aliases);
+			for (const child of value) if (isNode(child)) collectBindings(child, visitorKeys, bindings);
 		}
 	}
 }
@@ -62,7 +79,7 @@ export const noUnknownTypeAliasesRule = defineRule({
 		},
 	},
 	createOnce(context) {
-		const aliases: ESTree.TSTypeAliasDeclaration[] = [];
+		const bindings: TypeBinding[] = [];
 
 		const visibleAlias = (
 			name: string,
@@ -78,11 +95,12 @@ export const noUnknownTypeAliasesRule = defineRule({
 					current.type === "BlockStatement" ||
 					current.type === "TSModuleBlock"
 				) {
-					const alias = aliases.find(
+					const binding = bindings.find(
 						(candidate) =>
-							candidate.id.name === name && lexicalContainer(candidate) === current,
+							bindingName(candidate) === name && lexicalContainer(candidate) === current,
 					);
-					if (alias !== undefined) return alias;
+					if (binding !== undefined)
+						return binding.type === "TSTypeAliasDeclaration" ? binding : undefined;
 				}
 				current = current.parent;
 			}
@@ -115,8 +133,8 @@ export const noUnknownTypeAliasesRule = defineRule({
 
 		return {
 			Program(node) {
-				aliases.length = 0;
-				collectAliases(node, context.sourceCode.visitorKeys, aliases);
+				bindings.length = 0;
+				collectBindings(node, context.sourceCode.visitorKeys, bindings);
 			},
 			TSTypeAliasDeclaration(alias) {
 				if (!resolvesToUnknown(alias.typeAnnotation, new Set([alias]))) return;

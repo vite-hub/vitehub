@@ -4,6 +4,56 @@ import type { ESTree, SourceCode } from "@oxlint/plugins";
 
 import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
 
+type VisitorKeys = Readonly<Record<string, readonly string[]>>;
+type TypeBinding =
+	| ESTree.TSTypeAliasDeclaration
+	| ESTree.TSInterfaceDeclaration
+	| ESTree.TSEnumDeclaration
+	| ESTree.ClassDeclaration;
+
+function isNode(value: unknown): value is ESTree.Node {
+	return typeof value === "object" && value !== null && "type" in value;
+}
+
+function lexicalContainer(node: ESTree.Node): ESTree.Node {
+	let current = node;
+	while (
+		current.type !== "Program" &&
+		current.type !== "BlockStatement" &&
+		current.type !== "TSModuleBlock"
+	) {
+		current = current.parent;
+	}
+	return current;
+}
+
+function bindingName(binding: TypeBinding): string | null {
+	return binding.id?.name ?? null;
+}
+
+function collectBindings(
+	node: ESTree.Node,
+	visitorKeys: VisitorKeys,
+	bindings: TypeBinding[],
+): void {
+	if (
+		node.type === "TSTypeAliasDeclaration" ||
+		node.type === "TSInterfaceDeclaration" ||
+		node.type === "TSEnumDeclaration" ||
+		(node.type === "ClassDeclaration" && node.id !== null)
+	) {
+		bindings.push(node);
+	}
+	const record = node as unknown as Readonly<Record<string, unknown>>;
+	for (const key of visitorKeys[node.type] ?? []) {
+		const value = record[key];
+		if (isNode(value)) collectBindings(value, visitorKeys, bindings);
+		else if (Array.isArray(value)) {
+			for (const child of value) if (isNode(child)) collectBindings(child, visitorKeys, bindings);
+		}
+	}
+}
+
 type Parameter = ESTree.ParamPattern;
 type ParameterOwner =
 	| ESTree.ArrowFunctionExpression
@@ -47,7 +97,32 @@ export const noObjectParametersRule = defineRule({
 		},
 	},
 	createOnce(context) {
-		const aliases = new Map<string, ESTree.TSType>();
+		const bindings: TypeBinding[] = [];
+
+		const visibleAlias = (name: string, site: ESTree.Node) => {
+			let current: ESTree.Node | null = site;
+			while (current !== null) {
+				if (
+					current.type === "Program" ||
+					current.type === "BlockStatement" ||
+					current.type === "TSModuleBlock"
+				) {
+					const binding = bindings.find(
+						(candidate) =>
+							bindingName(candidate) === name &&
+							lexicalContainer(candidate) === current,
+					);
+					if (binding !== undefined) {
+						return binding.type === "TSTypeAliasDeclaration" &&
+							(binding.typeParameters === null || binding.typeParameters === undefined)
+							? binding
+							: undefined;
+					}
+				}
+				current = current.parent;
+			}
+			return undefined;
+		};
 
 		const resolvesToObject = (
 			type: ESTree.TSType,
@@ -73,11 +148,11 @@ export const noObjectParametersRule = defineRule({
 			) {
 				return false;
 			}
-			const alias = aliases.get(type.typeName.name);
+			const alias = visibleAlias(type.typeName.name, type);
 			if (alias === undefined) return false;
 			const nextVisited = new Set(visited);
 			nextVisited.add(type.typeName.name);
-			return resolvesToObject(alias, shadowedAliases, nextVisited);
+			return resolvesToObject(alias.typeAnnotation, shadowedAliases, nextVisited);
 		};
 
 		const checkParameters = (node: ParameterOwner) => {
@@ -99,17 +174,8 @@ export const noObjectParametersRule = defineRule({
 
 		return {
 			Program(node) {
-				aliases.clear();
-				for (const statement of node.body) {
-					const declaration =
-						statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
-					if (
-						declaration?.type === "TSTypeAliasDeclaration" &&
-						(declaration.typeParameters === null || declaration.typeParameters === undefined)
-					) {
-						aliases.set(declaration.id.name, declaration.typeAnnotation);
-					}
-				}
+				bindings.length = 0;
+				collectBindings(node, context.sourceCode.visitorKeys, bindings);
 			},
 			ArrowFunctionExpression: checkParameters,
 			FunctionDeclaration: checkParameters,
