@@ -3659,18 +3659,30 @@ async function handleChatSdkMessage(
             } as never, 0)
             reclaimedMessage = undefined
           }
-          await state.state.enqueue(steerQueue, {
-            enqueuedAt: Date.now(),
-            expiresAt: Number.MAX_SAFE_INTEGER,
-            message: {
-              capabilities: workflowCapabilities,
-              deliveryIds: sameInvoker ? deliveryIds : [],
-              input: workflowInput,
-              invokerKey: workflowInvokerKey,
-              resolvedInvoker: workflowInputHasResolvedInvoker,
-              run,
-            },
-          } as never, sameInvoker ? 1 : 0)
+          try {
+            await state.state.enqueue(steerQueue, {
+              enqueuedAt: Date.now(),
+              expiresAt: Number.MAX_SAFE_INTEGER,
+              message: {
+                capabilities: workflowCapabilities,
+                deliveryIds: sameInvoker ? deliveryIds : [],
+                input: workflowInput,
+                invokerKey: workflowInvokerKey,
+                resolvedInvoker: workflowInputHasResolvedInvoker,
+                run,
+              },
+            } as never, sameInvoker ? 1 : 0)
+          }
+          catch (error) {
+            if (sameInvoker && previous?.message?.input) {
+              await state.state.enqueue(steerQueue, {
+                enqueuedAt: Date.now(),
+                expiresAt: Number.MAX_SAFE_INTEGER,
+                message: previous.message,
+              } as never, 1)
+            }
+            throw error
+          }
           durableHandoff = true
           await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
           detachAgentChannelDelivery(delivery)
