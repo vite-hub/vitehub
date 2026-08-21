@@ -37,7 +37,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Channel Definitions and discovered named delivery. |
 | `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, ASCII, Cloudflare Sandbox, Cloudflare Computer, and Vercel Sandbox execution. |
-| `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
+| `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
@@ -101,7 +101,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/email/markdown` | Email Package | Dynamic Markdown composition into HTML and a composed Markdown text fallback. |
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
-| `@vite-hub/database/drizzle` | Database Package | Generated Drizzle `db` and `schema` access. |
+| `@vite-hub/database/drizzle` | Database Package | Generated `useDatabase()` access to a Drizzle database and schema. |
 | `@vite-hub/env` | Env Package | Env Declaration helpers. |
 | `@vite-hub/history` | History Package | Durable history checkpoint contract and types. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
