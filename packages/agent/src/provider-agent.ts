@@ -1183,7 +1183,10 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
     : undefined
   try {
     for await (const event of iterable) {
-      await tracer?.write(event)
+      const providerData = event.type === "data-agent-event" ? record(event.data) : undefined
+      await tracer?.write(providerData?.kind === "content" && typeof providerData.value === "string"
+        ? { phase: "commentary", text: providerData.value, type: "text-delta" }
+        : event)
       if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
       else if (event.type === "usage") usageRecord = event.usageRecord
       else if (event.type === "finish") finishReason = event.reason
