@@ -381,9 +381,10 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     },
     async config(config) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const hosting = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>))
+      const configRecord = config as Record<string, unknown>
+      const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
       cloudflare = hosting === "cloudflare"
-      vercel = hosting === "vercel"
+      vercel = hosting === "vercel" || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       const emailTemplatePaths = cloudflare || vercel

@@ -230,6 +230,16 @@ describe("hubEmail", () => {
       .toContain("Updated template")
   })
 
+  it("exposes its generated definition to explicitly selected Vercel Workflows", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({ driver: "unemail/driver/resend" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
+
+    expect(await config({ root, workflow: { provider: "vercel" } })).toMatchObject({ resolve: { alias: [
+      { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
+    ] } })
+  })
+
   it("resolves nested standalone host templates through exact aliases", async () => {
     const root = await createTempProject()
     const parentTemplate = join(root, "server", "emails", "monthly.md")
