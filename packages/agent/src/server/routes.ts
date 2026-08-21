@@ -2412,7 +2412,6 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       const handoffHeartbeat = setInterval(() => {
         void resolved.state.extendLock(handoffLock, ttlMs)
       }, Math.max(1, Math.floor(ttlMs / 3)))
-      type DurableSteerQueueEntry = { message?: { deliveryIds?: string[], input?: AgentRunInput, resolvedInvoker?: boolean, run?: AgentRunMetadata } }
       let queued: DurableSteerQueueEntry | null = null
       try {
         if (ownershipLost || !await resolved.state.extendLock(lock, ttlMs)) return
@@ -2442,27 +2441,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         } as never)
       }
       catch (error) {
-        if (queued?.message?.input) {
-          const newer = await resolved.state.dequeue(queue) as DurableSteerQueueEntry | null
-          const newerBinding = newer?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
-          const newerDeliveryId = isRecord(newerBinding) && typeof newerBinding.deliveryId === "string" ? newerBinding.deliveryId : undefined
-          const deliveryIds = [
-            ...queued.message.deliveryIds ?? [],
-            ...newer?.message?.deliveryIds ?? [],
-            ...(newerDeliveryId ? [newerDeliveryId] : []),
-          ]
-          await resolved.state.enqueue(queue, {
-            enqueuedAt: Date.now(),
-            expiresAt: Number.MAX_SAFE_INTEGER,
-            message: {
-              ...queued.message,
-              deliveryIds,
-              input: mergeDurableSteerInput(queued.message.input, newer?.message?.input ?? queued.message.input),
-              resolvedInvoker: newer?.message?.resolvedInvoker ?? queued.message.resolvedInvoker,
-              run: newer?.message?.run ?? queued.message.run,
-            },
-          } as never, 1).catch(() => undefined)
-        }
+        if (queued?.message?.input) await restoreDurableSteerQueue(resolved.state, queue, queued.message)
         await resolved.state.releaseLock(lock).catch(() => undefined)
         throw error
       }
@@ -2503,6 +2482,39 @@ function mergeDurableSteerInput(previous: AgentRunInput | undefined, current: Ag
   const currentIds = new Set(current.messages.map(message => message.id).filter(Boolean))
   const skipped = previous.messages.filter(message => !message.id || !currentIds.has(message.id))
   return skipped.length ? { ...current, messages: [...skipped, ...current.messages] } : current
+}
+
+interface DurableSteerQueueMessage {
+  deliveryIds?: string[]
+  input?: AgentRunInput
+  resolvedInvoker?: boolean
+  run?: AgentRunMetadata
+}
+
+interface DurableSteerQueueEntry {
+  message?: DurableSteerQueueMessage
+}
+
+async function restoreDurableSteerQueue(state: StateAdapter, queue: string, previous: DurableSteerQueueMessage): Promise<void> {
+  if (!previous.input) return
+  const newer = await state.dequeue(queue) as DurableSteerQueueEntry | null
+  const newerBinding = newer?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
+  const newerDeliveryId = isRecord(newerBinding) && typeof newerBinding.deliveryId === "string" ? newerBinding.deliveryId : undefined
+  await state.enqueue(queue, {
+    enqueuedAt: Date.now(),
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    message: {
+      ...previous,
+      deliveryIds: [
+        ...previous.deliveryIds ?? [],
+        ...newer?.message?.deliveryIds ?? [],
+        ...(newerDeliveryId ? [newerDeliveryId] : []),
+      ],
+      input: mergeDurableSteerInput(previous.input, newer?.message?.input ?? previous.input),
+      resolvedInvoker: newer?.message?.resolvedInvoker ?? previous.resolvedInvoker,
+      run: newer?.message?.run ?? previous.run,
+    },
+  } as never, 1).catch(() => undefined)
 }
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {
@@ -3571,7 +3583,7 @@ async function handleChatSdkMessage(
         : resolvedInvocationInput.abortSignal ?? handoffTimeout
       const steerHandoffLock = steerKey === undefined ? undefined : await acquireRequiredStateLock(state.state, `${steerKey}:handoff`, steerTtlMs, handoffAbort)
       const steerLock = steerKey === undefined ? undefined : await state.state.acquireLock(steerKey, steerTtlMs)
-      let reclaimedMessage: { deliveryIds?: string[], input?: AgentRunInput, resolvedInvoker?: boolean, run?: AgentRunMetadata } | undefined
+      let reclaimedMessage: DurableSteerQueueMessage | undefined
       if (steerLock && steerQueue) {
         workflowInput.context![agentChannelDeliveryWorkflowContextKey] = {
           ...workflowBinding,
@@ -3580,7 +3592,7 @@ async function handleChatSdkMessage(
       }
       if (steerKey && steerQueue && !steerLock) {
         try {
-          const previous = await state.state.dequeue(steerQueue) as { message?: { deliveryIds?: string[], input?: AgentRunInput } } | null
+          const previous = await state.state.dequeue(steerQueue) as DurableSteerQueueEntry | null
           const previousBinding = previous?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
           const previousDeliveryId = isRecord(previousBinding) && typeof previousBinding.deliveryId === "string" ? previousBinding.deliveryId : undefined
           const deliveryIds = [...previous?.message?.deliveryIds ?? [], ...(previousDeliveryId ? [previousDeliveryId] : [])]
@@ -3632,26 +3644,7 @@ async function handleChatSdkMessage(
       catch (error) {
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
-        if (reclaimedMessage?.input && steerQueue) {
-          const newer = await state.state.dequeue(steerQueue) as { message?: typeof reclaimedMessage } | null
-          const newerBinding = newer?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
-          const newerDeliveryId = isRecord(newerBinding) && typeof newerBinding.deliveryId === "string" ? newerBinding.deliveryId : undefined
-          await state.state.enqueue(steerQueue, {
-            enqueuedAt: Date.now(),
-            expiresAt: Number.MAX_SAFE_INTEGER,
-            message: {
-              ...reclaimedMessage,
-              deliveryIds: [
-                ...reclaimedMessage.deliveryIds ?? [],
-                ...newer?.message?.deliveryIds ?? [],
-                ...(newerDeliveryId ? [newerDeliveryId] : []),
-              ],
-              input: mergeDurableSteerInput(reclaimedMessage.input, newer?.message?.input ?? reclaimedMessage.input),
-              resolvedInvoker: newer?.message?.resolvedInvoker ?? reclaimedMessage.resolvedInvoker,
-              run: newer?.message?.run ?? reclaimedMessage.run,
-            },
-          } as never, 1).catch(() => undefined)
-        }
+        if (reclaimedMessage?.input && steerQueue) await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
         if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)
         throw error
       }
