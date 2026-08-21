@@ -24,9 +24,10 @@ try {
 const antiSlopDiagnostics = report.diagnostics.filter((diagnostic) =>
   diagnostic.code?.startsWith("anti-slop("),
 );
-const nativeErrors = report.diagnostics.filter(
-  (diagnostic) => !diagnostic.code?.startsWith("anti-slop(") && diagnostic.severity === "error",
+const nativeDiagnostics = report.diagnostics.filter(
+  (diagnostic) => !diagnostic.code?.startsWith("anti-slop("),
 );
+const nativeErrors = nativeDiagnostics.filter((diagnostic) => diagnostic.severity === "error");
 const sourceByFilename = new Map(
   await Promise.all(
     [...new Set(antiSlopDiagnostics.map((diagnostic) => diagnostic.filename))].map(
@@ -88,9 +89,17 @@ if (newDiagnostics.length > 0) {
   }
 }
 
-if (nativeErrors.length > 0) {
-  process.stdout.write(result.stdout);
-  process.stderr.write(result.stderr);
+if (nativeDiagnostics.length > 0) {
+  console.error(`${nativeDiagnostics.length} native lint diagnostic(s):`);
+  for (const diagnostic of nativeDiagnostics) {
+    const label = diagnostic.labels[0]?.span;
+    const location = label
+      ? `${diagnostic.filename}:${label.line}:${label.column}`
+      : diagnostic.filename;
+    console.error(
+      `${location} ${diagnostic.severity} ${diagnostic.code ?? "parse"}: ${diagnostic.message}`,
+    );
+  }
 }
 
 const resolvedCount = [...remaining.values()].reduce((total, count) => total + count, 0);
@@ -98,4 +107,4 @@ console.log(
   `Anti-slop: ${antiSlopDiagnostics.length} current, ${resolvedCount} resolved from baseline, ${newDiagnostics.length} new.`,
 );
 
-process.exit(result.status !== 0 || newDiagnostics.length > 0 ? 1 : 0);
+process.exit(nativeErrors.length > 0 || newDiagnostics.length > 0 ? 1 : 0);

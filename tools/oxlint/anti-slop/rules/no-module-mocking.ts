@@ -49,6 +49,24 @@ function isTestFrameworkObject(
 }
 
 function moduleMockCall(sourceCode: SourceCode, callee: ESTree.Expression): boolean {
+  if (callee.type === "Identifier") {
+    const variable = resolveVariable(sourceCode, callee);
+    return variable?.defs.some((definition) => {
+      if (definition.type !== "Variable" || definition.node.type !== "VariableDeclarator") {
+        return false;
+      }
+      const { id, init } = definition.node;
+      if (init === null) return false;
+      if (id.type === "Identifier") return moduleMockCall(sourceCode, init);
+      if (id.type !== "ObjectPattern" || !isTestFrameworkObject(sourceCode, init)) return false;
+      return id.properties.some((property) => {
+        if (property.type !== "Property" || property.value.type !== "Identifier") return false;
+        if (property.value.name !== callee.name) return false;
+        const method = property.key.type === "Identifier" ? property.key.name : property.key.value;
+        return typeof method === "string" && moduleMockMethods.has(method);
+      });
+    }) ?? false;
+  }
   if (!("property" in callee) || !("object" in callee) || !("computed" in callee)) return false;
   if (!isTestFrameworkObject(sourceCode, callee.object)) return false;
   const property = callee.property;
