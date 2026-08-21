@@ -81,10 +81,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     return database ? { "@vite-hub/database/drizzle": database } : {}
   }
 
-  function providerImportAliases(): Record<string, string> {
+  async function providerImportAliases(): Promise<Record<string, string>> {
     if (!resolved) return { ...internalOptions?.providerImportAliases }
-    const contributedAliases = Object.assign({}, ...(resolved.plugins as Array<Plugin & ViteHubProviderImportContributor>)
-      .map(plugin => plugin.vitehub?.providerOutput?.getImportAliases?.() ?? {}))
+    const contributedAliases = Object.assign({}, ...await Promise.all((resolved.plugins as Array<Plugin & ViteHubProviderImportContributor>)
+      .map(async plugin => await plugin.vitehub?.providerOutput?.getImportAliases?.() ?? {})))
     return {
       ...resolveStringAliases(resolved),
       ...contributedAliases,
@@ -106,12 +106,13 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       ?.vitehub?.agent?.transformWorkflowRegistry, resolved.root)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(resolved.root, "package.json"))
-    const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, providerImportAliases(), artifacts.vercelNativeFiles)
+    const aliases = await providerImportAliases()
+    const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, aliases, artifacts.vercelNativeFiles)
     const workflowRequire = native ? createRequire(import.meta.url) : undefined
     const workflowApi = workflowRequire?.resolve("workflow/api")
     return {
       bundleAlias: {
-        ...providerImportAliases(),
+        ...aliases,
         [`${importBase}/runtime/state`]: projectRequire.resolve(`${importBase}/runtime/state`),
         [`${importBase}/runtime/vercel-vite`]: projectRequire.resolve(`${importBase}/runtime/vercel-vite`),
         ...(workflowApi && workflowRequire
@@ -178,7 +179,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolve(resolved.root, resolved.build.outDir),
         importBase: internalOptions?.importBase,
-        providerImportAliases: providerImportAliases(),
+        providerImportAliases: await providerImportAliases(),
         providerRuntimeImportAliases: {
           cloudflare: providerRuntimeImportAliases("cloudflare"),
           vercel: providerRuntimeImportAliases("vercel"),

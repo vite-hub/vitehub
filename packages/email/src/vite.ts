@@ -383,7 +383,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     },
     vitehub: {
       providerOutput: {
-        getImportAliases: (): Record<string, string> => definition ? { [EMAIL_DEFINITION_ID]: definition.handler } : {},
+        async getImportAliases(): Promise<Record<string, string>> {
+          const templates = await prepareTypes({ materialize: true, projectRoot, serverDirs })
+          return {
+            ...(definition ? { [EMAIL_DEFINITION_ID]: definition.handler } : {}),
+            ...Object.fromEntries(Object.entries(templates).map(([name, replacement]) => [`${emailTemplatePrefix}${name}`, replacement])),
+          }
+        },
       },
     },
     async config(config) {

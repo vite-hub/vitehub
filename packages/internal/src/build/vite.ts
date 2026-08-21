@@ -8,7 +8,7 @@ type WatchIgnoredValue = WatchIgnoredMatcher | WatchIgnoredMatcher[] | undefined
 export interface ViteHubProviderImportContributor {
   vitehub?: {
     providerOutput?: {
-      getImportAliases?: () => Record<string, string>
+      getImportAliases?: () => Promise<Record<string, string>> | Record<string, string>
     }
   }
 }

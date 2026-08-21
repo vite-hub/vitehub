@@ -247,6 +247,8 @@ describe("hubEmail", () => {
 
   it("exposes its generated definition to directly composed Vercel Workflows", async () => {
     const root = await createTempProject()
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
     await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
     const workflow = hubWorkflow({ provider: "vercel" })
     const server = await createServer({
@@ -265,8 +267,11 @@ describe("hubEmail", () => {
       await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toMatchObject({
         bundleAlias: {
           [EMAIL_DEFINITION_ID]: join(root, ".vitehub", "email", "definition.mjs"),
+          "#vitehub/emails/monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
         },
       })
+      await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
+        .resolves.toContain("Hello {{name}}")
     }
     finally {
       await server.close()
