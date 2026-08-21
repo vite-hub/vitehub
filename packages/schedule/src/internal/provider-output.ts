@@ -514,6 +514,7 @@ async function writeCloudflareScheduleOutput(options: {
     bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
       alias: options.bundleAlias,
       conditions: ["workerd", "worker", "browser", "default"],
+      external: ["node:*"],
       format: "esm",
       platform: "neutral",
       plugins: [createScheduleDefinitionAliasPlugin()],
