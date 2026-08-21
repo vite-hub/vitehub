@@ -119,6 +119,14 @@ describe("@vite-hub/source types", () => {
     await enumerableCollection.get(emittedIdentity)
     // @ts-expect-error Enumerable union readers cannot emit a variant-only key
     defineCollection({ sources: { invalidUnion: (Math.random() > 0.5 ? reader("a", 1) : reader("b", 2)) } })
+    const mixedUnion = Math.random() > 0.5
+      ? { async get(key: "a" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
+      : { async get(key: "b" | "shared") { return key } }
+    const mixedCollection = defineCollection({ sources: { mixed: mixedUnion } })
+    const mixedIdentity = (await mixedCollection.items())[0]!.identity
+    await mixedCollection.get(mixedIdentity)
+    // @ts-expect-error Mixed reader unions cannot emit a variant-only key either
+    defineCollection({ sources: { invalidMixed: (Math.random() > 0.5 ? reader("a", 1) : { async get(key: "b") { return key } }) } })
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
     defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
     // @ts-expect-error Collection aliases must be strings
