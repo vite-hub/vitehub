@@ -206,11 +206,18 @@ The run id belongs to Invocation Options. Use a stable id when the provider need
 | `runWorkflow(name, payload?, options?)` | Starts a Workflow Run immediately. |
 | `deferWorkflow(name, payload?, options?)` | Starts a run through the deferred provider path when available. |
 | `getWorkflowRun(name, id)` | Reads the current run state. |
-| `cancelWorkflow(name, id)` | Cancels a run when the provider supports cancellation. |
-| `resumeWorkflowSignal(token, payload)` | Resumes the provider operation identified by an opaque signal token. |
+| `cancelWorkflow(name, id)` | Cancels a durable Vercel run. |
+| `resumeWorkflowSignal(token, payload)` | Resumes a Vercel operation using an opaque signal token created inside the native workflow. |
 | `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, `getRun`, and `cancel`. |
 
 `WorkflowStartOptions` currently accepts `id`.
+
+Cancellation and signals currently require the Vercel provider and a native
+Workflow DevKit entry. Cloudflare, OpenWorkflow, and inline Vercel runs report
+`WORKFLOW_OPERATION_UNSUPPORTED` instead of simulating these operations. Pass
+the opaque token created by the native workflow to `resumeWorkflowSignal()`;
+the token identifies the provider operation to resume and is not a Workflow Run
+id.
 
 ## Structured errors
 
