@@ -1700,7 +1700,7 @@ async function generateAgentDeploymentCatalog(
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const serverInternalImports = [
-    options.inspection ? "createAgentWebhookRequest" : undefined,
+    channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute"] : []),
   ].filter(Boolean).join(", ")
 
