@@ -67,8 +67,6 @@ export interface CollectionOptions<
 }
 
 export class CollectionCursorError extends TypeError {
-  override readonly name = "CollectionCursorError"
-
   constructor(message = "[vitehub] Collection cursor is malformed.", options?: ErrorOptions) {
     super(message, options)
   }
