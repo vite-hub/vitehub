@@ -102,7 +102,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       ?.vitehub?.agent?.transformWorkflowRegistry, resolved.root)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(resolved.root, "package.json"))
-    const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, providerImportAliases(), artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
+    const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, providerImportAliases(), artifacts.vercelNativeFiles)
     const workflowRequire = native ? createRequire(import.meta.url) : undefined
     const workflowApi = workflowRequire?.resolve("workflow/api")
     return {
