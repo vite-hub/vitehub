@@ -181,6 +181,21 @@ async function validateToolInput(tool: AgentToolDefinition, input: unknown): Pro
   return input
 }
 
+async function validateToolInputUntilCanceled(tool: AgentToolDefinition, input: unknown, signal: AbortSignal): Promise<unknown> {
+  signal.throwIfAborted()
+  let cancel!: () => void
+  const canceled = new Promise<never>((_resolve, reject) => {
+    cancel = () => reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"))
+    signal.addEventListener("abort", cancel, { once: true })
+  })
+  try {
+    return await Promise.race([validateToolInput(tool, input), canceled])
+  }
+  finally {
+    signal.removeEventListener("abort", cancel)
+  }
+}
+
 function toolResult(value: unknown) {
   const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value)
   return { content: [{ text, type: "text" as const }] }
@@ -212,7 +227,7 @@ async function startToolServer(
     if (!tool?.execute) return { content: [{ text: `Unknown Agent tool: ${request.params.name}`, type: "text" }], isError: true }
     const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
     try {
-      const input = await validateToolInput(tool, request.params.arguments || {})
+      const input = await validateToolInputUntilCanceled(tool, request.params.arguments || {}, executionSignal)
       executionSignal.throwIfAborted()
       return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
     }

@@ -519,11 +519,14 @@ describe("Provider Agent Driver", () => {
           requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
         })
         await client.connect(transport)
-        const toolCall = client.callTool({ arguments: {}, name: "delayed" }, undefined, { signal: controller.signal }).finally(() => client.close())
+        const toolCall = client.callTool({ arguments: {}, name: "delayed" }, undefined, { signal: controller.signal })
+        const toolCallResult = toolCall.then(value => ({ value }), error => ({ error }))
         await validationReady
         controller.abort()
+        await new Promise(resolve => setTimeout(resolve, 20))
         finishValidation()
-        await expect(toolCall).rejects.toThrow(/AbortError/)
+        await expect(toolCallResult).resolves.toMatchObject({ error: expect.objectContaining({ message: expect.stringMatching(/AbortError/) }) })
+        await client.close()
       },
     })
     const tools = {
