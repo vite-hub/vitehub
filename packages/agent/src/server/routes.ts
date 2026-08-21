@@ -3567,6 +3567,7 @@ async function handleChatSdkMessage(
         : resolvedInvocationInput.abortSignal ?? handoffTimeout
       const steerHandoffLock = steerKey === undefined ? undefined : await acquireRequiredStateLock(state.state, `${steerKey}:handoff`, steerTtlMs, handoffAbort)
       const steerLock = steerKey === undefined ? undefined : await state.state.acquireLock(steerKey, steerTtlMs)
+      let reclaimedMessage: { deliveryIds?: string[], input?: AgentRunInput, resolvedInvoker?: boolean, run?: AgentRunMetadata } | undefined
       if (steerLock && steerQueue) {
         workflowInput.context![agentChannelDeliveryWorkflowContextKey] = {
           ...workflowBinding,
@@ -3598,7 +3599,8 @@ async function handleChatSdkMessage(
       // Workflow abandoned an expired lease. Preserve that accepted input and
       // its delivery records when the current message reclaims the scope.
       if (steerLock && steerQueue) {
-        const previous = await state.state.dequeue(steerQueue) as { message?: { deliveryIds?: string[], input?: AgentRunInput } } | null
+        const previous = await state.state.dequeue(steerQueue) as { message?: typeof reclaimedMessage } | null
+        reclaimedMessage = previous?.message
         const previousBinding = previous?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
         const previousDeliveryId = isRecord(previousBinding) && typeof previousBinding.deliveryId === "string" ? previousBinding.deliveryId : undefined
         const deliveryIds = [...previous?.message?.deliveryIds ?? [], ...(previousDeliveryId ? [previousDeliveryId] : [])]
@@ -3608,7 +3610,6 @@ async function handleChatSdkMessage(
           steer: { lock: steerLock, queue: steerQueue, ttlMs: steerTtlMs, deliveryIds },
         }
       }
-      if (steerHandoffLock) await state.state.releaseLock(steerHandoffLock)
       const durableTyping = typing || startChatTypingRefresh(thread, context)
       typing = undefined
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
@@ -3624,11 +3625,19 @@ async function handleChatSdkMessage(
       catch (error) {
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
+        if (reclaimedMessage?.input && steerQueue) {
+          await state.state.enqueue(steerQueue, {
+            enqueuedAt: Date.now(),
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            message: reclaimedMessage,
+          } as never, 1).catch(() => undefined)
+        }
         if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)
         throw error
       }
       finally {
         if (steerStartHeartbeat) clearInterval(steerStartHeartbeat)
+        if (steerHandoffLock) await state.state.releaseLock(steerHandoffLock).catch(() => undefined)
       }
       return
     }
