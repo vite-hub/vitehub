@@ -545,6 +545,28 @@ it("rolls back marker-owned output after an atomic state write fails", async () 
   expect(existsSync(functionRoot)).toBe(false)
 })
 
+it("preserves the previous Vercel function when replacement ownership fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-replacement-state-error-")
+  const previousFunctionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+  const replacementFunctionRoot = join(rootDir, ".vercel", "output", "functions", "__workflow.func")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await rm(stateFile)
+  await mkdir(stateFile)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName: "__workflow.func",
+    workflow: {},
+  })).rejects.toThrow()
+
+  expect(existsSync(previousFunctionRoot)).toBe(true)
+  expect(existsSync(replacementFunctionRoot)).toBe(false)
+})
+
 it("discovers and removes a prior custom-named Workflow Vercel function", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-custom-function-transition-")
   const customFunction = "__custom-workflow.func"

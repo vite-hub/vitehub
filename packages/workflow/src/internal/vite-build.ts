@@ -1310,10 +1310,10 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
     removedRootConfigRoutes.push(...(ownership.rootConfigRoutes ?? (previousOutput?.serverFunctionName === serverFunctionName ? previousOutput.rootConfigRoutes ?? [] : [])))
     removedFunctionRoots.push(functionRoot)
   }
-  await cleanVercelWorkflowRootConfig(rootDir, removedRootConfigRoutes)
-  await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
   const stateFile = resolve(rootDir, vercelWorkflowOutputState)
   if (!activeServerFunctionName) {
+    await cleanVercelWorkflowRootConfig(rootDir, removedRootConfigRoutes)
+    await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
     await rm(stateFile, { force: true })
     return
   }
@@ -1331,6 +1331,8 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
     serverFunctionName: activeServerFunctionName,
     version: 1,
   } satisfies VercelWorkflowOutputState)
+  await cleanVercelWorkflowRootConfig(rootDir, removedRootConfigRoutes)
+  await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
 }
 
 async function generateProviderOutputsWithinLock(
