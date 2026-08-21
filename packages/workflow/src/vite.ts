@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
@@ -49,6 +50,7 @@ const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
   agentImportBase?: string
   hosting?: string
+  implicitlyEnabled?: boolean
   importBase?: string
   providerImportAliases?: Record<string, string>
   includeUserAppEntry?: boolean
@@ -74,7 +76,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
   const internalOptions = options as InternalWorkflowModuleOptions | undefined
   let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
-  let workflow: WorkflowModuleOptions | undefined = options
+  let workflow: WorkflowModuleOptions | undefined = internalOptions?.implicitlyEnabled
+    && normalizeHosting(internalOptions.hosting).includes("netlify")
+    ? false
+    : options
   let serverDirs: string[] | undefined
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel"): Record<string, string> {

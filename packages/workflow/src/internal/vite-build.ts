@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
@@ -45,6 +45,35 @@ interface VercelNativeWorkflowState {
 interface VercelNativeWorkflowSnapshot {
   config?: Buffer
   files: Record<string, Buffer>
+}
+
+interface VercelWorkflowFunctionOwnership {
+  digest: string
+  rootConfigRoutes?: string[]
+  version: 1
+}
+
+interface VercelWorkflowOutputState {
+  rootConfigRoutes?: string[]
+  serverFunctionName: string
+  version: 1
+}
+
+const vercelRootWorkflowRoutes = [
+  { handle: "filesystem" },
+  { src: "/(.*)", dest: "/__server" },
+].map(route => JSON.stringify(route))
+
+async function writeJsonAtomically(file: string, value: unknown): Promise<void> {
+  const temporaryFile = `${file}.${process.pid}.${randomUUID()}.tmp`
+  await mkdir(dirname(file), { recursive: true })
+  try {
+    await writeFile(temporaryFile, `${JSON.stringify(value, null, 2)}\n`, "utf8")
+    await rename(temporaryFile, file)
+  }
+  finally {
+    await rm(temporaryFile, { force: true })
+  }
 }
 
 async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise<VercelNativeWorkflowOwnership | undefined> {
@@ -1147,41 +1176,139 @@ function createVercelOutput(
   }
 }
 
-async function isVercelWorkflowFunctionOwned(rootDir: string, serverFunctionName: string): Promise<boolean> {
-  const functionRoot = resolve(createDefaultVercelOutputRoot(rootDir), "functions", serverFunctionName)
-  try {
-    const ownership = JSON.parse(await readFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), "utf8")) as { digest?: unknown }
-    if (typeof ownership.digest !== "string") return false
-    return createHash("sha256").update(await readFile(resolve(functionRoot, "index.mjs"))).digest("hex") === ownership.digest
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
-    throw error
-  }
+function isSafeVercelFunctionName(functionsRoot: string, serverFunctionName: string): boolean {
+  const path = relative(functionsRoot, resolve(functionsRoot, serverFunctionName))
+  return Boolean(path) && path !== ".." && !path.startsWith("../") && !path.startsWith("..\\") && !isAbsolute(path)
 }
 
-async function readVercelWorkflowOutputState(rootDir: string): Promise<{ serverFunctionName: string } | undefined> {
+async function readVercelWorkflowFunctionOwnership(functionRoot: string): Promise<VercelWorkflowFunctionOwnership | undefined> {
   try {
-    const state = JSON.parse(await readFile(resolve(rootDir, vercelWorkflowOutputState), "utf8")) as { serverFunctionName?: unknown }
-    return typeof state.serverFunctionName === "string" ? { serverFunctionName: state.serverFunctionName } : undefined
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
-  }
-}
-
-async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServerFunctionName: string | undefined): Promise<void> {
-  const functionsRoot = resolve(createDefaultVercelOutputRoot(rootDir), "functions")
-  const candidates = new Set(["__server.func", "__workflow.func"])
-  const previousOutput = await readVercelWorkflowOutputState(rootDir)
-  if (previousOutput) candidates.add(previousOutput.serverFunctionName)
-  if (activeServerFunctionName) candidates.add(activeServerFunctionName)
-  for (const serverFunctionName of candidates) {
-    if (serverFunctionName !== activeServerFunctionName && await isVercelWorkflowFunctionOwned(rootDir, serverFunctionName)) {
-      await rm(resolve(functionsRoot, serverFunctionName), { force: true, recursive: true })
+    const ownership = JSON.parse(await readFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), "utf8")) as Partial<VercelWorkflowFunctionOwnership>
+    if (typeof ownership.digest !== "string") return
+    if (ownership.version !== undefined && ownership.version !== 1) return
+    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => typeof route !== "string"))) return
+    return {
+      digest: ownership.digest,
+      ...(ownership.rootConfigRoutes ? { rootConfigRoutes: ownership.rootConfigRoutes } : {}),
+      version: 1,
     }
   }
+  catch {
+    return
+  }
+}
+
+async function isLegacyVercelWorkflowFunction(functionRoot: string): Promise<boolean> {
+  try {
+    const [contents, functionConfig] = await Promise.all([
+      readFile(resolve(functionRoot, "index.mjs"), "utf8"),
+      readFile(resolve(functionRoot, ".vc-config.json"), "utf8").then(value => JSON.parse(value) as Record<string, unknown>),
+    ])
+    return contents.includes("function createWorkflowVercelServer(")
+      && contents.includes("setWorkflowRuntimeRegistry(options.registry)")
+      && functionConfig.handler === "index.mjs"
+      && functionConfig.launcherType === "Nodejs"
+      && typeof functionConfig.runtime === "string"
+      && /^nodejs\d+\.x$/.test(functionConfig.runtime)
+      && functionConfig.shouldAddHelpers === false
+      && functionConfig.supportsResponseStreaming === true
+  }
+  catch {
+    return false
+  }
+}
+
+async function getVercelWorkflowFunctionOwnership(functionRoot: string, legacy: boolean): Promise<VercelWorkflowFunctionOwnership | undefined> {
+  const ownership = await readVercelWorkflowFunctionOwnership(functionRoot)
+  if (ownership) {
+    try {
+      const digest = createHash("sha256").update(await readFile(resolve(functionRoot, "index.mjs"))).digest("hex")
+      return digest === ownership.digest ? ownership : undefined
+    }
+    catch {
+      return
+    }
+  }
+  if (!legacy || !await isLegacyVercelWorkflowFunction(functionRoot)) return
+  return {
+    digest: createHash("sha256").update(await readFile(resolve(functionRoot, "index.mjs"))).digest("hex"),
+    ...(functionRoot.endsWith("__server.func") ? { rootConfigRoutes: vercelRootWorkflowRoutes } : {}),
+    version: 1,
+  }
+}
+
+async function readVercelWorkflowOutputState(rootDir: string, functionsRoot: string): Promise<VercelWorkflowOutputState | undefined> {
+  try {
+    const state = JSON.parse(await readFile(resolve(rootDir, vercelWorkflowOutputState), "utf8")) as Partial<VercelWorkflowOutputState>
+    if (typeof state.serverFunctionName !== "string" || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
+    if (state.version !== undefined && state.version !== 1) return
+    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => typeof route !== "string"))) return
+    return {
+      ...(state.rootConfigRoutes ? { rootConfigRoutes: state.rootConfigRoutes } : {}),
+      serverFunctionName: state.serverFunctionName,
+      version: 1,
+    }
+  }
+  catch {
+    return
+  }
+}
+
+async function cleanVercelWorkflowRootConfig(rootDir: string, ownedRoutes: string[]): Promise<void> {
+  if (!ownedRoutes.length) return
+  const configFile = resolve(createDefaultVercelOutputRoot(rootDir), "config.json")
+  let config: Record<string, unknown>
+  try {
+    const value = JSON.parse(await readFile(configFile, "utf8")) as unknown
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    config = value as Record<string, unknown>
+  }
+  catch {
+    return
+  }
+  if (!Array.isArray(config.routes)) return
+
+  const pendingRoutes = [...ownedRoutes]
+  const routes = config.routes.filter((route) => {
+    const index = pendingRoutes.indexOf(JSON.stringify(route))
+    if (index < 0) return true
+    pendingRoutes.splice(index, 1)
+    return false
+  })
+  if (routes.length === config.routes.length) return
+
+  const next = { ...config }
+  if (routes.length) next.routes = routes
+  else delete next.routes
+  if (next.version === 3 && Object.keys(next).length === 1) delete next.version
+  if (Object.keys(next).length) await writeJsonAtomically(configFile, next)
+  else await rm(configFile, { force: true })
+}
+
+async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServerFunctionName: string | undefined, ownsRootConfig: boolean): Promise<void> {
+  const functionsRoot = resolve(createDefaultVercelOutputRoot(rootDir), "functions")
+  const candidates = new Set(["__server.func", "__workflow.func"])
+  const previousOutput = await readVercelWorkflowOutputState(rootDir, functionsRoot)
+  if (previousOutput) candidates.add(previousOutput.serverFunctionName)
+  if (activeServerFunctionName) candidates.add(activeServerFunctionName)
+  try {
+    for (const entry of await readdir(functionsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && existsSync(resolve(functionsRoot, entry.name, vercelWorkflowFunctionOwnershipMarker))) candidates.add(entry.name)
+    }
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  const removedRootConfigRoutes: string[] = []
+  for (const serverFunctionName of candidates) {
+    if (serverFunctionName === activeServerFunctionName || !isSafeVercelFunctionName(functionsRoot, serverFunctionName)) continue
+    const functionRoot = resolve(functionsRoot, serverFunctionName)
+    const ownership = await getVercelWorkflowFunctionOwnership(functionRoot, serverFunctionName === "__server.func" || serverFunctionName === "__workflow.func")
+    if (!ownership) continue
+    removedRootConfigRoutes.push(...(ownership.rootConfigRoutes ?? (previousOutput?.serverFunctionName === serverFunctionName ? previousOutput.rootConfigRoutes ?? [] : [])))
+    await rm(functionRoot, { force: true, recursive: true })
+  }
+  await cleanVercelWorkflowRootConfig(rootDir, removedRootConfigRoutes)
   const stateFile = resolve(rootDir, vercelWorkflowOutputState)
   if (!activeServerFunctionName) {
     await rm(stateFile, { force: true })
@@ -1190,9 +1317,17 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
 
   const functionRoot = resolve(functionsRoot, activeServerFunctionName)
   const digest = createHash("sha256").update(await readFile(resolve(functionRoot, "index.mjs"))).digest("hex")
-  await writeFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), `${JSON.stringify({ digest }, null, 2)}\n`, "utf8")
-  await mkdir(dirname(stateFile), { recursive: true })
-  await writeFile(stateFile, `${JSON.stringify({ serverFunctionName: activeServerFunctionName }, null, 2)}\n`, "utf8")
+  const rootConfigRoutes = ownsRootConfig ? vercelRootWorkflowRoutes : undefined
+  await writeJsonAtomically(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), {
+    digest,
+    ...(rootConfigRoutes ? { rootConfigRoutes } : {}),
+    version: 1,
+  } satisfies VercelWorkflowFunctionOwnership)
+  await writeJsonAtomically(stateFile, {
+    ...(rootConfigRoutes ? { rootConfigRoutes } : {}),
+    serverFunctionName: activeServerFunctionName,
+    version: 1,
+  } satisfies VercelWorkflowOutputState)
 }
 
 async function generateProviderOutputsWithinLock(
@@ -1257,7 +1392,7 @@ async function generateProviderOutputsWithinLock(
         else {
           await cleanVercelNativeWorkflowOutput(options.rootDir)
         }
-        await updateVercelWorkflowFunctionOwnership(options.rootDir, vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined)
+        await updateVercelWorkflowFunctionOwnership(options.rootDir, vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined, Boolean(vercelOutput && !options.serverFunctionName))
       },
       rootDir: options.rootDir,
       ...(vercelOutput ? { vercel: vercelOutput } : {}),

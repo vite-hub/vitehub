@@ -91,6 +91,10 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   }
 }
 
+function nitroOptions(nuxt: ReturnType<typeof createNuxt>["nuxt"]): Record<string, unknown> {
+  return (nuxt.options as typeof nuxt.options & { nitro: Record<string, unknown> }).nitro
+}
+
 describe("ViteHub Nuxt integration", () => {
   beforeEach(() => {
     mocks.objectHook.mockClear()
@@ -188,6 +192,47 @@ describe("ViteHub Nuxt integration", () => {
         config: mocks.envHook,
       },
     ])
+  })
+
+  it.each([
+    ["cloudflare", "cloudflare-module"],
+    ["vercel", "vercel"],
+  ] as const)("exposes the %s Nitro preset during Nuxt module setup", async (preset, nitroPreset) => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ preset }, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({ preset: nitroPreset })
+  })
+
+  it("rejects a conflicting Nitro preset during Nuxt module setup", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, { nitro: { preset: "vercel" } })
+
+    await expect(viteHubNuxtModule({ preset: "cloudflare" }, nuxt))
+      .rejects.toThrow('vitehub preset "cloudflare" conflicts with nitro.preset "vercel"')
+  })
+
+  it("defaults Cloudflare WASM loading to lazy during Nuxt module setup", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({ wasm: { lazy: true } })
+  })
+
+  it("preserves explicit Nuxt WASM loading and leaves other presets unchanged", async () => {
+    const { nuxt: cloudflareNuxt } = createNuxt()
+    Object.assign(cloudflareNuxt.options, { nitro: { wasm: { lazy: false } } })
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, cloudflareNuxt)
+
+    expect(nitroOptions(cloudflareNuxt)).toMatchObject({ wasm: { lazy: false } })
+
+    const { nuxt: vercelNuxt } = createNuxt()
+    await viteHubNuxtModule({ preset: "vercel" }, vercelNuxt)
+
+    expect(nitroOptions(vercelNuxt)).not.toHaveProperty("wasm")
   })
 
   it("installs flattened ViteHub plugins and applies their config hooks to Nitro", async () => {
@@ -806,7 +851,7 @@ describe("ViteHub Nuxt integration", () => {
       root: "/tmp/vitehub-nuxt/custom-vite-root",
     })
 
-    await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
+    await viteHubNuxtModule({ database: { databaseId: "content-id", databaseName: "content" }, preset: "cloudflare" }, nuxt)
     const nitroConfig = {}
     await runNitroConfigHook(nitroConfig)
 
@@ -841,7 +886,7 @@ describe("ViteHub Nuxt integration", () => {
       "@vite-hub/database/runtime/state": "./custom-nuxt-database-state.ts",
     })
 
-    await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
+    await viteHubNuxtModule({ database: { databaseId: "content-id", databaseName: "content" }, preset: "cloudflare" }, nuxt)
     const nitroConfig = {
       alias: {
         "@vite-hub/database/runtime/state": "./custom-database-state.ts",
@@ -925,6 +970,7 @@ describe("ViteHub Nuxt integration", () => {
 
     await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, nuxt)
 
+    expect(nitroOptions(nuxt)).toMatchObject({ preset: "cloudflare-durable", wasm: { lazy: true } })
     const imports = (nuxt.options as typeof nuxt.options & {
       imports: { imports: Array<{ from: string, name: string }> }
     }).imports.imports

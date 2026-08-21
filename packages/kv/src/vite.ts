@@ -152,16 +152,44 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   ].join("\n")
 }
 
-function configureNitroCloudflareKV(config: { kv?: KVModuleOptions, nitro?: unknown }, options?: KVModuleOptions): boolean {
+interface NitroCloudflareKVTarget {
+  cloudflare?: {
+    wrangler?: {
+      kv_namespaces?: Array<{ binding: string, id?: string }>
+    }
+  }
+}
+
+function configureNitroCloudflareKV(
+  config: { kv?: KVModuleOptions, nitro?: unknown },
+  options: KVModuleOptions | undefined,
+  ownedBindings: Set<string>,
+): boolean {
   const { nitro } = config
   if (!nitro || typeof nitro !== "object" || Array.isArray(nitro)) return false
+
+  const target = nitro as NitroCloudflareKVTarget
+  const namespaces = target.cloudflare?.wrangler?.kv_namespaces
+  if (namespaces && ownedBindings.size) {
+    target.cloudflare!.wrangler!.kv_namespaces = namespaces.filter(namespace => !ownedBindings.has(namespace.binding))
+  }
+  ownedBindings.clear()
+
   const kv = resolveKVViteConfig(config.kv ?? options).kv
-  if (kv) configureCloudflareKV(nitro, kv)
+  if (kv) {
+    const existingBindings = new Set(target.cloudflare?.wrangler?.kv_namespaces?.map(namespace => namespace.binding))
+    const desiredBindings = createCloudflareKVWranglerConfig(kv)?.kv_namespaces?.map(namespace => namespace.binding) ?? []
+    configureCloudflareKV(target, kv)
+    for (const binding of desiredBindings) {
+      if (!existingBindings.has(binding)) ownedBindings.add(binding)
+    }
+  }
   return true
 }
 
 export function hubKv(options?: KVModuleOptions): KVVitePlugin {
   let nitroOwned = false
+  const ownedNitroBindings = new Set<string>()
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: KVViteRuntimeConfig | undefined
   const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options)
@@ -171,12 +199,12 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     enforce: "pre",
     api: { getConfig },
     config(config) {
-      nitroOwned = configureNitroCloudflareKV(config, options)
+      nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroBindings)
     },
     configResolved(config) {
       resolved = config
       runtimeConfig = resolveKVViteConfig(config.kv ?? options)
-      if (hasNitroConfigContext(config)) nitroOwned ||= configureNitroCloudflareKV(config, options)
+      if (hasNitroConfigContext(config)) nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroBindings)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

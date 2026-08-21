@@ -238,7 +238,10 @@ describe("vitehub", () => {
       },
     }))
     vitehub({ agent: true, preset: "node" })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ includeUserAppEntry: false }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      implicitlyEnabled: true,
+      includeUserAppEntry: false,
+    }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
       hosting: "node-server",
       importBase: "vite-hub/_internal/workspace",
@@ -547,6 +550,12 @@ describe("vitehub", () => {
     const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
     await hook(config, { command: "build", mode: "production" })
     expect(config.nitro).toMatchObject({ preset: nitroPreset })
+    if (preset === "cloudflare") {
+      expect(config.nitro).toMatchObject({ wasm: { lazy: true } })
+    }
+    else {
+      expect(config.nitro).not.toHaveProperty("wasm")
+    }
     if (preset === "deno") {
       expect(config.nitro).toMatchObject({
         commands: { deploy: "node ./deploy.mjs" },
@@ -554,6 +563,15 @@ describe("vitehub", () => {
         rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" } },
       })
     }
+  })
+
+  it("preserves an explicit Cloudflare WASM loading mode", async () => {
+    const config = await applyDeploymentConfig(
+      { preset: "cloudflare" },
+      { nitro: { wasm: { lazy: false } } },
+    )
+
+    expect(config.nitro).toMatchObject({ wasm: { lazy: false } })
   })
 
   it("uses Nitro's Durable Object transport for Cloudflare realtime", async () => {

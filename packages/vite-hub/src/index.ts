@@ -25,7 +25,7 @@ import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput 
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
-import { assertDeploymentService, deploymentPresetFromNitro, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 
@@ -350,10 +350,6 @@ function configureCloudflarePrerender(config: Record<string, unknown>): void {
   config.rollupConfig = rollupConfig
 }
 
-function normalizeNitroPreset(value: string): string {
-  return value.trim().toLowerCase().replaceAll("_", "-")
-}
-
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
@@ -472,6 +468,9 @@ function deploymentPlugins(
           }
         }
         if (plan.preset === "cloudflare") {
+          const wasm = cloneRecord(nitro.wasm)
+          if (wasm.lazy === undefined) wasm.lazy = true
+          nitro.wasm = wasm
           const cloudflare = cloneRecord(nitro.cloudflare)
           const wrangler = cloneRecord(cloudflare.wrangler)
           if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
@@ -746,6 +745,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       agentImportBase: `${generatedImportBase}/agent`,
       hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workflow`,
+      ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,
