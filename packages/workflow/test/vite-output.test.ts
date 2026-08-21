@@ -55,6 +55,21 @@ it("preserves WDK optional externals while installing the Email definition", asy
   expect(combinedFlow).toMatch(/export\s*\{[^}]*\s+as\s+default/)
 })
 
+it("installs the Email definition when the WDK flow has only named exports", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-named-flow-")
+  const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
+  const emailDefinitionFile = join(rootDir, "email-definition.mjs")
+  await mkdir(resolve(flowFile, ".."), { recursive: true })
+  await writeFile(flowFile, "export async function POST() {}\n")
+  await writeFile(emailDefinitionFile, "export default { handler: async () => undefined }\n")
+
+  await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
+
+  const combinedFlow = await readFile(flowFile, "utf8")
+  expect(combinedFlow).toContain("POST")
+  expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+})
+
 it("removes stale WDK functions and routes", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-clean-wdk-")
   const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")

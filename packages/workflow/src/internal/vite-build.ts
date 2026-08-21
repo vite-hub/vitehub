@@ -179,9 +179,9 @@ export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: stri
     await writeFile(workflowBundle, await readFile(flowFile, "utf8"), "utf8")
     await writeFile(bootstrapEntry, [
       `import viteHubEmailDefinition from ${JSON.stringify(createImportPath(bootstrapEntry, emailDefinitionFile))}`,
-      `import workflowHandler from ${JSON.stringify(createImportPath(bootstrapEntry, workflowBundle))}`,
+      `import * as workflowModule from ${JSON.stringify(createImportPath(bootstrapEntry, workflowBundle))}`,
       `globalThis[Symbol.for("vitehub.email.definition")] = viteHubEmailDefinition`,
-      "export default workflowHandler",
+      "export default workflowModule.default",
       `export * from ${JSON.stringify(createImportPath(bootstrapEntry, workflowBundle))}`,
       "",
     ].join("\n"), "utf8")
