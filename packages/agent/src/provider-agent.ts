@@ -855,13 +855,15 @@ async function* runProvider(
       }
       await writeFile(instructionPath, instructions)
     }
-    const colocatedSkills = context.context.get<Record<string, { content?: string | Uint8Array, workspacePath?: string }>>(colocatedAgentSkillsContextKey)
-    for (const source of Object.values(colocatedSkills || {})) {
-      if (source.content === undefined || !source.workspacePath) continue
-      const target = resolve(root, source.workspacePath)
-      if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
-      await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, source.content)
+    if (!workspaceSession) {
+      const colocatedSkills = context.context.get<Record<string, { content?: string | Uint8Array, workspacePath?: string }>>(colocatedAgentSkillsContextKey)
+      for (const source of Object.values(colocatedSkills || {})) {
+        if (source.content === undefined || !source.workspacePath) continue
+        const target = resolve(root, source.workspacePath)
+        if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
+        await mkdir(dirname(target), { recursive: true })
+        await writeFile(target, source.content)
+      }
     }
     if (workspaceSession) {
       await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
