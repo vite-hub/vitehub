@@ -157,6 +157,11 @@ describe("agent transcription", () => {
       mediaType: "audio/ogg",
       type: "audio",
     })).resolves.toEqual(new Uint8Array([1, 2]))
+    await expect(audioBytes({
+      data: "data:audio/ogg,%FF%D8%FF",
+      mediaType: "audio/ogg",
+      type: "audio",
+    })).resolves.toEqual(new Uint8Array([255, 216, 255]))
   })
 
   it("sends OpenRouter transcription models namespaced model ids with normal JSON output", async () => {
@@ -711,6 +716,17 @@ describe("agent transcription", () => {
       await capability.input?.(rawBase64Context.context as never)
       expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({ audio: "T2dnUwECAw==" }))
 
+      const percentEncodedContext = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "data:audio/ogg,%FF%D8%FF", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+      await capability.input?.(percentEncodedContext.context as never)
+      expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({
+        audio: new Uint8Array([255, 216, 255]),
+      }))
+
       const lazyDataUrlContext = createTranscriptionCapabilityContext([
         createMessage({
           parts: [{ fetchData: () => "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
@@ -723,13 +739,16 @@ describe("agent transcription", () => {
       }))
 
       const oversized = transcribe({ maxBytes: 6, model: "mock-transcription-model" })
+      const decode = vi.spyOn(globalThis, "atob")
       await expect(oversized.input?.(createTranscriptionCapabilityContext([
         createMessage({
           parts: [{ data: "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
           role: "user",
         }),
       ]).context as never)).rejects.toThrow("exceeds maxBytes")
-      expect(aiTranscribe).toHaveBeenCalledTimes(3)
+      expect(decode).not.toHaveBeenCalled()
+      decode.mockRestore()
+      expect(aiTranscribe).toHaveBeenCalledTimes(4)
     }
     finally {
       vi.doUnmock("ai")
