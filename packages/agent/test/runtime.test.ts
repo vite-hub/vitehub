@@ -12342,11 +12342,12 @@ describe("agent message protocol", () => {
       await expect(result).rejects.toBe(failure)
     })
 
-    it("does not make public waitUntil work block Workflow completion", async () => {
+    it("retains public waitUntil work through Workflow completion", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const background = deferred<void>()
+      let completed = false
 
-      await expect(runAgentWorkflowDefinition({} as never, {
+      const result = runAgentWorkflowDefinition({} as never, {
         id: "background-source-run",
         name: "background-source-run",
         payload: {},
@@ -12354,9 +12355,11 @@ describe("agent message protocol", () => {
       }, async (_agent, context) => {
         context.waitUntil(background.promise)
         return "done"
-      })).resolves.toBe("done")
+      }).finally(() => { completed = true })
 
+      await vi.waitFor(() => expect(completed).toBe(false))
       background.resolve()
+      await expect(result).resolves.toBe("done")
     })
 
     it("retains telemetry work through Workflow completion", async () => {

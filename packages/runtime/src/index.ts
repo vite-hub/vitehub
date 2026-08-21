@@ -284,6 +284,7 @@ const contentAttributeKeys = new Set([
   "response",
   "result",
   "text",
+  "title",
 ])
 
 export function isTraceContentAttributeKey(key: string): boolean {

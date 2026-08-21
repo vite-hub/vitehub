@@ -7,7 +7,6 @@ import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../interna
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { agentInvocationRunId } from "../invocation-context.ts"
 import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
-import { agentProviderCleanupTask } from "../internal/provider-cleanup-task.ts"
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
@@ -26,7 +25,6 @@ import type {
   AgentRuntimeContext,
   AgentRuntimeName,
 } from "../types.ts"
-import { agentTelemetryTask } from "../internal/telemetry-task.ts"
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
 import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 
@@ -281,8 +279,7 @@ export async function runAgentWorkflowDefinition<
   const payload = context.payload || {}
   const backgroundTasks: Promise<unknown>[] = []
   const waitUntil = (promise: Promise<unknown>): void => {
-    if (agentTelemetryTask in promise || agentProviderCleanupTask in promise) backgroundTasks.push(Promise.resolve(promise))
-    else void Promise.resolve(promise).catch(() => {})
+    backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
   }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare"

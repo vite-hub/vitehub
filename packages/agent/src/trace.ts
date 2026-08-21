@@ -15,6 +15,7 @@ import type { Telemetry } from "ai"
 import type { TraceEvent } from "@vite-hub/runtime"
 
 export const agentInvocationJournalTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalTraceLog")
+const MAX_TRACE_TEXT_EVENT_LENGTH = 64 * 1024
 
 export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   context: AgentInvocationContextStore
@@ -340,8 +341,8 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
         && pendingText.phase === event.phase
         && pendingText.role === event.role) {
         let remaining = event.text
-        while (pendingText && pendingText.text.length + remaining.length > 64 * 1024) {
-          const length = 64 * 1024 - pendingText.text.length
+        while (pendingText && pendingText.text.length + remaining.length > MAX_TRACE_TEXT_EVENT_LENGTH) {
+          const length = MAX_TRACE_TEXT_EVENT_LENGTH - pendingText.text.length
           pendingText = { ...pendingText, text: pendingText.text + remaining.slice(0, length) }
           remaining = remaining.slice(length)
           await flush()
@@ -352,9 +353,9 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
       }
       await flush()
       let remaining = event.text
-      while (remaining.length > 64 * 1024) {
-        pendingText = { ...event, text: remaining.slice(0, 64 * 1024) }
-        remaining = remaining.slice(64 * 1024)
+      while (remaining.length > MAX_TRACE_TEXT_EVENT_LENGTH) {
+        pendingText = { ...event, text: remaining.slice(0, MAX_TRACE_TEXT_EVENT_LENGTH) }
+        remaining = remaining.slice(MAX_TRACE_TEXT_EVENT_LENGTH)
         await flush()
       }
       pendingText = { ...event, text: remaining }

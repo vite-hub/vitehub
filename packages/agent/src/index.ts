@@ -3942,7 +3942,8 @@ async function executeAgentInvocationWithCapacityLease<
           preservedSources.set(renderedStream, source)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
-          const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+          const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
+          const value = withCapabilityCleanup(tracedStream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             finishing = true
             const finalOutcome = await cancelPreservedSources(outcome)

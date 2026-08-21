@@ -556,6 +556,7 @@ describe("@vite-hub/runtime", () => {
         "agent.run.id": "run-1",
         prompt: "secret prompt",
         "runtime.name": "vercel",
+        "vitehub.session.title": "secret title",
       },
       name: "agent.invocation.start",
       timestamp: "2026-01-01T00:00:00.000Z",
@@ -587,6 +588,7 @@ describe("@vite-hub/runtime", () => {
     })
     expect(JSON.stringify(span)).not.toContain("secret prompt")
     expect(JSON.stringify(span)).not.toContain("secret result")
+    expect(JSON.stringify(span)).not.toContain("secret title")
   })
 
   it("recursively redacts traversable non-plain attribute objects", async () => {
