@@ -183,7 +183,11 @@ async function assertNoHostSymlinkParent(host: WorkspaceSessionHost, root: strin
 
 function toWorkspaceEntry(root: string, entry: WorkspaceSessionHostFileEntry): WorkspaceEntry {
   return {
-    metadata: entry.type === "symlink" ? { gitMode: "120000" } : undefined,
+    metadata: entry.type === "symlink"
+      ? { gitMode: "120000" }
+      : entry.type === "file" && entry.executable
+        ? { gitMode: "100755" }
+        : undefined,
     path: fromHostPath(root, entry.path),
     size: entry.size,
     type: entry.type === "directory" ? "directory" : "file",
@@ -235,12 +239,13 @@ async function listHostEntries(
 ): Promise<WorkspaceEntry[]> {
   await assertHostWorkspaceRoot(host, root)
   const entries = (await host.files.list(toHostPath(root, path), { recursive }))
-    .map(entry => toWorkspaceEntry(root, entry))
-    .filter(entry => !include || include(entry))
-  const resolved = await mapWithConcurrency(entries, hostInspectionConcurrency, async (workspaceEntry) => {
+    .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))
+    .filter(({ workspaceEntry }) => !include || include(workspaceEntry))
+  const resolved = await mapWithConcurrency(entries, hostInspectionConcurrency, async ({ executable, workspaceEntry }) => {
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
-    const executable = await host.exec("test", ["-x", workspaceEntry.path], { cwd: root })
-    return executable.code === 0
+    if (executable !== undefined) return workspaceEntry
+    const probe = await host.exec("test", ["-x", workspaceEntry.path], { cwd: root })
+    return probe.code === 0
       ? { ...workspaceEntry, metadata: { ...workspaceEntry.metadata, gitMode: "100755" } }
       : workspaceEntry
   })
