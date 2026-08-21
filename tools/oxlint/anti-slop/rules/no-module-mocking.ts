@@ -26,6 +26,7 @@ function isTestFrameworkObject(
   sourceCode: SourceCode,
   expression: ESTree.Expression,
 ): expression is ESTree.IdentifierReference {
+  while (expression.type === "ParenthesizedExpression") expression = expression.expression;
   if (expression.type !== "Identifier") return false;
   if (
     (expression.name === "vi" || expression.name === "jest") &&

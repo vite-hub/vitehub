@@ -15,6 +15,7 @@ function resolveVariable(
 
 function isGlobalReflect(sourceCode: SourceCode, expression: ESTree.Expression): boolean {
   while (
+    expression.type === "ParenthesizedExpression" ||
     expression.type === "TSAsExpression" ||
     expression.type === "TSNonNullExpression" ||
     expression.type === "TSSatisfiesExpression" ||
@@ -48,6 +49,7 @@ export function isGlobalReflectMethodCall(
   visited = new Set<Variable>(),
 ): boolean {
   while (
+    callee.type === "ParenthesizedExpression" ||
     callee.type === "TSAsExpression" ||
     callee.type === "TSNonNullExpression" ||
     callee.type === "TSSatisfiesExpression" ||
