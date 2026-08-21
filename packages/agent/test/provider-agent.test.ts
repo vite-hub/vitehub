@@ -906,6 +906,81 @@ describe("Provider Agent Driver", () => {
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it("keeps colocated Skills readable and out of Workspace writeback", async () => {
+    const threadId = "thread-workspace-colocated-skills"
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        await expect(readFile(`${root}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Review\n")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => {
+        await expect(access(`${root}/skills/review/SKILL.md`)).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(access(`${root}/skills/review`)).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(access(`${root}/skills`)).rejects.toMatchObject({ code: "ENOENT" })
+        return { entries: [] }
+      }),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
+    })
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.commit).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("rejects colocated Skill materialization through Workspace symlinks", async () => {
+    const threadId = "thread-workspace-symlinked-skills"
+    const runtimeCount = createProviderRuntime.mock.calls.length
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        await symlink("/tmp", `${options.target}/skills`)
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, { workspace })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
+    })
+
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("parent must not be a symbolic link")
+
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
+    expect(session.diff).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("clears a provider cursor when Workspace write-back fails", async () => {
     const threadId = "thread-workspace-failed-resume"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {

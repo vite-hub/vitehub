@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
-import { basename, dirname, extname, join, resolve } from "node:path"
+import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
@@ -65,6 +65,64 @@ export interface ProviderAgentAdapterOptions<
   model?: string
   permissions?: AgentProviderPermissions
   provider: "claude-code" | "codex"
+}
+
+interface GeneratedProviderFile {
+  content?: Uint8Array
+  directories: string[]
+  existed: boolean
+  link?: string
+  mode?: number
+  path: string
+}
+
+async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+  let parent = root
+  const directories: string[] = []
+  for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
+    parent = join(parent, segment)
+    const parentEntry = await lstat(parent).catch(() => undefined)
+    if (parentEntry?.isSymbolicLink()) throw new Error(`[vitehub] Generated provider file parent must not be a symbolic link: ${parent}`)
+    if (parentEntry && !parentEntry.isDirectory()) throw new Error(`[vitehub] Generated provider file parent must be a directory: ${parent}`)
+    if (!parentEntry) directories.push(parent)
+  }
+  const entry = await lstat(path).catch(() => undefined)
+  if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
+    throw new Error(`[vitehub] Generated provider file collides with a non-file entry: ${path}`)
+  }
+  const generated = {
+    content: entry?.isFile() ? await readFile(path) : undefined,
+    directories,
+    existed: entry !== undefined,
+    link: entry?.isSymbolicLink() ? await readlink(path) : undefined,
+    mode: entry?.isFile() ? entry.mode : undefined,
+    path,
+  }
+  try {
+    if (entry?.isSymbolicLink()) await rm(path)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, content)
+    return generated
+  }
+  catch (error) {
+    await restoreGeneratedProviderFile(generated)
+    throw error
+  }
+}
+
+async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  await rm(generated.path, { force: true, recursive: true })
+  if (generated.link !== undefined) await symlink(generated.link, generated.path)
+  else if (generated.existed) {
+    await writeFile(generated.path, generated.content!)
+    if (generated.mode !== undefined) await chmod(generated.path, generated.mode)
+  }
+  for (const directory of generated.directories.reverse()) {
+    await rmdir(directory).catch((error) => {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
+    })
+  }
 }
 
 const imageExtensions: Record<string, string> = {
@@ -829,11 +887,7 @@ async function* runProvider(
   let completed = false
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
-  let generatedInstructionFile: string | undefined
-  let originalGeneratedInstructions: Uint8Array | undefined
-  let originalGeneratedInstructionLink: string | undefined
-  let originalGeneratedInstructionMode: number | undefined
-  let generatedInstructionFileExisted = false
+  const generatedProviderFiles: GeneratedProviderFile[] = []
   let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
@@ -921,29 +975,15 @@ async function* runProvider(
       if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
     }
     if (instructions) {
-      generatedInstructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      const instructionPath = join(root, generatedInstructionFile)
-      const instructionEntry = await lstat(instructionPath).catch(() => undefined)
-      generatedInstructionFileExisted = instructionEntry !== undefined
-      if (instructionEntry?.isSymbolicLink()) {
-        originalGeneratedInstructionLink = await readlink(instructionPath)
-        await rm(instructionPath)
-      }
-      else {
-        originalGeneratedInstructions = await readFile(instructionPath).catch(() => undefined)
-        originalGeneratedInstructionMode = instructionEntry?.mode
-      }
-      await writeFile(instructionPath, instructions)
+      const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
+      generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))
     }
-    if (!workspaceSession) {
-      const colocatedSkills = context.context.get<Record<string, { content?: string | Uint8Array, workspacePath?: string }>>(colocatedAgentSkillsContextKey)
-      for (const source of Object.values(colocatedSkills || {})) {
-        if (source.content === undefined || !source.workspacePath) continue
-        const target = resolve(root, source.workspacePath)
-        if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
-        await mkdir(dirname(target), { recursive: true })
-        await writeFile(target, source.content)
-      }
+    const colocatedSkills = context.context.get<Record<string, { content?: string | Uint8Array, workspacePath?: string }>>(colocatedAgentSkillsContextKey)
+    for (const source of Object.values(colocatedSkills || {})) {
+      if (source.content === undefined || !source.workspacePath) continue
+      const target = resolve(root, source.workspacePath)
+      if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
+      generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     if (workspaceSession) {
       await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
@@ -1089,19 +1129,7 @@ async function* runProvider(
     }
     const finalizeWorkspace = async () => {
       try {
-        if (generatedInstructionFile) {
-          const path = join(root, generatedInstructionFile)
-          if (originalGeneratedInstructionLink !== undefined) {
-            await rm(path, { force: true, recursive: true })
-            await symlink(originalGeneratedInstructionLink, path)
-          }
-          else if (generatedInstructionFileExisted) {
-            await rm(path, { force: true, recursive: true })
-            await writeFile(path, originalGeneratedInstructions!)
-            if (originalGeneratedInstructionMode !== undefined) await chmod(path, originalGeneratedInstructionMode)
-          }
-          else await rm(path, { force: true, recursive: true })
-        }
+        for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
       }
       catch (error) {
         cleanupErrors.push(error)
