@@ -64,15 +64,19 @@ Workspace path. Its editor state is exposed as Vue refs.
 import { useEditor } from '@tiptap/vue-3'
 import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
 
-const realtime = useRealtimeTiptap('docs', 'guides/getting-started.md')
+export function useDocumentEditor() {
+  const realtime = useRealtimeTiptap('docs', 'guides/getting-started.md')
 
-const editor = useEditor({
-  extensions: realtime.extensions.value,
-})
+  const editor = useEditor({
+    extensions: realtime.extensions.value,
+  })
 
-realtime.people.value // Connected people
-realtime.status.value // connected, connecting, or disconnected
-realtime.synced.value // Whether the initial Yjs sync has completed
+  realtime.people.value // Connected people
+  realtime.status.value // connected, connecting, or disconnected
+  realtime.synced.value // Whether the initial Yjs sync has completed
+
+  return { editor, realtime }
+}
 ```
 
 The composable connects to ViteHub's generated

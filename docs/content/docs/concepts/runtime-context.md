@@ -23,6 +23,96 @@ Framework and provider integrations create Runtime Context in the generated rout
 
 Keep reusable behavior in Definitions and task data in invocation input. Runtime Context passes host resources to the operation.
 
+## Adapt an H3 event
+
+Application-owned routes need one host adapter for the Runtime Context used by
+the Agent examples:
+
+```ts [server/runtime-context.ts]
+import type { AgentRuntimeName, AgentWaitUntil } from 'vite-hub/agent'
+import type { H3Event } from 'h3'
+
+function waitUntilFrom(value: unknown): AgentWaitUntil | undefined {
+  const owner = value as { waitUntil?: AgentWaitUntil } | undefined
+  return typeof owner?.waitUntil === 'function'
+    ? owner.waitUntil.bind(value)
+    : undefined
+}
+
+function waitUntilFor(event: H3Event): AgentWaitUntil {
+  const context = event.context as {
+    cloudflare?: { context?: unknown }
+    _platform?: { cloudflare?: { context?: unknown } }
+  }
+  const node = event.node as {
+    req?: { runtime?: { cloudflare?: { context?: unknown } } }
+  }
+  const req = event.req as {
+    runtime?: { cloudflare?: { context?: unknown } }
+  }
+
+  return waitUntilFrom(event)
+    ?? waitUntilFrom(context)
+    ?? waitUntilFrom(context.cloudflare?.context)
+    ?? waitUntilFrom(context._platform?.cloudflare?.context)
+    ?? waitUntilFrom(req?.runtime?.cloudflare?.context)
+    ?? waitUntilFrom(node?.req?.runtime?.cloudflare?.context)
+    ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
+}
+
+function cloudflareFor(event: H3Event) {
+  const runtimeEvent = event as H3Event & {
+    env?: Record<string, unknown>
+    context: H3Event['context'] & {
+      cloudflare?: { context?: unknown, env?: Record<string, unknown> }
+      _platform?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } }
+    }
+    req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } }
+    node?: { req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } } }
+  }
+  const env = runtimeEvent.env
+    ?? runtimeEvent.context.cloudflare?.env
+    ?? runtimeEvent.context._platform?.cloudflare?.env
+    ?? runtimeEvent.req?.runtime?.cloudflare?.env
+    ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env
+  const context = runtimeEvent.context.cloudflare?.context
+    ?? runtimeEvent.context._platform?.cloudflare?.context
+    ?? runtimeEvent.req?.runtime?.cloudflare?.context
+    ?? runtimeEvent.node?.req?.runtime?.cloudflare?.context
+
+  return env ? { env, ...(context ? { context } : {}) } : undefined
+}
+
+function runtimeFor(event: H3Event): AgentRuntimeName {
+  const env = typeof process === 'object' && process ? process.env : undefined
+
+  if (cloudflareFor(event)) return 'cloudflare-agents'
+  if ('Deno' in globalThis) return 'deno'
+  if (env?.VERCEL) return 'vercel'
+  return env?.NODE_ENV === 'development' ? 'vite' : 'unknown'
+}
+
+export function getRuntimeContext(event: H3Event) {
+  const cloudflare = cloudflareFor(event)
+  const values = new Map<string, unknown>()
+
+  return {
+    ...(cloudflare ? { cloudflare } : {}),
+    memo<T>(key: string, create: () => T): T {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key) as T
+    },
+    runtime: runtimeFor(event),
+    waitUntil: waitUntilFor(event),
+  }
+}
+```
+
+Keep this adapter host-owned. Add provider resources here and delegate
+`waitUntil` to the real host lifetime when one exists. The fallback observes
+failures for long-lived local Node processes; serverless deployments must
+expose their provider lifetime adapter through the event context.
+
 ## Runtime Context is not a Capability
 
 A Runtime Capability handle passes an implementation between packages. An Agent Capability gives an Agent a selected ability. It can use Runtime Context without exposing that context to the model.

@@ -138,6 +138,10 @@ Vercel runs the normal handler inline unless the definition provides `native`.
 Inline work does not survive a function restart. Register a Workflow DevKit entry
 when the run needs Vercel's durable execution:
 
+```bash [Terminal]
+pnpm add workflow @workflow/builders
+```
+
 ```ts [server/workflows/onboard-user.ts]
 import {
   defineWorkflow,
@@ -191,13 +195,14 @@ import { runWorkflow } from '@vite-hub/workflow'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
 
-  return runWorkflow('onboard-user', body, {
-    id: `onboard:${body.email}`,
-  })
+  return runWorkflow('onboard-user', body)
 })
 ```
 
-The run id belongs to Invocation Options. Use a stable id when the provider needs to deduplicate or resume the same logical run.
+The run id belongs to Invocation Options. Use a stable id when the selected
+provider supports caller-assigned ids and needs to deduplicate or resume the
+same logical run. Native Vercel workflows reject an explicit `id`; let Workflow
+DevKit assign it as shown above.
 
 ## Runtime helpers
 
@@ -207,17 +212,21 @@ The run id belongs to Invocation Options. Use a stable id when the provider need
 | `deferWorkflow(name, payload?, options?)` | Starts a run through the deferred provider path when available. |
 | `getWorkflowRun(name, id)` | Reads the current run state. |
 | `cancelWorkflow(name, id)` | Cancels a durable Vercel run. |
-| `resumeWorkflowSignal(token, payload)` | Resumes a Vercel operation using an opaque signal token created inside the native workflow. |
+| `resumeWorkflowSignal(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, `getRun`, and `cancel`. |
 
 `WorkflowStartOptions` currently accepts `id`.
 
-Cancellation and signals currently require the Vercel provider and a native
-Workflow DevKit entry. Cloudflare, OpenWorkflow, and inline Vercel runs report
-`WORKFLOW_OPERATION_UNSUPPORTED` instead of simulating these operations. Pass
-the opaque token created by the native workflow to `resumeWorkflowSignal()`;
-the token identifies the provider operation to resume and is not a Workflow Run
-id.
+Cancellation currently requires a native Vercel Workflow Definition.
+Cloudflare, OpenWorkflow, and inline Vercel runs report
+`WORKFLOW_OPERATION_UNSUPPORTED` instead of simulating cancellation.
+
+Signal resumption requires the Vercel provider, the Workflow DevKit runtime,
+and a registered hook token. The application can choose a deterministic opaque
+token; it becomes resumable when a native workflow registers the hook and
+suspends while waiting for it. Pass that token to `resumeWorkflowSignal()`.
+It identifies the hook, not a Workflow Run. Cloudflare and OpenWorkflow report
+signals as unsupported.
 
 ## Structured errors
 

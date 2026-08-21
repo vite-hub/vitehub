@@ -60,6 +60,7 @@ private response data.
 | `PROVIDER_QUOTA_EXHAUSTED` | The account or project has no remaining provider quota. |
 | `PROVIDER_RATE_LIMITED` | The provider returned a temporary rate limit. |
 | `PROVIDER_UNAVAILABLE` | The provider returned a server or availability failure. |
+| `APPROVAL_REQUIRED` | A Capability needs approval before it can continue. `requestId` identifies the approval request when available. |
 | `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | ViteHub recognized a public application or Capability failure. |
 | `INTERNAL` | The failure has no approved public mapping. The message stays generic. |
 
