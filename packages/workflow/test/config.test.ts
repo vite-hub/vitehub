@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { normalizeWorkflowOptions } from "../src/config.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../src/integrations/vercel.ts"
+import { hubWorkflow } from "../src/vite.ts"
 
 describe("workflow config", () => {
   it("infers cloudflare from hosting", () => {
@@ -92,6 +93,13 @@ describe("workflow config", () => {
     })
   })
 
+  it("does not prepare a Vercel schedule runtime for Cloudflare workflows", async () => {
+    const plugin = hubWorkflow({ provider: "cloudflare" })
+    ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
+
+    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+  })
+
   it("rejects invalid openworkflow options", () => {
     expect(() => normalizeWorkflowOptions({
       postgres: "postgres://localhost/vitehub",
@@ -142,6 +150,28 @@ describe("workflow config", () => {
       class_name: getCloudflareWorkflowClassName("welcome"),
       name: "workflow-custom",
     }])
+  })
+
+  it("keeps Agent recovery bindings separate from single-workflow overrides", () => {
+    const recovery = "vitehub-agent-invocation-recovery-welcome"
+    expect(createCloudflareWorkflowBindings(
+      [
+        { handler: "/tmp/welcome.ts", name: "welcome", source: "agent-workflow" },
+        { handler: "/tmp/welcome.ts", name: recovery, source: "agent-workflow-recovery" },
+      ],
+      { binding: "WORKFLOW_CUSTOM", name: "workflow-custom" },
+    )).toEqual([
+      {
+        binding: "WORKFLOW_CUSTOM",
+        class_name: getCloudflareWorkflowClassName("welcome"),
+        name: "workflow-custom",
+      },
+      {
+        binding: getCloudflareWorkflowBindingName(recovery),
+        class_name: getCloudflareWorkflowClassName(recovery),
+        name: getCloudflareWorkflowName(recovery),
+      },
+    ])
   })
 
   it("rejects Cloudflare binding overrides for multiple workflows", () => {

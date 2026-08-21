@@ -5,11 +5,28 @@ type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
 type WatchIgnoredValue = WatchIgnoredMatcher | WatchIgnoredMatcher[] | undefined
 
+export interface ViteHubProviderImportContributor {
+  vitehub?: {
+    providerOutput?: {
+      getImportAliases?: () => Promise<Record<string, string>> | Record<string, string>
+    }
+  }
+}
+
+export async function collectViteHubProviderImportAliases(
+  plugins: ViteHubProviderImportContributor[],
+): Promise<Record<string, string>> {
+  return Object.assign({}, ...await Promise.all(plugins.map(async plugin =>
+    await plugin.vitehub?.providerOutput?.getImportAliases?.() ?? {},
+  )))
+}
+
 const generatedViteHubFilesPattern = "**/.vitehub/**"
 const projectRootDirectoryMarkers = [
   ["server", "agents"],
   ["server", "channels"],
   ["server", "browsers"],
+  ["server", "emails"],
   ["server", "schedules"],
   ["server", "templates"],
   ["server", "workspaces"],

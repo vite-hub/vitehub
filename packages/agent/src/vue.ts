@@ -118,3 +118,13 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
 }
 
 export type { UseChatHelpers } from "@ai-sdk/vue"
+export { useAgentInvocation, useAgentInvocations } from "./invocations-vue.ts"
+export type {
+  AgentInvocationDetailResult,
+  AgentInvocationRequester,
+  AgentInvocationRequestOptions,
+  UseAgentInvocationOptions,
+  UseAgentInvocationReturn,
+  UseAgentInvocationsOptions,
+  UseAgentInvocationsReturn,
+} from "./invocations-vue.ts"

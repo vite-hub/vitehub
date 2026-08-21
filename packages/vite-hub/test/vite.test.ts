@@ -13,6 +13,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
+  hubEmailOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/email/optional-peer-resolver" })),
   hubEnv: vi.fn(() => ({
     api: {
       createServerEnvRegistry: () => ({}),
@@ -41,7 +42,10 @@ vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
-vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
+vi.mock("@vite-hub/email/vite", () => ({
+  hubEmail: integrationMocks.hubEmail,
+  hubEmailOptionalPeerResolver: integrationMocks.hubEmailOptionalPeerResolver,
+}))
 vi.mock("@vite-hub/env/vite", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/env/vite")>(),
   hubEnv: integrationMocks.hubEnv,
@@ -107,6 +111,7 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
+      "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
       "vite-hub/types",
     ])
@@ -287,7 +292,11 @@ describe("vitehub", () => {
       ...email,
       hosting: "node-server",
       runtimeEnvImport: "vite-hub/env/server",
+      workflowProvider: undefined,
     })
+
+    vitehub({ email, preset: "node", workflow: { provider: "vercel" } })
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(expect.objectContaining({ workflowProvider: "vercel" }))
   })
 
   it("uses Cloudflare Email when Email is enabled by preset", () => {
@@ -297,11 +306,32 @@ describe("vitehub", () => {
       driver: "unemail/driver/cloudflare-email",
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
+      workflowProvider: undefined,
     })
   })
 
   it("rejects the Cloudflare Email default on other presets", () => {
     expect(() => vitehub({ email: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
+  })
+
+  it("derives standalone Schedule output from the Vercel preset", () => {
+    vitehub({ preset: "cloudflare", schedule: true, workflow: true })
+
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      providerOutput: expect.anything(),
+    }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      provider: expect.anything(),
+    }))
+
+    vitehub({ preset: "vercel", schedule: true, workflow: true })
+
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining({
+      providerOutput: "standalone",
+    }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      provider: expect.anything(),
+    }))
   })
 
   it("uses framework subpaths in generated Env modules", () => {

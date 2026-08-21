@@ -1,18 +1,24 @@
 import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
+import { toAgentPublicError } from "./agent-error.ts"
+import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
+import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
+  AgentChatErrorHookArgs,
   AgentChatCapabilityOptions,
   AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatPlatformResolver,
+  AgentChannelDeliveryEffectIntent,
   AgentChannelWebhookRegistrationDefinition,
   AgentInvocationContextStore,
   AgentRunMetadata,
   AgentRuntimeConfig,
+  AgentRuntimeContext,
   AgentTriggerDefinition,
   AgentWebhookRegistrationDefinition,
 } from "./types.ts"
@@ -69,8 +75,111 @@ const CHAT_WEBHOOK_DEFAULTS = {
 } satisfies Record<string, Partial<AgentWebhookRegistrationDefinition> & { provider?: string }>
 
 export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
+const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
+const durableChatErrorFallbackTimeoutMs = 30_000
+export function isDurableChatErrorFallbackEffect(effect: unknown): boolean {
+  return typeof effect === "function" && (effect as { kind?: string }).kind === "chat.error-fallback"
+}
+
+export function durableChatErrorFallbackTimeout(
+  options: Pick<AgentChatOptions, "timeout"> | undefined,
+): number {
+  return Math.min(options?.timeout ?? durableChatErrorFallbackTimeoutMs, durableChatErrorFallbackTimeoutMs)
+}
 
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
+
+export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig> | undefined,
+  args: AgentChatErrorHookArgs<TRuntimeConfig>,
+  callbackDelivered?: () => boolean,
+  resolveFallback?: (fallback: Promise<unknown>) => Promise<unknown>,
+): Promise<string | undefined> {
+  const fallback = options?.errorFallbackText
+  if (fallback === null) return
+  if (typeof fallback === "function") {
+    try {
+      const resolution = Promise.resolve(fallback(args))
+      return await (resolveFallback ? resolveFallback(resolution) : resolution) as string || undefined
+    }
+    catch {
+      return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
+    }
+  }
+  if (args.publicError.code !== "INTERNAL") return args.publicError.error
+  return typeof fallback === "string" ? fallback : defaultChatErrorFallbackText
+}
+
+export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig> | undefined,
+  args: AgentChatErrorHookArgs<TRuntimeConfig>,
+  callbackDelivered?: () => boolean,
+): Promise<string | undefined> {
+  const timeout = durableChatErrorFallbackTimeout(options)
+  return resolveChatErrorFallbackText(options, args, callbackDelivered, async (resolution) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        resolution,
+        new Promise<never>((_resolve, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`Durable chat error fallback timed out after ${timeout}ms.`)), timeout)
+        }),
+      ])
+    }
+    finally {
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  })
+}
+
+export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig> | undefined,
+  args: Omit<AgentChatErrorHookArgs<TRuntimeConfig>, "thread">,
+  resolveFallback?: (fallback: Promise<unknown>) => Promise<unknown>,
+): Promise<AgentChannelDeliveryEffectIntent[]> {
+  const intents: AgentChannelDeliveryEffectIntent[] = []
+  let acceptingIntents = true
+  const hookArgs = {
+    ...args,
+    thread: {
+      post: async (message: unknown) => {
+        if (!acceptingIntents) throw new Error("Durable chat error fallback resolution has already completed.")
+        intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" }))
+      },
+    },
+  } as AgentChatErrorHookArgs<TRuntimeConfig>
+  const fallback = resolveFallback
+    ? await resolveChatErrorFallbackText(options, hookArgs, () => intents.length > 0, resolveFallback)
+    : await resolveDurableChatErrorFallbackText(options, hookArgs, () => intents.length > 0)
+  acceptingIntents = false
+  if (!intents.length && fallback) intents.push(createReplyDeliveryEffectIntent(fallback, { intent: "chat.error-fallback" }))
+  return intents
+}
+
+function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig>,
+) {
+  const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
+    if (context.error === undefined || !(context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
+    const chat = getAgentChatContext(context.context)
+    const channel = context.context.get<AgentChannelContext>("channel")
+    if (!chat && !channel) return
+    return await resolveDurableChatErrorFallbackIntents(options, {
+      error: context.error,
+      history: context.input.messages || [],
+      message: chat?.message || channel?.message || { text: "" },
+      publicError: toAgentPublicError(context.error, "http"),
+      run: context.run,
+      toolResults: context.event.toolResults,
+    })
+  })
+  effect.active = context => options.errorFallbackText !== null
+    && context.error !== undefined
+    && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+    && (Boolean(getAgentChatContext(context.context)) || context.context.has("channel"))
+  effect.kind = "chat.error-fallback"
+  return effect
+}
 
 export interface AgentChatRunContext<
   TMessageMetadata extends object = Record<string, unknown>,
@@ -257,6 +366,7 @@ export function defineChatCapability<
     },
     output(context) {
       context.finish.provide(() => context.context.get<AgentChatFinishExtension>(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
+      context.delivery.finishEffect(durableChatErrorFallback(options) as never)
     },
     triggers: {
       message: createChatMessageTrigger(options),

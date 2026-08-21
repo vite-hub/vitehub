@@ -1,14 +1,20 @@
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 
 import { createAgentRuntimeContext } from "./context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
-import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { agentInvocationRunId } from "../invocation-context.ts"
+import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
+import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
+import { readAgentErrorProperty, toAgentPublicError } from "../agent-error.ts"
 import { agentChannelDeliveryWorkflowContextKey, resumeWorkflowAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
 
 import type {
   AgentHostIdentity,
@@ -20,6 +26,7 @@ import type {
   AgentRuntimeContext,
   AgentRuntimeName,
 } from "../types.ts"
+
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
 import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 
@@ -37,11 +44,61 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
   capabilities?: Record<string, false>
   input?: AgentRunInput<CALL_OPTIONS>
+  invocationRecovery?: {
+    agentName?: string
+    runId: string
+    sourceRunId: string
+    workflowName: string
+  }
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
+  trace?: AgentRuntimeContext["trace"]
   runtime?: AgentRuntimeName
   runtimeConfig?: AgentRuntimeConfig
+}
+
+function workflowRecoveryDelay(attempt: number): { duration: string, milliseconds: number } {
+  if (attempt < 60) return { duration: "1 second", milliseconds: 1_000 }
+  if (attempt < 120) return { duration: "1 minute", milliseconds: 60_000 }
+  return { duration: "30 minutes", milliseconds: 1_800_000 }
+}
+
+async function sleepForWorkflowRecovery(context: WorkflowExecutionContext, attempt: number): Promise<void> {
+  const delay = workflowRecoveryDelay(attempt)
+  if (context.step?.sleep) return await context.step.sleep(`agent-invocation-recovery-${attempt + 1}`, delay.duration)
+  await new Promise<void>(resolve => setTimeout(resolve, delay.milliseconds))
+}
+
+async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: WorkflowExecutionContext,
+  runtimeContext: AgentRuntimeContext<TRuntimeConfig>,
+  recovery: NonNullable<AgentWorkflowInvocationPayload["invocationRecovery"]>,
+): Promise<void> {
+  if (!agent || typeof agent !== "object" || !("invocations" in agent)) return
+  const invocations = agent.invocations
+  if (!invocations) return
+  const journal = await bindAgentInvocations(invocations, {
+    ...runtimeContext,
+    run: { ...runtimeContext.run, runId: recovery.sourceRunId },
+  }, { agentName: recovery.agentName, deferClaim: true, terminalTakeover: true })
+  if (!journal) return
+  const { getWorkflowRun } = await loadAgentWorkflowModule()
+  // ponytail: Recovery is bounded to one day; add provider events or re-enqueueing if runs routinely exceed it.
+  for (let attempt = 0; attempt < 166; attempt++) {
+    try {
+      const run = await getWorkflowRun(recovery.workflowName, recovery.runId)
+      if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
+        await journal.finish(run.status, run.status === "failed" ? run.metadata : undefined)
+        await Promise.all(agentInvocationRecoveryTasks(runtimeContext))
+        const record = await invocations.getByRunId(recovery.sourceRunId, recovery.agentName)
+        if (record?.status === run.status) return
+      }
+    }
+    catch {}
+    if (attempt < 165) await sleepForWorkflowRecovery(context, attempt)
+  }
 }
 
 export type AgentWorkflowRunner<
@@ -95,6 +152,41 @@ function unsupportedWorkflowResult(): never {
   const error = new TypeError("Agent Workflow results must contain only JSON-compatible values.") as TypeError & { isRetryable: false }
   error.isRetryable = false
   throw error
+}
+
+function nonRetryableAgentWorkflowError(error: unknown): unknown {
+  if (readAgentErrorProperty(error, "isRetryable") === false) return error
+  const nestedNonRetryable = error instanceof AggregateError
+    && error.errors.some(candidate => readAgentErrorProperty(nonRetryableAgentWorkflowError(candidate), "isRetryable") === false)
+  const code = getViteHubErrorShape(error)?.code
+  const publicError = toAgentPublicError(error, "invocation")
+  const terminalProvider = publicError.code === "PROVIDER_AUTHENTICATION_FAILED"
+    || publicError.code === "PROVIDER_QUOTA_EXHAUSTED"
+  const retry = readAgentErrorProperty(error, "name") === "AI_RetryError"
+    ? readAgentErrorProperty(error, "lastError")
+    : error
+  const exhaustedProviderRetries = retry !== error
+  const name = readAgentErrorProperty(retry, "name")
+  const status = readAgentErrorProperty(retry, "statusCode")
+  const permanentProviderRequest = name === "AI_LoadAPIKeyError"
+    || name === "AI_APICallError"
+    && typeof status === "number"
+    && status >= 400
+    && status < 500
+    && ![408, 409, 425, 429].includes(status)
+  const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON"
+    || code === "AGENT_OUTPUT_SCHEMA_INVALID"
+    || name === "AI_NoObjectGeneratedError"
+  if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedProviderRetries && !exhaustedOutput) return error
+
+  const value = error instanceof Error ? error : new Error(String(error), { cause: error })
+  try {
+    Object.defineProperty(value, "isRetryable", { configurable: true, value: false })
+    return value
+  }
+  catch {
+    return Object.assign(new Error(value.message, { cause: value }), { isRetryable: false as const })
+  }
 }
 
 function isTextResponseMediaType(mediaType: string): boolean {
@@ -191,6 +283,9 @@ export async function runAgentWorkflowDefinition<
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
+  const waitUntil = (promise: Promise<unknown>): void => {
+    void Promise.resolve(promise).catch(() => {})
+  }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
@@ -205,12 +300,23 @@ export async function runAgentWorkflowDefinition<
     ...(runId
       ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } }
       : {}),
+    ...(payload.trace ? { trace: payload.trace } : {}),
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
     runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
     waitUntil(promise: Promise<unknown>) {
       backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
     },
   } as never)
+  if (payload.run?.runId && payload.run.runId !== runId) {
+    ;(runtimeContext as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
+  }
+
+  Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, { enumerable: true, value: true })
+
+  if (payload.invocationRecovery) {
+    await reconcileAgentWorkflowInvocation(agent, context, runtimeContext, payload.invocationRecovery)
+    return
+  }
 
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
@@ -245,7 +351,7 @@ export async function runAgentWorkflowDefinition<
       await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "invocation.failed", runId }).catch(() => undefined)
       await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "failed", runId }).catch(() => undefined)
     }
-    throw error
+    throw nonRetryableAgentWorkflowError(error)
   }
   finally {
     while (backgroundTasks.length) {

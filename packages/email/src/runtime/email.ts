@@ -5,10 +5,13 @@ import { emailError } from "../errors.ts"
 
 import type { EmailClient, EmailMessage, EmailSendResult } from "../types.ts"
 
-const client = definition ? createEmail(definition) : undefined
+const runtimeDefinition = Symbol.for("vitehub.email.definition")
+let client = definition ? createEmail(definition) : undefined
 
 export const email: EmailClient = {
   async send(message: EmailMessage): Promise<EmailSendResult> {
+    const generated = (globalThis as typeof globalThis & { [runtimeDefinition]?: typeof definition })[runtimeDefinition]
+    client ??= generated ? createEmail(generated) : undefined
     if (!client) {
       throw emailError(
         "EMAIL_NOT_CONFIGURED",

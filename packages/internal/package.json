@@ -12,6 +12,7 @@
     "./env": "./dist/env.js",
     "./effect": "./dist/effect.js",
     "./arrays": "./dist/arrays.js",
+    "./agent-workflow": "./dist/agent-workflow.js",
     "./definition-catalog": "./dist/definition-catalog.js",
     "./definition-discovery": "./dist/definition-discovery.js",
     "./deployment": "./dist/deployment.js",
