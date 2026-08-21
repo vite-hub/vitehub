@@ -58,9 +58,11 @@ describe("Agent Vue client types", () => {
     expectTypeOf(detail.refresh).toBeFunction()
     expectTypeOf(detail.stop).toBeFunction()
 
-    useAgentInvocations({ pollInterval: 100 })
-    useAgentInvocation("inv-1", { pollInterval: 100 })
+    useAgentInvocations({ pollInterval: 100, request })
+    useAgentInvocation("inv-1", { pollInterval: 100, request })
+    // @ts-expect-error Applications must own the requester used to load Agent Invocations.
     useAgentInvocations()
+    // @ts-expect-error Applications must own the requester used to load Agent Invocation details.
     useAgentInvocation("inv-1")
   })
 })

@@ -625,4 +625,27 @@ describe("@vite-hub/runtime", () => {
       status: { code: "OK" },
     })
   })
+
+  it("bounds each run without dropping middle runs or their terminal events", () => {
+    const events = ["run-1", "run-2", "run-3"].flatMap((id, runIndex) => Array.from({ length: 2_000 }, (_, index) => ({
+      attributes: { "agent.run.id": id, index },
+      name: index === 1_999 ? "agent.invocation.finish" : "agent.message",
+      sequence: runIndex * 2_000 + index + 1,
+      timestamp: new Date(runIndex * 2_000 + index).toISOString(),
+      trace: { id: "shared-trace" },
+      type: "run" as const,
+    })))
+
+    const spans = traceEventsToOpenTelemetrySpans(events)
+    expect(spans).toHaveLength(3)
+    expect(spans.map(span => span.attributes?.["vitehub.run.id"])).toEqual(["run-1", "run-2", "run-3"])
+    expect(spans).toEqual(spans.map(span => expect.objectContaining({
+      attributes: expect.objectContaining({
+        "vitehub.trace.originalEventCount": 2_000,
+        "vitehub.trace.truncated": true,
+      }),
+      endTime: expect.any(String),
+      status: { code: "OK" },
+    })))
+  })
 })

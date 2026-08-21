@@ -518,11 +518,17 @@ function openTelemetryId(value: string, length: 16 | 32): string {
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
   const allEntries = [...events]
   const maxEntries = 1024
-  const boundedEntries = allEntries.length > maxEntries
-    ? [...allEntries.slice(0, maxEntries / 2), ...allEntries.slice(-maxEntries / 2)].map((entry, index) => index === 0
-        ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": allEntries.length, "vitehub.trace.truncated": true } }
-        : entry)
-    : allEntries
+  const entriesByRun = new Map<string, TraceEventLogEntry[]>()
+  for (const entry of allEntries) {
+    const id = runId(entry)
+    entriesByRun.set(id, [...(entriesByRun.get(id) || []), entry])
+  }
+  const boundedEntries = [...entriesByRun.values()].flatMap((runEntries) => {
+    if (runEntries.length <= maxEntries) return runEntries
+    return [...runEntries.slice(0, maxEntries / 2), ...runEntries.slice(-maxEntries / 2)].map((entry, index) => index === 0
+      ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": runEntries.length, "vitehub.trace.truncated": true } }
+      : entry)
+  })
   const entries = boundedEntries.map(entry => options.content === "metadata"
     ? { ...entry, attributes: metadataAttributes(entry.attributes) }
     : entry)
