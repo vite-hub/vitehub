@@ -10295,7 +10295,7 @@ describe("server helpers", () => {
       await state.forceReleaseLock(ownershipKey!)
       await handler(chatWebhookRequest(91_124), "telegram", runtime)
       await vi.waitFor(() => expect(inputs).toHaveLength(4))
-      expect(inputs[3]?.messages?.at(-1)?.id).toBe("91124")
+      expect(inputs[3]?.messages?.map(message => message.id)).toEqual(["91123", "91124"])
     }
     finally {
       pending = undefined
