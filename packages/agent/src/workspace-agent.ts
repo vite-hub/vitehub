@@ -1396,6 +1396,7 @@ async function resolveMetadataCapabilitySelection<
   const capabilities = await resolveAgentCapabilityDefinitions(settings.capabilities, {
     ...agentInvocationCallbackContextValues(invocationContext),
     ...callbackContext,
+    abortSignal: input.abortSignal,
     actor: invoker,
     context: invocationContext,
     driver: { kind: driverKind },

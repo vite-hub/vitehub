@@ -1672,6 +1672,8 @@ export default defineAgent({
 
         const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
         expect(generatedRoute).not.toContain("@ts-nocheck")
+        expect(generatedRoute).toContain("abortSignal: request.signal")
+        expect(generatedRoute).toContain("runtime: runtimeFromEvent(event)")
         if (stateProvider === "libsql") {
           expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
         }

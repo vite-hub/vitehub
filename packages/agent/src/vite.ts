@@ -1514,6 +1514,11 @@ function generatedRuntimeHelpers(): string[] {
     "  const context = runtimeEvent.context?.cloudflare?.context || runtimeEvent.context?._platform?.cloudflare?.context || runtimeEvent.node?.req?.runtime?.cloudflare?.context",
     "  return env && typeof env === 'object' ? { env, ...(context ? { context } : {}) } : undefined",
     "}",
+    "",
+    "function runtimeFromEvent(event: H3Event) {",
+    "  if (cloudflareFromEvent(event)) return 'cloudflare-agents' as const",
+    "  if (typeof process === 'object' && (process.env.VERCEL || process.env.VERCEL_ENV)) return 'vercel' as const",
+    "}",
   ]
 }
 
@@ -1739,7 +1744,7 @@ async function generateAgentDeploymentCatalog(
             "  if (!selectedName || !agent) return Response.json({ message: 'Unknown ViteHub agent.', status: 404 }, { headers, status: 404 })",
             "  try {",
             "    const inspection = await resolveAgentInspectionMetadata(agent, {",
-            "      input: { context: { invoker: { id: 'inspection', kind: 'inspection' } }, messages: [] },",
+            "      input: { abortSignal: request.signal, context: { invoker: { id: 'inspection', kind: 'inspection' } }, messages: [] },",
             "      resolveSources: false,",
             "      runtime: { ...runtime, agentIdentity: agentIdentities[selectedName], request },",
             "    })",
@@ -1885,7 +1890,7 @@ async function generateAgentWebhookRouteHandler(
           "  if (isInspectionRoute) {",
           "    const cloudflare = cloudflareFromEvent(event)",
           "    const request = new Request(getRequestURL(event), { headers: getRequestHeaders(event), method: event.method || 'GET', signal: event.req?.signal })",
-          `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
+          `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption || ", runtime: runtimeFromEvent(event)"}, waitUntil: waitUntilFromEvent(event) })`,
           "  }",
         ]
       : []),

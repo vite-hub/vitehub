@@ -119,9 +119,9 @@ async function createDeploymentRuntimeFixture(
   await writeFile(join(reviewerRoot, "agent.ts"), [
     "import { defineAgent, defineCapability } from '@vite-hub/agent'",
     "export default defineAgent({",
-    "  capabilities: ({ actor, agentIdentity, event, request, runtime, waitUntil }) => actor.kind === 'inspection' ? [defineCapability({",
+    "  capabilities: ({ abortSignal, actor, agentIdentity, event, request, runtime, waitUntil }) => actor.kind === 'inspection' ? [defineCapability({",
     "    id: 'runtime',",
-    "    metadata: { actor: actor.kind, agent: agentIdentity?.name, hasEvent: Boolean(event), hasWaitUntil: typeof waitUntil === 'function', method: request?.method, runtime, token: 'private' },",
+    "    metadata: { actor: actor.kind, agent: agentIdentity?.name, hasAbortSignal: Boolean(abortSignal), hasEvent: Boolean(event), hasWaitUntil: typeof waitUntil === 'function', method: request?.method, runtime, token: 'private' },",
     "  })] : [],",
     "  description: 'reviewer',",
     "  driver: { model: {} },",
@@ -326,6 +326,7 @@ describe("generated Agent deployment catalog", () => {
         metadata: {
           actor: "inspection",
           agent: "reviewer",
+          hasAbortSignal: true,
           hasEvent: true,
           hasWaitUntil: true,
           method: "GET",
