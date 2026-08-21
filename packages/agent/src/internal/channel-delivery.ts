@@ -24,6 +24,7 @@ export interface AgentChannelDeliveryWorkflowBinding {
   provider: string
   state: "chat" | "webhook"
   steer?: {
+    deliveryIds?: string[]
     lock: { expiresAt: number, threadId: string, token: string }
     queue: string
     ttlMs: number
@@ -47,7 +48,7 @@ type AgentChannelDeliveryWorkflowOwnershipResolver = (
   agent: unknown,
   context: AgentRuntimeContext,
   binding: AgentChannelDeliveryWorkflowBinding,
-) => Promise<(() => Promise<void>) | undefined>
+  ) => Promise<((status: "completed" | "failed") => Promise<void>) | undefined>
 
 function deliveryRecordKey(deliveryId: string): string {
   return `deliveries:${deliveryId}`
@@ -296,7 +297,7 @@ export async function resumeAgentChannelDeliveryWorkflowOwnership(
   agent: unknown,
   context: AgentRuntimeContext,
   binding: AgentChannelDeliveryWorkflowBinding,
-): Promise<(() => Promise<void>) | undefined> {
+): Promise<((status: "completed" | "failed") => Promise<void>) | undefined> {
   return await workflowOwnershipResolver?.(agent, context, binding)
 }
 

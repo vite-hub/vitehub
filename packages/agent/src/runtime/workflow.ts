@@ -329,6 +329,7 @@ export async function runAgentWorkflowDefinition<
     ? await resumeAgentChannelDeliveryWorkflowOwnership(agent, runtimeContext, channelDeliveryBinding)
     : undefined
 
+  let channelDeliveryStatus: "completed" | "failed" = "failed"
   try {
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
     const result = await portableWorkflowResult(await runAgentInline(
@@ -342,6 +343,7 @@ export async function runAgentWorkflowDefinition<
       await channelDelivery.event({ type: "invocation.completed", runId }).catch(() => undefined)
       await channelDelivery.event({ type: "completed", runId }).catch(() => undefined)
     }
+    channelDeliveryStatus = "completed"
     return result
   }
   catch (error) {
@@ -355,7 +357,7 @@ export async function runAgentWorkflowDefinition<
     while (backgroundTasks.length) {
       await Promise.allSettled(backgroundTasks.splice(0))
     }
-    await settleChannelOwnership?.()
+    await settleChannelOwnership?.(channelDeliveryStatus)
   }
 }
 
