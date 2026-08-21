@@ -13,6 +13,7 @@ import {
   pullRequestFingerprint,
   resolveMaxOwners,
   resolveRepositories,
+  runPullRequestJobs,
   selectPullRequestJobs,
 } from './babysitter.queue.ts'
 
@@ -25,9 +26,9 @@ export default defineSchedule({
   async handler(schedule) {
     const {maxOwners, repositories: configuredRepositories, repository} = useServerEnv().babysitter
     const repositories = resolveRepositories(configuredRepositories, repository)
-    const jobs = await selectPullRequestJobs(repositories, resolveMaxOwners(maxOwners), listPullRequests, readCompletion)
+    const jobs = await selectPullRequestJobs(repositories, listPullRequests, readCompletion)
 
-    await Promise.all(jobs.map(async job => {
+    await runPullRequestJobs(jobs, resolveMaxOwners(maxOwners), async job => {
       const { pullRequest, repository } = job
       const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
       try {
@@ -72,7 +73,7 @@ export default defineSchedule({
       catch (error) {
         console.error(new Error(`Babysitter failed for ${repository} PR #${pullRequest.number}.`, { cause: error }))
       }
-    }))
+    })
   },
 })
 

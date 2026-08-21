@@ -41,7 +41,6 @@ export function resolveMaxOwners(value: string) {
 
 export async function selectPullRequestJobs(
   repositories: string[],
-  maxOwners: number,
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
   readCompletion: (key: string) => Promise<string | null>,
 ) {
@@ -66,7 +65,18 @@ export async function selectPullRequestJobs(
       : { completionKey: key, fingerprint, pullRequest, repository }
   }))
 
-  return jobs.filter((job): job is PullRequestJob => job !== undefined).slice(0, maxOwners)
+  return jobs.filter((job): job is PullRequestJob => job !== undefined)
+}
+
+export async function runPullRequestJobs(
+  jobs: PullRequestJob[],
+  maxOwners: number,
+  run: (job: PullRequestJob) => Promise<void>,
+) {
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(maxOwners, jobs.length) }, async () => {
+    while (next < jobs.length) await run(jobs[next++]!)
+  }))
 }
 
 export function pullRequestFingerprint(repository: string, pullRequest: PullRequest) {
