@@ -956,10 +956,15 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
       ...(vercelOutput ? { vercel: vercelOutput } : {}),
     })
-    if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
-      ...options.providerImportAliases,
-      ...options.providerRuntimeImportAliases?.vercel,
-    }, artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
+    if (vercelOutput) {
+      await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.vercel,
+      }, artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
+    }
+    else {
+      await cleanVercelNativeWorkflowOutput(options.rootDir)
+    }
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()

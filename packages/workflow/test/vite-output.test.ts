@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { cleanVercelNativeWorkflowOutput, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, generateProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -67,6 +67,27 @@ it("removes stale WDK functions and routes", async () => {
   ] })}\n`)
 
   await cleanVercelNativeWorkflowOutput(rootDir)
+
+  expect(existsSync(workflowRoot)).toBe(false)
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
+})
+
+it("removes stale WDK output when the Vercel provider is disabled", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-disable-vercel-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
+  await writeFile(configFile, `${JSON.stringify({ routes: [
+    { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" },
+    { src: "/user", dest: "/user" },
+  ] })}\n`)
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    rootDir,
+    workflow: { provider: "openworkflow", sqlite: { path: ":memory:" } },
+  })
 
   expect(existsSync(workflowRoot)).toBe(false)
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
