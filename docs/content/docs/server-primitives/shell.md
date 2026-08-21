@@ -1,13 +1,13 @@
 ---
 title: Shell
-description: Run controlled Unix-like command sessions over explicit filesystem, process, network, and policy boundaries.
+description: Run Unix-like commands with configured filesystem, process, network, timeout, and policy access.
 navigation.order: 13
 icon: i-lucide-terminal
 ---
 
-Shell owns controlled Unix-like command environments. Use it when server code needs command-shaped inspection or mutation with explicit execution, filesystem, process, network, timeout, and policy boundaries.
+Use Shell when server code needs to inspect or change files through Unix-like commands. You choose which commands, files, processes, network access, and timeouts each provider supports.
 
-Shell is not Sandbox. Sandbox can provide an isolated execution provider, but Shell defines the command runtime, Shell Session lifecycle, Command Analysis, Shell Observations, and Shell Boundary.
+Shell runs commands through a provider. [Sandbox](/docs/server-primitives/sandbox) can supply an isolated provider, but it doesn't replace Shell's sessions, command analysis, or execution policy.
 
 ## Quick start
 
@@ -16,7 +16,7 @@ Shell is not Sandbox. Sandbox can provide an isolated execution provider, but Sh
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/shell
+pnpm add @vite-hub/shell @vite-hub/workspace
 ```
 
 ### Configure
@@ -65,9 +65,9 @@ Shell providers implement `ShellExecutionProvider`. Shell has provider adapters,
 
 | Provider | Configure with | Boundary nuance |
 | --- | --- | --- |
-| Just Bash | `createJustBashProvider({ fs, commands?, cwd? })` | Runs `just-bash` against an explicit filesystem adapter. Network is disabled; background and interactive processes are unsupported. |
+| Just Bash | `createJustBashProvider({ fs, commands?, cwd? })` | Runs `just-bash` against the filesystem adapter you provide. Network is disabled; background and interactive processes are unsupported. |
 | Cloudflare | `createCloudflareShellProvider({ sandbox })` | Delegates command execution to a Cloudflare client that exposes `exec(command, args, options)`. CWD and env support come from `sandbox.supports`; network is reported as `unknown`. |
-| Custom | A `ShellExecutionProvider` object | Implement `boundary`, `exec`, optional `analyze`, and optional process methods directly. |
+| Custom | A `ShellExecutionProvider` object | Implement `boundary`, `exec`, optional `analyze`, and optional process methods. |
 
 For Cloudflare Workers agents that use Cloudflare's structured shell runtime, install the Cloudflare packages beside ViteHub Shell:
 
@@ -75,11 +75,11 @@ For Cloudflare Workers agents that use Cloudflare's structured shell runtime, in
 pnpm add @cloudflare/shell @cloudflare/codemode
 ```
 
-`@cloudflare/shell` exposes structured `state.*` and git tools through `@cloudflare/codemode`; it is not a Bash interpreter. Use `createCloudflareShellProvider()` when the Cloudflare runtime boundary also exposes a command-execution client, and use a custom `ShellExecutionProvider` when the app wants to translate ViteHub Shell calls into `@cloudflare/shell` state operations.
+`@cloudflare/shell` exposes structured `state.*` and Git tools through `@cloudflare/codemode`; it is not a Bash interpreter. Use `createCloudflareShellProvider()` when the Cloudflare runtime provides a command-execution client. Use a custom `ShellExecutionProvider` to translate ViteHub Shell calls into `@cloudflare/shell` state operations.
 
-## Create a Shell Runtime
+## Create a Shell runtime
 
-Use `createShellRuntime()` with an Execution Provider. The built-in Just Bash Provider runs Bash-compatible commands against an explicit filesystem adapter.
+Pass an execution provider to `createShellRuntime()`. The built-in Just Bash provider runs Bash-compatible commands against the filesystem adapter you supply.
 
 ```ts [server/tasks/search-docs.ts]
 import { createShellRuntime } from '@vite-hub/shell'
@@ -114,7 +114,7 @@ The provider controls available commands. The Workspace filesystem controls whet
 
 `runtime.exec(command, options?)` creates a short-lived session, runs one command, disposes the session, and returns a Shell Observation.
 
-## Use Shell Sessions
+## Use Shell sessions
 
 A Shell Session adds stateful policy around repeated commands, output size, timeouts, and process budget.
 
@@ -155,7 +155,7 @@ export async function inspect(runtime: ReturnType<typeof createShellRuntime>) {
 
 ## Analyze commands
 
-Command Analysis produces facts about a command before execution. The caller owns the final Policy Decision.
+Command Analysis reports facts about a command before execution. The caller makes the final policy decision.
 
 ```ts [server/tasks/analyze-command.ts]
 import { analyzeShellCommand } from '@vite-hub/shell'
@@ -167,9 +167,9 @@ export async function analyze(command: string) {
 
 `analyzeShellCommand(command, options?)` uses `sh-syntax` and returns `ok`, parser name, command names, and flags for pipelines, redirects, heredocs, and command substitution. `ShellAnalyzeOptions` accepts `maxInputBytes` and `timeoutMs`.
 
-Do not treat analysis as sandbox enforcement. Execution Providers and caller-owned policy enforce the actual boundary.
+Don't treat analysis as sandbox enforcement. The execution provider and caller policy control what the command can do.
 
-## Shell Observation shape
+## Shell observation shape
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -184,17 +184,17 @@ Do not treat analysis as sandbox enforcement. Execution Providers and caller-own
 | `timedOut` | `boolean` | Whether timeout ended command execution. |
 | `workspaceGuardrail` | `object` | Workspace inspection feedback such as broad search, missing path, no match, or timeout. |
 
-## Connect it to Agents
+## Connect Shell to Agents
 
 Agents use Shell through Capabilities, usually `workspaceShell()`. That Capability exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools through Workspace Scope, Workspace rules, and Shell policy.
 
-The global Agent `bash` tool is a separate Agent Package surface. Capabilities register executables, and ViteHub dispatches each structured call through an executable Workspace Session. Read the [Bash concept](/docs/concepts/bash) for that model-facing boundary.
+The global Agent `bash` tool is separate from the Shell runtime. Capabilities register executables, and ViteHub sends each structured call through an executable Workspace Session. Read the [Bash concept](/docs/concepts/bash) for the Agent contract.
 
-Do not expose a raw Shell Runtime to a model. Use [Official capabilities](/docs/capabilities/official-capabilities) so policy, metadata, driver support, and tool surfaces stay attached to the Agent Definition.
+Don't expose a raw Shell runtime to a model. Use [Official capabilities](/docs/capabilities/official-capabilities) so its policy, metadata, driver support, and tools stay attached to the Agent Definition.
 
-## Production boundaries
+## Production checks
 
-Declare command, filesystem, network, process, streaming, and timeout boundaries before running commands. Shell Network Grants are explicit; normal network access is not implied.
+Configure command, filesystem, network, process, streaming, and timeout access before running commands. A Shell Network Grant permits only the network access it names.
 
 Use Sandbox when the app needs provider-managed isolation. Use Shell when the app needs controlled command semantics over a declared Shell Workspace.
 

@@ -1,6 +1,6 @@
 ---
 title: Access
-description: Resolve trusted invocation access before other Capabilities expose scoped runtime surfaces.
+description: Resolve trusted invocation access before other Capabilities add tools or Workspace access.
 navigation.title: Access
 navigation.order: 10
 navigation.group: Invocation
@@ -8,27 +8,20 @@ icon: i-lucide-shield-check
 ---
 
 `access()` adds invocation-time access resolution for chat admission and Workspace Scope.
-Attach it first when later Capabilities should see a narrowed Workspace or when chat webhooks need an allow-only decision.
-
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
+Attach it first to restrict the Workspace seen by later Capabilities or to admit trusted chat webhooks.
 
 `access()` can resolve chat access and apply read-only Workspace Scope before other Capabilities run.
 Workspace scopes can grant paths or Sources and set a role.
 Model-facing scope guidance belongs in Agent Driver Instructions or deterministic instruction imports.
 
-## Configuration
+## Configure access
 
 Place `access()` before Workspace and storage Capabilities.
 The selected scope narrows the Workspace facade before `workspaceShell()` exposes tools.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { access, workspaceShell } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -47,7 +40,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How access works
 
 The Capability records the selected Workspace Scope in invocation context and replaces the active Workspace facade with a scoped facade.
 Put model-facing guidance for each Access scope in Agent Driver Instructions or an imported instruction file, and cover the Access Capability with an explicit `::capability{key="access"}` block when that guidance depends on Access.
@@ -59,7 +52,7 @@ Workspace Sources do not own authorization. Grant a Source by key from each Acce
 `access({ workspace })` requires an explicit Workspace. Model-backed and custom-run-backed Agents receive a read-only scoped Workspace; writable Workspace access is supported only for Provider Agent Drivers and remains limited to the selected scope.
 An admin role is required for an all-Workspace scope.
 
-`access({ chat })` requires a resolver that returns an allow or reject decision for the chat surface.
+`access({ chat })` requires a resolver that returns an allow or reject decision for chat traffic.
 Use trusted Agent Invoker or platform identity metadata; do not treat model text as access authority.
 
 ## Driver support
@@ -67,16 +60,16 @@ Use trusted Agent Invoker or platform identity metadata; do not treat model text
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the scoped Workspace and any explicitly authored Agent instructions. |
-| Provider-backed | Receives the scoped Workspace behavior; model-facing instructions are not passed unless a provider-compatible surface supports them. |
+| Provider-backed | Receives the scoped Workspace behavior; model-facing instructions require provider support. |
 | Custom-run-backed | Receives the prepared context value and scoped Workspace; `driver.run` decides how to use them. |
 
-## Inspect and verify
+## Verify access
 
 Run an Agent Invocation that includes `access()` and inspect its traces or run events for the `access` Capability.
 Verify that `access.workspaceScope` appears in invocation context and that later Workspace tools cannot read outside the selected paths.
 
 Trigger a scope failure during development.
-Missing scope selection, root-mounted Source grants, missing Workspace definitions, and invalid path escapes should fail before model execution.
+Confirm that a missing scope, root-mounted Source grant, missing Workspace, or invalid path escape fails before model execution.
 
 ## Options
 
@@ -92,8 +85,7 @@ Missing scope selection, root-mounted Source grants, missing Workspace definitio
 | `scope.source` / `scope.sources` | `string \| string[]` | none | Grant Workspace Sources. |
 | `scope.grants` | `AccessWorkspaceScopeGrant[]` | none | Combine path and Source grants. |
 
-## Reference
+## Related pages
 
 - [Workspace context](/docs/agents/workspace-context)
 - [workspaceShell()](/docs/capabilities/workspace-shell)
-- Source: `packages/agent/src/capabilities/access.ts`

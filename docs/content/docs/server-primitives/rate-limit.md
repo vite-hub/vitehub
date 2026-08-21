@@ -5,9 +5,9 @@ navigation.order: 3.5
 icon: i-lucide-gauge
 ---
 
-Rate Limit owns atomic budget consumption before expensive server work starts. The H3 request event supplies the request identity and provider context; an explicit user or tenant key can override its client address. The selected Rate Limit Driver decides whether one unit is allowed.
+Use Rate Limit before expensive server work to cap requests by client, user, account, or tenant. The selected driver consumes one unit atomically and reports whether the request can continue.
 
-Rate Limit is separate from KV. A generic KV `get()` followed by `set()` races under concurrency, so ViteHub accepts only drivers that implement atomic `consume()` for their backend.
+Don't build this with a KV `get()` followed by `set()`. Concurrent requests can read the same value. Rate Limit accepts drivers that implement atomic `consume()` for their backend.
 
 ## Quick start
 
@@ -38,7 +38,7 @@ export default defineEventHandler(async (event) => {
 
 `requireRateLimit()` uses the event's client address and throws a standard H3 `HTTPError` when the request is limited. Pass `key: authenticatedUser.id` when a user, account, tenant, or API client is the correct budget boundary.
 
-## Require a managed Rate Limit
+## Require a managed rate limit
 
 `requireRateLimit(event, id, options)` resolves when the request is allowed. The integration finds calls inside handlers through the compiler AST and uses their stable IDs and provider policies for Provider Output.
 
@@ -52,7 +52,7 @@ await requireRateLimit(event, 'image-upload', {
 })
 ```
 
-The ID, `limit`, `window`, `enforcement`, and `failure` must use static literals because provider infrastructure is generated before runtime. `event` and `key` remain runtime inputs, so an authenticated identity can be dynamic. Repeated IDs with identical normalized policies share one budget; conflicting policies fail the build with both source locations.
+The ID, `limit`, `window`, `enforcement`, and `failure` must use static literals because ViteHub generates provider configuration before runtime. `event` and `key` remain runtime inputs, so an authenticated identity can be dynamic. Repeated IDs with the same normalized policy share one budget. Conflicting policies fail the build and report both source locations.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ Use `createRateLimiter()` when the application needs this decision for a custom 
 
 ## Inspect generated guarantees
 
-The integration writes `.vitehub/rate-limit/manifest.json` during configuration and Provider Output. Agents and tooling can inspect it; application code should keep using the guard.
+The integration writes `.vitehub/rate-limit/manifest.json` during configuration and Provider Output. Agents and tooling can inspect it. Application code keeps using the guard.
 
 The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows` without duplicating optional response metadata contracts.
 
@@ -122,6 +122,12 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 Use `createRateLimiter()` when the policy or driver is intentionally resolved outside managed Provider Output.
 
+Install the owner package before importing a driver directly:
+
+```bash [Terminal]
+pnpm add @vite-hub/rate-limit
+```
+
 ```ts
 import { createRateLimiter } from '@vite-hub/rate-limit'
 import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
@@ -138,7 +144,7 @@ const decision = await limiter.consume({ key: 'demo' })
 
 Every direct limiter exposes its resolved `policy` and the provider capabilities that affect enforcement and deployment. The memory driver is process-local and intended for development, tests, and known single-process hosts.
 
-Custom drivers return `[null, result]` after consuming the counter and `[error, undefined]` only for expected operational outages that the declared failure policy should govern. Configuration, provider-contract, and implementation defects should throw normally.
+Custom drivers return `[null, result]` after consuming the counter and `[error, undefined]` only for expected operational outages handled by the failure policy. Configuration, provider-contract, and implementation defects must throw normally.
 
 ## Deploy to Cloudflare
 

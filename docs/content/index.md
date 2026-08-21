@@ -1,13 +1,13 @@
 ---
 title: ViteHub
-description: Portable Agents and Server Primitives for any Vite host.
+description: Server APIs and portable Agents for any Vite host.
 ---
 
 # ViteHub
 
-ViteHub is one platform with two product lanes. Build portable Agents, or use Server Primitives directly from routes, handlers, jobs, and workers.
+ViteHub adds a server layer to Vite. Call Server Primitives from routes, handlers, jobs, and workers, or combine them into an Agent.
 
 - [Browse docs](/docs)
-- [Create agents](/docs/agents)
 - [Use server primitives](/docs/server-primitives)
+- [Create agents](/docs/agents)
 - [Attach capabilities](/docs/capabilities)

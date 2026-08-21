@@ -5,30 +5,30 @@ navigation.order: 20
 icon: i-lucide-waypoints
 ---
 
-Runtime Context is the set of execution facts and trusted resources that a ViteHub operation receives from its host. It can include platform resources, request data, provider bindings, background work, memoization, and trace continuity.
+Runtime Context contains the trusted host resources available to one ViteHub operation. It can include platform resources, request data, provider bindings, background work, memoized values, and trace information.
 
-Invocation input carries task data. Runtime Context carries the mechanisms used to run that task.
+Invocation input describes the task. Runtime Context provides the host resources needed to run it.
 
 ## Runtime Context comes from the host
 
-Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the equivalent values explicitly because `runAgent()` does not read framework globals.
+Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the same values itself because `runAgent()` does not read framework globals.
 
 | Value | Used for |
 | --- | --- |
 | `runtime` and `platform` | Identifying the active runtime and platform. |
-| `memo` | Resolving one value once in the current execution. |
-| `waitUntil` | Continuing background work after the handler returns. |
+| `memo` | Resolve one value once during the current execution. |
+| `waitUntil` | Continue background work after the handler returns. |
 | Provider context | Reading trusted host resources such as bindings. |
 | `trace` and `traceLog` | Keeping trace identity and recording structured events. |
 
-Keep portable behavior in Definitions, task data in invocation input, and deployment artifacts in Provider Output. Runtime Context is the handoff from the host to the operation.
+Keep reusable behavior in Definitions and task data in invocation input. Runtime Context passes host resources to the operation.
 
 ## Runtime Context is not a Capability
 
-A Runtime Capability handle carries a resolved implementation between packages. An Agent Capability grants a selected model-facing ability. A Capability can use Runtime Context without exposing the context itself to the model.
+A Runtime Capability handle passes an implementation between packages. An Agent Capability gives an Agent a selected ability. It can use Runtime Context without exposing that context to the model.
 
 ## Inspect the handoff
 
-Inspect the generated route or custom server call that starts the operation. It should show which host supplies the runtime, background work, provider resources, and trace continuity.
+Inspect the generated route or custom server call that starts the operation. It shows which host supplies the runtime, background work, provider resources, and trace information.
 
 Read [Runtime events](/docs/reference/runtime-events) for the records carried through Runtime Context and [Agent Invocations](/docs/concepts/agent-invocations) for the request record.

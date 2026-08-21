@@ -10,24 +10,17 @@ icon: i-lucide-key-round
 `kv()` adds model-facing tools for a configured ViteHub KV primitive.
 It exposes read tools by default and edit tools only in write mode.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability contributes `kv_read` for exact-key reads or prefix key listing.
 When configured with write mode, it also contributes `kv_edit` for putting or deleting one key.
 
-## Configuration
+## Configure KV access
 
 Attach KV in read mode until the product needs model-facing writes.
 The KV primitive must already be configured by the app.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { kv } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { kv } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -37,9 +30,9 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How KV access works
 
-ViteHub selects the configured KV store and exposes a small Storage Capability Tool Surface.
+ViteHub selects the configured KV store and exposes the KV tools.
 Read mode supports one exact key or one prefix per tool call.
 Write mode adds a put/delete tool and allows its normal operations by default.
 
@@ -59,13 +52,13 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 | Provider-backed | Receives KV tools through the provider MCP bridge. |
 | Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
 
-## Inspect and verify
+## Verify KV access
 
 Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
-Read mode should show only `kv_read`; write mode should also show `kv_edit` with the configured policy.
+Confirm that read mode shows only `kv_read`. Write mode also lists `kv_edit` with the configured policy.
 
 Run one invocation against a missing KV primitive during development.
-The Capability should fail before exposing tools.
+Confirm that the Capability fails before it exposes tools.
 
 ## Options
 
@@ -75,8 +68,7 @@ The Capability should fail before exposing tools.
 | `store` | `string` | default store | Selects a named KV store when the KV primitive supports `store()`. |
 | `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `kv_edit`. |
 
-## Reference
+## Related pages
 
 - [KV primitive](/docs/server-primitives/kv)
 - [Official capabilities](/docs/capabilities/official-capabilities)
-- Source: `packages/agent/src/capabilities/storage/kv.ts`

@@ -1,6 +1,6 @@
 ---
 title: Server primitives
-description: Use ViteHub primitives directly from routes, handlers, jobs, and workers, then expose them to Agents only when needed.
+description: Add storage, queues, schedules, email, and other server APIs to a Vite app on any supported host.
 navigation.title: Overview
 navigation.order: 1
 icon: i-lucide-server-cog
@@ -8,9 +8,9 @@ icon: i-lucide-server-cog
 
 ## Server primitives for Vite apps and any host
 
-Use ViteHub primitives directly from routes, handlers, jobs, and workers, then expose them to Agents only when needed. Server primitives are useful even when the app has no Agent Definition.
+ViteHub adds storage, queues, schedules, email, and other server APIs to Vite apps. Call them from routes, handlers, jobs, or workers. You don't need an Agent Definition.
 
-Start with the first primitive when you want a runnable path, use Concepts when the framework model is unclear, and move to Agents only when a model or coding provider should receive controlled abilities.
+Start with [Your first server primitive](/docs/getting-started/first-server-primitive) for a runnable example. Return to Concepts when you need to understand generated imports or host configuration. Read the Agents section only when a model needs access to one of these APIs.
 
 ::u-page-grid{class="not-prose mt-8"}
   :::u-page-card
@@ -24,7 +24,7 @@ Start with the first primitive when you want a runnable path, use Concepts when 
   :::u-page-card
   ---
   title: Server model
-  description: Learn why Runtime Helpers, Vite Integrations, Provider Output, and stable imports stay separate.
+  description: Learn how generated imports and host configuration keep application code independent from providers.
   icon: i-lucide-map
   to: /docs/concepts/server-primitives-for-any-host
   ---
@@ -40,7 +40,7 @@ Start with the first primitive when you want a runnable path, use Concepts when 
   :::u-page-card
   ---
   title: Agents
-  description: Compose these primitives into Agent Definitions through explicit Capabilities when model behavior needs them.
+  description: Give an Agent selected access to server APIs through Capabilities.
   icon: i-lucide-bot
   to: /docs/agents
   ---
@@ -48,7 +48,7 @@ Start with the first primitive when you want a runnable path, use Concepts when 
 ::
 
 :::note
-**Server code gets Runtime Helpers. Agents get Capabilities.** App routes can call stable imports directly, while an Agent Driver receives only the named abilities that Capabilities expose. Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) and [Capabilities API](/docs/concepts/capabilities-api) for the two application-facing boundaries.
+Server code calls runtime helpers directly. Agents receive only the abilities added through Capabilities. Read [Runtime helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) and [Capabilities API](/docs/concepts/capabilities-api) when you need those contracts.
 :::
 
 ## Pick the right primitive
@@ -64,8 +64,9 @@ Start with the first primitive when you want a runnable path, use Concepts when 
 | Uploads, generated artifacts, binary files, or object metadata | [Blob](/docs/server-primitives/blob) |
 | Provider-backed browser sessions, screenshots, DOM inspection, or live handoff | [Browser](/docs/server-primitives/browser) |
 | Persistent file-tree state, snapshots, diffs, rules, or sessions | [Workspace](/docs/server-primitives/workspace) |
+| Collaborative Markdown editing, presence, and Workspace checkpoints | [Realtime](/docs/reference/realtime) |
 | Read-only retrieval from files, globs, GitHub, markdown, MCP, or custom loaders | [Source](/docs/server-primitives/source) |
-| Background delivery that should return before work finishes | [Queue](/docs/server-primitives/queue) |
+| Background delivery that returns before work finishes | [Queue](/docs/server-primitives/queue) |
 | Durable long-running work with provider-tracked run state | [Workflows](/docs/server-primitives/workflows) |
 | Static cron output or recurring runtime schedules | [Schedule](/docs/server-primitives/schedule) |
 | Isolated provider-managed execution | [Sandbox](/docs/server-primitives/sandbox) |
@@ -73,10 +74,10 @@ Start with the first primitive when you want a runnable path, use Concepts when 
 
 ## Use primitives from server code
 
-Most primitives expose stable imports for application code. The route calls the Runtime Helper; package integrations and Provider Output own the host wiring.
+Most primitives expose the same application import on every host. ViteHub connects that import to the selected provider during the build.
 
 ```ts [server/api/settings.put.ts]
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
   const [error] = await kv.set('settings', await readBody(event))
@@ -85,9 +86,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-That route does not know whether the backing KV Store uses local files, Cloudflare, Vercel, or another driver. The primitive owns the provider boundary.
+The route doesn't need to know whether KV uses local files, Cloudflare, Vercel, or another driver.
 
-## Definitions, registries, and provider output
+## Definitions and generated output
 
 Some primitives work directly after configuration. Env, KV, Blob, Source, and Shell can often be called from server code without a discovered Definition.
 
@@ -109,7 +110,7 @@ Other primitives need a Definition so ViteHub can discover runtime behavior or n
 
 Capabilities expose controlled agent-facing access to primitives. A storage Capability can expose scoped read/edit tools, a Schedule Capability can manage allowed Runtime Schedules, and `workspaceShell()` can expose file inspection through Workspace and Shell boundaries.
 
-Do not expose a primitive to a model just because the app uses it. Attach the relevant [Official Capability](/docs/capabilities/official-capabilities) only when the Agent needs that ability, then keep scopes, write modes, and approvals explicit.
+Don't expose a server API to a model just because the app uses it. Add the relevant [Official Capability](/docs/capabilities/official-capabilities) only when the Agent needs that ability. Configure its scope, write mode, and approvals for that task.
 
 | Need | Read |
 | --- | --- |

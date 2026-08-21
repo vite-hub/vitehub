@@ -1,7 +1,7 @@
 ---
 title: Errors and diagnostics
 description: Reference ViteHub error codes and the local proof path for each primitive.
-navigation.order: 56
+navigation.order: 58
 icon: i-lucide-circle-alert
 ---
 
@@ -29,6 +29,43 @@ Errors and diagnostics belong to the package that owns the failing boundary. Vit
 | `RATE_LIMIT_REJECTED` | Agent Package | Rate Limit Capability rejected an Agent Invocation. |
 | `LLM_GATE_REJECTED` | Agent Package | LLM Gate Capability rejected before the main Agent Invocation. |
 | `Agent Invocation Stream timed out after <ms>.` | Agent Package | The dev-loop stream aborted a long or stalled Agent Invocation after its timeout. |
+
+## Agent public errors
+
+Agent routes and hooks expose a sanitized `AgentPublicError` beside the original
+server error. It is safe to serialize to a caller or use in an application-owned
+reply:
+
+```ts
+interface AgentPublicError {
+  code: AgentPublicErrorCode
+  error: string
+  details?: {
+    capability?: string
+    category?: string
+    retryAfter?: number
+  }
+  requestId?: string
+}
+```
+
+`agent:error` hooks receive the raw failure as `error` and the sanitized value as
+`publicError`. Chat error hooks receive the same pair. Keep the raw error in
+protected diagnostics; provider payloads and causes can contain credentials or
+private response data.
+
+| Public code | Meaning |
+| --- | --- |
+| `PROVIDER_AUTHENTICATION_FAILED` | The model provider rejected its credentials. |
+| `PROVIDER_QUOTA_EXHAUSTED` | The account or project has no remaining provider quota. |
+| `PROVIDER_RATE_LIMITED` | The provider returned a temporary rate limit. |
+| `PROVIDER_UNAVAILABLE` | The provider returned a server or availability failure. |
+| `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | ViteHub recognized a public application or Capability failure. |
+| `INTERNAL` | The failure has no approved public mapping. The message stays generic. |
+
+The mapper includes only bounded identifiers, categories, retry delays, and
+request IDs. It replaces unknown errors with a context-specific `INTERNAL`
+message instead of copying `error.message`.
 
 ## Diagnostics sources
 
@@ -66,7 +103,7 @@ pnpm --filter @vite-hub/sandbox test
 
 ## Production response
 
-Production diagnostics should avoid leaking secrets.
+Keep secrets out of production diagnostics.
 Use Server Env and Secret Env for runtime secret values, and rely on package diagnostics to redact known secret values where supported.
 
 ## Related
