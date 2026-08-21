@@ -2,6 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree, Variable } from "@oxlint/plugins";
 
 import { createTypeEnvironment } from "../shared/dictionary-types.ts";
+import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
 
 import type { TypeEnvironment } from "../shared/dictionary-types.ts";
 
@@ -10,6 +11,82 @@ type BroadTypeKind = "top" | "object" | "record";
 type KnownValueEvidence = {
   readonly type: ESTree.TSType | null;
 };
+
+type VisitorKeys = Readonly<Record<string, readonly string[]>>;
+
+function isNode(value: unknown): value is ESTree.Node {
+  return typeof value === "object" && value !== null && "type" in value;
+}
+
+function lexicalContainer(node: ESTree.Node): ESTree.Node {
+  let current = node;
+  while (
+    current.type !== "Program" &&
+    current.type !== "BlockStatement" &&
+    current.type !== "TSModuleBlock"
+  ) {
+    current = current.parent;
+  }
+  return current;
+}
+
+function collectTypeBindings(
+  node: ESTree.Node,
+  visitorKeys: VisitorKeys,
+  bindings: Map<string, ESTree.Node[]>,
+): void {
+  if (
+    node.type === "TSTypeAliasDeclaration" ||
+    node.type === "TSInterfaceDeclaration" ||
+    node.type === "TSEnumDeclaration" ||
+    (node.type === "ClassDeclaration" && node.id !== null)
+  ) {
+    const name = node.id.name;
+    const declarations = bindings.get(name) ?? [];
+    declarations.push(node);
+    bindings.set(name, declarations);
+  }
+  const record = node as unknown as Readonly<Record<string, unknown>>;
+  for (const key of visitorKeys[node.type] ?? []) {
+    const value = record[key];
+    if (isNode(value)) collectTypeBindings(value, visitorKeys, bindings);
+    else if (Array.isArray(value)) {
+      for (const child of value) {
+        if (isNode(child)) collectTypeBindings(child, visitorKeys, bindings);
+      }
+    }
+  }
+}
+
+function environmentAt(
+  environment: TypeEnvironment,
+  node: ESTree.Node,
+  bindings: ReadonlyMap<string, readonly ESTree.Node[]>,
+  visitorKeys: VisitorKeys,
+): TypeEnvironment {
+  const containers = new Set<ESTree.Node>();
+  let current: ESTree.Node | null = node;
+  while (current !== null) {
+    if (
+      current.type === "Program" ||
+      current.type === "BlockStatement" ||
+      current.type === "TSModuleBlock"
+    ) {
+      containers.add(current);
+    }
+    current = current.parent;
+  }
+  const shadowedBuiltIns = new Set(environment.shadowedBuiltIns);
+  for (const name of ["PropertyKey", "Readonly", "Record"]) {
+    if (
+      lexicalTypeParameterNames(node, visitorKeys).has(name) ||
+      bindings.get(name)?.some((binding) => containers.has(lexicalContainer(binding))) === true
+    ) {
+      shadowedBuiltIns.add(name);
+    }
+  }
+  return { ...environment, shadowedBuiltIns };
+}
 
 const functionBoundaryTypes = new Set([
   "ArrowFunctionExpression",
@@ -367,6 +444,7 @@ export const noWidenThenAssertRule = defineRule({
   createOnce(context) {
     let scopes: Parameters<typeof resolvedVariableForIdentifier>[0] = [];
     let environment: TypeEnvironment | null = null;
+    const typeBindings = new Map<string, ESTree.Node[]>();
 
     const checkAssertion = (node: ESTree.TSAsExpression | ESTree.TSTypeAssertion) => {
       const expression = assertedExpression(node);
@@ -375,7 +453,13 @@ export const noWidenThenAssertRule = defineRule({
       const variable = resolvedVariableForIdentifier(scopes, expression);
       if (variable === null) return;
       if (environment === null) return;
-      const widened = widenedBinding(variable, scopes, environment);
+      const lexicalEnvironment = environmentAt(
+        environment,
+        node,
+        typeBindings,
+        context.sourceCode.visitorKeys,
+      );
+      const widened = widenedBinding(variable, scopes, lexicalEnvironment);
       if (
         widened === null ||
         node.start <= widened.declaredAt ||
@@ -385,7 +469,7 @@ export const noWidenThenAssertRule = defineRule({
           widened.broadKind,
           widened.evidence,
           node.typeAnnotation,
-          environment,
+          lexicalEnvironment,
         )
       ) {
         return;
@@ -402,6 +486,8 @@ export const noWidenThenAssertRule = defineRule({
       Program(node) {
         scopes = context.sourceCode.scopeManager.scopes;
         environment = createTypeEnvironment(node);
+        typeBindings.clear();
+        collectTypeBindings(node, context.sourceCode.visitorKeys, typeBindings);
       },
       TSAsExpression: checkAssertion,
       TSTypeAssertion: checkAssertion,

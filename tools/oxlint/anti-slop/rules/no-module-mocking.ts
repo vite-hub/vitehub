@@ -25,6 +25,7 @@ function importedName(node: ESTree.Node): string | null {
 function isTestFrameworkObject(
   sourceCode: SourceCode,
   expression: ESTree.Expression,
+  visited = new Set<Variable>(),
 ): expression is ESTree.IdentifierReference {
   while (
     expression.type === "ParenthesizedExpression" ||
@@ -44,16 +45,30 @@ function isTestFrameworkObject(
   }
 
   const variable = resolveVariable(sourceCode, expression);
-  if (variable === null || variable.defs.length === 0) {
+  if (variable === null) return expression.name === "vi" || expression.name === "jest";
+  if (visited.has(variable)) return false;
+  if (variable.defs.length === 0) {
     return expression.name === "vi" || expression.name === "jest";
   }
+  visited.add(variable);
   return variable.defs.some((definition) => {
-    if (definition.type !== "ImportBinding" || definition.parent?.type !== "ImportDeclaration") {
-      return false;
+    if (definition.type === "ImportBinding" && definition.parent?.type === "ImportDeclaration") {
+      const source = definition.parent.source.value;
+      const name = importedName(definition.node);
+      return (
+        (source === "vitest" && name === "vi") ||
+        (source === "@jest/globals" && name === "jest")
+      );
     }
-    const source = definition.parent.source.value;
-    const name = importedName(definition.node);
-    return (source === "vitest" && name === "vi") || (source === "@jest/globals" && name === "jest");
+    return (
+      definition.type === "Variable" &&
+      definition.node.type === "VariableDeclarator" &&
+      definition.node.id.type === "Identifier" &&
+      definition.parent?.type === "VariableDeclaration" &&
+      definition.parent.kind === "const" &&
+      definition.node.init !== null &&
+      isTestFrameworkObject(sourceCode, definition.node.init, visited)
+    );
   });
 }
 

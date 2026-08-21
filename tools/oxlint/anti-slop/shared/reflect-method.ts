@@ -13,7 +13,11 @@ function resolveVariable(
   return null;
 }
 
-function isGlobalReflect(sourceCode: SourceCode, expression: ESTree.Expression): boolean {
+function isGlobalReflect(
+  sourceCode: SourceCode,
+  expression: ESTree.Expression,
+  visited = new Set<Variable>(),
+): boolean {
   while (
     expression.type === "ParenthesizedExpression" ||
     expression.type === "TSAsExpression" ||
@@ -27,6 +31,21 @@ function isGlobalReflect(sourceCode: SourceCode, expression: ESTree.Expression):
     if (sourceCode.isGlobalReference(expression)) return true;
     const variable = resolveVariable(sourceCode, expression);
     return variable === null || variable.defs.length === 0;
+  }
+  if (expression.type === "Identifier") {
+    const variable = resolveVariable(sourceCode, expression);
+    if (variable === null || visited.has(variable)) return false;
+    visited.add(variable);
+    return variable.defs.some(
+      (definition) =>
+        definition.type === "Variable" &&
+        definition.node.type === "VariableDeclarator" &&
+        definition.node.id.type === "Identifier" &&
+        definition.parent?.type === "VariableDeclaration" &&
+        definition.parent.kind === "const" &&
+        definition.node.init !== null &&
+        isGlobalReflect(sourceCode, definition.node.init, visited),
+    );
   }
   if (expression.type !== "MemberExpression") return false;
   const property = expression.property;
