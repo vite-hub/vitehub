@@ -3,7 +3,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 
 import {
+  createSource,
   custom,
+  defineCollection,
   defineSource,
   defineSources,
   registerSources,
@@ -48,6 +50,45 @@ declare global {
 }
 
 describe("@vite-hub/source types", () => {
+  it("infers Collection aliases, keys, values, and enumerable items", async () => {
+    function reader<const TKey extends string, TData>(key: TKey, data: TData) {
+      return {
+        async get(requested: TKey) {
+          return { data, key: requested }
+        },
+        async items() {
+          return [{ data, key }]
+        },
+      }
+    }
+
+    const keyedDefinition = defineSource(context => ({
+      async get(month: "2026-07") {
+        return { month, rootDir: context.rootDir }
+      },
+    }))
+    const collection = defineCollection({
+      sources: {
+        count: reader("same", 1),
+        keyed: createSource(keyedDefinition, { rootDir: "/recaps" }),
+        title: reader("same", "Title"),
+      },
+    })
+
+    expectTypeOf(await collection.get(["count", "same"]))
+      .toEqualTypeOf<{ data: number, key: "same" }>()
+    expectTypeOf(await collection.get(["keyed", "2026-07"]))
+      .toEqualTypeOf<{ month: "2026-07", rootDir: string }>()
+    expectTypeOf((await collection.items())[0]!.source).toEqualTypeOf<"count" | "title">()
+
+    // @ts-expect-error Collection aliases are inferred
+    await collection.get(["missing", "same"])
+    // @ts-expect-error Source keys are inferred per alias
+    await collection.get(["count", "different"])
+    // @ts-expect-error enumerable item keys must be accepted by the Source reader
+    defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
+  })
+
   it("accepts SDK clients and transports without exposing SDK types", () => {
     const client = new Client({ name: "test", version: "1.0.0" })
     const transport = new StreamableHTTPClientTransport(new URL("https://example.com/mcp"))

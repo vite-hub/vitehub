@@ -62,6 +62,24 @@ article.metadata?.revision
 const articles = await useSource("articles").items()
 ```
 
+Compose runtime Source readers into a typed Collection when keys can overlap:
+
+```ts
+import { defineCollection, defineSource } from "@vite-hub/source"
+
+const recaps = defineCollection({
+  sources: {
+    github: defineSource({
+      get: async (month: `${number}-${number}`) => ({ month }),
+      items: async () => [{ key: "2026-07" as const }],
+    }),
+  },
+})
+
+await recaps.get(["github", "2026-07"])
+await recaps.items() // [{ key: "2026-07", source: "github", identity: ["github", "2026-07"] }]
+```
+
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.
