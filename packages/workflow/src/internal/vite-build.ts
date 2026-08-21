@@ -5,6 +5,7 @@ import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
@@ -994,7 +995,7 @@ export async function writeProviderEntries(
   const definitionNames = new Set(definitions.map(definition => definition.name))
   for (const definition of definitions) {
     if (definition.source !== "agent-workflow") continue
-    const recoveryName = `vitehub-agent-invocation-recovery-${definition.name}`
+    const recoveryName = getAgentInvocationRecoveryWorkflowName(definition.name)
     if (definitionNames.has(recoveryName)) {
       throw new Error(`Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.`)
     }
@@ -1003,7 +1004,7 @@ export async function writeProviderEntries(
     ? [definition, {
         ...definition,
         agentIdentity: definition.agentIdentity || definition.name,
-        name: `vitehub-agent-invocation-recovery-${definition.name}`,
+        name: getAgentInvocationRecoveryWorkflowName(definition.name),
         source: "agent-workflow-recovery" as const,
       }]
     : [definition])
