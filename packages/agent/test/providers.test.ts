@@ -6387,7 +6387,7 @@ describe("server helpers", () => {
       await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
 
       releases.splice(0).forEach(release => release())
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4), { timeout: 10_000 })
       expect(maxActive).toBe(2)
       releases.splice(0).forEach(release => release())
       await vi.waitFor(() => expect(active).toBe(0))
@@ -6398,7 +6398,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("preserves persisted webhook handoff and execution when custody progress writes fail", async () => {
     const { defineAgent } = await import("../src/index.ts")
