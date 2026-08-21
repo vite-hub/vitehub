@@ -374,7 +374,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     for (const plugin of replayPlugins) deploymentOutputEnvPluginHandler(plugin)?.(envPlugin)
   }
   if (options.env !== false) await envPlugin?.api?.prepareTypes?.(viteConfig.env, viteRoot)
-  const emailPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
+  const emailPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
     api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>> }
   } | undefined
   const emailTemplatePaths = await emailPlugin?.api?.prepareTypes?.({
@@ -382,7 +382,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? {}
-  const typesPlugin = installedPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
     api?: { prepareTypes?: (root: string) => Promise<void> }
   } | undefined
   await typesPlugin?.api?.prepareTypes?.(projectRoot)
