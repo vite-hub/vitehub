@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/cloudflare"
-import { resolveConfig } from "vite"
+import { createBuilder, resolveConfig } from "vite"
 import { describe, expect, it } from "vitest"
 
 async function resolveConfigWithNitro<T extends object>(config: Parameters<typeof resolveConfig>[0] & { nitro: T }) {
@@ -232,6 +232,49 @@ describe("hubKv", () => {
 
     expect(resolved.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "user-id" }])
   })
+
+  it("preserves a later manual same-binding namespace in Nitro output", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-manual-override-"))
+
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      const builder = await createBuilder({
+        kv: { binding: "KV", driver: "cloudflare-kv-binding", namespaceId: "generated-id" },
+        logLevel: "silent",
+        nitro: { preset: "cloudflare-module" },
+        plugins: [
+          hubKv(),
+          {
+            name: "later-manual-namespace",
+            config: () => ({
+              nitro: {
+                cloudflare: {
+                  wrangler: {
+                    kv_namespaces: [{ binding: "KV", id: "user-id" }],
+                  },
+                },
+              },
+            }),
+          } as never,
+          nitro() as never,
+        ],
+        root,
+      } as Parameters<typeof createBuilder>[0])
+
+      await builder.buildApp()
+
+      await expect(readFile(join(root, ".output", "server", "wrangler.json"), "utf8").then(JSON.parse))
+        .resolves.toHaveProperty("kv_namespaces", [{ binding: "KV", id: "user-id" }])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 30_000)
 
   it("contributes bindings after late Nitro ownership becomes mutable", async () => {
     const { hubKv } = await import("../src/vite.ts")

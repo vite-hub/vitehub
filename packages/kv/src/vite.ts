@@ -34,7 +34,13 @@ export interface KVVitePluginAPI {
   getConfig: () => KVViteRuntimeConfig
 }
 
-export type KVVitePlugin = Plugin & { api: KVVitePluginAPI }
+export type KVVitePlugin = Plugin & {
+  api: KVVitePluginAPI
+  nitro: {
+    name: string
+    setup: (nitro: { options: NitroCloudflareKVTarget }) => void
+  }
+}
 
 export function hubKvOptionalPeerResolver(): Plugin {
   return {
@@ -160,6 +166,20 @@ interface NitroCloudflareKVTarget {
   }
 }
 
+function removeSupersededNitroNamespaces(
+  target: NitroCloudflareKVTarget,
+  ownedNamespaces: Set<{ binding: string, id?: string }>,
+): void {
+  const namespaces = target.cloudflare?.wrangler?.kv_namespaces
+  if (!namespaces?.length || !ownedNamespaces.size) return
+
+  for (const owned of ownedNamespaces) {
+    if (namespaces.filter(namespace => namespace.binding === owned.binding).length < 2) continue
+    const ownedIndex = namespaces.findIndex(namespace => namespace.binding === owned.binding && namespace.id === owned.id)
+    if (ownedIndex !== -1) namespaces.splice(ownedIndex, 1)
+  }
+}
+
 function configureNitroCloudflareKV(
   config: { kv?: KVModuleOptions, nitro?: unknown },
   options: KVModuleOptions | undefined,
@@ -197,6 +217,12 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     name: KV_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: { getConfig },
+    nitro: {
+      name: "@vite-hub/kv/cloudflare-bindings",
+      setup(nitro) {
+        removeSupersededNitroNamespaces(nitro.options, ownedNitroNamespaces)
+      },
+    },
     config(config) {
       nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces)
     },
