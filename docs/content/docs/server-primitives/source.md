@@ -5,9 +5,9 @@ navigation.order: 8
 icon: i-lucide-folder-input
 ---
 
-Source owns typed retrieval from read-only origins. Use it when server code needs addressable content from files, globs, markdown, GitHub, MCP resources, or custom loaders without first modeling a persistent Workspace file tree.
+Use Source when server code needs read-only content from files, globs, Markdown, GitHub, MCP resources, or a custom loader.
 
-Source does not own Workspace placement, Source Sync, Workspace rules, snapshots, or model-facing guidance. Workspace can consume Sources and decide where retrieved items appear in a Workspace File Tree; Agent Driver Instructions decide how model-backed Agents should use them.
+Source retrieves content but doesn't place it in a persistent file tree. Bind a Source to [Workspace](/docs/server-primitives/workspace) when the content needs paths, sync, snapshots, rules, or agent access.
 
 ## Quick start
 
@@ -49,12 +49,12 @@ export default defineEventHandler(() => {
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources`, `createSource`, `defineCollection`, `custom` from `vite-hub/source` | Define Sources, materialize context-dependent keyed readers, and compose readers without selecting an implementation. |
+| `defineSource`, `defineSources`, `createSource`, `defineCollection`, `custom` from `vite-hub/source` | Define Sources, create context-dependent readers, and combine keyed readers. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
-| `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
+| `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
-Source, Source Reader, Source Item, cache, search, and error types are exported from `vite-hub/source`. Loader option types live beside their implementation subpath. Libraries can use the equivalent `@vite-hub/source` owner-package paths directly.
+Source, Source Reader, Source Item, cache, search, and error types are exported from `vite-hub/source`. Loader option types live beside their implementation subpath. Libraries that install the package directly can use the matching `@vite-hub/source` paths.
 
 ## Register Sources
 
@@ -120,17 +120,17 @@ A custom `Source` implements the retrieval behavior directly.
 
 `getKeys()` and `getItem()` are required. `prepare()` runs at most once for each `useSource()` reader before its first operation. `getItems()` lets a consumer load all items in one call; `getMeta()` can return origin metadata without loading content.
 
-### Source Context
+### Source context
 
-The caller that owns the runtime boundary supplies `SourceContext` to every custom Source method.
+The caller supplies `SourceContext` to every custom Source method.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `rootDir` | `string` | `process.cwd()` for `useSource()` | Base project directory. |
 | `sourceRootDir` | `string` | None | Optional Source-specific root. Built-in local file loaders fall back to `rootDir` when it is absent. |
 | `source` | `string` | Registered Source name | Identifies the active Source. |
-| `workspace` | `string` | None | Identifies the consuming Workspace when one owns the call. |
-| `abortSignal` | `AbortSignal` | None | Cancels in-flight work when the owning runtime supplies a signal. Custom loaders should forward it to fetches and other abortable operations. |
+| `workspace` | `string` | None | Identifies the Workspace consuming the Source. |
+| `abortSignal` | `AbortSignal` | None | Cancels in-flight work. Custom loaders must forward it to fetches and other abortable operations. |
 
 ### Custom search
 
@@ -169,7 +169,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## Source Reader API
+## Source reader API
 
 | Method | Returns |
 | --- | --- |
@@ -196,7 +196,9 @@ export default defineEventHandler(async () => {
 
 ## Compose keyed Source readers
 
-Use `defineCollection()` when an application has keyed readers whose keys can overlap. Each Collection identity is a `[source, key]` tuple, so the source alias remains part of both the runtime value and its inferred type.
+Use `defineCollection()` when several readers can return the same key. A
+Collection identifies each item with a `[source, key]` tuple, so the source
+alias remains part of the runtime value and its inferred type.
 
 ```ts [server/recaps.ts]
 import { createSource, defineCollection, defineSource } from 'vite-hub/source'
@@ -221,16 +223,22 @@ await recaps.items()
 // [{ key: '2026-07', source: 'github', identity: ['github', '2026-07'] }]
 ```
 
-Collection aliases must be strings. `get()` infers the accepted key and result independently for each alias. `items()` is available on every Collection, but it rejects a partially enumerable Collection before starting any reader; when all readers implement `items()`, each returned item is tagged with `source` and `identity`.
+Collection aliases must be strings. `get()` infers the accepted key and result
+for each alias. `items()` is available on every Collection, but it rejects a
+partially enumerable Collection before starting any reader. When every reader
+implements `items()`, each returned item includes `source` and `identity`.
 
-`defineSource(context => reader)` defines a context-dependent keyed reader, and `createSource()` materializes it with a `SourceContext`. This composition layer is independent of the process-local registry: existing `defineSources()`, `registerSources()`, and `useSource()` behavior is unchanged.
+`defineSource(context => reader)` declares a context-dependent keyed reader.
+`createSource()` creates that reader with a `SourceContext`. Collections do not
+change the process-local registry: `defineSources()`, `registerSources()`, and
+`useSource()` keep their existing behavior.
 
 ## Use Sources with Workspace
 
-Use Workspace Source Bindings when retrieved content should appear inside a persistent Workspace file tree.
+Use Workspace Source Bindings when retrieved content needs to appear inside a persistent Workspace file tree.
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace, file, github } from '@vite-hub/workspace'
+import { defineWorkspace, file, github } from 'vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
@@ -245,17 +253,17 @@ export default defineWorkspace({
 })
 ```
 
-`glob()` and the other shared loader names intentionally exist in both packages. Import them from the matching `vite-hub/source/*` subpath for direct retrieval through `useSource()`; import them from `vite-hub/workspace` when retrieved items should become Workspace Source Bindings governed by mount placement, materialization, sync, validation, resolution, views, fetches, and Workspace-scoped registries.
+The same loader names appear in both packages. Import them from `vite-hub/source/*` for direct retrieval through `useSource()`. Import them from `vite-hub/workspace` when retrieved items need Workspace paths, materialization, sync, validation, resolution, or access rules.
 
 ## Provider output
 
-Source is a retrieval primitive, not a Vite Integration. It does not generate host output, provider config, or discovered Definitions by itself.
+Source has no Vite integration. By itself, it doesn't generate host output, provider config, or discovered Definitions.
 
 Workspace and other consuming packages can wrap Sources in discovered Definitions, runtime registries, generated metadata, or Provider Output when they need placement, persistence, or deployment wiring.
 
-## Production boundaries
+## Production checks
 
-Treat Sources as read-only retrieval boundaries. Secrets for private origins should come from Server Env or trusted callbacks, not from model-authored input.
+Sources are read-only. Read secrets for private origins from Server Env or trusted callbacks, not from model-authored input.
 
 Use Workspace when content needs durable sync, path-scoped rules, diffs, snapshots, or scoped agent visibility. Use Source directly when server code only needs to retrieve and inspect items.
 

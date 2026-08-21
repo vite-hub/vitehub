@@ -1,77 +1,74 @@
 ---
 title: ViteHub docs
-description: Choose ViteHub Agents or ViteHub Server Primitives, then follow one focused path.
+description: Add server APIs or portable Agents to a Vite application.
 navigation: false
 icon: i-lucide-book-open
 ---
 
-ViteHub is one platform with two product lanes. **ViteHub Agents** define, invoke, and deploy server-side Agents. **ViteHub Server Primitives** give Vite applications stable server APIs with package-specific runtime and host integrations.
+ViteHub adds a server layer to Vite. Use **Server Primitives** directly from application code, or combine them with models and tools in an **Agent**.
 
-Agents may compose Server Primitives through explicit Capabilities and Workspaces. Server Primitives work without an Agent Definition.
+Server Primitives work without an Agent. When you build an Agent, Capabilities control which operations it can use.
 
 ::u-page-grid{class="not-prose mt-8"}
   :::u-page-card
   ---
-  title: Agents
-  description: Define Agents, attach Capabilities and Workspaces, run Agent Invocations, and inspect behavior.
-  icon: i-lucide-bot
-  to: /docs/agents
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Server Primitives
-  description: Use Auth, Env, KV, Database, Blob, Workspace, Queue, Workflow, Schedule, Sandbox, and Shell from server code.
+  title: Server primitives
+  description: Add auth, storage, queues, schedules, sandboxes, and other server APIs.
   icon: i-lucide-server-cog
   to: /docs/server-primitives
   ---
   :::
   :::u-page-card
   ---
-  title: Start
-  description: Install the packages for one lane and reach a visible first success.
+  title: Agents
+  description: Define an Agent, select its Capabilities and Workspace, then run and inspect it.
+  icon: i-lucide-bot
+  to: /docs/agents
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Get started
+  description: Install ViteHub and run one Server Primitive or Agent.
   icon: i-lucide-rocket
   to: /docs/getting-started
   ---
   :::
   :::u-page-card
   ---
-  title: Shared concepts
-  description: Learn Definitions, discovery, Provider Output, Runtime Helpers, Workspaces, Sources, and Capabilities.
+  title: Concepts
+  description: Learn how definitions, integrations, Workspaces, Sources, and Capabilities fit together.
   icon: i-lucide-map
   to: /docs/concepts
   ---
   :::
 ::
 
-## Pick the right section
+## Find what you need
 
 | You are building | Start with |
 | --- | --- |
-| A fresh installation or first proof path | [Start](/docs/getting-started) |
-| The difference between Definitions, Runtime Helpers, Provider Output, Capabilities, Workspaces, and Sources | [Concepts](/docs/concepts) |
-| Application user identity, storage, background work, schedules, sandboxes, or environment handling | [Server primitives](/docs/server-primitives) |
-| Model-backed server actors, Agent Invocations, triggers, Chat History, evals, or CLI inspection | [Agents](/docs/agents) |
-| Model-facing storage, Workspace, MCP, web search, transcription, rate limits, or product abilities | [Capabilities](/docs/capabilities) |
-| Current host support, generated output, provisioning, or live-proof maturity | [Runtime and host support](/docs/frameworks-hosts/support-matrix) |
+| A new installation | [Get started](/docs/getting-started) |
+| Auth, storage, background work, schedules, sandboxes, or environment values | [Server primitives](/docs/server-primitives) |
+| Model-backed actors, Agent Invocations, triggers, chat history, evals, or CLI inspection | [Agents](/docs/agents) |
+| Tools and product operations that an Agent can use | [Capabilities](/docs/capabilities) |
+| The difference between definitions, server APIs, Workspaces, Sources, and Capabilities | [Concepts](/docs/concepts) |
+| Host support, generated output, or deployment support | [Runtime and host support](/docs/frameworks-hosts/support-matrix) |
 
-## The repeated shape
+## How ViteHub connects your code to a host
 
-Most ViteHub features follow the same shape:
+Most features use this path:
 
 1. Start with [Installation](/docs/getting-started/installation).
-2. Install `vite-hub` for an application, or an owner package for a focused library integration.
-3. Register `vitehub()` for the framework distribution, or the owner package's
-   `hubX()` integration when a focused composition needs one.
-4. Define named work when the primitive needs a Definition.
-5. Let the integration generate Provider Output when the package supports the selected host.
-6. Call a stable Runtime Helper from server code.
-7. Attach a Capability only when an Agent should receive a model-facing ability.
+2. Register `vitehub()` in the Vite configuration.
+3. Add a definition when the feature needs a name, schema, or reusable configuration.
+4. Call the documented server API from application code.
+5. Attach a Capability if an Agent needs to call that operation.
 
-Agents use the same primitives through stricter boundaries. An Agent does not receive every server primitive by default, and a Capability does not mutate primitive configuration dynamically.
+The Vite integration discovers definitions and prepares the provider-specific files for the selected host. Application code keeps using ViteHub imports.
 
-## Choose a runtime boundary
+## Check host support
 
-Stable imports do not mean that every primitive runs on every host. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) for app-facing helpers, local providers, generated Provider Output, Provision coverage, and current proof maturity.
+Not every Server Primitive runs on every host. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a deployment target.
 
-Read [Concepts](/docs/concepts) for the shared vocabulary, or open [Installation](/docs/getting-started/installation) for a runnable path.
+Open [Installation](/docs/getting-started/installation) for a runnable path, or read [Concepts](/docs/concepts) when you need the runtime model.

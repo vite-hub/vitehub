@@ -81,6 +81,30 @@ await email.send({
 
 `html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
 
+### Discover application templates
+
+Place reusable Markdown under `server/emails`:
+
+```md
+# Welcome {{ user.name }}
+
+Your workspace is ready.
+```
+
+ViteHub turns `server/emails/welcome.md` into a typed async renderer:
+
+```ts
+import renderWelcome from "#vitehub/emails/welcome"
+
+const markdown = await renderWelcome({ user: { name: "Maxi" } })
+```
+
+Nested paths keep their relative name. For example,
+`server/emails/monthly/recap.md` becomes
+`#vitehub/emails/monthly/recap`. The Vite integration writes exact module types
+to `.vitehub/types/email.d.ts` and bundles templates for provider builds under
+`.vitehub/email/templates`.
+
 The renderer does not sanitize authored HTML, trusted Markdown fragments, or imported templates, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `{{{ fragment }}}` binding or import.
 
 ## Test without delivery

@@ -11,24 +11,17 @@ icon: i-lucide-database
 It exposes read-only query and schema inspection by default, then adds SQL mutation only when write modes allow it.
 Cloudflare and Vercel hosted Agent routes receive the Database primitive automatically when the app configures `hubDb()`.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability contributes `db_query` for one read-only SQL statement and `db_schema` for schema inspection.
 When data or schema write modes allow it, it also contributes `db_exec` for one mutation statement with a rationale.
 
-## Configuration
+## Configure database access
 
 Attach DB in read mode until the Agent needs guarded mutations.
 The Database primitive must already be configured by the app.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { db } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { db } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -38,7 +31,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How database access works
 
 ViteHub selects the configured database handle and enforces the single-statement SQL guardrail.
 `db_query` accepts one read-only query.
@@ -62,13 +55,13 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 | Provider-backed | Receives Database tools through the provider MCP bridge. |
 | Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
 
-## Inspect and verify
+## Verify database access
 
 Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
-Read mode should show `db_query` and `db_schema`; write-capable configurations should also show `db_exec` with the configured policy.
+Confirm that read mode shows `db_query` and `db_schema`. A write-capable configuration also lists `db_exec` with the configured policy.
 
 Run a multi-statement SQL input during development.
-The Capability should reject it before it reaches the database primitive.
+Confirm that the Capability rejects it before it reaches the Database primitive.
 
 ## Options
 
@@ -79,8 +72,7 @@ The Capability should reject it before it reaches the database primitive.
 | `schemaMode` | `"read" \| "write"` | `"read"` | Allows DDL through `db_exec` when set to `"write"`. |
 | `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `db_exec`. |
 
-## Reference
+## Related pages
 
 - [Database primitive](/docs/server-primitives/database)
 - [Official capabilities](/docs/capabilities/official-capabilities)
-- Source: `packages/agent/src/capabilities/storage/db.ts`

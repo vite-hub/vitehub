@@ -10,21 +10,16 @@ icon: i-lucide-git-branch
 `git()` exposes bounded Git inspection and selected local Workspace Session state changes.
 Use it for review, source-history inspection, and local branch selection, not for publishing repository history.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 The Agent must use a git-capable Workspace Session.
-
-## What it adds
 
 The Capability adds one model-facing `shell` tool for controlled Git commands.
 In write mode, the same tool can also run a narrow set of local Git operations.
 
-## Configuration
+## Configure Git access
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { git } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { git } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -35,7 +30,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How Git access works
 
 `shell` accepts one `git` command without shell composition.
 Read mode allows source-history commands such as `status`, `diff`, `log`, `show`, `grep`, and ref inspection.
@@ -66,13 +61,12 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 | `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for write-mode `shell` commands. Read-only Git commands remain allowed. |
 | `timeout` | `number` | `60000` | Execution timeout in milliseconds passed to Workspace Session Git commands. |
 
-## Inspect and verify
+## Verify Git access
 
 Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 Run `git status --short` through `shell`, then verify unsupported commands such as `git push` are rejected.
 
-## Reference
+## Related pages
 
 - [Workspace](/docs/server-primitives/workspace)
 - [Workspace shell](/docs/capabilities/workspace-shell)
-- Source: `packages/agent/src/capabilities/git.ts`

@@ -15,8 +15,8 @@ Use [Agent Actors](/docs/agents/actors) for trusted identity and [Input Commands
 Import Channel helpers from `@vite-hub/agent/channels`.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { github, webChat } from '@vite-hub/agent/channels'
+import { defineAgent } from 'vite-hub/agent'
+import { github, webChat } from 'vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {
@@ -36,12 +36,12 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubAgent(),
+    vitehub({ preset: 'node', agent: true }),
   ],
 })
 ```
@@ -50,7 +50,7 @@ Use the Vue client from the application:
 
 ```vue [app/components/SupportChat.vue]
 <script setup lang="ts">
-import { useAgent, useChat } from '@vite-hub/agent/vue'
+import { useAgent, useChat } from 'vite-hub/agent/vue'
 
 const agent = useAgent('support')
 const { messages, status, sendMessage, stop } = useChat(agent)
@@ -60,8 +60,8 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 Add `route.admission.authenticate` when the generated route needs authentication. ViteHub reads the raw body once, verifies the shared UI-message contract, and copies only fields named in `route.input.trust` after authentication.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { webChat } from '@vite-hub/agent/channels'
+import { defineAgent } from 'vite-hub/agent'
+import { webChat } from 'vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {
@@ -88,8 +88,8 @@ Use an application-owned route and [`streamAgentTrigger()`](/docs/agents/trigger
 Adapter-backed Channels deliver the completed response by default. Set Agent-level `messages.stream: true` to publish draft and edit updates everywhere, or set `messages.stream` on one Channel.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { discord } from '@vite-hub/agent/channels'
+import { defineAgent } from 'vite-hub/agent'
+import { discord } from 'vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {
@@ -110,7 +110,7 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 For Telegram, ViteHub can own the verified webhook route and synchronize it after deployment:
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   channels: {
@@ -147,7 +147,7 @@ teams({
 
 `deliveryKind` is `direct`, `mention`, or `subscribed`. Returning `false` posts no fallback error because the Agent never started.
 
-Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases that should become public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
+Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
 
 Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. Overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
 
@@ -166,9 +166,9 @@ Invocation hooks and Drivers receive the active record as `context.channelDelive
 Channel Capabilities apply only when that Channel is active. Agent-level Capabilities remain available to every invocation.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { openapi } from '@vite-hub/agent/capabilities'
-import { teams, webChat } from '@vite-hub/agent/channels'
+import { defineAgent } from 'vite-hub/agent'
+import { openapi } from 'vite-hub/agent/capabilities'
+import { teams, webChat } from 'vite-hub/agent/channels'
 
 const portalApi = openapi({
   cli: { name: 'portal-api' },
@@ -197,7 +197,7 @@ Channel history export archives inline data, size-declared adapter-owned `fetchD
 
 Provider-backed Drivers materialize inline data and application-owned `fetchData` results. URL-only attachments require the application to validate and resolve the URL through `fetchData` before crossing the provider boundary; the Driver does not fetch arbitrary URLs from the ViteHub host.
 
-## Keep boundaries clear
+## Separate responsibilities
 
 | Concern | Owner |
 | --- | --- |

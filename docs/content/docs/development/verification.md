@@ -36,7 +36,7 @@ Inspect the selected host directory after the build. The [Provider output refere
 
 ## Keep Live Smoke thin
 
-A deployment smoke should exercise the same application behaviour that local checks cover. Keep the deployed check narrow, but verify every provider binding or hosted service that local adapters cannot reproduce.
+A deployment smoke exercises the same application behavior as the local checks. Keep the deployed check narrow, but verify every provider binding or hosted service that local adapters cannot reproduce.
 
 ## Next steps
 

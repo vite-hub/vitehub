@@ -5,7 +5,7 @@ navigation.order: 12
 icon: i-lucide-terminal-square
 ---
 
-A Sandbox Definition is portable orchestration. Its package project supplies dependencies, its Workspace supplies durable files, and its Box adapter supplies execution.
+Use a Sandbox Definition to run a named package project in a Box. The package supplies dependencies, Workspace supplies durable files, and the Box adapter runs the process.
 
 ## Quick start
 
@@ -58,11 +58,11 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## The three Modules
+## How Sandbox, Workspace, and Box fit together
 
-- Sandbox owns Definition discovery, typed invocation, package-project resolution, preparation policy, serialization, timeout, and lifecycle orchestration.
-- Workspace owns authoritative files, Sources, snapshots, diffs, commit, and rollback.
-- Box owns isolation, processes, runtime files, disposable caches, ports, and provider-specific preparation or deployment output.
+- Sandbox discovers definitions, resolves package projects, serializes values, applies timeouts, and coordinates each run.
+- Workspace stores durable files and handles Sources, snapshots, diffs, commits, and rollbacks.
+- Box provides process isolation, runtime files, caches, ports, and provider-specific deployment output.
 
 Sandbox and Agent use the same Box Interface. Workspace never selects Cloudflare, Vercel, Crabbox, or trusted-host execution.
 
@@ -98,7 +98,7 @@ server/sandboxes/
 
 Installation runs at the pnpm Workspace root and the Definition runs from `server/sandboxes/image`. ViteHub carries every local package in the transitive `workspace:*` dependency closure, then pnpm remains responsible for installation and linking semantics. Other Workspace packages stay outside the runtime project.
 
-## Package entrypoint
+## Package entry point
 
 The package `index.ts` default-exports an ordinary async function. ViteHub calls it with the invocation payload and context, then returns its awaited result.
 
@@ -125,7 +125,7 @@ Cloudflare, Vercel, Crabbox, and trusted host implement the Box Interface. The c
 
 Provider selection and full image overrides are application or host configuration. For Cloudflare, configure the application-owned container with a complete Dockerfile; for Vercel, configure the Box runtime image. Sandbox has no Dockerfile-fragment helper because partial image syntax cannot be portable across providers.
 
-## Breaking migration
+## Migrate from `defineSandbox()`
 
 Move canonical Definitions into a package folder and export the run function directly:
 
