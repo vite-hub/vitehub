@@ -2814,6 +2814,21 @@ describe("defineAgent workspace option", () => {
     ])
   })
 
+  it("keeps public Capability metadata from opaque Agent definitions", async () => {
+    const { createAgentInspectionMetadata, defineCapability, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = {
+      capabilities: [defineCapability({ id: "inspectable", metadata: { status: "ready" } })],
+      resolve: vi.fn(async () => ({ name: "opaque" })),
+    } as never
+
+    expect(createAgentInspectionMetadata(agent).capabilities).toEqual([
+      { id: "inspectable", metadata: { status: "ready" } },
+    ])
+    await expect(resolveAgentInspectionMetadata(agent)).resolves.toMatchObject({
+      capabilities: [{ id: "inspectable", metadata: { status: "ready" } }],
+    })
+  })
+
   it("always resolves Sources for materialized Agent inspection metadata", async () => {
     const { defineAgent, materializeAgentInspectionSourceMetadata } = await import("../src/index.ts")
     const agent = withExplicitWorkspaceName(defineAgent({

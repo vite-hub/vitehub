@@ -1545,14 +1545,16 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
   const settings = agentSettings(definition)
   if (!settings) {
     const definedChannelInstructions = inspectMessageChannelInstructions(definition.channels)
+    const capabilities = capabilityInspectionMetadataProjection(definition.capabilities)
     if (!definedChannelInstructions.length) {
-      return { files: [], ...agentInspectionMetadata(definition as never), tools: [] }
+      return { ...capabilities, files: [], ...agentInspectionMetadata(definition as never), tools: [] }
     }
     const adapter = await definition.resolve(createInspectionMetadataRuntime(resolution))
     const channelInstructions = consumesMessageChannelInstructions(adapter)
       ? definedChannelInstructions
       : []
     return {
+      ...capabilities,
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition as never),
@@ -1615,7 +1617,7 @@ export function createAgentInspectionMetadata<
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   const channelInstructions = agentChannelMetadataInstructions(definition)
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    const capabilities = agentSettings(definition)?.capabilities
+    const capabilities = agentSettings(definition)?.capabilities || definition.capabilities
     return {
       ...capabilityInspectionMetadataProjection(Array.isArray(capabilities) ? capabilities : undefined),
       files: [],
