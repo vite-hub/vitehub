@@ -239,8 +239,8 @@ catalogs:
       version: 7.7.4
   tooling:
     '@oxlint/plugins':
-      specifier: 1.61.0
-      version: 1.61.0
+      specifier: 1.74.0
+      version: 1.74.0
     '@types/node':
       specifier: ^24.13.3
       version: 24.13.3
@@ -408,7 +408,7 @@ importers:
         version: 0.8.14
       '@oxlint/plugins':
         specifier: catalog:tooling
-        version: 1.61.0
+        version: 1.74.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
@@ -6181,6 +6181,10 @@ packages:
 
   '@oxlint/plugins@1.61.0':
     resolution: {integrity: sha512-nkOyZEF1vH527CkdQtOp1HMrVFEM4ResURvI2JFeGoup+h+43J/k/FgdOR9b9Isxg+Yae7qVDa7y3nssE8b3TQ==}
+    engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+
+  '@oxlint/plugins@1.74.0':
+    resolution: {integrity: sha512-3tQlMDPt5hrRYedKl+M+Xq+fRjAEocMCRJaXH6ypLWu8+Oui5GMj51vjaYf/rzj6HT+JzQoUlY/I7Im2VNXzbw==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
   '@parcel/watcher-android-arm64@2.5.6':
@@ -18981,6 +18985,8 @@ snapshots:
     optional: true
 
   '@oxlint/plugins@1.61.0': {}
+
+  '@oxlint/plugins@1.74.0': {}
 
   '@parcel/watcher-android-arm64@2.5.6':
     optional: true

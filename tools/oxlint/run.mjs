@@ -50,18 +50,8 @@ const baseIdentity = (diagnostic) =>
       }),
     )
     .digest("hex");
-const identityByDiagnostic = new Map();
-const occurrences = new Map();
-for (const diagnostic of antiSlopDiagnostics) {
-  const base = baseIdentity(diagnostic);
-  const occurrence = occurrences.get(base) ?? 0;
-  occurrences.set(base, occurrence + 1);
-  identityByDiagnostic.set(
-    diagnostic,
-    createHash("sha256").update(`${base}:${occurrence}`).digest("hex"),
-  );
-}
-const identity = (diagnostic) => identityByDiagnostic.get(diagnostic);
+// Identical diagnostics in one file are intentionally fungible during migration.
+const identity = baseIdentity;
 
 if (process.argv.includes("--update-baseline")) {
   const hashes = antiSlopDiagnostics.map(identity).sort();

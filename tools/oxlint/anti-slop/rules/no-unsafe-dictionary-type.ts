@@ -69,14 +69,7 @@ function isInsideTypeAliasDeclaration(node: ESTree.Node): boolean {
 function isPlainAliasConsumerUse(node: ESTree.TSType, environment: TypeEnvironment): boolean {
 	if (node.type !== "TSTypeReference" || node.typeArguments?.params.length) return false;
 	const name = typeReferenceName(node);
-	if (name === null || isInsideTypeAliasDeclaration(node)) return false;
-	const alias = environment.aliases.get(name);
-	return (
-		alias !== undefined &&
-		!((alias.typeParameters?.params.some(
-			(parameter) => parameter.default !== null && parameter.default !== undefined,
-		) ?? false))
-	);
+	return name !== null && environment.aliases.has(name) && !isInsideTypeAliasDeclaration(node);
 }
 
 function shouldReportType(node: ESTree.TSType, environment: TypeEnvironment): boolean {
@@ -118,7 +111,7 @@ export const noUnsafeDictionaryTypeRule = defineRule({
 
 		return {
 			Program(node) {
-				environment = createTypeEnvironment(node, context.sourceCode.visitorKeys);
+				environment = createTypeEnvironment(node);
 			},
 			TSTypeReference: reportIfUnsafe,
 			TSTypeLiteral: reportIfUnsafe,
