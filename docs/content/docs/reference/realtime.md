@@ -15,7 +15,7 @@ external file changes.
 Install the ViteHub distribution in a Vue or Nuxt application.
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub @tiptap/vue-3
 ```
 
 Enable Workspace and Realtime. The memory authority is suitable for local
@@ -64,10 +64,7 @@ Workspace path. Its editor state is exposed as Vue refs.
 import { useEditor } from '@tiptap/vue-3'
 import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
 
-const route = useRoute()
-const realtime = useRealtimeTiptap('docs', () => route.params.path as string, {
-  enabled: () => route.name === 'editor',
-})
+const realtime = useRealtimeTiptap('docs', 'guides/getting-started.md')
 
 const editor = useEditor({
   extensions: realtime.extensions.value,
