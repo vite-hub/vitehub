@@ -244,8 +244,15 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const staleFiles = (await readdir(serverDir)).filter(file => file !== "node_modules")
   await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
 
-  await Promise.all([
-    bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),
+  try {
+    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir })
+  }
+  catch (error) {
+    await rm(serverDir, { force: true, recursive: true })
+    throw error
+  }
+
+  const writes = await Promise.allSettled([
     writeFile(
       resolve(serverDir, ".vc-config.json"),
       `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
@@ -256,6 +263,8 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
       ? copyVercelClientOutput(options.rootDir, clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
       : Promise.resolve(),
   ])
+  const failedWrite = writes.find(result => result.status === "rejected")
+  if (failedWrite?.status === "rejected") throw failedWrite.reason
 }
 
 async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOptions): Promise<void> {

@@ -1376,27 +1376,37 @@ async function generateProviderOutputsWithinLock(
     }, artifacts.vercelNativeFiles)) {
       assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
     }
-    await writeProviderDeploymentOutputs({
-      clientOutDir: options.clientOutDir,
-      cloudflare: cloudflareOutput,
-      cleanup: {
-        cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
-      },
-      afterWrite: async () => {
-        if (vercelOutput) {
-          await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
-            ...options.providerImportAliases,
-            ...options.providerRuntimeImportAliases?.vercel,
-          }, artifacts.vercelNativeFiles, previousNativeOutput)
-        }
-        else {
-          await cleanVercelNativeWorkflowOutput(options.rootDir)
-        }
-        await updateVercelWorkflowFunctionOwnership(options.rootDir, vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined, Boolean(vercelOutput && !options.serverFunctionName))
-      },
-      rootDir: options.rootDir,
-      ...(vercelOutput ? { vercel: vercelOutput } : {}),
-    })
+    try {
+      await writeProviderDeploymentOutputs({
+        clientOutDir: options.clientOutDir,
+        cloudflare: cloudflareOutput,
+        cleanup: {
+          cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
+        },
+        afterWrite: async () => {
+          if (vercelOutput) {
+            await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
+              ...options.providerImportAliases,
+              ...options.providerRuntimeImportAliases?.vercel,
+            }, artifacts.vercelNativeFiles, previousNativeOutput)
+          }
+          else {
+            await cleanVercelNativeWorkflowOutput(options.rootDir)
+          }
+          await updateVercelWorkflowFunctionOwnership(options.rootDir, vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined, Boolean(vercelOutput && !options.serverFunctionName))
+        },
+        rootDir: options.rootDir,
+        ...(vercelOutput ? { vercel: vercelOutput } : {}),
+      })
+    }
+    catch (error) {
+      if (vercelOutput) {
+        const serverFunctionName = options.serverFunctionName ?? "__server.func"
+        await rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", serverFunctionName), { force: true, recursive: true })
+        if (!options.serverFunctionName) await cleanVercelWorkflowRootConfig(options.rootDir, vercelRootWorkflowRoutes)
+      }
+      throw error
+    }
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()

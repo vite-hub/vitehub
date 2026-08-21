@@ -420,6 +420,28 @@ it("removes only a prior Workflow-owned Vercel function when the active host cha
   })
 })
 
+it("rolls back partial Vercel output when the server bundle fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-vercel-error-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "broken.workflow.ts"), `import "./missing.js"\nexport default async function broken() {}\n`)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    transformRegistry: () => "export default { broken: ",
+    workflow: {},
+  })).rejects.toThrow()
+
+  expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func"))).toBe(false)
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+
+  await rm(join(workflowDir, "broken.workflow.ts"))
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+})
+
 it("removes root Vercel output before writing an isolated Workflow function in the same root", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-root-to-isolated-")
   const configFile = join(rootDir, ".vercel", "output", "config.json")
@@ -482,7 +504,7 @@ it("recovers truncated Workflow ownership JSON", async () => {
   expect(existsSync(stateFile)).toBe(false)
 })
 
-it("recovers marker-owned output after an atomic state write fails", async () => {
+it("rolls back marker-owned output after an atomic state write fails", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-state-write-error-")
   const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
   const serverFunctionName = "__custom-workflow.func"
@@ -496,7 +518,7 @@ it("recovers marker-owned output after an atomic state write fails", async () =>
     serverFunctionName,
     workflow: {},
   })).rejects.toThrow()
-  expect(existsSync(join(functionRoot, ".vitehub-workflow-output.json"))).toBe(true)
+  expect(existsSync(functionRoot)).toBe(false)
 
   await rm(stateFile, { recursive: true })
   await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
