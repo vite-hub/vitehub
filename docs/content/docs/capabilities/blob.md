@@ -97,7 +97,7 @@ export default defineAgent({
     github: github({ pullRequest: true }),
   },
   driver: 'codex',
-  workspace: { mode: 'write' },
+  workspace: { commit: true, mode: 'write' },
 })
 ```
 

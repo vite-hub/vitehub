@@ -7394,7 +7394,7 @@ describe("server helpers", () => {
       )).toHaveLength(1))
 
       await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(3_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
       await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
@@ -7466,7 +7466,7 @@ describe("server helpers", () => {
       )).toHaveLength(1))
       await vi.advanceTimersByTimeAsync(0)
 
-      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(3_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(2))
       await expect(retryDelivery.mock.results[1]?.value).resolves.toBe(true)
@@ -7474,7 +7474,7 @@ describe("server helpers", () => {
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(2))
       await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(2_000)
+      await vi.advanceTimersByTimeAsync(3_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
       await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
