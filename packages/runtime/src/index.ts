@@ -516,12 +516,13 @@ function openTelemetryId(value: string, length: 16 | 32): string {
 }
 
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
-  const allEntries = [...events]
   const maxEntries = 1024
   const entriesByRun = new Map<string, TraceEventLogEntry[]>()
-  for (const entry of allEntries) {
+  for (const entry of events) {
     const id = runId(entry)
-    entriesByRun.set(id, [...(entriesByRun.get(id) || []), entry])
+    const runEntries = entriesByRun.get(id)
+    if (runEntries) runEntries.push(entry)
+    else entriesByRun.set(id, [entry])
   }
   const boundedEntries = [...entriesByRun.values()].flatMap((runEntries) => {
     if (runEntries.length <= maxEntries) return runEntries

@@ -2049,6 +2049,29 @@ describe("workflow runtime", () => {
     expect(createBatch).toHaveBeenCalledOnce()
   })
 
+  it("inspects Cloudflare runs without evaluating their handler modules", async () => {
+    const name = "vitehub-agent-invocation-recovery-welcome"
+    const load = vi.fn(async () => { throw new Error("module startup failed") })
+    const status = vi.fn(async () => "complete")
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({ [name]: load })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName(name)]: {
+          createBatch: vi.fn(),
+          get: vi.fn(async () => ({ id: "recovery-run", status })),
+        },
+      } } } },
+    })
+
+    await expect(getWorkflowRun(name, "recovery-run")).resolves.toMatchObject({
+      id: "recovery-run",
+      provider: "cloudflare",
+      status: "completed",
+    })
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it("keeps an acknowledged Cloudflare start queued when status inspection is unavailable", async () => {
     const status = vi.fn(async () => { throw new Error("status unavailable") })
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
