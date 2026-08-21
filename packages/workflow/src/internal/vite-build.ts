@@ -11,7 +11,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
-import { transformSync } from "esbuild"
+import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
@@ -165,12 +165,20 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
       return
     }
     const source = readFileSync(file, "utf8")
-    const parsedSource = transformSync(source, {
+    const parsed = buildSync({
+      bundle: false,
       format: "esm",
       legalComments: "none",
-      loader: /\.[cm]?[jt]sx$/.test(file) ? "tsx" : "ts",
+      metafile: true,
       minifySyntax: true,
-    }).code
+      stdin: {
+        contents: source,
+        loader: /\.[cm]?[jt]sx$/.test(file) ? "tsx" : "ts",
+        sourcefile: file,
+      },
+      write: false,
+    })
+    const parsedSource = parsed.outputFiles[0].text
     if (/^\s*["']use workflow["'];?/m.test(parsedSource)) {
       const colocated = definitionDirs.some((definitionDir) => {
         const path = relative(definitionDir, file)
@@ -181,8 +189,8 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
       }
       hasNativeEntry = true
     }
-    for (const match of source.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["']([^"']+)["']/g)) {
-      const specifier = match[1]
+    const imports = Object.values(parsed.metafile.outputs).flatMap(output => output.imports)
+    for (const { path: specifier } of imports) {
       const alias = Object.entries(aliases)
         .find(([find]) => specifier === find || specifier.startsWith(`${find}/`))
       const imported = specifier.startsWith(".")

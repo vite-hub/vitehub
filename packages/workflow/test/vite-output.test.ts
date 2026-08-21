@@ -59,6 +59,17 @@ it("ignores workflow directive examples in comments", async () => {
   expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
 })
 
+it("ignores native entries imported only in comments", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-commented-native-import-")
+  const workflowFile = join(rootDir, "server", "workflows", "welcome.workflow.ts")
+  const nativeFile = join(rootDir, "server", "durable.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, `// import { durable } from "../durable.js"\nexport default defineWorkflow(async () => "inline")\n`)
+  await writeFile(nativeFile, `export async function durable() {\n  "use workflow"\n}\n`)
+
+  expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)
+})
+
 it("keeps suffix Workflow discovery relative to a nested Vite root", async () => {
   const projectRoot = await createWorkspaceTempDir("vitehub-workflow-project-root-")
   const viteRoot = join(projectRoot, "apps", "web")
