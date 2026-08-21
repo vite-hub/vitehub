@@ -2814,6 +2814,18 @@ describe("defineAgent workspace option", () => {
     ])
   })
 
+  it("always resolves Sources for materialized Agent inspection metadata", async () => {
+    const { defineAgent, materializeAgentInspectionSourceMetadata } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      driver: { model: {} as never },
+      workspace: { sources: { docs: { resolve: vi.fn() } as never } },
+    }), { workspace: "support" })
+
+    await materializeAgentInspectionSourceMetadata(agent, { resolveSources: false } as never)
+
+    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
+  })
+
   it("includes skill sources in Agent inspection file metadata", async () => {
     const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
@@ -3589,6 +3601,31 @@ describe("defineAgent workspace option", () => {
 
     const metadata = await resolveAgentInspectionMetadata(agent, { resolveSources: false })
     expect(metadata.files?.map(file => file.source)).toEqual(["customers"])
+    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
+  })
+
+  it("applies Access-scoped Source probe visibility without resolving Sources", async () => {
+    const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {
+        sources: {
+          public: { mount: "", name: "public", probeKeys: ["public/guide.md"] } as never,
+          private: { mount: "", name: "private", probeKeys: ["private/guide.md"] } as never,
+        },
+      },
+      capabilities: [access({
+        workspace: {
+          defaultScope: "public",
+          scopes: { public: { paths: ["public"] } },
+        },
+      })],
+      driver: { model: {} as never },
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentInspectionMetadata(agent, { resolveSources: false })
+    expect(metadata.files?.map(file => file.source)).toEqual(["public"])
     expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
   })
 

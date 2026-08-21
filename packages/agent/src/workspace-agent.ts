@@ -1,4 +1,4 @@
-import { normalizeWorkspaceSourcesMetadata, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { normalizeWorkspaceSourcesMetadata, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -161,7 +161,7 @@ export interface AgentInspectionMetadataResolutionOptions<
 export interface AgentInspectionSourceMaterializationOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name> {
+> extends Omit<AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>, "resolveSources"> {
   path?: string
   source?: string
   sources?: string[]
@@ -844,10 +844,13 @@ function workspaceMetadataFiles<
     : undefined
   const scope = access?.workspaceScope
   const pathIntersects = (left: string, right: string) => !left || !right || left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)
-  const sources = normalizedSourcesFromOptions(options).filter(source =>
-    !scope || scope.all || scope.sources?.includes(source.key)
-    || scope.paths?.some(path => pathIntersects(path, source.requestOnly ? `.vitehub/sources/${source.key}.json` : source.mountPath)),
-  )
+  const sources = normalizedSourcesFromOptions(options).filter(source => {
+    if (!scope || scope.all || scope.sources?.includes(source.key)) return true
+    const grantPaths = source.requestOnly || source.probeKeys?.length || source.mountPath
+      ? workspaceSourceGrantPaths(source.key, source)
+      : []
+    return scope.paths?.some(path => grantPaths.some(grantPath => pathIntersects(path, grantPath)))
+  })
   return sources.sort((left, right) => left.key.localeCompare(right.key)).map((source) => {
     const materialize = sourceMaterialize(source)
     const mountPath = sourceMountPath(source)
@@ -1710,20 +1713,21 @@ export async function materializeAgentInspectionSourceMetadata<
     return await resolveNonWorkspaceAgentInspectionMetadata(definition, options)
   }
 
+  const resolution = { ...options, resolveSources: true }
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
-  const selection = await resolveMetadataCapabilitySelection(workspaceOptions, options)
+  const selection = await resolveMetadataCapabilitySelection(workspaceOptions, resolution)
   validateAgentCapabilityComposition(selection.capabilities, {
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })
-  const metadataWorkspace = await createInspectionMetadataWorkspace(workspaceDefinition, options, selection)
+  const metadataWorkspace = await createInspectionMetadataWorkspace(workspaceDefinition, resolution, selection)
   if (!metadataWorkspace) {
     return createAgentInspectionMetadata(definition)
   }
   const capabilityContext = await resolveWorkspaceMetadataCapabilityContext(
     metadataWorkspace.options as never,
     metadataWorkspace.workspace as never,
-    options,
+    resolution,
     selection as never,
   )
   return await withMetadataCapabilityCleanup(capabilityContext, async () => {
