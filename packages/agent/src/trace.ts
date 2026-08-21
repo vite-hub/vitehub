@@ -178,15 +178,25 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
     }
   }
   if (kind?.startsWith("task.")) {
+    const status = typeof value?.status === "string" ? value.status : undefined
+    const outcome = kind === "task.completed"
+      ? status === "failed"
+        ? "task.failed"
+        : status === "cancelled" || status === "interrupted"
+          ? "task.cancelled"
+          : kind
+      : kind
     return {
       attributes: {
+        "error.message": outcome === "task.failed" && typeof value?.error === "string" ? value.error : undefined,
         "step.id": event.id,
+        "task.status": status,
         "vitehub.activity.body": data?.value,
         "vitehub.activity.kind": "activity",
-        "vitehub.activity.name": kind,
+        "vitehub.activity.name": outcome,
       },
-      name: `agent.${kind}`,
-      type: "run",
+      name: `agent.${outcome}`,
+      type: outcome === "task.failed" ? "error" : "run",
     }
   }
 }

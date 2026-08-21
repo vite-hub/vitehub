@@ -449,6 +449,43 @@ describe("Agent Invocations", () => {
     expect(updates).toBeLessThanOrEqual(260)
   })
 
+  it("retains fatal stream evidence and the lifecycle terminal beyond the durable cap", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (let index = 0; index < 300; index++) {
+          await context.traceLog?.append({ name: `event-${index}`, type: "run" })
+        }
+        await context.traceLog?.append({
+          attributes: { "error.message": "provider stream failed" },
+          name: "agent.stream.error",
+          type: "error",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("bounded-fatal-observations"), {})
+
+    const observations = (await invocations.getByRunId("bounded-fatal-observations"))?.observations || []
+    expect(observations).toHaveLength(256)
+    expect(observations.slice(-2)).toMatchObject([
+      {
+        attributes: {
+          "error.message": "provider stream failed",
+          "vitehub.trace.truncated": true,
+        },
+        name: "agent.stream.error",
+      },
+      {
+        attributes: { "vitehub.trace.truncated": true },
+        name: "agent.invocation.finish",
+      },
+    ])
+  })
+
   it("records cancellation while an invocation waits for driver capacity", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })

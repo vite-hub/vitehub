@@ -293,6 +293,11 @@ function terminalObservation(observation: TraceEventLogEntry): boolean {
   return observation.name === "agent.invocation.finish" || observation.name === "agent.invocation.error" || observation.name === "run.finish" || observation.name === "run.error"
 }
 
+function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "run.error"
+    || (observation.name === "agent.stream.error" && observation.attributes?.["error.recoverable"] !== true)
+}
+
 function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   return {
     ...observation,
@@ -311,12 +316,27 @@ export function applyAgentInvocationStoreUpdate(
   const observations = input.observation
     ? record.observations.length < MAX_OBSERVATIONS
       ? [...record.observations, cloneObservation(boundedObservation(input.observation))]
-      : [
-          ...record.observations.slice(0, -1),
-          cloneObservation(boundedObservation(terminalObservation(input.observation)
-            ? truncatedObservation(input.observation)
-            : truncatedObservation(record.observations.at(-1)!))),
-        ]
+      : (() => {
+          const failureEvidence = failureEvidenceObservation(input.observation)
+            ? input.observation
+            : record.observations.find(failureEvidenceObservation)
+          const terminal = terminalObservation(input.observation)
+            ? input.observation
+            : record.observations.findLast(terminalObservation)
+          const retained = record.observations.filter(observation => observation !== failureEvidence && observation !== terminal)
+          if (failureEvidence && terminal && failureEvidence !== terminal) {
+            return [
+              ...retained.slice(0, MAX_OBSERVATIONS - 2),
+              cloneObservation(boundedObservation(truncatedObservation(failureEvidence))),
+              cloneObservation(boundedObservation(truncatedObservation(terminal))),
+            ]
+          }
+          const outcome = failureEvidence || terminal
+          return [
+            ...retained.slice(0, MAX_OBSERVATIONS - 1),
+            cloneObservation(boundedObservation(truncatedObservation(outcome || record.observations.at(-1)!))),
+          ]
+        })()
     : record.observations
   return {
     ...record,
@@ -573,7 +593,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (finished) return
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
         if (atCapacity) {
-          if (observationsTruncated && !terminalObservation(observation)) return
+          if (observationsTruncated && !terminalObservation(observation) && !failureEvidenceObservation(observation)) return
           observationsTruncated = true
         }
         pendingObservations.push(observation)

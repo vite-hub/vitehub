@@ -227,6 +227,36 @@ describe("Provider Agent Driver", () => {
     expect(traceLog.entries().find(entry => entry.name === "agent.tool.progress")?.attributes?.["tool.output"]).toBe("Checking status")
   })
 
+  it("preserves failed and cancelled Provider task outcomes in traces", async () => {
+    const threadId = "thread-task-outcomes"
+    runtime(threadId, [
+      event("task.completed", threadId, { error: "subagent failed", status: "failed", taskId: "task-1" }, { turnId: "turn-1" }),
+      event("task.completed", threadId, { status: "interrupted", taskId: "task-2" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const traceLog = createTraceEventLog({ content: "content" })
+    const runContext = context(threadId)
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate({
+      ...runContext,
+      runtime: { ...runContext.runtime, traceLog },
+    } as never)
+
+    expect(traceLog.entries()).toMatchObject([
+      {
+        attributes: { "error.message": "subagent failed", "task.status": "failed" },
+        name: "agent.task.failed",
+        type: "error",
+      },
+      {
+        attributes: { "task.status": "interrupted" },
+        name: "agent.task.cancelled",
+        type: "run",
+      },
+      { name: "agent.stream.finish" },
+    ])
+  })
+
   it("continues a thread with the previous provider cursor", async () => {
     const threadId = "thread-resume"
     const first = runtime(threadId, [
