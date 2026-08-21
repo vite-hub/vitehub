@@ -680,6 +680,51 @@ describe("agent transcription", () => {
     }
   })
 
+  it("decodes Workflow audio data URLs before AI SDK transcription", async () => {
+    const aiTranscribe = vi.fn(async () => ({ text: "voice transcript" }))
+    vi.doMock("ai", () => ({
+      createDownload: vi.fn(() => vi.fn()),
+      transcribe: aiTranscribe,
+    }))
+    try {
+      const capability = transcribe({ model: "mock-transcription-model" })
+      const context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+
+      await capability.input?.(context.context as never)
+
+      expect(aiTranscribe).toHaveBeenCalledWith(expect.objectContaining({
+        audio: new Uint8Array([79, 103, 103, 83, 1, 2, 3]),
+        model: "mock-transcription-model",
+      }))
+
+      const rawBase64Context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+      await capability.input?.(rawBase64Context.context as never)
+      expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({ audio: "T2dnUwECAw==" }))
+
+      const oversized = transcribe({ maxBytes: 6, model: "mock-transcription-model" })
+      await expect(oversized.input?.(createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ]).context as never)).rejects.toThrow("exceeds maxBytes")
+      expect(aiTranscribe).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it.each([
     [402, false, "TRANSCRIPTION_QUOTA_EXCEEDED", "[vitehub] Transcription provider quota is exhausted."],
     [408, true, "TRANSCRIPTION_PROVIDER_FAILED", "[vitehub] Transcription provider failed."],

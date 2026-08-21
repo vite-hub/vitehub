@@ -171,6 +171,11 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
   if (data instanceof Blob) return await data.arrayBuffer()
+  if (typeof data === "string" && /^data:/i.test(data)) {
+    const bytes = bytesFromAudioString(data)
+    assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
+    return bytes
+  }
   if (data) return data
   if (audio.url) return new URL(audio.url)
   throw new TypeError("[vitehub] transcribe() requires audio data, fetchData, or url.")
