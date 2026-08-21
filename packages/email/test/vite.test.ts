@@ -232,10 +232,13 @@ describe("hubEmail", () => {
 
   it("exposes its generated definition to explicitly selected Vercel Workflows", async () => {
     const root = await createTempProject()
-    const plugin = hubEmail({ driver: "unemail/driver/resend" })
+    const plugin = hubEmail({
+      driver: "unemail/driver/resend",
+      workflowProvider: "vercel",
+    } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
 
-    expect(await config({ root, workflow: { provider: "vercel" } })).toMatchObject({ resolve: { alias: [
+    expect(await config({ root })).toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
     ] } })
   })
