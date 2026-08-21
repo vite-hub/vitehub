@@ -102,7 +102,7 @@ export default defineEval({
 })
 ```
 
-Instruction-only variants require a model-backed Driver. A `model` variant may replace a model-backed or harness-backed Driver for the eval run. Use a separate Agent Definition when the change affects Capabilities, Workspace context, custom `driver.run` behavior, or host configuration.
+Instruction-only variants require a model-backed Driver. A `model` variant may replace a model-backed or provider-backed Driver for the eval run. Use a separate Agent Definition when the change affects Capabilities, Workspace context, custom `driver.run` behavior, or host configuration.
 
 ## Configure the runner
 
@@ -132,4 +132,4 @@ Useful one-run flags are `--watch`, `--threshold <score>`, `--output <path>`, `-
 
 Prefer assertions about the behavior that matters: grounded answers, expected tool use, refusal when evidence is missing, Capability finish effects, and regressions in usage or latency. Read normalized usage from `observation.usage` and the finalized trace from `observation.trace`.
 
-Keep harness credentials, session keys, sandbox providers, and runtime selection on the Agent Definition. An eval owns scenarios and scores; duplicating runtime setup produces a different system than the application runs.
+Keep provider credentials, model selection, permissions, and runtime selection on the Agent Definition. An eval owns scenarios and scores; duplicating runtime setup produces a different system than the application runs.

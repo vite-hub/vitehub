@@ -3,7 +3,7 @@ const stages = [
   {
     label: "Agent Driver",
     icon: "i-lucide-cpu",
-    items: ["driver.model", "driver.harness", "driver.run"],
+    items: ["driver.model", "driver.provider", "driver.run"],
   },
   {
     label: "Agent Definition",

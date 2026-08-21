@@ -62,7 +62,7 @@ Use schemas for input and response validation when the endpoint accepts argument
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the named fetch tools. |
-| Harness-backed | Receives the named fetch tools through the Harness tool bridge. |
+| Provider-backed | Receives the named fetch tools through the provider MCP bridge. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides whether to call HTTP endpoints directly. |
 
 ## Inspect and verify

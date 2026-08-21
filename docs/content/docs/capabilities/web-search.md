@@ -54,7 +54,7 @@ Tool mode requires the application to install `askweb` and configure one web sea
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the provider tool in model mode or `web_search` and `web_read` in tool mode. |
-| Harness-backed | Receives `web_search` and `web_read` through the Harness tool bridge in tool mode. Model mode is unsupported because Harness Agent Drivers do not accept Provider Tool contributions. |
+| Provider-backed | Receives `web_search` and `web_read` through the provider MCP bridge in tool mode. Model mode is unsupported because Provider Agent Drivers do not accept Provider Tool contributions. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides how to perform web access. |
 
 ## Inspect and verify

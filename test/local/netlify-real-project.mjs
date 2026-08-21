@@ -187,7 +187,7 @@ async function createProject({ packageSource, preview }) {
 
   run("pnpm", [
     "add",
-    ...(packageSource === "preview" ? ["--config.blockExoticSubdeps=false"] : []),
+    "--config.blockExoticSubdeps=false",
     ...packageSpecs,
   ], { cwd: appDir })
 }

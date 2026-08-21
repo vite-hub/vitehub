@@ -29,6 +29,9 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
     : options.commands === "all"
       ? options.commands
       : validateWorkspaceCommands(options.commands)
+  if (commands && mode !== "write") {
+    throw new Error("[vitehub] workspaceShell({ commands }) requires mode: \"write\" because provider commands run in the active Workspace Session.")
+  }
   const timeout = normalizeWorkspaceCommandTimeout(options.timeout, "workspaceShell({ timeout })")
 
   return defineCapability({
@@ -36,12 +39,17 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
     metadata: commands ? { commands, mode, ...(timeout ? { timeout } : {}) } : undefined,
     mode,
     requires: [{ primitive: "workspace", workspace: { mode: commands ? "write" : mode, required: true } }],
-    tools: ({ workspace }) => {
+    tools: ({ context, driver, workspace }) => {
+      if (commands && driver?.kind !== "provider") {
+        throw new Error("[vitehub] workspaceShell({ commands }) is available only to provider Drivers. Use sandbox() for model-backed command tools.")
+      }
       return {
-        ...(mode === "write" && "write" in workspace.tools
-          ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
-          : workspace.tools.inspect()) as AgentToolSet,
-        ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace) : {}),
+        ...(driver?.kind === "provider"
+          ? {}
+          : mode === "write" && "write" in workspace.tools
+            ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
+            : workspace.tools.inspect()) as AgentToolSet,
+        ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace, { context }) : {}),
       }
     },
   })

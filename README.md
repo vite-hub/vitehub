@@ -94,7 +94,7 @@ Add Capabilities only when the Agent needs controlled access to tools, storage, 
 ## How Agents Work
 
 - An **Agent Definition** declares one Agent and its Agent Driver.
-- An **Agent Driver** decides how an Agent Invocation runs: model-backed, harness-backed, or custom-run-backed.
+- An **Agent Driver** decides how an Agent Invocation runs: model-backed, provider-backed, or custom-run-backed.
 - An **Agent Invocation** is one runtime request to an Agent.
 - **Capabilities** attach named abilities. They contribute tools, instructions, triggers, policies, or runtime context.
 - A **Workspace** gives an Agent explicit file-tree state. **Sources** place read-only context into that Workspace.

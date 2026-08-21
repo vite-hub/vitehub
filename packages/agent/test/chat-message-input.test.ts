@@ -10,13 +10,13 @@ describe("chat message trigger input", () => {
     ]
 
     expect(resolveChatSessionId(messages.slice(0, 1), true, { action: "new", id: "chat" })).toBe("chat:manual:message-new")
-    expect(resolveChatSessionId(messages, true, { id: "chat" })).toBe("chat:manual:message-new")
+    expect(resolveChatSessionId(messages, true, { id: "chat" })).toBe("chat")
   })
 
   it("resolves metadata-selected manual Chat Sessions", () => {
     expect(resolveChatSessionId([
       { id: "message-new", metadata: { sessionId: "metadata-session" }, parts: [], role: "user" },
-    ], true)).toBe("metadata-session:manual:message-new")
+    ], true)).toBe("metadata-session")
   })
 
   it("resolves idle Chat Sessions from the selected history boundary", () => {
@@ -70,6 +70,52 @@ describe("chat message trigger input", () => {
       .map(part => part.text)
       .join(""))).toEqual(["session b"])
     expect(result.hookArgs.message.text).toBe("session b")
+  })
+
+  it("publishes the resolved Chat Session boundary for shared trigger callers", () => {
+    const first = createChatMessageTriggerInput({ sessions: true }, {
+      messages: [{ id: "message-a", metadata: { sessionId: "a" }, parts: [], role: "user" }],
+      run: { runId: "run-1", threadId: "thread-1" },
+      session: { id: "a" },
+    })
+    const continued = createChatMessageTriggerInput({ sessions: true }, {
+      messages: [
+        { id: "message-a", metadata: { sessionId: "a" }, parts: [], role: "user" },
+        { id: "message-a-2", metadata: { sessionId: "a" }, parts: [], role: "user" },
+      ],
+      run: { runId: "run-2", threadId: "thread-1" },
+      session: { id: "a" },
+    })
+    const fresh = createChatMessageTriggerInput({ sessions: true }, {
+      messages: [{ id: "message-b", metadata: { sessionId: "b" }, parts: [], role: "user" }],
+      run: { runId: "run-3", threadId: "thread-1" },
+      session: { id: "b" },
+    })
+
+    expect(first.input.context?.["chat.sessionId"]).toBe("thread-1:chat-session:a")
+    expect(continued.input.context?.["chat.sessionId"]).toBe(first.input.context?.["chat.sessionId"])
+    expect(fresh.input.context?.["chat.sessionId"]).not.toBe(first.input.context?.["chat.sessionId"])
+  })
+
+  it.each([
+    { strategy: "manual" as const },
+    { idleTimeoutMs: 60_000, strategy: "idle-timeout" as const },
+    { idleTimeoutMs: 60_000, strategy: "hybrid" as const },
+  ])("keeps $strategy session ids stable across current-only and sliding histories", (sessions) => {
+    const message = (id: string) => ({ id, metadata: { sessionId: "conversation-a" }, parts: [], role: "user" as const })
+
+    expect(resolveChatSessionId([message("m1")], sessions)).toBe("conversation-a")
+    expect(resolveChatSessionId([message("m1"), message("m2")], sessions)).toBe("conversation-a")
+    expect(resolveChatSessionId([message("m2"), message("m3")], sessions)).toBe("conversation-a")
+  })
+
+  it("rotates stable host session ids at explicit and idle boundaries", () => {
+    const message = (id: string, createdAt: string) => ({ id, createdAt, metadata: { sessionId: "conversation-a" }, parts: [], role: "user" as const })
+    const messages = [message("m1", "2026-01-01T00:00:00Z"), message("m2", "2026-01-01T00:02:00Z")]
+
+    expect(resolveChatSessionId(messages, true, { action: "new", id: "conversation-a" })).toBe("conversation-a:manual:m2")
+    expect(resolveChatSessionId(messages, { idleTimeoutMs: 60_000, strategy: "idle-timeout" })).toBe("conversation-a:idle:m2")
+    expect(resolveChatSessionId(messages, { idleTimeoutMs: 60_000, strategy: "hybrid" })).toBe("conversation-a:idle:m2")
   })
 
   it("derives trigger history from explicit thread history", () => {

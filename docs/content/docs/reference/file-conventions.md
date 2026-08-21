@@ -59,7 +59,7 @@ server/
 
 ## Colocated Agent Skills
 
-An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery, materializes the directory into the Harness Workspace, and also installs it into supported isolated harness profiles such as Codex. Existing files at both destinations remain in place, and files below a `scripts/` directory become executable.
+An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery and materializes the directory into the Provider Workspace. Existing files remain in place, and files below a `scripts/` directory become executable.
 
 ```txt [File tree]
 server/
@@ -74,23 +74,6 @@ server/
 ```
 
 This convention needs no `skills()` Capability declaration. Use [`skills()`](/docs/capabilities/skills) when the Skill comes from a Workspace or external Source instead of the Agent folder.
-
-## Colocated Agent Home
-
-An Agent folder with a Box can own static Home files in an adjacent `home/` directory. ViteHub recursively embeds dotfiles and binary files into the existing `box.home.files` plan.
-
-```txt [File tree]
-server/
-  agents/
-    babysitter/
-      agent.ts
-      home/
-        .gitconfig
-        .codex/
-          config.toml
-```
-
-Colocated Home files are build inputs even when Git ignores them. Use `box.home.state` for credentials or other files that must refresh or persist between Box sessions. Explicit `box.home.files` remains available for dynamic contents, and cannot claim the same target as a colocated file.
 
 ## Markdown templates
 

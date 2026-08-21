@@ -1,7 +1,10 @@
 import { defineInternalTool } from "./internal.ts"
+import { activeAgentWorkspaceCommands } from "../agent-workspace-runtime.ts"
 
 import type {
   AgentCapabilityMode,
+  AgentInvocationContextStore,
+  AgentToolExecutionContext,
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
@@ -29,6 +32,7 @@ interface WorkspaceCommandToolOptions {
   description?: string
   missingWorkspaceMessage?: string
   toolName?: string
+  context?: AgentInvocationContextStore
 }
 
 interface BoxCommandOptions {
@@ -90,8 +94,8 @@ function isValidCommand(command: string): boolean {
 
 export function normalizeWorkspaceCommandTimeout(value: unknown, label: string): number | undefined {
   if (value === undefined) return undefined
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new TypeError(`[vitehub] ${label} must be a positive number.`)
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 2_147_483_647) {
+    throw new TypeError(`[vitehub] ${label} must be a positive number no greater than 2,147,483,647.`)
   }
   return value
 }
@@ -143,14 +147,32 @@ function assertWorkspace(workspace: unknown, message: string): asserts workspace
   }
 }
 
-export async function executeBoxCommand(
+export async function executeWorkspaceCommand(
   workspace: unknown,
   command: string,
   args: string[] = [],
   options: BoxCommandOptions = {},
+  context?: AgentInvocationContextStore,
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
-  assertWorkspace(workspace, "[vitehub] Capability command execution requires a Box-backed Workspace Session.")
+  const activeExecute = context && activeAgentWorkspaceCommands(context)
+  if (activeExecute) {
+    const result = await activeExecute(command, args, {
+      abortSignal: options.abortSignal,
+      cwd: options.cwd,
+      env: options.env,
+      timeout: options.timeout,
+    })
+    if (options.check && result.exitCode !== 0) {
+      throw Object.assign(new Error(`[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.`), result, { name: "BoxCommandError" })
+    }
+    return result
+  }
+  assertWorkspace(workspace, "[vitehub] Capability command execution requires an execution-capable Workspace Session.")
   const session = await workspace.startSession()
+  if (session.executionAuthority?.processes === "none") {
+    await session.close()
+    throw new Error("[vitehub] Capability command execution requires a Workspace Session host that permits processes.")
+  }
   let result
   try {
     result = await session.exec(command, args, {
@@ -160,7 +182,7 @@ export async function executeBoxCommand(
       timeout: options.timeout,
     })
     if (options.check && result.exitCode !== 0) {
-      throw Object.assign(new Error(`[vitehub] Box command "${command}" exited with code ${result.exitCode}.`), {
+      throw Object.assign(new Error(`[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.`), {
         command,
         exitCode: result.exitCode,
         name: "BoxCommandError",
@@ -177,7 +199,7 @@ export async function executeBoxCommand(
       await session.close()
     }
     catch (closeError) {
-      throw new AggregateError([error, closeError], "[vitehub] Box command failed and session cleanup also failed.")
+      throw new AggregateError([error, closeError], "[vitehub] Workspace command failed and session cleanup also failed.")
     }
     throw error
   }
@@ -200,8 +222,8 @@ export function workspaceCommandTools(
   return {
     [toolName]: defineInternalTool({
       description: options.description || (unrestricted
-        ? "Run any executable in the Box-backed Workspace Session."
-        : `Run one configured command in the Box-backed Workspace Session at the workspace root. Allowed commands: ${summary}.`),
+        ? "Run any executable in the Workspace Session."
+        : `Run one configured command in the Workspace Session at the workspace root. Allowed commands: ${summary}.`),
       inputSchema: {
         additionalProperties: false,
         properties: {
@@ -217,7 +239,7 @@ export function workspaceCommandTools(
         type: "object",
       },
       name: toolName,
-      async execute(input: unknown) {
+      async execute(input: unknown, execution?: AgentToolExecutionContext) {
         const value = input as WorkspaceCommandInput
         if (!value || typeof value.command !== "string") throw new TypeError(`[vitehub] ${toolName} requires a command.`)
         if (unrestricted) normalizeWorkspaceCommandEntries([value.command], `${toolName} command`)
@@ -226,13 +248,14 @@ export function workspaceCommandTools(
         const cwd = normalizeCwd(value.cwd)
         const env = envRecord(value.env)
         const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout ?? defaultWorkspaceCommandTimeout
-        assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires a Box-backed writable Workspace Session.")
-        return await executeBoxCommand(workspace, value.command, args, {
+        assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an execution-capable writable Workspace Session.")
+        return await executeWorkspaceCommand(workspace, value.command, args, {
           ...(mode === "write" ? { commitMessage: options.commitMessage || "workspace shell command" } : {}),
+          abortSignal: execution?.abortSignal,
           cwd,
           env,
           timeout: commandTimeout,
-        })
+        }, options.context)
       },
     }),
   }

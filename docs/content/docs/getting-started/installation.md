@@ -63,10 +63,11 @@ import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkspace } from "vite-hub/workspace"
 ```
 
-Model providers, chat adapters, and harness adapters remain explicit
-dependencies because the application chooses them. The distribution includes
+Third-party model providers and chat adapters remain explicit dependencies because the application chooses them. Built-in coding providers use ViteHub's pinned provider runtime. The distribution includes
 the Workflow DevKit runtime and builders because Vercel Workflow is a deliberate
 framework default; other provider SDKs stay package-owned and explicit.
+
+Until T3 publishes the provider runtime on npm, pnpm consumers using a built-in coding provider must set `blockExoticSubdeps: false` in `pnpm-workspace.yaml`; ViteHub pins an exact pkg.pr.new tarball rather than a moving branch.
 
 ## Install an owner package directly
 

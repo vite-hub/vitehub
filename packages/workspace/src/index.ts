@@ -30,14 +30,6 @@ export type {
   McpResourcesSourceOptions,
 } from "./sources/index.ts"
 export { createWorkspaceTools } from "./ai.ts"
-export {
-  prepareHarnessWorkspaceSession,
-} from "./session/harness.ts"
-export type {
-  HarnessSandboxSession,
-  HarnessWorkspaceSession,
-  PrepareHarnessWorkspaceSessionOptions,
-} from "./session/harness.ts"
 export type * from "./ai.ts"
 export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 export { isWorkspaceConflict } from "./core/errors.ts"

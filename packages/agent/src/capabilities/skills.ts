@@ -1,4 +1,4 @@
-import { defineCapability, globalSkillsSymbol, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -9,7 +9,6 @@ import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 
 export interface SkillsCapabilityOptions {
   path?: string
-  scope?: "global" | "workspace"
   shellExecution?: AgentCapabilityMode
   source?: WorkspaceSourceInput
   sourceKey?: string
@@ -21,12 +20,6 @@ function normalizeShellExecution(value: unknown): AgentCapabilityMode | undefine
   if (value === undefined) return undefined
   if (value === "read" || value === "write") return value
   throw new TypeError("[vitehub] skills({ shellExecution }) must be \"read\" or \"write\".")
-}
-
-function normalizeSkillScope(value: unknown): "global" | "workspace" {
-  if (value === undefined || value === "workspace") return "workspace"
-  if (value === "global") return value
-  throw new TypeError("[vitehub] skills({ scope }) must be \"workspace\" or \"global\".")
 }
 
 function normalizeSkillPath(path: string): string {
@@ -45,11 +38,6 @@ function skillSourceKey(path: string): string {
     .replace(/[^A-Za-z0-9_.-]+/g, ".")
     .replace(/^\.+|\.+$/g, "") || "root"
   return `skill.${suffix}`
-}
-
-function skillCapabilityId(sourceKey: string): string {
-  const suffix = sourceKey.replace(/[^A-Za-z0-9_.-]+/g, ".").replace(/^\.+|\.+$/g, "") || "global"
-  return `skills.${suffix}`
 }
 
 function rebaseMountedFileSource(source: WorkspaceSourceInput, mountPath: string): WorkspaceSourceInput {
@@ -76,25 +64,6 @@ function isPlainFileSource(source: WorkspaceSourceInput): source is { path: stri
     && !("getKeys" in source)
 }
 
-function absoluteFileSourcePath(source: WorkspaceSourceInput): string | undefined {
-  const visited = new Set<object>()
-  let current = source
-  while (current && typeof current === "object" && "source" in current && !("getKeys" in current)) {
-    if (visited.has(current)) {
-      throw new TypeError("[vitehub] skills({ scope: \"global\" }) cannot use a cyclic Source binding.")
-    }
-    visited.add(current)
-    current = current.source
-  }
-  if (typeof current === "string") return isAbsolutePhysicalPath(current) ? current : undefined
-  if (!isPlainFileSource(current)) return
-  return isAbsolutePhysicalPath(current.path) ? current.path : undefined
-}
-
-function isAbsolutePhysicalPath(path: string): boolean {
-  return path.startsWith("/") || path.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(path)
-}
-
 function workspacePathInsideMount(path: string, mountPath: string) {
   const normalized = normalizeSkillPath(path)
   return normalized.startsWith(`${mountPath}/`) ? normalized.slice(mountPath.length + 1) : undefined
@@ -118,19 +87,6 @@ function workspaceShellTools(
 }
 
 export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDefinition {
-  const scope = normalizeSkillScope(options.scope)
-  if (scope === "global" && !options.path) {
-    throw new TypeError("[vitehub] skills({ scope: \"global\" }) requires path.")
-  }
-  if (scope === "global" && !options.source) {
-    throw new TypeError("[vitehub] skills({ scope: \"global\" }) requires source.")
-  }
-  if (scope === "global" && options.shellExecution !== undefined) {
-    throw new TypeError("[vitehub] skills({ scope: \"global\" }) does not support shellExecution.")
-  }
-  if (scope === "global" && absoluteFileSourcePath(options.source!)) {
-    throw new TypeError("[vitehub] skills({ scope: \"global\" }) cannot use an absolute File Source path. File Sources are single-file and root-confined; use a directory-capable github() or custom() Source, or a root-confined glob() Source, for Skill directories.")
-  }
   const normalizedPath = normalizeSkillPath(options.path || "skills")
   const shellExecution = normalizeShellExecution(options.shellExecution)
   const workspaceRequirementMode = shellExecution ?? "read"
@@ -138,7 +94,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     ? normalizedPath
     : `${normalizedPath}/SKILL.md`
   const directoryPath = skillDirectory(skillPath)
-  const harnessWorkspacePath = directoryPath || skillPath
+  const providerWorkspacePath = directoryPath || skillPath
   const sourceKey = options.sourceKey || skillSourceKey(directoryPath)
   const workspaceSources = options.source
     ? {
@@ -147,46 +103,23 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     : undefined
 
   const capability = defineCapability({
-    id: scope === "global" ? skillCapabilityId(sourceKey) : "skills",
+    id: "skills",
     metadata: {
       path: normalizedPath,
-      scope,
       skillPath,
       ...(shellExecution ? { shellExecution } : {}),
       ...(workspaceSources ? { sourceKey: Object.keys(workspaceSources)[0] } : {}),
     },
-    ...(scope === "workspace"
-      ? { requires: [{ primitive: "workspace" as const, workspace: { mode: workspaceRequirementMode, paths: [skillPath], required: true } }] }
-      : {}),
-    ...(scope === "workspace" && workspaceSources ? { workspaceSources } : {}),
-    ...(scope === "global"
-      ? {
-          prepare: (context) => {
-            if (context.driver?.kind !== "harness") {
-              throw new Error("[vitehub] skills({ scope: \"global\" }) requires a Harness Agent Driver.")
-            }
-          },
-        }
-      : {}),
+    requires: [{ primitive: "workspace" as const, workspace: { mode: workspaceRequirementMode, paths: [skillPath], required: true } }],
+    ...(workspaceSources ? { workspaceSources } : {}),
     ...(shellExecution
       ? {
-          tools: context => context.driver?.kind === "harness" ? undefined : workspaceShellTools(shellExecution, context.workspace as never),
+          tools: context => context.driver?.kind === "provider" ? undefined : workspaceShellTools(shellExecution, context.workspace as never),
         }
       : {}),
   })
 
-  if (scope === "global") {
-    const path = directoryPath.replace(/^skills(?:\/|$)/, "")
-    return Object.assign(capability, {
-      [globalSkillsSymbol]: {
-        path,
-        source: sourceBinding(options.source!, path, directoryPath),
-        sourceKey,
-      },
-    })
-  }
-
   return Object.assign(capability, {
-    [workspaceMaterializationPathsSymbol]: [harnessWorkspacePath],
+    [workspaceMaterializationPathsSymbol]: [providerWorkspacePath],
   })
 }

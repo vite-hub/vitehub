@@ -181,7 +181,7 @@ openapi({
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives selected OpenAPI tools, or one generated Capability CLI tool when `cli` is set. |
-| Harness-backed | Receives selected OpenAPI tools, or the generated Capability CLI tool, through the Harness tool bridge. |
+| Provider-backed | Receives selected OpenAPI tools, or the generated Capability CLI tool, through the provider MCP bridge. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides whether to call API operations directly. |
 
 ## Options

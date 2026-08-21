@@ -1,7 +1,4 @@
-import type {
-  AgentHarnessCredentialSource,
-  AgentUsageCredentialSource,
-} from "../types.ts"
+import type { AgentUsageCredentialSource } from "../types.ts"
 
 interface AgentUsageMetadata {
   credentialSource?: AgentUsageCredentialSource
@@ -11,19 +8,6 @@ const agentUsageMetadataKey = "__vitehubUsageMetadata"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
-}
-
-export function createHarnessUsageMetadata(credentials: AgentHarnessCredentialSource | undefined): AgentUsageMetadata | undefined {
-  if (!credentials) return undefined
-  const source = typeof credentials.source === "string" ? credentials.source : undefined
-  const label = typeof credentials.label === "string" ? credentials.label : undefined
-  if (!source && !label) return undefined
-  return {
-    credentialSource: {
-      ...(label ? { label } : {}),
-      ...(source ? { source } : {}),
-    },
-  }
 }
 
 export function defineAgentUsageMetadata(result: unknown, metadata: AgentUsageMetadata | undefined): unknown {

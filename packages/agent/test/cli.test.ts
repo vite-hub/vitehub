@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
@@ -1287,6 +1286,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const fetchAgentInfo = vi.fn(async () => Response.json({
       inspection: {
+        capabilities: [{ id: "runtime", metadata: { status: "ready" } }],
         config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
         files: [],
         instructions: [],
@@ -1308,6 +1308,7 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(0)
     expect(JSON.parse(stdout.output())).toEqual({
+      capabilities: [{ id: "runtime", metadata: { status: "ready" } }],
       config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
       files: [],
       instructions: [],
@@ -2125,46 +2126,6 @@ describe("agent CLI", () => {
     expect(stderr.output()).not.toContain("[usage]")
     expect(stderr.output().match(/\[tool\] cat file\.md/g)).toHaveLength(1)
     expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: cost ~$0.000004; 17 tokens: 10 in / 7 out; 3 reasoning tokens; time 2.0s; speed 3.5 tok/s")
-  })
-
-  it("renders Agent Dev Loop workspace progress outside tool output", async () => {
-    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        return ndjson([
-          { agent: "review", trigger: "github.webhook", type: "start" },
-          { id: "workspace.prepare:review", label: "Preparing workspace", phase: "workspace.prepare", status: "started", type: "progress" },
-          { durationMs: 1500, id: "workspace.prepare:review", label: "Preparing workspace", phase: "workspace.prepare", status: "completed", type: "progress" },
-          { id: "agent.harness:create", label: "Creating harness agent", phase: "agent.harness", status: "started", type: "progress" },
-          { durationMs: 250, id: "agent.harness:create", label: "Creating harness agent", phase: "agent.harness", status: "updating", type: "progress" },
-          { durationMs: 42, id: "runtime.inspect", phase: "runtime.inspect", status: "completed", type: "progress" },
-          { type: "finish" },
-          { type: "done" },
-        ])
-      }
-      return Response.json({
-        agents: [{ name: "review", triggers: ["github.webhook"] }],
-        root: "/repo",
-      })
-    })
-    const progressStderr = stream()
-    const exitCodeWithPrompt = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "-p", "/review"], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      spawn: vi.fn(),
-      stderr: progressStderr,
-      stdout: stream(),
-    }, { fetch: fetchAgentStream as never })
-
-    expect(exitCodeWithPrompt).toBe(0)
-    expect(progressStderr.output()).toContain("[workspace] Preparing workspace\n")
-    expect(progressStderr.output()).toContain("[workspace] Preparing workspace completed (1.5s)")
-    expect(progressStderr.output()).toContain("[harness] Creating harness agent\n")
-    expect(progressStderr.output()).toContain("[harness] Creating harness agent updating (250ms)")
-    expect(progressStderr.output()).toContain("[internal] runtime.inspect completed (42ms)")
-    expect(progressStderr.output()).not.toContain("[tool] Preparing workspace")
-    expect(progressStderr.output()).not.toContain("[tool] Creating harness agent")
-    expect(progressStderr.output()).not.toContain("[tool] runtime.inspect")
   })
 
   it("adds best-effort pricing to Agent Dev Loop usage notes", async () => {

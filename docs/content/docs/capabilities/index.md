@@ -88,6 +88,8 @@ This bridge is not yet a complete Eve runtime. Tool and approval contexts do not
 | Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
 | Metadata | Inspectable configuration for runtime diagnostics and CLI inspection. |
 
+Capability metadata appears under the Capability id in Agent inspection output. ViteHub keeps JSON values, sorts object keys and Capability ids, drops unsupported or cyclic values, and redacts keys shaped like auth, API keys, credentials, passwords, secrets, or tokens. Metadata must describe configuration or an explicit check result; it must not include Env values, authentication material, or credentials.
+
 Use `defineCapability({ finish })` for metadata that evals, finish hooks, or channel delivery code should read after an invocation.
 Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
 
@@ -95,8 +97,7 @@ Agent Evals expose those values through `observation.extensions.get(capabilityId
 
 Capabilities attach above the Agent Driver.
 A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.
-A harness-backed Agent Driver receives Agent tools through the Harness tool bridge, explicit harness-compatible contributions, and scoped Workspace behavior.
-Harness-backed drivers do not support Capability Provider Tool contributions, such as `webSearch({ mode: 'model' })`, and do not receive Capability-authored model instructions unless the Capability exposes them through a harness-compatible surface.
+A provider-backed Agent Driver receives Agent tools through the private MCP bridge and scoped Workspace behavior. Provider-backed Drivers do not support model-specific Capability Provider Tool contributions such as `webSearch({ mode: 'model' })`.
 A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
 
 Free-form guidance about when and why to use a Capability belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas remain part of the model-facing tool contract.

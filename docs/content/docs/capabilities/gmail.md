@@ -1,42 +1,25 @@
 ---
 title: Gmail
-description: Let a Harness Agent search Gmail and create unsent drafts through structured tools.
+description: Let an Agent search Gmail and create unsent drafts through structured tools.
 navigation.title: Gmail
 navigation.order: 96
 navigation.group: External context
 icon: i-lucide-mail-search
 ---
 
-`gmail()` gives a Harness Agent structured Gmail search and authorization tools. Draft mode adds draft creation, but the Capability never exposes a send tool or registers the underlying `gog` executable on `bash`.
+`gmail()` gives an Agent structured Gmail search and authorization tools. Draft mode adds draft creation, but the Capability never exposes a send tool or the underlying `gog` executable.
 
-Use [`email()`](/docs/capabilities/email) when an Agent should send application-owned transactional email through the Email primitive. Use `gmail()` when a Harness Agent should work with an operator-owned Gmail account through structured Gmail tools.
+Use [`email()`](/docs/capabilities/email) when an Agent should send application-owned transactional email through the Email primitive. Use `gmail()` when an Agent should work with an operator-owned Gmail account through structured Gmail tools.
 
 ## Configure the Agent
 
-Install [`gog`](https://github.com/openclaw/gogcli) in the Box environment, configure its Google OAuth client, and keep its writable authentication state in Box Home. The application owns this setup; the Capability never accepts OAuth client secrets or keyring passwords as tool input.
+Install [`gog`](https://github.com/openclaw/gogcli) on the Workspace Session host, configure its Google OAuth client, and keep its authentication state under the service account. The application owns this setup; the Capability never accepts OAuth client secrets or keyring passwords as tool input.
 
 ```ts [server/agents/inbox.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { gmail } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
-  box: {
-    runtime: {
-      kind: 'trusted-host',
-      stateRoot: '/var/lib/vitehub/boxes',
-    },
-    env: {
-      GOG_KEYRING_BACKEND: 'file',
-      GOG_KEYRING_PASSWORD: () => process.env.GOG_KEYRING_PASSWORD,
-    },
-    home: {
-      state: {
-        '.config/gogcli': { key: 'inbox-agent/gmail-config' },
-        '.local/share/gogcli': { key: 'inbox-agent/gmail-data' },
-      },
-    },
-    requires: ['gog'],
-  },
   capabilities: [
     gmail({ mode: 'draft' }),
   ],
@@ -47,7 +30,7 @@ export default defineAgent({
 })
 ```
 
-Use an absolute, operator-owned `stateRoot` in production and stable project-qualified Home state keys. Current [`gog` path conventions](https://github.com/openclaw/gogcli/blob/main/docs/paths.md) keep configuration in `.config/gogcli` and OAuth metadata plus file-keyring entries in `.local/share/gogcli` on Linux, so persist both paths. Supply `GOG_KEYRING_PASSWORD` through Server Env or the deployment secret store. Follow the [`gog` OAuth client setup](https://github.com/openclaw/gogcli/blob/main/docs/quickstart.md) before the first authorization attempt.
+Current [`gog` path conventions](https://github.com/openclaw/gogcli/blob/main/docs/paths.md) keep configuration in `.config/gogcli` and OAuth metadata plus file-keyring entries in `.local/share/gogcli` on Linux, so persist both directories for the service account. Supply `GOG_KEYRING_PASSWORD` through Server Env or the deployment secret store. Follow the [`gog` OAuth client setup](https://github.com/openclaw/gogcli/blob/main/docs/quickstart.md) before the first authorization attempt.
 
 ## Choose a mode
 
@@ -67,7 +50,7 @@ gmail({ mode: 'draft' })
 
 `gmail()` has no send mode. Search commands run with read-only and no-send controls. Draft creation runs with `--gmail-no-send`, and no Capability-owned tool can send the resulting draft.
 
-This is a Capability tool-surface contract, not a security boundary around the Harness. A Harness Agent can execute commands inside its Box, including an installed `gog`, so use draft mode only when the Agent is trusted not to bypass the structured tools. If sending must be impossible, isolate the credential behind a runtime or provider policy that cannot send; `gmail()` does not provide that isolation.
+This is a Capability tool-surface contract, not a credential isolation boundary. If sending must be impossible, isolate the credential behind a runtime or provider policy that cannot send; `gmail()` does not provide that isolation.
 
 ## Complete authorization
 
@@ -90,20 +73,19 @@ await gmail_auth({
 })
 ```
 
-The Capability accepts only an HTTP loopback URL with both `code` and `state`. It exchanges the URL inside the Box and does not return it in the result.
+The Capability accepts only an HTTP loopback URL with both `code` and `state`. It exchanges the URL on the Workspace Session host and does not return it in the result.
 
 ## Runtime boundaries
 
 `gmail()` requires all of the following:
 
-- A Harness Agent Driver.
-- An explicit Workspace with `workspace.mode: 'write'`, because each structured Gmail call opens a Box-backed writable Workspace Session.
-- `defineAgent({ box })` with `gog` available.
-- Operator-owned OAuth client configuration and persistent Box Home state.
+- An explicit Workspace with `workspace.mode: 'write'`, because each structured Gmail call opens a writable Workspace Session.
+- A Workspace Session host with command execution and `gog` available.
+- Operator-owned OAuth client configuration and persistent service-account state.
 
-Each underlying `gog` command opens its own Workspace Session and closes the Session on success or failure. Gmail search results remain untrusted external content and the contributed `skills/gmail/SKILL.md` tells the Harness Agent to treat them as data, not instructions.
+Each underlying `gog` command opens its own Workspace Session and closes the Session on success or failure. Gmail search results remain untrusted external content and the contributed `skills/gmail/SKILL.md` tells the Agent to treat them as data, not instructions.
 
-Draft authorization may grant the Gmail account scope that `gog` needs to create drafts. The no-send contract applies only to the Capability-owned tools and their command flags; it does not restrict the Harness's own Box command authority.
+Draft authorization may grant the Gmail account scope that `gog` needs to create drafts. The no-send contract applies only to the Capability-owned tools and their command flags.
 
 ## Inspect and verify
 
@@ -119,7 +101,6 @@ Start with a test Gmail account. Search for `in:inbox`, create a draft in draft 
 
 ## Reference
 
-- [Boxes](/docs/agents/boxes)
 - [Workspace shell](/docs/capabilities/workspace-shell)
 - [Email Capability](/docs/capabilities/email)
 - Source: `packages/agent/src/capabilities/gmail.ts`

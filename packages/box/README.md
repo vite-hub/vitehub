@@ -11,45 +11,42 @@ pnpm add @vite-hub/box
 ## Prepare a trusted-host Box
 
 ```ts
-import { defineAgent } from "@vite-hub/agent";
+import { resolveBox } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
-export default defineAgent<any, { ref: string; remote: string; sha: string }>({
-  box: {
-    runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
-    checkout: {
-      ref: ({ input }) => input.options?.ref,
-      remote: ({ input }) => input.options?.remote,
-      sha: ({ input }) => input.options?.sha,
+const box = await resolveBox({
+  runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
+  checkout: {
+    ref: "refs/pull/985/head",
+    remote: "https://github.com/vite-hub/vitehub.git",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+  },
+  env: {
+    GH_TOKEN: () => useServerEnv().githubToken.unseal(),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+  },
+  home: {
+    files: {
+      ".gitconfig": { from: ".vitehub/box/gitconfig" },
+      ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
     },
-    env: {
-      GH_TOKEN: () => useServerEnv().githubToken.unseal(),
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-    },
-    home: {
-      files: {
-        ".gitconfig": { from: ".vitehub/box/gitconfig" },
-        ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
-      },
-      state: {
-        ".codex": {
-          key: "babysitter/codex",
-          seed: {
-            "auth.json": {
-              contents: () => useServerEnv().codexAuthJson.unseal(),
-            },
+    state: {
+      ".codex": {
+        key: "babysitter/codex",
+        seed: {
+          "auth.json": {
+            contents: () => useServerEnv().codexAuthJson.unseal(),
           },
         },
       },
     },
-    requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
-  driver: "codex",
-});
+  requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
+}, {});
 ```
 
-Agent and Sandbox orchestration use the same active Interface under the hood. Direct callers can inspect preparation without resolving secrets, then open an invocation session:
+Direct callers can inspect preparation without resolving secrets, then open a session:
 
 ```ts
 import { resolveBox } from "@vite-hub/box";
@@ -124,11 +121,11 @@ The Cloudflare runtime uses `@cloudflare/sandbox`, preserves Durable Object idle
 
 `box.open({ initialize })` runs initialization inside runtime preparation. If initialization fails, a runtime must tear down the session and roll back state created for that failed boot.
 
-`checkout` gives each invocation a disposable real Git repository at the exact requested commit. The runtime fetches `ref` from `remote`, verifies the resulting commit against the full `sha`, and starts the harness in a detached checkout. Normal Git commits work, and callers can push explicitly with `git push origin HEAD:<branch>`. Use the source repository as `remote` for fork pull requests, and keep credentials in Box `env` or Home rather than embedding them in the remote URL.
+`checkout` gives each invocation a disposable real Git repository at the exact requested commit. The runtime fetches `ref` from `remote`, verifies the resulting commit against the full `sha`, and starts the process in a detached checkout. Normal Git commits work, and callers can push explicitly with `git push origin HEAD:<branch>`. Use the source repository as `remote` for fork pull requests, and keep credentials in Box `env` or Home rather than embedding them in the remote URL.
 
 `checkout` and `cwd` are mutually exclusive. Use `cwd` for a caller-owned authoritative directory; use `checkout` when the Box should create, isolate, and delete the working tree. Git is an implicit checkout requirement and is included in resolved Box metadata.
 
-Every Box session receives a new private `HOME` plus `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME`. The runtime starts from a small operational environment allowlist, applies the declared `env`, attaches writable state, materializes files, and runs requirements before the harness starts. Missing declarations fail boot; the host Home and undeclared credential variables cannot satisfy them.
+Every Box session receives a new private `HOME` plus `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME`. The runtime starts from a small operational environment allowlist, applies the declared `env`, attaches writable state, materializes files, and runs requirements before the process starts. Missing declarations fail boot; the host Home and undeclared credential variables cannot satisfy them.
 
 `home.files` targets and state paths are relative POSIX paths below the materialized Home. A `from` source is relative to `cwd`, or the ViteHub process directory when `cwd` is omitted. Files with `contents` accept text, bytes, or a `BoxValue` callback. Every declared value is required.
 
@@ -156,7 +153,7 @@ requires: [
 ];
 ```
 
-Core does not contain provider names or auth-file formats. The `"codex"` Agent Driver contributes its own generic `codex login status` check when it uses direct OpenAI authentication.
+Core does not contain provider names or auth-file formats. Declare every executable and authentication check required by the process that will run in the Box.
 
 Requirement names, commands, and argv are inspectable declaration metadata. They verify or select executables, but they do not restrict filesystem access, network egress, inherited credentials, or child processes. Inspect `box.plan.executionAuthority` for those boundaries, and keep credentials in `env` or Home files rather than arguments.
 

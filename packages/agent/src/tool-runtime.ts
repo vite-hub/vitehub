@@ -14,6 +14,8 @@ function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
   return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
 }
 
+export const agentToolPolicyApproveSymbol: unique symbol = Symbol("vitehub.agent.tool-policy-approve")
+
 export function toJsonCompatibleValue(value: unknown): unknown {
   if (value === undefined) return null
   try {
@@ -41,10 +43,18 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
 
   const execute = tool.execute
   const policy = tool.policy
+  const approvedInputs = new Set<unknown>()
 
   return {
     ...tool,
+    [agentToolPolicyApproveSymbol](input: unknown) {
+      approvedInputs.add(input)
+    },
     async execute(input, context) {
+      if (approvedInputs.delete(input)) {
+        context?.abortSignal?.throwIfAborted()
+        return await execute(input, context)
+      }
       const decision = typeof policy === "function"
         ? await policy({
             name: tool.name,
@@ -74,9 +84,10 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
       }
 
+      context?.abortSignal?.throwIfAborted()
       return await execute(input, context)
     },
-  }
+  } as AgentToolDefinition
 }
 
 export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
@@ -198,6 +209,8 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
 
         await reportToolStep({ toolCalls: [toolCall] })
         try {
+          const execution = args[0] as { abortSignal?: AbortSignal } | undefined
+          execution?.abortSignal?.throwIfAborted()
           const output = await execute.call(tool, input, ...args)
           await reportToolStep({ toolResults: [{ ...toolCall, output }] })
           return output

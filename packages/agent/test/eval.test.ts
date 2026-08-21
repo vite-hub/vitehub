@@ -23,6 +23,35 @@ const inspectTools = vi.fn(() => ({}))
 const registerWorkspace = vi.hoisted(() => vi.fn())
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown, warnings?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
+const providerStarts = vi.hoisted(() => [] as Record<string, unknown>[])
+
+vi.mock("@t3tools/provider-runtime", () => ({
+  createProviderRuntime: vi.fn(async () => {
+    let releaseTurn!: () => void
+    const turnStarted = new Promise<void>(resolve => releaseTurn = resolve)
+    let threadId = ""
+    return {
+      attachmentsDirectory: "/tmp",
+      close: vi.fn(async () => undefined),
+      events: {
+        async *[Symbol.asyncIterator]() {
+          await turnStarted
+          yield { payload: { state: "completed" }, threadId, turnId: "turn-1", type: "turn.completed" }
+        },
+      },
+      sendTurn: vi.fn(async () => {
+        releaseTurn()
+        return { threadId, turnId: "turn-1" }
+      }),
+      startSession: vi.fn(async (options: Record<string, unknown>) => {
+        providerStarts.push(options)
+        threadId = options.threadId as string
+        return { threadId }
+      }),
+      stopSession: vi.fn(async () => undefined),
+    }
+  }),
+}))
 
 vi.mock("@vite-hub/workspace", () => ({
   defineWorkspace: vi.fn(definition => definition),
@@ -58,6 +87,7 @@ describe("agent eval", () => {
   beforeEach(() => {
     evaliteCalls.length = 0
     agentSettings.length = 0
+    providerStarts.length = 0
     agentGenerate.mockReset()
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok", usage: { inputTokens: 1, outputTokens: 2 } })
     inspectTools.mockReset()
@@ -436,44 +466,6 @@ describe("agent eval", () => {
     })
   })
 
-  it("applies model variants by replacing harness drivers for workspace agents", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineEval } = await import("../src/eval.ts")
-    const validate = vi.fn((value: unknown) => ({ value }))
-    const output = {
-      schema: {
-        "~standard": {
-          validate,
-          vendor: "vitehub-test",
-          version: 1 as const,
-        },
-      },
-    }
-    const variantModel = { id: "variant" }
-    agentGenerate.mockResolvedValue({ finishReason: "stop", text: "{\"ok\":true}" })
-
-    defineEval({
-      agent: defineAgent({
-        driver: {
-          harness: { provider: "codex" },
-          output,
-        },
-        workspace: {},
-      }),
-      name: "support",
-      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
-      variants: [{ model: variantModel, name: "variant" }],
-      workspace: "support",
-    })
-
-    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
-
-    expect(agentSettings.at(-1)).toMatchObject({
-      model: { modelId: "variant" },
-    })
-    expect(validate).toHaveBeenCalledWith({ ok: true })
-  })
-
   it("applies replacement instruction variants for base agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
@@ -523,6 +515,43 @@ describe("agent eval", () => {
       instructions: "Base instructions.",
       model: { modelId: "variant" },
     })
+  })
+
+  it.each([
+    ["provider name", "codex"],
+    ["tagged provider", { kind: "codex" }],
+  ])("applies string model variants to the %s form", async (_name, driver) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: defineAgent({ driver: driver as never }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ instructions: "Variant instructions.", model: "o4-mini", name: "variant" }],
+    })
+
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
+
+    expect(providerStarts.at(-1)).toMatchObject({ model: "o4-mini" })
+  })
+
+  it.each([
+    ["gateway descriptor", { apiKey: "variant-secret", id: "o4-mini" }],
+    ["LanguageModel", { doGenerate() {}, doStream() {}, modelId: "o4-mini", provider: "openai" }],
+  ])("rejects ambiguous provider %s variants without losing their semantics", async (_name, model) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: defineAgent({ driver: "codex" }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ model: model as never, name: "variant" }],
+    })
+
+    await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input))
+      .rejects.toThrow("require a string model id")
   })
 
   it("rejects variant overrides for non-inspectable agents", async () => {
