@@ -48,6 +48,7 @@ const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
 type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
   agentImportBase?: string
+  hosting?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
   includeUserAppEntry?: boolean
@@ -93,7 +94,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
 
   async function prepareScheduleRuntime() {
     if (!resolved) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
-    if (normalizeWorkflowOptions(workflow, { hosting: "vercel" })?.provider !== "vercel") return
+    if (normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(resolved.root)
     const artifacts = await writeProviderEntries(rootDir, workflow, {
       agent: internalOptions?.agentImportBase,
@@ -177,6 +178,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       await generateProviderOutputs({
         agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolve(resolved.root, resolved.build.outDir),
+        hosting: internalOptions?.hosting,
         importBase: internalOptions?.importBase,
         providerImportAliases: await providerImportAliases(),
         providerRuntimeImportAliases: {

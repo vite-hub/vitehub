@@ -4,7 +4,7 @@ import { mkdir, readFile, readdir, rm, rmdir, symlink, writeFile } from "node:fs
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
-import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
@@ -517,6 +517,7 @@ interface GeneratedWorkflowArtifacts {
 interface GenerateProviderOutputsOptions {
   agentImportBase?: string
   clientOutDir: string
+  hosting?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
   providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
@@ -1070,8 +1071,7 @@ function createCloudflareOutput(
         "@vercel/functions",
         "@vercel/queue",
         "@vercel/sandbox",
-        "cloudflare:workers",
-        "cloudflare:workflows",
+        cloudflareRuntimeExternal,
         ...nodeBuiltinExternals,
         "workflow",
         "workflow/api",
@@ -1155,8 +1155,19 @@ async function generateProviderOutputsWithinLock(
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
-  const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
+  const inferredWorkflowConfig = options.hosting
+    ? resolveWorkflowConfig(options.workflow, options.hosting)
+    : undefined
+  const cloudflareWorkflowConfig = inferredWorkflowConfig === undefined
+    ? resolveWorkflowConfig(options.workflow, "cloudflare")
+    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "cloudflare"
+      ? inferredWorkflowConfig
+      : false
+  const vercelWorkflowConfig = inferredWorkflowConfig === undefined
+    ? resolveWorkflowConfig(options.workflow, "vercel")
+    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "vercel"
+      ? inferredWorkflowConfig
+      : false
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
     ? createCloudflareOutput(options.rootDir, artifacts, {
         ...options.providerImportAliases,

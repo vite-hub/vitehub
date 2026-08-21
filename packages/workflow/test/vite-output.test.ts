@@ -6,6 +6,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
+import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { cleanVercelNativeWorkflowOutput, generateProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
@@ -103,6 +104,26 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   const artifacts = await writeProviderEntries(projectRoot, false, {}, undefined, false, undefined, viteRoot)
 
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
+})
+
+it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-cloudflare-email-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  const emailDefinition = join(rootDir, "email-definition.mjs")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(emailDefinition, "import { EmailMessage } from 'cloudflare:email'\nexport default EmailMessage\n")
+  await writeFile(join(workflowDir, "01-email.ts"), "import email from '#vitehub/email/definition'\nexport default async function send() { return email }\n")
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist", "client"),
+    hosting: "cloudflare-module",
+    providerImportAliases: { "#vitehub/email/definition": emailDefinition },
+    rootDir,
+    workflow: undefined,
+  })
+
+  await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs"), "utf8")).resolves.toContain("cloudflare:email")
+  expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func"))).toBe(false)
 })
 
 it("keeps generated native step imports scoped to each directory Workflow", async () => {

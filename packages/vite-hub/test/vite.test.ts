@@ -221,6 +221,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({
       agentImportBase: "vite-hub/_internal/agent",
+      hosting: "node-server",
       importBase: "vite-hub/_internal/workflow",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
@@ -314,14 +315,14 @@ describe("vitehub", () => {
     expect(() => vitehub({ email: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
   })
 
-  it("derives standalone Schedule output from the Vercel preset", () => {
+  it("passes the active host to Workflow inference", () => {
     vitehub({ preset: "cloudflare", schedule: true, workflow: true })
 
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({
       providerOutput: expect.anything(),
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
-      provider: expect.anything(),
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      hosting: "cloudflare-module",
     }))
 
     vitehub({ preset: "vercel", schedule: true, workflow: true })
@@ -329,8 +330,8 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining({
       providerOutput: "standalone",
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
-      provider: expect.anything(),
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      hosting: "vercel",
     }))
   })
 
