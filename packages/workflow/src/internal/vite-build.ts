@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
@@ -23,6 +24,32 @@ import type { Plugin as VitePlugin } from "vite"
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
 const vercelNativeWorkflowOwnershipMarker = ".vitehub-owned"
+
+interface VercelNativeWorkflowOwnership {
+  cleanup?: boolean
+  files: Record<string, string>
+  routes: string[]
+  version: 1
+}
+
+interface VercelNativeWorkflowState {
+  files: Record<string, string>
+  ownership?: VercelNativeWorkflowOwnership
+  routes: unknown[]
+}
+
+async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise<VercelNativeWorkflowOwnership | undefined> {
+  try {
+    const ownership = JSON.parse(await readFile(ownershipFile, "utf8")) as VercelNativeWorkflowOwnership
+    if (ownership.version !== 1 || !ownership.files || !Array.isArray(ownership.routes)) return
+    if (Object.entries(ownership.files).some(([file, digest]) => isAbsolute(file) || typeof digest !== "string")) return
+    if (ownership.routes.some(route => typeof route !== "string")) return
+    return ownership
+  }
+  catch {
+    return
+  }
+}
 
 const generatedRegistryFileName = "registry.mjs"
 const cloudflareWorkflowWranglerConfigKeys = ["compatibility_date", "compatibility_flags", "main", "observability", "workflows"]
@@ -202,25 +229,105 @@ export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: stri
 export async function cleanVercelNativeWorkflowOutput(rootDir: string): Promise<void> {
   const outputRoot = resolve(rootDir, ".vercel", "output")
   const workflowRoot = resolve(outputRoot, "functions", ".well-known", "workflow")
-  if (!existsSync(resolve(workflowRoot, vercelNativeWorkflowOwnershipMarker))) return
-  await rm(workflowRoot, { force: true, recursive: true })
+  const ownershipFile = resolve(workflowRoot, vercelNativeWorkflowOwnershipMarker)
+  const ownership = await readVercelNativeWorkflowOwnership(ownershipFile)
+  if (!ownership) return
+  if (Object.keys(ownership.files).some(file => relative(workflowRoot, resolve(workflowRoot, file)).startsWith(".."))) return
+
+  let hasReplacement = false
+  const ownedFiles: string[] = []
+  for (const [file, digest] of Object.entries(ownership.files)) {
+    const outputFile = resolve(workflowRoot, file)
+    let contents: Buffer
+    try {
+      contents = await readFile(outputFile)
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if (!ownership.cleanup) hasReplacement = true
+        continue
+      }
+      throw error
+    }
+    if (createHash("sha256").update(contents).digest("hex") !== digest) {
+      hasReplacement = true
+      continue
+    }
+    ownedFiles.push(outputFile)
+  }
+  if (hasReplacement) {
+    await rm(ownershipFile, { force: true })
+    return
+  }
+  if (!ownership.cleanup) await writeFile(ownershipFile, `${JSON.stringify({ ...ownership, cleanup: true }, null, 2)}\n`, "utf8")
+  await Promise.all(ownedFiles.map(async file => await rm(file, { force: true })))
   const configFile = resolve(outputRoot, "config.json")
-  let config: { routes?: Array<Record<string, unknown>>, [key: string]: unknown }
+  let config: { routes?: Array<Record<string, unknown>>, [key: string]: unknown } | undefined
   try {
     config = JSON.parse(await readFile(configFile, "utf8"))
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  if (Array.isArray(config?.routes)) {
+    const ownedRoutes = new Set(ownership.routes)
+    const routes = config.routes.filter(route => !ownedRoutes.has(JSON.stringify(route)))
+    if (routes.length !== config.routes.length) {
+      await writeFile(configFile, `${JSON.stringify({ ...config, routes }, null, 2)}\n`, "utf8")
+    }
+  }
+  await rm(ownershipFile, { force: true })
+  await removeEmptyDirectories(workflowRoot)
+}
+
+async function removeEmptyDirectories(directory: string): Promise<boolean> {
+  let entries
+  try {
+    entries = await readdir(directory, { withFileTypes: true })
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true
     throw error
   }
-  if (!Array.isArray(config.routes)) return
-  const routes = config.routes.filter(route => !JSON.stringify(route).includes("/.well-known/workflow/v1/"))
-  if (routes.length !== config.routes.length) {
-    await writeFile(configFile, `${JSON.stringify({ ...config, routes }, null, 2)}\n`, "utf8")
+  for (const entry of entries) {
+    if (entry.isDirectory()) await removeEmptyDirectories(resolve(directory, entry.name))
+  }
+  if ((await readdir(directory)).length) return false
+  await rmdir(directory)
+  return true
+}
+
+async function collectVercelNativeWorkflowFiles(workflowRoot: string, directory = workflowRoot): Promise<Record<string, string>> {
+  const files: Record<string, string> = {}
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const outputFile = resolve(directory, entry.name)
+    if (entry.isDirectory()) {
+      Object.assign(files, await collectVercelNativeWorkflowFiles(workflowRoot, outputFile))
+    }
+    else if (entry.name !== vercelNativeWorkflowOwnershipMarker) {
+      files[relative(workflowRoot, outputFile)] = createHash("sha256").update(await readFile(outputFile)).digest("hex")
+    }
+  }
+  return files
+}
+
+async function readVercelNativeWorkflowState(rootDir: string): Promise<VercelNativeWorkflowState> {
+  const outputRoot = resolve(rootDir, ".vercel", "output")
+  const workflowRoot = resolve(outputRoot, "functions", ".well-known", "workflow")
+  let routes: unknown[] = []
+  try {
+    const config = JSON.parse(await readFile(resolve(outputRoot, "config.json"), "utf8")) as { routes?: unknown[] }
+    routes = config.routes ?? []
+  }
+  catch {}
+  return {
+    files: existsSync(workflowRoot) ? await collectVercelNativeWorkflowFiles(workflowRoot) : {},
+    ownership: await readVercelNativeWorkflowOwnership(resolve(workflowRoot, vercelNativeWorkflowOwnershipMarker)),
+    routes,
   }
 }
 
-async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): Promise<void> {
+async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState): Promise<void> {
   if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) {
     await cleanVercelNativeWorkflowOutput(rootDir)
     return
@@ -232,7 +339,16 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
 
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
   const viteHubConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[] }
-  const viteHubRoutes = (viteHubConfig.routes ?? []).filter(route => !JSON.stringify(route).includes("/.well-known/workflow/v1/"))
+  const workflowRoot = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const previousOwnership = previousState?.ownership
+  const previousFiles = previousState?.files ?? {}
+  const previouslyOwnedRoutes = new Set(previousOwnership?.routes ?? [])
+  const preservedRoutes = (previousState?.routes ?? []).filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/") && !previouslyOwnedRoutes.has(JSON.stringify(route)))
+  const currentRoutes = (viteHubConfig.routes ?? []).filter(route => !previouslyOwnedRoutes.has(JSON.stringify(route)))
+  const viteHubRoutes = [...new Map([...currentRoutes, ...preservedRoutes].map(route => [JSON.stringify(route), route])).values()]
+  const externalWorkflowRoutes = new Set(preservedRoutes
+    .filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
+    .map(route => JSON.stringify(route)))
   const definitionDirs = [...new Set([
     ...definitions.map(definition => dirname(definition.handler)),
     ...nativeFiles.map(file => dirname(file)),
@@ -247,7 +363,6 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     workingDir: rootDir,
   })
   await withVercelWorkflowPackageLink(rootDir, async () => await builder.build())
-  await writeFile(resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", vercelNativeWorkflowOwnershipMarker), "\n", "utf8")
   const emailDefinitionFile = aliases["#vitehub/email/definition"]
   if (emailDefinitionFile) await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
   const workflowConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[], [key: string]: unknown }
@@ -256,6 +371,17 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     ...viteHubConfig,
     routes: [...(workflowConfig.routes ?? []), ...viteHubRoutes],
   }, null, 2)}\n`, "utf8")
+  const generatedFiles = await collectVercelNativeWorkflowFiles(workflowRoot)
+  const ownership: VercelNativeWorkflowOwnership = {
+    files: Object.fromEntries(Object.entries(generatedFiles)
+      .filter(([file, digest]) => previousFiles[file] !== digest || previousFiles[file] === previousOwnership?.files[file])),
+    routes: (workflowConfig.routes ?? [])
+      .filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
+      .filter(route => !externalWorkflowRoutes.has(JSON.stringify(route)))
+      .map(route => JSON.stringify(route)),
+    version: 1,
+  }
+  await writeFile(resolve(workflowRoot, vercelNativeWorkflowOwnershipMarker), `${JSON.stringify(ownership, null, 2)}\n`, "utf8")
 }
 
 function resolveWorkflowUserAppEntry(rootDir: string) {
@@ -955,6 +1081,7 @@ async function generateProviderOutputsWithinLock(
       }, options.serverFunctionName)
     : undefined
   const writeOutputs = async () => {
+    const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
       cloudflare: cloudflareOutput,
@@ -966,7 +1093,7 @@ async function generateProviderOutputsWithinLock(
           await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
             ...options.providerImportAliases,
             ...options.providerRuntimeImportAliases?.vercel,
-          }, artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
+          }, artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [], previousNativeOutput)
         }
         else {
           await cleanVercelNativeWorkflowOutput(options.rootDir)

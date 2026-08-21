@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
@@ -14,6 +15,18 @@ const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const buildOutputTestTimeout = 60_000
 const tempNodeModuleBuildDirs = new Set([".vite-temp"])
 const tempDirs: string[] = []
+
+async function writeViteHubWorkflowOwnership(workflowRoot: string, files: string[], routes: unknown[]) {
+  const ownership = {
+    files: Object.fromEntries(await Promise.all(files.map(async file => [
+      file,
+      createHash("sha256").update(await readFile(join(workflowRoot, file))).digest("hex"),
+    ]))),
+    routes: routes.map(route => JSON.stringify(route)),
+    version: 1,
+  }
+  await writeFile(join(workflowRoot, ".vitehub-owned"), `${JSON.stringify(ownership)}\n`)
+}
 
 it("detects user-authored native Vercel workflow entries", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-entry-")
@@ -76,16 +89,77 @@ it("removes stale WDK functions and routes", async () => {
   const configFile = join(rootDir, ".vercel", "output", "config.json")
   await mkdir(workflowRoot, { recursive: true })
   await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
-  await writeFile(join(workflowRoot, ".vitehub-owned"), "\n")
-  await writeFile(configFile, `${JSON.stringify({ routes: [
-    { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" },
-    { src: "/user", dest: "/user" },
-  ] })}\n`)
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  const userRoute = { src: "/user", dest: "/user" }
+  await writeViteHubWorkflowOwnership(workflowRoot, ["stale.mjs"], [workflowRoute])
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute, userRoute] })}\n`)
 
   await cleanVercelNativeWorkflowOutput(rootDir)
 
   expect(existsSync(workflowRoot)).toBe(false)
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
+})
+
+it("preserves WDK output that replaced a prior ViteHub build", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-replaced-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "v1.mjs"), "vitehub\n")
+  await writeFile(join(workflowRoot, "package.json"), "{}\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["v1.mjs", "package.json"], [workflowRoute])
+  await writeFile(join(workflowRoot, "v1.mjs"), "external replacement\n")
+  await writeFile(join(workflowRoot, "external.mjs"), "external\n")
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  await expect(readFile(join(workflowRoot, "v1.mjs"), "utf8")).resolves.toBe("external replacement\n")
+  await expect(readFile(join(workflowRoot, "package.json"), "utf8")).resolves.toBe("{}\n")
+  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([workflowRoute])
+  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(false)
+})
+
+it("preserves the owned output unit when an external build removes one file", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-partial-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "flow.mjs"), "flow\n")
+  await writeFile(join(workflowRoot, "package.json"), "{}\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["flow.mjs", "package.json"], [workflowRoute])
+  await rm(join(workflowRoot, "flow.mjs"))
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  await expect(readFile(join(workflowRoot, "package.json"), "utf8")).resolves.toBe("{}\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([workflowRoute])
+  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(false)
+})
+
+it("retries route cleanup after an interrupted owned-output cleanup", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-retry-cleanup-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "v1.mjs"), "vitehub\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["v1.mjs"], [workflowRoute])
+  await writeFile(configFile, "invalid json\n")
+
+  await expect(cleanVercelNativeWorkflowOutput(rootDir)).rejects.toThrow()
+  expect(existsSync(join(workflowRoot, "v1.mjs"))).toBe(false)
+  expect(existsSync(join(workflowRoot, ".vitehub-owned"))).toBe(true)
+
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute] })}\n`)
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  expect(existsSync(workflowRoot)).toBe(false)
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([])
 })
 
 it("preserves Workflow DevKit output not owned by ViteHub", async () => {
@@ -100,7 +174,41 @@ it("preserves Workflow DevKit output not owned by ViteHub", async () => {
   await cleanVercelNativeWorkflowOutput(rootDir)
 
   await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
-  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([externalRoute])
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toContainEqual(externalRoute)
+})
+
+it("does not claim unowned WDK output during native generation", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-generate-with-unowned-wdk-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const externalRoute = { src: "/.well-known/workflow/v1/external", dest: "/.well-known/workflow/v1/external" }
+  await mkdir(workflowDir, { recursive: true })
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowDir, "01-collect.ts"), "export default async function collect(input) { return input }\n")
+  await writeFile(join(workflowRoot, "external.mjs"), "previous ViteHub output\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["external.mjs"], [])
+  await writeFile(join(workflowRoot, "external.mjs"), "external\n")
+  await mkdir(resolve(configFile, ".."), { recursive: true })
+  await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute] })}\n`)
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    importBase: "@vite-hub/workflow",
+    rootDir,
+    workflow: { provider: "vercel" },
+  })
+
+  const ownership = JSON.parse(await readFile(join(workflowRoot, ".vitehub-owned"), "utf8"))
+  expect(ownership.files).not.toHaveProperty("external.mjs")
+  expect(ownership.routes).not.toContain(JSON.stringify(externalRoute))
+  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toContainEqual(externalRoute)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toContainEqual(externalRoute)
 })
 
 it("removes stale WDK output when the Vercel provider is disabled", async () => {
@@ -109,11 +217,10 @@ it("removes stale WDK output when the Vercel provider is disabled", async () => 
   const configFile = join(rootDir, ".vercel", "output", "config.json")
   await mkdir(workflowRoot, { recursive: true })
   await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
-  await writeFile(join(workflowRoot, ".vitehub-owned"), "\n")
-  await writeFile(configFile, `${JSON.stringify({ routes: [
-    { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" },
-    { src: "/user", dest: "/user" },
-  ] })}\n`)
+  const workflowRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  const userRoute = { src: "/user", dest: "/user" }
+  await writeViteHubWorkflowOwnership(workflowRoot, ["stale.mjs"], [workflowRoute])
+  await writeFile(configFile, `${JSON.stringify({ routes: [workflowRoute, userRoute] })}\n`)
 
   await generateProviderOutputs({
     clientOutDir: join(rootDir, "dist"),
