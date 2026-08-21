@@ -57,7 +57,7 @@ export default defineSchedule({
               runId,
             },
           }, {
-            abortSignal: AbortSignal.timeout(20 * 60 * 1000),
+            abortSignal: AbortSignal.timeout(60 * 60 * 1000),
             context,
             messages: [createMessage({ role: 'user', text: await renderPrompt({ blocker, context }) })],
           })
