@@ -134,6 +134,20 @@ describe("@vite-hub/source types", () => {
     const overloadedReader = null as unknown as OverloadedReader
     // @ts-expect-error Overloaded get methods have an ambiguous Collection contract
     defineCollection({ sources: { overloaded: overloadedReader } })
+    const conditionalGeneric = null as unknown as {
+      get<TKey extends string>(key: TKey): Promise<TKey extends "a" ? { a: number } : never>
+    }
+    // @ts-expect-error Generic key-dependent get methods cannot be represented by the Collection return type
+    defineCollection({ sources: { conditionalGeneric } })
+    interface GenericItems {
+      a: { a: number }
+      b: { b: string }
+    }
+    const indexedGeneric = null as unknown as {
+      get<TKey extends keyof GenericItems>(key: TKey): Promise<GenericItems[TKey]>
+    }
+    // @ts-expect-error Generic key-dependent get methods must use an explicit union-parameter contract
+    defineCollection({ sources: { indexedGeneric } })
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
     defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
     // @ts-expect-error Collection aliases must be strings
