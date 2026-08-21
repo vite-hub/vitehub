@@ -104,8 +104,11 @@ function moduleMockCall(
       if (id.type === "Identifier") return moduleMockCall(sourceCode, init, visited);
       if (id.type !== "ObjectPattern" || !isTestFrameworkObject(sourceCode, init)) return false;
       return id.properties.some((property) => {
-        if (property.type !== "Property" || property.value.type !== "Identifier") return false;
-        if (property.value.name !== callee.name) return false;
+		if (property.type !== "Property") return false;
+		const value = property.value.type === "AssignmentPattern"
+			? property.value.left
+			: property.value;
+		if (value.type !== "Identifier" || value.name !== callee.name) return false;
         const method = property.key.type === "Identifier" ? property.key.name : property.key.value;
         return typeof method === "string" && moduleMockMethods.has(method);
       });

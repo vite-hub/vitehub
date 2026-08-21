@@ -4,6 +4,7 @@ import { lexicalTypeParameterNames } from "./lexical-type-parameters.ts";
 import {
 	collectTypeBindings,
 	visibleTypeBinding,
+	visibleTypeBindings,
 	type TypeBinding,
 	type VisitorKeys,
 } from "./lexical-type-bindings.ts";
@@ -111,6 +112,31 @@ export function typeEnvironmentAt(
 	node: ESTree.Node,
 ): TypeEnvironment {
 	const shadowedBuiltIns = new Set(environment.shadowedBuiltIns);
+	const aliases = new Map(environment.aliases);
+	const interfaces = new Map(environment.interfaces);
+	const names = new Set([
+		...environment.aliases.keys(),
+		...environment.interfaces.keys(),
+		...environment.typeBindings.flatMap((binding) =>
+			binding.type === "TSImportEqualsDeclaration"
+				? [binding.id.name]
+				: binding.id === null || binding.id === undefined
+					? []
+					: [binding.id.name],
+		),
+	]);
+	for (const name of names) {
+		const visibleBindings = visibleTypeBindings(name, node, environment.typeBindings);
+		const binding = visibleBindings[0];
+		if (binding?.type === "TSTypeAliasDeclaration") aliases.set(name, binding);
+		else aliases.delete(name);
+		const visibleInterfaces = visibleBindings.filter(
+			(candidate): candidate is ESTree.TSInterfaceDeclaration =>
+				candidate.type === "TSInterfaceDeclaration",
+		);
+		if (visibleInterfaces.length > 0) interfaces.set(name, visibleInterfaces);
+		else interfaces.delete(name);
+	}
 	for (const name of BUILT_INS) {
 		if (
 			lexicalTypeParameterNames(node, environment.visitorKeys).has(name) ||
@@ -119,7 +145,7 @@ export function typeEnvironmentAt(
 			shadowedBuiltIns.add(name);
 		}
 	}
-	return { ...environment, shadowedBuiltIns };
+	return { ...environment, aliases, interfaces, shadowedBuiltIns };
 }
 
 function typeReferenceName(type: ESTree.TSTypeReference): string | null {

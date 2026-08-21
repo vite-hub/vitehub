@@ -56,41 +56,53 @@ export const noObjectParametersRule = defineRule({
 
 		const visibleAlias = (name: string, site: ESTree.Node) => {
 			const binding = visibleTypeBinding(name, site, bindings);
-			return binding?.type === "TSTypeAliasDeclaration" &&
-				(binding.typeParameters === null || binding.typeParameters === undefined)
-				? binding
-				: undefined;
+			return binding?.type === "TSTypeAliasDeclaration" ? binding : undefined;
 		};
 
 		const resolvesToObject = (
 			type: ESTree.TSType,
 			shadowedAliases: ReadonlySet<string>,
+			substitutions: ReadonlyMap<string, ESTree.TSType> = new Map(),
 			visited = new Set<string>(),
 		): boolean => {
 			if (type.type === "TSObjectKeyword") return true;
 			if (type.type === "TSParenthesizedType")
-				return resolvesToObject(type.typeAnnotation, shadowedAliases, visited);
+				return resolvesToObject(type.typeAnnotation, shadowedAliases, substitutions, visited);
 			if (type.type === "TSUnionType") {
 				return type.types.some((member) =>
-					resolvesToObject(member, shadowedAliases, visited),
+					resolvesToObject(member, shadowedAliases, substitutions, visited),
 				);
 			}
 			if (
 				type.type !== "TSTypeReference" ||
 				type.typeName.type !== "Identifier" ||
-				(type.typeArguments !== null &&
-					type.typeArguments !== undefined &&
-					type.typeArguments.params.length > 0) ||
 				visited.has(type.typeName.name) ||
 				shadowedAliases.has(type.typeName.name)
 			) {
 				return false;
 			}
+			const substitution = substitutions.get(type.typeName.name);
+			if (substitution !== undefined) {
+				return resolvesToObject(substitution, shadowedAliases, substitutions, visited);
+			}
 			const alias = visibleAlias(type.typeName.name, type);
 			if (alias === undefined) return false;
+			const nextSubstitutions = new Map(substitutions);
+			const parameters = alias.typeParameters?.params ?? [];
+			const arguments_ = type.typeArguments?.params ?? [];
+			for (const [index, parameter] of parameters.entries()) {
+				const argument = arguments_[index] ?? parameter.default;
+				if (argument === null || argument === undefined) return false;
+				nextSubstitutions.set(parameter.name.name, argument);
+			}
 			const nextVisited = new Set(visited);
 			nextVisited.add(type.typeName.name);
-			return resolvesToObject(alias.typeAnnotation, shadowedAliases, nextVisited);
+			return resolvesToObject(
+				alias.typeAnnotation,
+				shadowedAliases,
+				nextSubstitutions,
+				nextVisited,
+			);
 		};
 
 		const checkParameters = (node: ParameterOwner) => {

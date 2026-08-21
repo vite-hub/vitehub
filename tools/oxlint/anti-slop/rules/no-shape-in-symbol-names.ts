@@ -55,6 +55,10 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
       PropertyDefinition: reportForbiddenLiteralKey,
       AccessorProperty: reportForbiddenLiteralKey,
       MethodDefinition: reportForbiddenLiteralKey,
+	  MemberExpression(node) {
+		if (!node.computed || node.property.type !== "Literal") return;
+		reportForbiddenLiteralKey({ ...node, key: node.property });
+	  },
       TSEnumMember(node) {
         if (node.id.type !== "Literal" || typeof node.id.value !== "string") return;
         reportForbiddenLiteralKey({ ...node, key: node.id });

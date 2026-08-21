@@ -233,7 +233,10 @@ export const noKnownValueWideningRule = defineRule({
 				if (environment === null || hasParentAssertion(node)) return;
 				reportFlow(
 					node.expression,
-					classifyWideningTarget(node.typeAnnotation, environment),
+					classifyWideningTarget(
+						node.typeAnnotation,
+						typeEnvironmentAt(environment, node.typeAnnotation),
+					),
 					"assertion",
 				);
 			},
@@ -241,7 +244,10 @@ export const noKnownValueWideningRule = defineRule({
 				if (environment === null || hasParentAssertion(node)) return;
 				reportFlow(
 					node.expression,
-					classifyWideningTarget(node.typeAnnotation, environment),
+					classifyWideningTarget(
+						node.typeAnnotation,
+						typeEnvironmentAt(environment, node.typeAnnotation),
+					),
 					"assertion",
 				);
 			},

@@ -49,6 +49,7 @@ function lexicalTypeContainer(node: ESTree.Node): ESTree.Node {
 	while (
 		current.type !== "Program" &&
 		current.type !== "BlockStatement" &&
+		current.type !== "SwitchStatement" &&
 		current.type !== "TSModuleBlock"
 	) {
 		current = current.parent;
@@ -61,21 +62,30 @@ export function visibleTypeBinding(
 	site: ESTree.Node,
 	bindings: readonly TypeBinding[],
 ): TypeBinding | undefined {
+	return visibleTypeBindings(name, site, bindings)[0];
+}
+
+export function visibleTypeBindings(
+	name: string,
+	site: ESTree.Node,
+	bindings: readonly TypeBinding[],
+): readonly TypeBinding[] {
 	let current: ESTree.Node | null = site;
 	while (current !== null) {
 		if (
 			current.type === "Program" ||
 			current.type === "BlockStatement" ||
+			current.type === "SwitchStatement" ||
 			current.type === "TSModuleBlock"
 		) {
-			const binding = bindings.find(
+			const matches = bindings.filter(
 				(candidate) =>
 					typeBindingName(candidate) === name &&
 					lexicalTypeContainer(candidate) === current,
 			);
-			if (binding !== undefined) return binding;
+			if (matches.length > 0) return matches;
 		}
 		current = current.parent;
 	}
-	return undefined;
+	return [];
 }

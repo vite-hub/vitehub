@@ -62,7 +62,6 @@ describe("anti-slop lexical type resolution", () => {
 
   test("classifies each widening evidence declaration in its own scope", () => {
     const result = diagnostics(`
-        declare const input: { id: string };
         const source: Record<string, unknown> = input;
         function safeEvidence() {
           type Record<K, V> = readonly [K, V];
@@ -98,5 +97,56 @@ describe("anti-slop lexical type resolution", () => {
     ]) {
       expect(result).toContain(code);
     }
+  });
+
+  test("keeps switch-local aliases inside the switch", () => {
+    const result = diagnostics(`
+        declare const condition: boolean;
+        switch (condition) {
+          case true:
+            type Record<K, V> = readonly [K, V];
+            const local: Record<string, unknown> = ["id", { id: "ok" }];
+            void local;
+            break;
+        }
+        const dictionary: Record<string, unknown> = { id: "ok" };
+        // SAFETY: fixture intentionally recreates the discarded type.
+        const asserted = dictionary as { id: string };
+        void asserted;
+      `);
+    expect(result).toContain("anti-slop(no-unsafe-dictionary-type)");
+    expect(result).toContain("anti-slop(no-known-value-widening)");
+    expect(result).toContain("anti-slop(no-widen-then-assert)");
+  });
+
+  test("resolves local aliases and assertion targets at their use sites", () => {
+    const result = diagnostics(`
+        type Value = unknown;
+        declare const data: unknown;
+        function safe() {
+          type Value = { id: string };
+          type Record<K, V> = { key: K; value: V };
+          const value: Value = { id: "ok" };
+          const record = { key: "id", value: data } as Record<string, unknown>;
+          return { value, record };
+        }
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-unknown-type-aliases)")).toHaveLength(1);
+    expect(result).not.toContain("anti-slop(no-known-value-widening)");
+  });
+
+  test("covers equivalent module, member, and generic alias syntax", () => {
+    const result = diagnostics(`
+        declare const fallback: typeof vi.mock;
+        const { mock = fallback } = vi;
+        mock("./dependency");
+        declare const payload: Record<string, unknown>;
+        void payload["shape"];
+        type Identity<T> = T;
+        function use(value: Identity<object>) { return value; }
+      `);
+    expect(result).toContain("anti-slop(no-module-mocking)");
+    expect(result).toContain("anti-slop(no-shape-in-symbol-names)");
+    expect(result).toContain("anti-slop(no-object-parameters)");
   });
 });
