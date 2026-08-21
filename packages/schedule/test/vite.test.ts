@@ -349,6 +349,37 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
   })
 
+  it("preserves forwarded server directories in standalone Provider Output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-forwarded-standalone-output-"))
+    const serverDir = join(root, "backend")
+    await mkdir(join(serverDir, "schedules"), { recursive: true })
+    await mkdir(join(root, "dist", "client"), { recursive: true })
+    await writeFile(join(serverDir, "schedules", "daily.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 2 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const plugin = hubSchedule({ projectRoot: root, providerOutput: "standalone" })
+    await (plugin.config as (config: Record<PropertyKey, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { [VITEHUB_SERVER_DIRS]: [serverDir], root },
+      { command: "build", mode: "production" },
+    )
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.closeBundle as () => Promise<void>)()
+
+    const config = JSON.parse(await readFile(join(root, ".vercel", "output", "config.json"), "utf8"))
+    expect(config.crons).toContainEqual({
+      path: "/api/vitehub/schedules/vercel/daily",
+      schedule: "0 2 * * *",
+    })
+  })
+
   it("writes a resolvable Process Runtime registry for direct Nitro config integration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-direct-nitro-process-"))
     await mkdir(join(root, "server", "schedules"), { recursive: true })

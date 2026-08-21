@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { createEmail } from "../src/client.ts"
-import { EMAIL_DEFINITION_ID, hubEmail, resolveEmailTemplateModulePath } from "../src/vite.ts"
+import { EMAIL_DEFINITION_ID, hubEmail, hubEmailOptionalPeerResolver, resolveEmailTemplateModulePath } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 
@@ -42,6 +42,17 @@ afterEach(async () => {
 })
 
 describe("hubEmail", () => {
+  it("removes stale Email declarations when the integration is disabled", async () => {
+    const root = await createTempProject()
+    const declaration = join(root, ".vitehub", "types", "email.d.ts")
+    await mkdir(join(root, ".vitehub", "types"), { recursive: true })
+    await writeFile(declaration, "stale declarations\n")
+
+    await (hubEmailOptionalPeerResolver().configResolved as (config: { root: string }) => Promise<void>)({ root })
+
+    await expect(readFile(declaration, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("owns generated template module paths", () => {
     expect(resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/monthly/detail"))
       .toBe("/tmp/templates/monthly%2Fdetail.mjs")

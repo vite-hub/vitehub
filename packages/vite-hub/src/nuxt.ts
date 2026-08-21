@@ -359,11 +359,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ),
   ]
   const envPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
-    api?: { resolveProjectRoot?: (viteRoot: string) => string }
+    api?: {
+      prepareTypes?: (config: EnvViteConfigOptions | undefined, viteRoot: string) => Promise<void>
+      resolveProjectRoot?: (viteRoot: string) => string
+    }
   } | undefined
   if (envPlugin) {
     for (const plugin of replayPlugins) deploymentOutputEnvPluginHandler(plugin)?.(envPlugin)
   }
+  if (options.env !== false) await envPlugin?.api?.prepareTypes?.(viteConfig.env, viteRoot)
   const emailPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
     api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>> }
   } | undefined
@@ -372,6 +376,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? {}
+  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+    api?: { prepareTypes?: (root: string) => Promise<void> }
+  } | undefined
+  await typesPlugin?.api?.prepareTypes?.(projectRoot)
 
   viteConfig.define = {
     ...viteConfig.define,

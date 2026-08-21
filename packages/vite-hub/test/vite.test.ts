@@ -13,6 +13,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
+  hubEmailOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/email/optional-peer-resolver" })),
   hubEnv: vi.fn(() => ({
     api: {
       createServerEnvRegistry: () => ({}),
@@ -41,7 +42,10 @@ vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
-vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
+vi.mock("@vite-hub/email/vite", () => ({
+  hubEmail: integrationMocks.hubEmail,
+  hubEmailOptionalPeerResolver: integrationMocks.hubEmailOptionalPeerResolver,
+}))
 vi.mock("@vite-hub/env/vite", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/env/vite")>(),
   hubEnv: integrationMocks.hubEnv,
@@ -107,6 +111,7 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
+      "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
       "vite-hub/types",
     ])

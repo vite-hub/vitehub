@@ -591,6 +591,31 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it("prepares Env types before collecting generated declarations", async () => {
+    const steps: string[] = []
+    const prepareEnvTypes = vi.fn(async () => { steps.push("env") })
+    const prepareTypes = vi.fn(async () => { steps.push("types") })
+    mocks.vitehub.mockReturnValue([
+      {
+        api: { prepareTypes: prepareEnvTypes, resolveProjectRoot: (root: string) => root },
+        name: "@vite-hub/env/vite",
+      },
+      {
+        api: { prepareTypes },
+        name: "vite-hub/types",
+      },
+    ])
+    const { nuxt } = createNuxt()
+    const githubToken = { source: "GITHUB_TOKEN" }
+    const appName = { source: "PUBLIC_APP_NAME" }
+    ;(nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }).env = { public: { appName } }
+
+    await viteHubNuxtModule({ env: { server: { githubToken } }, preset: "node" } as never, nuxt)
+
+    expect(prepareEnvTypes).toHaveBeenCalledWith({ public: { appName }, server: { githubToken } }, "/tmp/vitehub-nuxt")
+    expect(steps).toEqual(["env", "types"])
+  })
+
   it("replaces existing Env array declarations instead of concatenating data values", async () => {
     const { nuxt } = createNuxt()
     const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }
