@@ -69,6 +69,38 @@ it("keeps generated native step imports scoped to each directory Workflow", asyn
   expect(nativeContents.every(contents => !(contents.includes("01-alpha.ts") && contents.includes("01-beta.ts")))).toBe(true)
 })
 
+it("keeps generated native module paths stable when discovery order changes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-identity-")
+  const betaDir = join(rootDir, "server", "workflows", "beta")
+  await mkdir(betaDir, { recursive: true })
+  await writeFile(join(betaDir, "01-beta.ts"), "export default async function beta(input) { return input }\n")
+
+  const before = await writeProviderEntries(rootDir, { provider: "vercel" })
+  const [betaFile] = before.vercelNativeFiles
+
+  const alphaDir = join(rootDir, "server", "workflows", "alpha")
+  await mkdir(alphaDir, { recursive: true })
+  await writeFile(join(alphaDir, "01-alpha.ts"), "export default async function alpha(input) { return input }\n")
+  const after = await writeProviderEntries(rootDir, { provider: "vercel" })
+
+  expect(betaFile).toMatch(/\/vercel-native\/[a-f0-9]{64}\.mjs$/)
+  expect(after.vercelNativeFiles).toContain(betaFile)
+})
+
+it("keeps astral Unicode native module identities distinct", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-unicode-")
+  for (const name of ["😀", "😁"]) {
+    const workflowDir = join(rootDir, "server", "workflows", name)
+    await mkdir(workflowDir, { recursive: true })
+    await writeFile(join(workflowDir, "01-step.ts"), "export default async function step(input) { return input }\n")
+  }
+
+  const artifacts = await writeProviderEntries(rootDir, { provider: "vercel" })
+
+  expect(artifacts.vercelNativeFiles).toHaveLength(2)
+  expect(new Set(artifacts.vercelNativeFiles)).toHaveLength(2)
+})
+
 it("preserves WDK optional externals while installing the Email definition", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-bootstrap-")
   const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
@@ -531,7 +563,8 @@ describe("Vite workflow provider outputs", () => {
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
-    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", "0.mjs"), "utf8")
+    const [generatedNativeFile] = await readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))
+    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", generatedNativeFile), "utf8")
     expect(generatedNative).toContain('"use workflow"')
     expect(generatedNative).toContain('"use step"')
     expect(generatedNative).not.toContain("vitehub.email.definition")

@@ -916,9 +916,9 @@ export async function writeProviderEntries(
   const nativeDefinitions = definitions.filter(definition => getGeneratedVercelWorkflowExport(definition))
   await rm(resolve(generatedDir, "vercel-native.mjs"), { force: true })
   await rm(vercelNativeDir, { force: true, recursive: true })
-  const vercelNativeFiles = Object.fromEntries(nativeDefinitions.map((definition, index) => [
+  const vercelNativeFiles = Object.fromEntries(nativeDefinitions.map(definition => [
     definition.name,
-    resolve(vercelNativeDir, `${index}.mjs`),
+    resolve(vercelNativeDir, `${createHash("sha256").update(definition.name).digest("hex")}.mjs`),
   ]))
   if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
   await Promise.all(nativeDefinitions.map(async definition => {

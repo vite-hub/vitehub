@@ -580,7 +580,7 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
   ])
 }
 
-async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+export async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(options.rootDir, productName)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)

@@ -1,14 +1,14 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { shouldSkipViteProviderBuild, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputs, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -589,22 +589,27 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
-      const workflow = await ((resolved.plugins ?? []) as WorkflowVitePlugin[])
+      const config = resolved
+      const rootDir = projectRoot ?? config.root
+      const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
         .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
-        ?.vitehub?.workflow?.prepareScheduleRuntime?.()
-      await generateProviderOutputs({
-        bundleAlias: {
-          ...resolveStringAliases(resolved),
-          ...internalOptions.providerImportAliases,
-          ...workflow?.bundleAlias,
-        },
-        ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
-        clientOutDir: resolve(resolved.root, resolved.build.outDir),
-        definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
-        rootDir: projectRoot ?? resolved.root,
-        runtimeImport: internalOptions.runtimeImport,
-        source: standaloneProviderSource,
-        workflow,
+        ?.vitehub?.workflow?.prepareScheduleRuntime
+      await withProviderDeploymentOutputLock(rootDir, async () => {
+        const workflow = await prepareWorkflow?.()
+        await generateProviderOutputsWithinLock({
+          bundleAlias: {
+            ...resolveStringAliases(config),
+            ...internalOptions.providerImportAliases,
+            ...workflow?.bundleAlias,
+          },
+          ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
+          clientOutDir: resolve(config.root, config.build.outDir),
+          definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
+          rootDir,
+          runtimeImport: internalOptions.runtimeImport,
+          source: standaloneProviderSource,
+          workflow,
+        })
       })
     },
   }
