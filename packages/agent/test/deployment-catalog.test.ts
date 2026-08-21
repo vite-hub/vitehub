@@ -236,7 +236,7 @@ async function createDeploymentRuntimeFixture(
       if (adapter === "deno") {
         if (!capture.denoHandler) throw new Error("Deno server handler was not registered.")
         return await capture.denoHandler(new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
-          body,
+          ...(body ? { body } : {}),
           headers: { "content-type": "application/json" },
           method,
         }))
@@ -244,7 +244,7 @@ async function createDeploymentRuntimeFixture(
       if (adapter === "netlify") {
         return await route.default(
           new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
-            body,
+            ...(body ? { body } : {}),
             headers: { "content-type": "application/json" },
             method,
           }),
