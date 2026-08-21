@@ -49,7 +49,7 @@ export default defineEventHandler(() => {
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources`, `custom` from `vite-hub/source` | Define Sources and custom loaders without selecting an implementation. |
+| `defineSource`, `defineSources`, `createSource`, `defineCollection`, `custom` from `vite-hub/source` | Define Sources, materialize context-dependent keyed readers, and compose readers without selecting an implementation. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
@@ -193,6 +193,37 @@ export default defineEventHandler(async () => {
   }
 })
 ```
+
+## Compose keyed Source readers
+
+Use `defineCollection()` when an application has keyed readers whose keys can overlap. Each Collection identity is a `[source, key]` tuple, so the source alias remains part of both the runtime value and its inferred type.
+
+```ts [server/recaps.ts]
+import { createSource, defineCollection, defineSource } from 'vite-hub/source'
+
+const github = defineSource(context => ({
+  async get(month: `${number}-${number}`) {
+    return { month, rootDir: context.rootDir }
+  },
+  async items() {
+    return [{ key: '2026-07' as const }]
+  },
+}))
+
+export const recaps = defineCollection({
+  sources: {
+    github: createSource(github, { rootDir: process.cwd() }),
+  },
+})
+
+await recaps.get(['github', '2026-07'])
+await recaps.items()
+// [{ key: '2026-07', source: 'github', identity: ['github', '2026-07'] }]
+```
+
+Collection aliases must be strings. `get()` infers the accepted key and result independently for each alias. `items()` is available on every Collection, but it rejects a partially enumerable Collection before starting any reader; when all readers implement `items()`, each returned item is tagged with `source` and `identity`.
+
+`defineSource(context => reader)` defines a context-dependent keyed reader, and `createSource()` materializes it with a `SourceContext`. This composition layer is independent of the process-local registry: existing `defineSources()`, `registerSources()`, and `useSource()` behavior is unchanged.
 
 ## Use Sources with Workspace
 
