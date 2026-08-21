@@ -11,6 +11,7 @@ import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as EsbuildPlugin } from "esbuild"
+import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin, ResolvedConfig } from "vite"
 
 interface WorkflowNitroConfigOptions {
@@ -41,10 +42,6 @@ interface AgentWorkflowRegistryPlugin extends Plugin {
       transformWorkflowRegistry?: (code: string, id: string) => string | Promise<string>
     }
   }
-}
-
-interface EmailDefinitionPlugin extends Plugin {
-  api?: { getDefinition?: () => { handler: string } | undefined }
 }
 
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
@@ -86,12 +83,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
 
   function providerImportAliases(): Record<string, string> {
     if (!resolved) return { ...internalOptions?.providerImportAliases }
-    const emailDefinition = (resolved.plugins as EmailDefinitionPlugin[])
-      .find(plugin => plugin.name === "@vite-hub/email/vite")
-      ?.api?.getDefinition?.()
+    const contributedAliases = Object.assign({}, ...(resolved.plugins as Array<Plugin & ViteHubProviderImportContributor>)
+      .map(plugin => plugin.vitehub?.providerOutput?.getImportAliases?.() ?? {}))
     return {
       ...resolveStringAliases(resolved),
-      ...(emailDefinition ? { "#vitehub/email/definition": emailDefinition.handler } : {}),
+      ...contributedAliases,
       ...internalOptions?.providerImportAliases,
     }
   }

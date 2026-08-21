@@ -10,6 +10,7 @@ import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-template/internal/vite"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
+import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
 
 export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
@@ -39,7 +40,7 @@ export interface EmailVitePluginAPI {
   prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>>
 }
 
-export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
+export type EmailVitePlugin = Plugin & ViteHubProviderImportContributor & { api: EmailVitePluginAPI }
 
 export function hubEmailOptionalPeerResolver(): Plugin & { api: { prepareTypes: (projectRoot: string) => Promise<void> } } {
   const prepareTypes = async (projectRoot: string) => {
@@ -379,6 +380,11 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     api: {
       getDefinition: () => definition,
       prepareTypes,
+    },
+    vitehub: {
+      providerOutput: {
+        getImportAliases: (): Record<string, string> => definition ? { [EMAIL_DEFINITION_ID]: definition.handler } : {},
+      },
     },
     async config(config) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs

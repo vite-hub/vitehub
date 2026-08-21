@@ -5,6 +5,14 @@ type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
 type WatchIgnoredValue = WatchIgnoredMatcher | WatchIgnoredMatcher[] | undefined
 
+export interface ViteHubProviderImportContributor {
+  vitehub?: {
+    providerOutput?: {
+      getImportAliases?: () => Record<string, string>
+    }
+  }
+}
+
 const generatedViteHubFilesPattern = "**/.vitehub/**"
 const projectRootDirectoryMarkers = [
   ["server", "agents"],
