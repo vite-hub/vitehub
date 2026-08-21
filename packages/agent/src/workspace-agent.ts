@@ -513,7 +513,7 @@ function staticDriverExecutionAuthority(driver: { kind: AgentDriverKind }): Exec
   if (driver.kind !== "provider") return noExecutionAuthority
   return normalizeExecutionAuthority({
     credentials: "ambient",
-    environment: "ambient",
+    environment: "selected",
     filesystem: { access: "read-write", scope: "host" },
     isolation: "none",
     network: "unrestricted",
@@ -634,8 +634,8 @@ function secretInspectionMetadataKey(key: string): boolean {
   const normalized = key
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|cookies?|credentials?|passwords?|private[-_]?key|secrets?|sessions?|signing[-_]?key|tokens?)(?:$|[-_])/i
-    .test(normalized)
+  return /(?:^|[-_])(?:api[-_]?key|auth(?:entication|orization)?|cookies?|credentials?|passwords?|private[-_]?key|secrets?|sessions?|signing[-_]?key|tokens?)(?:$|[-_])/i.test(normalized)
+    || /^[A-Z0-9]+$/.test(key) && /(?:APIKEY|AUTH|COOKIE|CREDENTIAL|PASSWORD|PRIVATEKEY|SECRET|SESSION|SIGNINGKEY|TOKEN)/.test(key)
 }
 
 function inspectionMetadataValue(

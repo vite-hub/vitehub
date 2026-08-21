@@ -2971,9 +2971,12 @@ describe("defineAgent workspace option", () => {
         circular,
         cookie: "cookie-value",
         credentialSource: "credential-value",
+        AUTHTOKEN: "auth-token-value",
+        CREDENTIALSOURCE: "credential-source-value",
         nested: { token: "token-value", visible: "yes" },
         privateKey: "private-key-value",
         sessionCookie: "session-cookie-value",
+        SESSIONCOOKIE: "session-cookie-uppercase-value",
         sessionId: "session-id-value",
         signingKey: "signing-key-value",
         SSHPrivateKey: "ssh-private-key-value",
@@ -2995,6 +2998,9 @@ describe("defineAgent workspace option", () => {
 
     expect(metadata.capabilities?.map(capability => capability.id)).toEqual(["alpha", "zeta"])
     expect(Object.keys(metadata.capabilities?.[0]?.metadata || {})).toEqual([
+      "AUTHTOKEN",
+      "CREDENTIALSOURCE",
+      "SESSIONCOOKIE",
       "SSHPrivateKey",
       "apiKey",
       "array",
@@ -3011,14 +3017,17 @@ describe("defineAgent workspace option", () => {
     ])
     expect(metadata.capabilities?.[0]?.metadata).toMatchObject({
       apiKey: "[redacted]",
+      AUTHTOKEN: "[redacted]",
       array: [1, "ok"],
       auth: "[redacted]",
       authorizationHeader: "[redacted]",
       cookie: "[redacted]",
       credentialSource: "[redacted]",
+      CREDENTIALSOURCE: "[redacted]",
       nested: { token: "[redacted]", visible: "yes" },
       privateKey: "[redacted]",
       sessionCookie: "[redacted]",
+      SESSIONCOOKIE: "[redacted]",
       sessionId: "[redacted]",
       signingKey: "[redacted]",
       SSHPrivateKey: "[redacted]",

@@ -51,7 +51,10 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       approvedInputs.add(input)
     },
     async execute(input, context) {
-      if (approvedInputs.delete(input)) return await execute(input, context)
+      if (approvedInputs.delete(input)) {
+        context?.abortSignal?.throwIfAborted()
+        return await execute(input, context)
+      }
       const decision = typeof policy === "function"
         ? await policy({
             name: tool.name,
@@ -81,6 +84,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
       }
 
+      context?.abortSignal?.throwIfAborted()
       return await execute(input, context)
     },
   } as AgentToolDefinition
@@ -205,6 +209,8 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
 
         await reportToolStep({ toolCalls: [toolCall] })
         try {
+          const execution = args[0] as { abortSignal?: AbortSignal } | undefined
+          execution?.abortSignal?.throwIfAborted()
           const output = await execute.call(tool, input, ...args)
           await reportToolStep({ toolResults: [{ ...toolCall, output }] })
           return output

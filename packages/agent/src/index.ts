@@ -1319,6 +1319,7 @@ function defineBaseAgent<
     ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
     : baseCapabilities
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
+    driverKind: driver.kind,
     hasWorkspace: false,
   })
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
@@ -1712,6 +1713,7 @@ function createWorkspaceAgentDefinition<
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   if (Array.isArray(options.capabilities)) {
     validateAgentCapabilityComposition(options.capabilities, {
+      driverKind: normalizeAgentDriver(options).kind,
       hasWorkspace: true,
       workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
     })
@@ -2168,6 +2170,7 @@ async function createAgentInvocationContext<
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
+      driverKind,
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })

@@ -54,7 +54,9 @@ describe("gmail capability", () => {
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("gog")
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("shell")
     expect(() => gmail({ mode: "send" as never })).toThrow('must be "read" or "draft"')
-    expect(() => validateAgentCapabilityComposition([read], { hasWorkspace: true, workspaceMode: "write" })).not.toThrow()
+    expect(() => validateAgentCapabilityComposition([read], { driverKind: "provider", hasWorkspace: true, workspaceMode: "write" })).not.toThrow()
+    expect(() => validateAgentCapabilityComposition([read], { driverKind: "model", hasWorkspace: true, workspaceMode: "write" }))
+      .toThrow("requires a provider Agent Driver")
     await expect(validateCapabilityRuntimeRequirement(read, { fs: { exists: vi.fn() } } as never, "read"))
       .rejects.toThrow('requires workspace.mode: "write"')
 

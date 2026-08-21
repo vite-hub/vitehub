@@ -136,7 +136,7 @@ describe("Provider Agent Driver", () => {
 
     expect(events.map(item => item.type)).toEqual([
       "data-agent-event",
-      "text-delta",
+      "data-agent-event",
       "tool-call",
       "tool-result",
       "approval-request",
@@ -145,7 +145,7 @@ describe("Provider Agent Driver", () => {
       "usage",
       "finish",
     ])
-    expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
+    expect(events[1]).toMatchObject({ data: { kind: "content", value: "thinking" } })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
