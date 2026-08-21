@@ -319,7 +319,7 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
   return {
     flush,
     async write(event: StreamEvent) {
-      if (event.type !== "text-delta") {
+      if (event.type !== "text-delta" || typeof event.text !== "string") {
         await flush()
         await traceAgentStreamEvent(context, event)
         return
@@ -329,11 +329,25 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
         && pendingText.messageId === event.messageId
         && pendingText.phase === event.phase
         && pendingText.role === event.role) {
-        pendingText = { ...pendingText, text: pendingText.text + event.text }
+        let remaining = event.text
+        while (pendingText && pendingText.text.length + remaining.length > 64 * 1024) {
+          const length = 64 * 1024 - pendingText.text.length
+          pendingText = { ...pendingText, text: pendingText.text + remaining.slice(0, length) }
+          remaining = remaining.slice(length)
+          await flush()
+          pendingText = { ...event, text: "" }
+        }
+        pendingText = { ...pendingText, text: pendingText.text + remaining }
         return
       }
       await flush()
-      pendingText = event
+      let remaining = event.text
+      while (remaining.length > 64 * 1024) {
+        pendingText = { ...event, text: remaining.slice(0, 64 * 1024) }
+        remaining = remaining.slice(64 * 1024)
+        await flush()
+      }
+      pendingText = { ...event, text: remaining }
     },
   }
 }

@@ -2808,6 +2808,7 @@ function traceUiMessageStream<
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const tracer = createAgentStreamEventTracer(toTraceContext(context))
   let finished = false
   let released = false
   const release = () => {
@@ -2820,7 +2821,8 @@ function traceUiMessageStream<
       try {
         const result = await reader.read()
         if (result.done) {
-          if (!finished) await traceAgentStreamEvent(toTraceContext(context), { type: "finish" })
+          if (!finished) await tracer.write({ type: "finish" })
+          await tracer.flush()
           release()
           controller.close()
           return
@@ -2828,11 +2830,12 @@ function traceUiMessageStream<
         const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities)
         if (event) {
           if (event.type === "finish") finished = true
-          await traceAgentStreamEvent(toTraceContext(context), event)
+          await tracer.write(event)
         }
         controller.enqueue(result.value)
       }
       catch (error) {
+        await tracer.flush()
         release()
         controller.error(error)
       }
@@ -2842,6 +2845,7 @@ function traceUiMessageStream<
         await reader.cancel(reason)
       }
       finally {
+        await tracer.flush()
         release()
       }
     },

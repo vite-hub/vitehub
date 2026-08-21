@@ -449,7 +449,7 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
           endTime: status === "running" ? undefined : event.timestamp,
           events: [event],
           id,
-          name: event.name.replace(/\.(start|finish|end|error|request|decision|recorded)$/, ""),
+          name: event.name.replace(/\.(start|started|progress|finish|completed|failed|cancelled|end|error|request|decision|recorded)$/, ""),
           startTime: event.timestamp,
           status,
           type: event.type,
@@ -526,6 +526,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     count: number
     first: Array<{ entry: TraceEventLogEntry, index: number }>
     tail: Array<{ entry: TraceEventLogEntry, index: number } | undefined>
+    failure?: { entry: TraceEventLogEntry, index: number }
     terminal?: { entry: TraceEventLogEntry, index: number }
   }>()
   for (const entry of events) {
@@ -538,14 +539,16 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     const indexed = { entry, index: run.count }
     if (run.count < firstEntries) run.first.push(indexed)
     else run.tail[(run.count - firstEntries) % tailEntries] = indexed
+    if (isTraceRunError(entry)) run.failure = indexed
     if (isTraceRunTerminal(entry)) run.terminal = indexed
     run.count += 1
   }
   const boundedEntries = [...entriesByRun.values()].flatMap((run) => {
     const tail = run.tail.filter(entry => entry !== undefined).sort((left, right) => left.index - right.index)
+    const evidence = [run.failure, run.terminal].filter(entry => entry !== undefined)
     const indexed = run.count <= maxEntries
       ? [...run.first, ...tail]
-      : [...run.first, ...tail.slice(run.terminal ? 1 : 0), ...(run.terminal ? [run.terminal] : [])]
+      : [...run.first, ...tail.slice(evidence.length), ...evidence]
     const entries = [...new Map(indexed.map(value => [value.index, value])).values()]
       .sort((left, right) => left.index - right.index)
       .map(value => value.entry)

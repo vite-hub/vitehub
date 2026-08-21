@@ -673,6 +673,22 @@ describe("@vite-hub/runtime", () => {
     expect(span?.endTime).toBe(new Date(1_000).toISOString())
   })
 
+  it("preserves fatal stream evidence before a later finish under truncation", () => {
+    const events = Array.from({ length: 2_000 }, (_, index) => ({
+      attributes: { "agent.run.id": "run-1", ...(index === 1_000 ? { "error.message": "provider failed" } : {}) },
+      name: index === 1_000 ? "agent.stream.error" : index === 1_500 ? "agent.invocation.finish" : "agent.message",
+      sequence: index + 1,
+      timestamp: new Date(index).toISOString(),
+      trace: { id: "run-1" },
+      type: index === 1_000 ? "error" as const : "run" as const,
+    }))
+
+    expect(traceEventsToOpenTelemetrySpans(events)[0]).toMatchObject({
+      endTime: new Date(1_500).toISOString(),
+      status: { code: "ERROR", message: "provider failed" },
+    })
+  })
+
   it("bounds each run without dropping middle runs or terminal events", () => {
     const events = ["run-1", "run-2", "run-3"].flatMap((id, runIndex) => Array.from({ length: 2_000 }, (_, index) => ({
       attributes: { "agent.run.id": id, index },
