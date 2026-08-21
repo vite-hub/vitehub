@@ -379,6 +379,9 @@ describe("Vite workflow provider outputs", () => {
     expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native.mjs"))).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
       .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+    const rebuiltRoutes = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).routes as unknown[]
+    const workflowRoutes = rebuiltRoutes.filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
+    expect(workflowRoutes).toEqual([...new Set(workflowRoutes.map(route => JSON.stringify(route)))].map(route => JSON.parse(route)))
 
   }, buildOutputTestTimeout)
 

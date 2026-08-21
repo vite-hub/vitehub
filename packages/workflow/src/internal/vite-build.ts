@@ -229,6 +229,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
 
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
   const viteHubConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[] }
+  const viteHubRoutes = (viteHubConfig.routes ?? []).filter(route => !JSON.stringify(route).includes("/.well-known/workflow/v1/"))
   const definitionDirs = [...new Set([
     ...definitions.map(definition => dirname(definition.handler)),
     ...nativeFiles.map(file => dirname(file)),
@@ -249,7 +250,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   await writeFile(outputConfigFile, `${JSON.stringify({
     ...workflowConfig,
     ...viteHubConfig,
-    routes: [...(workflowConfig.routes ?? []), ...(viteHubConfig.routes ?? [])],
+    routes: [...(workflowConfig.routes ?? []), ...viteHubRoutes],
   }, null, 2)}\n`, "utf8")
 }
 
@@ -953,18 +954,20 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       cleanup: {
         cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
       },
+      afterWrite: async () => {
+        if (vercelOutput) {
+          await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
+            ...options.providerImportAliases,
+            ...options.providerRuntimeImportAliases?.vercel,
+          }, artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
+        }
+        else {
+          await cleanVercelNativeWorkflowOutput(options.rootDir)
+        }
+      },
       rootDir: options.rootDir,
       ...(vercelOutput ? { vercel: vercelOutput } : {}),
     })
-    if (vercelOutput) {
-      await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
-        ...options.providerImportAliases,
-        ...options.providerRuntimeImportAliases?.vercel,
-      }, artifacts.vercelNativeFile ? [artifacts.vercelNativeFile] : [])
-    }
-    else {
-      await cleanVercelNativeWorkflowOutput(options.rootDir)
-    }
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()
