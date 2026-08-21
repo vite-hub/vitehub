@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@t3tools/provider-runtime@0.0.33':
+    hash: fee966acc00613d152f3eeda38736b766445f23b9b80d953d6c51d2641b10253
+    path: patches/@t3tools__provider-runtime@0.0.33.patch
   '@vite-hub/agent@0.0.1':
     hash: bc9512f7fc46a2803c69ab468567312c39d888ccc5017b748da07c0f217df82c
     path: patches/@vite-hub__agent@0.0.1.patch
@@ -9892,7 +9895,7 @@ snapshots:
     dependencies:
       effect: 4.0.0-beta.103
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@67cf65b129d2c52a20199243565ecb8bd63c7af1(@anthropic-ai/sdk@0.117.1(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ioredis@5.11.1)(zod@4.4.3)':
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@67cf65b129d2c52a20199243565ecb8bd63c7af1(patch_hash=fee966acc00613d152f3eeda38736b766445f23b9b80d953d6c51d2641b10253)(@anthropic-ai/sdk@0.117.1(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ioredis@5.11.1)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/claude-agent-sdk': 0.3.233(@anthropic-ai/sdk@0.117.1(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(zod@4.4.3)
       '@effect/platform-node': 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
@@ -10445,7 +10448,7 @@ snapshots:
       '@libsql/client': 0.17.4
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       '@standard-schema/spec': 1.1.0
-      '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@67cf65b129d2c52a20199243565ecb8bd63c7af1(@anthropic-ai/sdk@0.117.1(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ioredis@5.11.1)(zod@4.4.3)
+      '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@67cf65b129d2c52a20199243565ecb8bd63c7af1(patch_hash=fee966acc00613d152f3eeda38736b766445f23b9b80d953d6c51d2641b10253)(@anthropic-ai/sdk@0.117.1(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ioredis@5.11.1)(zod@4.4.3)
       '@types/json-schema': 7.0.15
       '@vercel/connect': 0.6.1(19085e4e3636ccbdb9744d286fa75f4c)
       '@vercel/nft': 1.10.2(rollup@4.62.2)
