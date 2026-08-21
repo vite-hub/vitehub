@@ -1,3 +1,9 @@
+import { existsSync } from "node:fs"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/cloudflare"
 import { describe, expect, it } from "vitest"
 
 describe("package surface", () => {
@@ -134,5 +140,47 @@ describe("hubKv", () => {
       kv_namespaces: [{ binding: "KV" }],
       observability: { enabled: true },
     })
+  })
+
+  it("contributes bindings after late Nitro ownership becomes mutable", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const configure = plugin.config as unknown as (value: object) => void | Promise<void>
+    const configureResolved = plugin.configResolved as unknown as (value: object) => void | Promise<void>
+    const config = { plugins: [{ name: "nitro:main" }] }
+
+    await configure(config)
+    const resolved = { ...config, kv: undefined, nitro: {}, root: "/app" }
+    await configureResolved(resolved)
+
+    expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.kv_namespaces", [{ binding: "KV" }])
+  })
+
+  it("cleans prior standalone bindings when Nitro takes output ownership", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-transition-"))
+    const runCloseBundle = async (plugin: ReturnType<typeof hubKv>) => {
+      const hook = plugin.closeBundle as { handler: () => Promise<void> }
+      await hook.handler()
+    }
+
+    try {
+      const standalone = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+      await (standalone.configResolved as unknown as (value: object) => void)({ command: "build", root })
+      await runCloseBundle(standalone)
+      const outputRoot = createDefaultCloudflareOutputRoot(root)
+      const wranglerFile = join(outputRoot, "wrangler.json")
+      expect(JSON.parse(await readFile(wranglerFile, "utf8")).kv_namespaces).toEqual([{ binding: "KV" }])
+
+      const nitro = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+      await (nitro.configResolved as unknown as (value: object) => void)({ command: "build", nitro: {}, plugins: [{ name: "nitro:main" }], root })
+      await runCloseBundle(nitro)
+
+      expect(existsSync(wranglerFile)).toBe(false)
+      expect(existsSync(join(outputRoot, ".vitehub-kv-bindings.json"))).toBe(false)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })

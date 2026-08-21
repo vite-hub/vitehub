@@ -383,6 +383,83 @@ it("removes stale WDK output when the Vercel provider is disabled", async () => 
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
 })
 
+it("removes only a prior Workflow-owned Vercel function when the active host changes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-host-transition-")
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    workflow: {},
+  })
+  const functionsRoot = join(rootDir, ".vercel", "output", "functions")
+  const workflowFunction = join(functionsRoot, "__server.func")
+  expect(existsSync(workflowFunction)).toBe(true)
+
+  const externalFunction = join(functionsRoot, "external.func")
+  await mkdir(externalFunction, { recursive: true })
+  await writeFile(join(externalFunction, "index.mjs"), "export default { external: true }\n")
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })
+
+  expect(existsSync(workflowFunction)).toBe(false)
+  await expect(readFile(join(externalFunction, "index.mjs"), "utf8")).resolves.toBe("export default { external: true }\n")
+})
+
+it("discovers and removes a prior custom-named Workflow Vercel function", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-custom-function-transition-")
+  const customFunction = "__custom-workflow.func"
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName: customFunction,
+    workflow: {},
+  })
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", customFunction)
+  expect(existsSync(functionRoot)).toBe(true)
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })
+
+  expect(existsSync(functionRoot)).toBe(false)
+})
+
+it("preserves a custom-named Vercel function after ownership changes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-custom-function-replaced-")
+  const customFunction = "__custom-workflow.func"
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName: customFunction,
+    workflow: {},
+  })
+  const functionFile = join(rootDir, ".vercel", "output", "functions", customFunction, "index.mjs")
+  await writeFile(functionFile, "export default { external: true }\n")
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })
+
+  await expect(readFile(functionFile, "utf8")).resolves.toBe("export default { external: true }\n")
+  expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-output.json"))).toBe(false)
+})
+
 it("serializes native Vercel generation with disabled-provider cleanup", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-concurrent-cleanup-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")

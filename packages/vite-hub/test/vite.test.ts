@@ -336,8 +336,8 @@ describe("vitehub", () => {
 
     vitehub({ preset: "netlify", schedule: true, workflow: true })
 
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
-      hosting: expect.anything(),
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      hosting: "netlify",
     }))
   })
 

@@ -152,6 +152,14 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   ].join("\n")
 }
 
+function configureNitroCloudflareKV(config: { kv?: KVModuleOptions, nitro?: unknown }, options?: KVModuleOptions): boolean {
+  const { nitro } = config
+  if (!nitro || typeof nitro !== "object" || Array.isArray(nitro)) return false
+  const kv = resolveKVViteConfig(config.kv ?? options).kv
+  if (kv) configureCloudflareKV(nitro, kv)
+  return true
+}
+
 export function hubKv(options?: KVModuleOptions): KVVitePlugin {
   let nitroOwned = false
   let resolved: ResolvedConfig | undefined
@@ -163,18 +171,12 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     enforce: "pre",
     api: { getConfig },
     config(config) {
-      nitroOwned = hasNitroConfigContext(config)
-      const nitro = (config as { nitro?: unknown }).nitro
-      if (!nitro || typeof nitro !== "object" || Array.isArray(nitro)) return
-
-      nitroOwned = true
-      const kv = resolveKVViteConfig(config.kv ?? options).kv
-      if (kv) configureCloudflareKV(nitro, kv)
+      nitroOwned = configureNitroCloudflareKV(config, options)
     },
     configResolved(config) {
       resolved = config
-      nitroOwned ||= hasNitroConfigContext(config)
       runtimeConfig = resolveKVViteConfig(config.kv ?? options)
+      if (hasNitroConfigContext(config)) nitroOwned ||= configureNitroCloudflareKV(config, options)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -203,9 +205,9 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || nitroOwned || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
 
-        const wranglerConfig = createCloudflareKVWranglerConfig(getConfig().kv)
+        const wranglerConfig = nitroOwned ? undefined : createCloudflareKVWranglerConfig(getConfig().kv)
         const nextBindings = wranglerConfig?.kv_namespaces?.map(binding => binding.binding) ?? []
         const previousBindings = await readOwnedCloudflareKVBindings(resolved.root)
         if (!wranglerConfig && !previousBindings.length) return
