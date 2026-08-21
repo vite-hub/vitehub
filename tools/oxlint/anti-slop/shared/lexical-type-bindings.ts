@@ -13,7 +13,7 @@ function isNode(value: unknown): value is ESTree.Node {
 	return typeof value === "object" && value !== null && "type" in value;
 }
 
-export function typeBindingName(binding: TypeBinding): string | null {
+function typeBindingName(binding: TypeBinding): string | null {
 	return binding.type === "TSImportEqualsDeclaration"
 		? binding.id.name
 		: (binding.id?.name ?? null);
@@ -44,7 +44,7 @@ export function collectTypeBindings(
 	}
 }
 
-export function lexicalTypeContainer(node: ESTree.Node): ESTree.Node {
+function lexicalTypeContainer(node: ESTree.Node): ESTree.Node {
 	let current = node;
 	while (
 		current.type !== "Program" &&
