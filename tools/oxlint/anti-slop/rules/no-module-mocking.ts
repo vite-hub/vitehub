@@ -26,7 +26,15 @@ function isTestFrameworkObject(
   sourceCode: SourceCode,
   expression: ESTree.Expression,
 ): expression is ESTree.IdentifierReference {
-  while (expression.type === "ParenthesizedExpression") expression = expression.expression;
+  while (
+    expression.type === "ParenthesizedExpression" ||
+    expression.type === "TSAsExpression" ||
+    expression.type === "TSNonNullExpression" ||
+    expression.type === "TSSatisfiesExpression" ||
+    expression.type === "TSTypeAssertion"
+  ) {
+    expression = expression.expression;
+  }
   if (expression.type !== "Identifier") return false;
   if (
     (expression.name === "vi" || expression.name === "jest") &&
@@ -54,6 +62,15 @@ function moduleMockCall(
   callee: ESTree.Expression,
   visited = new Set<Variable>(),
 ): boolean {
+  while (
+    callee.type === "ParenthesizedExpression" ||
+    callee.type === "TSAsExpression" ||
+    callee.type === "TSNonNullExpression" ||
+    callee.type === "TSSatisfiesExpression" ||
+    callee.type === "TSTypeAssertion"
+  ) {
+    callee = callee.expression;
+  }
   if (callee.type === "Identifier") {
     const variable = resolveVariable(sourceCode, callee);
     if (variable === null || visited.has(variable)) return false;

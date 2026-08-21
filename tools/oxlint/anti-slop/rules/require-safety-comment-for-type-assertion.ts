@@ -26,7 +26,10 @@ function hasSafetyComment(sourceCode: SourceCode, node: TypeAssertion): boolean 
     if (
       sourceCode
         .getCommentsBefore(current)
-        .some((comment) => comment.end <= node.start && /\bSAFETY\s*:\s*\S/u.test(comment.value))
+        .some(
+          (comment) =>
+            comment.end <= node.start && /\bSAFETY\s*:(?:\s|\*)*[^\s*/]/u.test(comment.value),
+        )
     ) {
       return true;
     }

@@ -83,11 +83,7 @@ export function createTypeEnvironment(program: ESTree.Program): TypeEnvironment 
 			continue;
 		}
 
-		if (
-			(declaration?.type === "ClassDeclaration" ||
-				declaration?.type === "FunctionDeclaration") &&
-			declaration.id !== null
-		) {
+		if (declaration?.type === "ClassDeclaration" && declaration.id !== null) {
 			if (BUILT_INS.has(declaration.id.name)) shadowedBuiltIns.add(declaration.id.name);
 		}
 	}
