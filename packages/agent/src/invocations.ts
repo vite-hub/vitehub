@@ -20,6 +20,7 @@ const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
+const MAX_OBSERVATION_VALUE_ITEMS = 256
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
@@ -196,20 +197,31 @@ function normalizedTimestamp(value: Date | string): string {
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
 }
 
-function boundedObservationValue(value: unknown, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
+interface ObservationBudget {
+  items: number
+  stringLength: number
+}
+
+function boundedObservationValue(value: unknown, budget: ObservationBudget, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
+  if (budget.items <= 0 || budget.stringLength <= 0) return "[truncated]"
+  budget.items--
   if (value === undefined) return undefined
-  if (typeof value === "string") return value.slice(0, maxStringLength)
+  if (typeof value === "string") {
+    const length = Math.min(value.length, maxStringLength, budget.stringLength)
+    budget.stringLength -= length
+    return value.slice(0, length)
+  }
   if (value === null || typeof value === "boolean") return value
   if (typeof value === "number") return Number.isFinite(value) ? value : null
   if (typeof value === "bigint") return boundedString(String(value))
   if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).map(item => item === undefined ? null : boundedObservationValue(item, depth + 1, maxStringLength))
+    return value.slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
   }
   if (!value || typeof value !== "object") return boundedString(String(value))
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)
-    .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, depth + 1, maxStringLength)]]))
+    .slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items))
+    .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]))
 }
 
 function observationContentAttribute(key: string): boolean {
@@ -226,10 +238,14 @@ function observationContentAttribute(key: string): boolean {
 }
 
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
+  const budget: ObservationBudget = {
+    items: MAX_OBSERVATION_VALUE_ITEMS,
+    stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+  }
   const attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)
         .slice(0, MAX_OBSERVATION_ATTRIBUTES)
-        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, 0, observationContentAttribute(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
+        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, observationContentAttribute(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
     : undefined
   return {
     ...observation,

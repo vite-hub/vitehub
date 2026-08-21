@@ -51,13 +51,14 @@ afterEach(() => {
 });
 
 describe("Agent Invocation Vue composables", () => {
-  it("uses the same-origin endpoint when no requester is configured", async () => {
+  it("uses the same-origin endpoint with an application requester", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invocations: [] }), {
       headers: { "content-type": "application/json" },
     }));
     vi.stubGlobal("fetch", fetchMock);
     const scope = effectScope();
-    const resource = scope.run(() => useAgentInvocations({ immediate: false }))!;
+    const request = <T>(path: string, options: { signal?: AbortSignal }) => fetch(path, options).then(response => response.json() as Promise<T>);
+    const resource = scope.run(() => useAgentInvocations({ immediate: false, request }))!;
 
     await expect(resource.refresh()).resolves.toEqual({ invocations: [] });
     expect(fetchMock).toHaveBeenCalledWith("/api/invocations", {

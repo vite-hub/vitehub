@@ -23,7 +23,7 @@ export interface UseAgentInvocationsOptions {
   immediate?: boolean;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   query?: MaybeRefOrGetter<Record<string, QueryValue | readonly QueryValue[]>>;
-  request?: AgentInvocationRequester;
+  request: AgentInvocationRequester;
   watch?: boolean;
 }
 
@@ -47,7 +47,7 @@ export interface UseAgentInvocationOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
-  request?: AgentInvocationRequester;
+  request: AgentInvocationRequester;
   watch?: boolean;
 }
 
@@ -61,16 +61,6 @@ export interface UseAgentInvocationReturn {
 }
 
 const defaultBaseURL = "/api/invocations";
-
-const defaultRequester: AgentInvocationRequester = async <T>(
-  path: string,
-  options: AgentInvocationRequestOptions,
-) => {
-  const response = await fetch(path, { signal: options.signal });
-  if (!response.ok)
-    throw new Error(`Agent invocation request failed with status ${response.status}.`);
-  return (await response.json()) as T;
-};
 
 function isAbortError(error: unknown): boolean {
   return Boolean(
@@ -193,12 +183,12 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
 }
 
 export function useAgentInvocations(
-  options: UseAgentInvocationsOptions = {},
+  options: UseAgentInvocationsOptions,
 ): UseAgentInvocationsReturn {
   const invocations = shallowRef<readonly AgentInvocationSummary[]>([]);
   const cursor = shallowRef<string | undefined>();
   const isLoadingMore = shallowRef(false);
-  const request = options.request ?? defaultRequester;
+  const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let revision = 0;
@@ -220,7 +210,7 @@ export function useAgentInvocations(
       isLoadingMore.value = false;
     },
     immediate:
-      options.immediate !== false && (options.request !== undefined || "window" in globalThis),
+      options.immediate !== false,
     load: (signal) =>
       request<AgentInvocationListResult>(
         appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
@@ -282,11 +272,11 @@ export function useAgentInvocations(
 
 export function useAgentInvocation(
   id: MaybeRefOrGetter<string | undefined>,
-  options: UseAgentInvocationOptions = {},
+  options: UseAgentInvocationOptions,
 ): UseAgentInvocationReturn {
   const invocation = shallowRef<AgentInvocationSummary | null>(null);
   const observations = shallowRef<readonly TraceEventLogEntry[]>([]);
-  const request = options.request ?? defaultRequester;
+  const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
 
   const resource = useInvocationResource<AgentInvocationDetailResult>({
@@ -299,7 +289,7 @@ export function useAgentInvocation(
       observations.value = [];
     },
     immediate:
-      options.immediate !== false && (options.request !== undefined || "window" in globalThis),
+      options.immediate !== false,
     load(signal) {
       const resolvedId = toValue(id);
       if (resolvedId === undefined) return Promise.resolve(undefined);

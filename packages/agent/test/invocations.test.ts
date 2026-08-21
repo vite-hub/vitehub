@@ -321,6 +321,28 @@ describe("Agent Invocations", () => {
     expect((observation?.attributes?.["tool.output"] as { stdout?: string })?.stdout).toBe(output)
   })
 
+  it("bounds nested observation content in aggregate", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { "tool.output": Array.from({ length: 32 }, () => Array.from({ length: 32 }, () => "x".repeat(64 * 1024))) },
+          name: "agent.tool.finish",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("bounded-tool-output"), {})
+
+    const observation = (await invocations.getByRunId("bounded-tool-output"))?.observations
+      .find(event => event.name === "agent.tool.finish")
+    expect(JSON.stringify(observation).length).toBeLessThan(70 * 1024)
+  })
+
   it("normalizes non-finite observation numbers across stores", async () => {
     const memory = createMemoryAgentInvocationStore()
     const persistedObservations: unknown[] = []

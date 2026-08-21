@@ -407,7 +407,11 @@ function stepId(event: TraceEventLogEntry): string | undefined {
 }
 
 function stepStatus(event: TraceEventLogEntry): TraceStepStatus {
-  return event.type === "error" || event.name.endsWith(".error") ? "failed" : event.name.endsWith(".start") || event.name.endsWith(".request") ? "running" : "completed"
+  return event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
+    ? "failed"
+    : /\.(?:progress|request|start|started|updated)$/.test(event.name)
+      ? "running"
+      : "completed"
 }
 
 function isTraceRunFinish(event: TraceEventLogEntry): boolean {
@@ -512,7 +516,14 @@ function openTelemetryId(value: string, length: 16 | 32): string {
 }
 
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
-  const entries = [...events].map(entry => options.content === "metadata"
+  const allEntries = [...events]
+  const maxEntries = 1024
+  const boundedEntries = allEntries.length > maxEntries
+    ? [...allEntries.slice(0, maxEntries / 2), ...allEntries.slice(-maxEntries / 2)].map((entry, index) => index === 0
+        ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": allEntries.length, "vitehub.trace.truncated": true } }
+        : entry)
+    : allEntries
+  const entries = boundedEntries.map(entry => options.content === "metadata"
     ? { ...entry, attributes: metadataAttributes(entry.attributes) }
     : entry)
   return deriveTraceRuns(entries).flatMap((run) => {

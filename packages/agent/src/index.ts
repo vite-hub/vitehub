@@ -911,7 +911,7 @@ async function runAgentAsWorkflow<
         Boolean(context.agentIdentity),
         true,
       )
-      await deferAgentWorkflowRecovery(recoveryHandle, {
+      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
           runId,
@@ -919,7 +919,7 @@ async function runAgentAsWorkflow<
           workflowName,
         },
         ...(context.trace ? { trace: context.trace } : {}),
-      }, { id: recoveryId })
+      }, { id: recoveryId }))
       return true
     }
     catch {

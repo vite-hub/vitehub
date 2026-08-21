@@ -588,4 +588,41 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(span)).not.toContain("secret prompt")
     expect(JSON.stringify(span)).not.toContain("secret result")
   })
+
+  it("keeps provider activity open through progress and fails terminal task errors", () => {
+    const events = [
+      { attributes: { "step.id": "task-1" }, name: "agent.task.started", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" as const },
+      { attributes: { "step.id": "task-1" }, name: "agent.task.progress", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+      { attributes: { "step.id": "task-1", "error.message": "task failed" }, name: "agent.task.failed", sequence: 3, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" as const },
+      { name: "agent.invocation.error", sequence: 4, timestamp: "2026-01-01T00:00:00.030Z", trace: { id: "run-1" }, type: "error" as const },
+    ]
+
+    expect(deriveTraceRuns(events)[0]?.steps[0]).toMatchObject({
+      endTime: "2026-01-01T00:00:00.020Z",
+      status: "failed",
+    })
+    expect(traceEventsToOpenTelemetrySpans(events)[1]).toMatchObject({
+      status: { code: "ERROR", message: "task failed" },
+    })
+  })
+
+  it("bounds OpenTelemetry event aggregation while preserving terminal events", () => {
+    const events = Array.from({ length: 2_000 }, (_, index) => ({
+      attributes: { "agent.run.id": "run-1", index },
+      name: index === 1_999 ? "agent.invocation.finish" : "agent.message",
+      sequence: index + 1,
+      timestamp: new Date(index).toISOString(),
+      trace: { id: "run-1" },
+      type: "run" as const,
+    }))
+
+    const [span] = traceEventsToOpenTelemetrySpans(events)
+    expect(span).toMatchObject({
+      attributes: {
+        "vitehub.trace.originalEventCount": 2_000,
+        "vitehub.trace.truncated": true,
+      },
+      status: { code: "OK" },
+    })
+  })
 })
