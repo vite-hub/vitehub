@@ -376,6 +376,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? {}
+  const emailCleanupPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/email/optional-peer-resolver") as Plugin & {
+    api?: { prepareTypes?: (root: string) => Promise<void> }
+  } | undefined
+  if (!emailPlugin) await emailCleanupPlugin?.api?.prepareTypes?.(projectRoot)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
     api?: { prepareTypes?: (root: string) => Promise<void> }
   } | undefined

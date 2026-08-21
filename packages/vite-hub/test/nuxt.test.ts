@@ -616,6 +616,28 @@ describe("ViteHub Nuxt integration", () => {
     expect(steps).toEqual(["env", "types"])
   })
 
+  it("removes disabled Email types before collecting generated declarations", async () => {
+    const steps: string[] = []
+    const cleanupEmailTypes = vi.fn(async () => { steps.push("email") })
+    const prepareTypes = vi.fn(async () => { steps.push("types") })
+    mocks.vitehub.mockReturnValue([
+      {
+        api: { prepareTypes: cleanupEmailTypes },
+        name: "@vite-hub/email/optional-peer-resolver",
+      },
+      {
+        api: { prepareTypes },
+        name: "vite-hub/types",
+      },
+    ])
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "node" } as never, nuxt)
+
+    expect(cleanupEmailTypes).toHaveBeenCalledWith("/tmp/vitehub-nuxt")
+    expect(steps).toEqual(["email", "types"])
+  })
+
   it("replaces existing Env array declarations instead of concatenating data values", async () => {
     const { nuxt } = createNuxt()
     const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }

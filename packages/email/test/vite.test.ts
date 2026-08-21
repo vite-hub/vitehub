@@ -48,9 +48,24 @@ describe("hubEmail", () => {
     await mkdir(join(root, ".vitehub", "types"), { recursive: true })
     await writeFile(declaration, "stale declarations\n")
 
-    await (hubEmailOptionalPeerResolver().configResolved as (config: { root: string }) => Promise<void>)({ root })
+    await hubEmailOptionalPeerResolver().api.prepareTypes(root)
 
     await expect(readFile(declaration, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("preserves declarations owned by a separately installed Email plugin", async () => {
+    const root = await createTempProject()
+    const declaration = join(root, ".vitehub", "types", "email.d.ts")
+    await mkdir(join(root, ".vitehub", "types"), { recursive: true })
+    await writeFile(declaration, "owned declarations\n")
+    const resolver = hubEmailOptionalPeerResolver()
+
+    await (resolver.configResolved as unknown as (config: { plugins: { name: string }[], root: string }) => Promise<void>)({
+      plugins: [{ name: "@vite-hub/email/vite" }, resolver],
+      root,
+    })
+
+    await expect(readFile(declaration, "utf8")).resolves.toBe("owned declarations\n")
   })
 
   it("owns generated template module paths", () => {

@@ -41,12 +41,17 @@ export interface EmailVitePluginAPI {
 
 export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
 
-export function hubEmailOptionalPeerResolver(): Plugin {
+export function hubEmailOptionalPeerResolver(): Plugin & { api: { prepareTypes: (projectRoot: string) => Promise<void> } } {
+  const prepareTypes = async (projectRoot: string) => {
+    await rm(resolve(projectRoot, ".vitehub", "types", "email.d.ts"), { force: true })
+  }
   return {
     name: "@vite-hub/email/optional-peer-resolver",
+    api: { prepareTypes },
     async configResolved(config) {
+      if (config.plugins.some(plugin => plugin.name === EMAIL_VITE_PLUGIN_NAME)) return
       const projectRoot = resolveViteHubProjectRoot(config.root)
-      await rm(resolve(projectRoot, ".vitehub", "types", "email.d.ts"), { force: true })
+      await prepareTypes(projectRoot)
     },
   }
 }
