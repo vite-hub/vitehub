@@ -14,6 +14,14 @@ function resolveVariable(
 }
 
 function isGlobalReflect(sourceCode: SourceCode, expression: ESTree.Expression): boolean {
+  while (
+    expression.type === "TSAsExpression" ||
+    expression.type === "TSNonNullExpression" ||
+    expression.type === "TSSatisfiesExpression" ||
+    expression.type === "TSTypeAssertion"
+  ) {
+    expression = expression.expression;
+  }
   if (expression.type === "Identifier" && expression.name === "Reflect") {
     if (sourceCode.isGlobalReference(expression)) return true;
     const variable = resolveVariable(sourceCode, expression);
@@ -39,6 +47,14 @@ export function isGlobalReflectMethodCall(
   methodName: string,
   visited = new Set<Variable>(),
 ): boolean {
+  while (
+    callee.type === "TSAsExpression" ||
+    callee.type === "TSNonNullExpression" ||
+    callee.type === "TSSatisfiesExpression" ||
+    callee.type === "TSTypeAssertion"
+  ) {
+    callee = callee.expression;
+  }
   if (callee.type === "Identifier") {
     const variable = resolveVariable(sourceCode, callee);
     if (variable === null || visited.has(variable)) return false;
@@ -59,8 +75,10 @@ export function isGlobalReflectMethodCall(
       }
       if (id.type !== "ObjectPattern" || !isGlobalReflect(sourceCode, init)) return false;
       return id.properties.some((property) => {
-        if (property.type !== "Property" || property.value.type !== "Identifier") return false;
-        if (property.value.name !== callee.name) return false;
+        if (property.type !== "Property") return false;
+        const binding =
+          property.value.type === "AssignmentPattern" ? property.value.left : property.value;
+        if (binding.type !== "Identifier" || binding.name !== callee.name) return false;
         const name = property.key.type === "Identifier" ? property.key.name : property.key.value;
         return name === methodName;
       });

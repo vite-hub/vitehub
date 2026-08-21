@@ -53,7 +53,13 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
       JSXIdentifier: reportForbiddenSymbolName,
       Property: reportForbiddenLiteralKey,
       PropertyDefinition: reportForbiddenLiteralKey,
+      AccessorProperty: reportForbiddenLiteralKey,
       MethodDefinition: reportForbiddenLiteralKey,
+      TSEnumMember(node) {
+        if (node.id.type !== "Literal" || typeof node.id.value !== "string") return;
+        reportForbiddenLiteralKey({ ...node, key: node.id });
+      },
+      TSAbstractAccessorProperty: reportForbiddenLiteralKey,
       TSPropertySignature: reportForbiddenLiteralKey,
       TSMethodSignature: reportForbiddenLiteralKey,
     };
