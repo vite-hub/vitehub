@@ -81,12 +81,30 @@ describe("@vite-hub/source types", () => {
       .toEqualTypeOf<{ month: "2026-07", rootDir: string }>()
     expectTypeOf((await collection.items())[0]!.source).toEqualTypeOf<"count" | "title">()
 
+    const variants = defineCollection({
+      sources: {
+        variant: {
+          async get(key: "a" | "b") { return key },
+          async items(): Promise<Array<{ key: "a", a: number } | { key: "b", b: string }>> {
+            return [{ key: "a", a: 1 }]
+          },
+        },
+      },
+    })
+    const variant = (await variants.items())[0]!
+    if (variant.key === "a")
+      expectTypeOf(variant.a).toBeNumber()
+    else
+      expectTypeOf(variant.b).toBeString()
+
     // @ts-expect-error Collection aliases are inferred
     await collection.get(["missing", "same"])
     // @ts-expect-error Source keys are inferred per alias
     await collection.get(["count", "different"])
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
     defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
+    // @ts-expect-error Collection aliases must be strings
+    defineCollection({ sources: { 0: reader("same", 1) } })
   })
 
   it("accepts SDK clients and transports without exposing SDK types", () => {

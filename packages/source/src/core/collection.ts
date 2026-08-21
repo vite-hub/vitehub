@@ -25,22 +25,25 @@ type ValidCollectionSources<TSources extends CollectionSources> = {
   [TSource in keyof TSources]: ValidCollectionSource<TSources[TSource]>
 }
 
+type TaggedCollectionItemVariant<TSource extends string, TItem> =
+  TItem extends { key: string }
+    ? Omit<TItem, "identity" | "source"> & {
+        identity: readonly [TSource, TItem["key"]]
+        source: TSource
+      }
+    : never
+
 type TaggedCollectionItem<TSource extends string, TReader> =
-  [CollectionSourceItem<TReader>] extends [never]
-    ? never
-    : CollectionSourceItem<TReader> extends infer TItem extends { key: string }
-      ? Omit<TItem, "identity" | "source"> & {
-          identity: readonly [TSource, TItem["key"]]
-          source: TSource
-        }
-      : never
+  TaggedCollectionItemVariant<TSource, CollectionSourceItem<TReader>>
 
 type CollectionItem<TSources extends CollectionSources> = {
   [TSource in Extract<keyof TSources, string>]: TaggedCollectionItem<TSource, TSources[TSource]>
 }[Extract<keyof TSources, string>]
 
 interface CollectionDefinition<TSources extends CollectionSources> {
-  readonly sources: TSources & ValidCollectionSources<TSources>
+  readonly sources: TSources
+    & ValidCollectionSources<TSources>
+    & Record<Exclude<keyof TSources, string>, never>
 }
 
 interface CollectionReader<TSources extends CollectionSources> {
@@ -54,7 +57,7 @@ interface CollectionReader<TSources extends CollectionSources> {
 export function defineCollection<const TSources extends CollectionSources>(
   collection: CollectionDefinition<TSources>,
 ): CollectionReader<TSources> {
-  const { sources } = collection
+  const sources: TSources = collection.sources
 
   async function get<TSource extends Extract<keyof TSources, string>>(
     identity: readonly [source: TSource, key: CollectionSourceKey<TSources[TSource]>],
