@@ -1180,6 +1180,13 @@ function readColocatedAgentInstructionsRaw<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
+  const embedded = workspaceDefinitionFromOptions(options).sources?.[colocatedAgentInstructionsSourceKey] as {
+    content?: unknown
+    source?: { content?: unknown }
+  } | undefined
+  const embeddedContent = embedded?.content ?? embedded?.source?.content
+  if (typeof embeddedContent === "string" && embeddedContent.trim()) return embeddedContent.trim()
+
   const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir

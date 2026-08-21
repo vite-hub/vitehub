@@ -3260,6 +3260,25 @@ describe("defineAgent workspace option", () => {
     }
   })
 
+  it("uses embedded colocated instructions without host filesystem access", async () => {
+    const getBuiltinModule = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined)
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+    const agent = workspaceAgentWithSourceRoot(withExplicitWorkspaceName(defineAgent({
+      driver: { model: {} as never },
+      workspace: {},
+    }), { workspace: "support" }), "/unavailable", "Use embedded instructions.\n")
+
+    try {
+      await expect(resolveAgentInspectionMetadata(agent, { resolveSources: false })).resolves.toMatchObject({
+        instructions: ["Use embedded instructions."],
+      })
+    }
+    finally {
+      getBuiltinModule.mockRestore()
+    }
+  })
+
   it("resolves dynamic model metadata for Agent inspection", async () => {
     const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const resolveModel = vi.fn((context: { channel?: { meta?: { customer?: string } }, invoker: { kind?: string } }) => ({
