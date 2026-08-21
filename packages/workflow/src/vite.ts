@@ -6,7 +6,7 @@ import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProvi
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
@@ -117,9 +117,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
             }
           : {}),
       },
-      ...(native
-        ? { bundlePlugins: [await createVercelWorkflowTransformPlugin(rootDir)].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)) }
-        : {}),
+      bundlePlugins: [
+        createOptionalViteDevtoolsPlugin(rootDir),
+        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir)] : []),
+      ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
       importBase,
       native,
       registryFile: artifacts.registryFile,

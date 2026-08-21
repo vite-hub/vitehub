@@ -80,7 +80,7 @@ interface VercelWorkflowBuilders {
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
 }
 
-function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
+export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
   const require = createRequire(join(rootDir, "package.json"))
   const namespace = "vitehub-optional-vite-devtools"
   return {
