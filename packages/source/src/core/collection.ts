@@ -1,133 +1,200 @@
-import { sourceError } from "./errors.ts"
+const defaultPageLimit = 50
+const defaultMaxLimit = 100
 
-interface CollectionSourceReader {
-  get(key: never): Promise<unknown>
-  items?(): Promise<Array<{ key: string }>>
+export type CollectionRequestQuery = Record<string, string | string[] | undefined>
+
+export type CollectionCursorValue =
+  | boolean
+  | null
+  | number
+  | string
+  | readonly CollectionCursorValue[]
+  | { readonly [key: string]: CollectionCursorValue }
+
+export interface CollectionLoadOptions<
+  TQuery extends object,
+  TCursor extends CollectionCursorValue,
+> {
+  cursor?: TCursor
+  limit: number
+  query: TQuery
+  signal?: AbortSignal
 }
 
-type CollectionSources = Record<string, CollectionSourceReader>
-
-type CollectionSourceKeyFunction<TReader> =
-  TReader extends { get(key: infer TKey): Promise<unknown> } ? (key: TKey) => void : never
-
-type CollectionSourceKey<TReader> =
-  CollectionSourceKeyFunction<TReader> extends (key: infer TKey) => void
-    ? Extract<TKey, string>
-    : never
-
-type CollectionSourceValue<TReader> =
-  TReader extends { get(key: never): Promise<infer TValue> } ? TValue : never
-
-type CollectionSourceItem<TReader> =
-  TReader extends { items(): Promise<Array<infer TItem extends { key: string }>> } ? TItem : never
-
-type Equal<TLeft, TRight> =
-  (<T>() => T extends TLeft ? 1 : 2) extends (<T>() => T extends TRight ? 1 : 2)
-    ? (<T>() => T extends TRight ? 1 : 2) extends (<T>() => T extends TLeft ? 1 : 2)
-      ? true
-      : false
-    : false
-
-type ValidCollectionGet<TReader> =
-  TReader extends unknown
-    ? TReader extends { get: infer TGet }
-      ? Equal<TGet, (key: CollectionSourceKey<TReader>) => Promise<CollectionSourceValue<TReader>>> extends true
-        ? TReader
-        : never
-      : never
-    : never
-
-type ValidCollectionSource<TReader> =
-  [CollectionSourceItem<TReader>] extends [never]
-    ? ValidCollectionGet<TReader>
-    : Exclude<CollectionSourceItem<TReader>["key"], CollectionSourceKey<TReader>> extends never
-      ? ValidCollectionGet<TReader>
-      : never
-
-type ValidCollectionSources<TSources extends CollectionSources> = {
-  [TSource in keyof TSources]: ValidCollectionSource<TSources[TSource]>
+export interface CollectionPageOptions<TQuery extends object> {
+  cursor?: string
+  limit?: number
+  query: TQuery
+  signal?: AbortSignal
 }
 
-type TaggedCollectionItemVariant<TSource extends string, TItem> =
-  TItem extends { key: string }
-    ? Omit<TItem, "identity" | "source"> & {
-        identity: readonly [TSource, TItem["key"]]
-        source: TSource
-      }
-    : never
-
-type TaggedCollectionItem<TSource extends string, TReader> =
-  TaggedCollectionItemVariant<TSource, CollectionSourceItem<TReader>>
-
-type CollectionItem<TSources extends CollectionSources> = {
-  [TSource in Extract<keyof TSources, string>]: TaggedCollectionItem<TSource, TSources[TSource]>
-}[Extract<keyof TSources, string>]
-
-type CollectionIdentity<TSources extends CollectionSources> = {
-  [TSource in Extract<keyof TSources, string>]: readonly [
-    source: TSource,
-    key: CollectionSourceKey<TSources[TSource]>,
-  ]
-}[Extract<keyof TSources, string>]
-
-type CollectionIdentityValue<TSources extends CollectionSources, TIdentity> =
-  TIdentity extends readonly [infer TSource extends Extract<keyof TSources, string>, string]
-    ? CollectionSourceValue<TSources[TSource]>
-    : never
-
-interface CollectionDefinition<TSources extends CollectionSources> {
-  readonly sources: TSources
-    & ValidCollectionSources<TSources>
-    & Record<Exclude<keyof TSources, string>, never>
+export interface CollectionPage<TItem> {
+  items: TItem[]
+  nextCursor: string | null
 }
 
-interface CollectionReader<TSources extends CollectionSources> {
-  get<const TIdentity extends CollectionIdentity<TSources>>(
-    identity: TIdentity,
-  ): Promise<CollectionIdentityValue<TSources, TIdentity>>
-  items(): Promise<Array<CollectionItem<TSources>>>
+export interface Collection<TItem, TQuery extends object = CollectionRequestQuery> {
+  page(options: CollectionPageOptions<TQuery>): Promise<CollectionPage<TItem>>
+  parseQuery(input: CollectionRequestQuery): TQuery
 }
 
-export function defineCollection<const TSources extends CollectionSources>(
-  collection: CollectionDefinition<TSources>,
-): CollectionReader<TSources> {
-  const sources: TSources = collection.sources
+export type AnyCollection = Collection<any, any>
 
-  async function get<const TIdentity extends CollectionIdentity<TSources>>(
-    identity: TIdentity,
-  ): Promise<CollectionIdentityValue<TSources, TIdentity>> {
-    if (!Array.isArray(identity) || identity.length !== 2
-      || typeof identity[0] !== "string" || typeof identity[1] !== "string") {
-      throw new TypeError("[vitehub] Collection identity must be a [source, key] string tuple.")
-    }
+export type CollectionItem<TCollection extends AnyCollection> =
+  TCollection extends Collection<infer TItem, any> ? TItem : never
 
-    const [source, key] = identity
-    if (!Object.hasOwn(sources, source)) {
-      throw sourceError(`[vitehub] Collection source alias ${JSON.stringify(source)} is not defined.`)
-    }
+export type CollectionQuery<TCollection extends AnyCollection> =
+  TCollection extends Collection<any, infer TQuery> ? TQuery : never
 
-    return await (sources[source].get as (key: string) => Promise<CollectionIdentityValue<TSources, TIdentity>>)(key)
+export type CollectionLoader<
+  TSourceItem,
+  TQuery extends object,
+  TCursor extends CollectionCursorValue,
+> = (options: CollectionLoadOptions<TQuery, TCursor>) => Promise<readonly TSourceItem[]>
+
+export interface CollectionOptions<
+  TSourceItem,
+  TItem,
+  TQuery extends object,
+  TCursor extends CollectionCursorValue,
+> {
+  cursor(item: NoInfer<TSourceItem>): TCursor
+  defaultLimit?: number
+  maxLimit?: number
+  parseCursor?: (input: CollectionCursorValue) => TCursor
+  query?: (input: CollectionRequestQuery) => TQuery
+  transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
+}
+
+export class CollectionCursorError extends TypeError {
+  override readonly name = "CollectionCursorError"
+
+  constructor(message = "[vitehub] Collection cursor is malformed.", options?: ErrorOptions) {
+    super(message, options)
+  }
+}
+
+function assertPositiveInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new TypeError(`[vitehub] Collection ${label} must be a positive integer.`)
+  }
+}
+
+function resolveLimit(limit: number | undefined, defaultLimit: number, maxLimit: number): number {
+  if (limit !== undefined) assertPositiveInteger(limit, "limit")
+  return Math.min(limit ?? defaultLimit, maxLimit)
+}
+
+function encodeBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
+  return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)))
+}
+
+function isCursorValue(value: unknown): value is CollectionCursorValue {
+  if (value === null || ["boolean", "number", "string"].includes(typeof value)) return true
+  if (Array.isArray(value)) return value.every(isCursorValue)
+  if (!value || typeof value !== "object") return false
+  return Object.values(value).every(isCursorValue)
+}
+
+function encodeCursor(value: CollectionCursorValue): string {
+  if (!isCursorValue(value)) {
+    throw new TypeError("[vitehub] Collection cursor() must return a JSON-serializable value.")
+  }
+  return encodeBase64Url(JSON.stringify(value))
+}
+
+function decodeCursor<TCursor extends CollectionCursorValue>(
+  value: string | undefined,
+  parse: ((input: CollectionCursorValue) => TCursor) | undefined,
+): TCursor | undefined {
+  if (!value) return
+  let decoded: unknown
+  try {
+    decoded = JSON.parse(decodeBase64Url(value))
+  } catch (cause) {
+    throw new CollectionCursorError(undefined, { cause })
+  }
+  if (!isCursorValue(decoded)) throw new CollectionCursorError()
+  if (!parse) return decoded as TCursor
+  try {
+    return parse(decoded)
+  } catch (cause) {
+    throw new CollectionCursorError(undefined, { cause })
+  }
+}
+
+export function defineCollection<
+  TSourceItem,
+  const TCursor extends CollectionCursorValue,
+  const TQuery extends object,
+  TItem = TSourceItem,
+>(
+  load: CollectionLoader<TSourceItem, TQuery, TCursor>,
+  options: CollectionOptions<TSourceItem, TItem, TQuery, TCursor> & {
+    query: (input: CollectionRequestQuery) => TQuery
+  },
+): Collection<TItem, TQuery>
+export function defineCollection<
+  TSourceItem,
+  const TCursor extends CollectionCursorValue,
+  TItem = TSourceItem,
+>(
+  load: CollectionLoader<TSourceItem, CollectionRequestQuery, TCursor>,
+  options: CollectionOptions<TSourceItem, TItem, CollectionRequestQuery, TCursor> & {
+    query?: undefined
+  },
+): Collection<TItem, CollectionRequestQuery>
+export function defineCollection<
+  TSourceItem,
+  const TCursor extends CollectionCursorValue,
+  const TQuery extends object,
+  TItem = TSourceItem,
+>(
+  load: CollectionLoader<TSourceItem, TQuery, TCursor>,
+  definition: CollectionOptions<TSourceItem, TItem, TQuery, TCursor>,
+): Collection<TItem, TQuery> {
+  const defaultLimit = definition.defaultLimit ?? defaultPageLimit
+  const maxLimit = definition.maxLimit ?? defaultMaxLimit
+  assertPositiveInteger(defaultLimit, "defaultLimit")
+  assertPositiveInteger(maxLimit, "maxLimit")
+  if (defaultLimit > maxLimit) {
+    throw new TypeError("[vitehub] Collection defaultLimit cannot exceed maxLimit.")
   }
 
-  async function items(): Promise<Array<CollectionItem<TSources>>> {
-    const entries = Object.entries(sources)
-    for (const [source, reader] of entries) {
-      if (typeof reader.items !== "function") {
-        throw sourceError(`[vitehub] Collection source alias ${JSON.stringify(source)} is not enumerable.`)
+  return {
+    async page(request) {
+      const limit = resolveLimit(request.limit, defaultLimit, maxLimit)
+      const sourceItems = await load({
+        cursor: decodeCursor(request.cursor, definition.parseCursor),
+        limit: limit + 1,
+        query: request.query,
+        signal: request.signal,
+      })
+      if (!Array.isArray(sourceItems)) {
+        throw new TypeError("[vitehub] Collection load() must return an array.")
       }
-    }
-
-    const groups = await Promise.all(entries.map(async ([source, reader]) =>
-      (await reader.items!()).map(item => ({
-        ...item,
-        identity: [source, item.key],
-        source,
-      })),
-    ))
-
-    // Object.entries erases the alias/item correlation validated by CollectionDefinition.
-    return groups.flat() as unknown as Array<CollectionItem<TSources>>
+      const hasMore = sourceItems.length > limit
+      const pageItems = sourceItems.slice(0, limit)
+      const transform = definition.transform ?? ((item: TSourceItem) => item as unknown as TItem)
+      return {
+        items: await Promise.all(pageItems.map(transform)),
+        nextCursor:
+          hasMore && pageItems.length
+            ? encodeCursor(definition.cursor(pageItems[pageItems.length - 1]!))
+            : null,
+      }
+    },
+    parseQuery(input) {
+      return definition.query ? definition.query(input) : (input as TQuery)
+    },
   }
-
-  return { get, items }
 }

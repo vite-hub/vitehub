@@ -428,6 +428,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
   })
   if (options.agent) addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
+  addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (options.auth) {
     const envOptions = options.env || {}
     hubAuthNuxt({

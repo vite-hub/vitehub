@@ -20,12 +20,19 @@ type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: RuntimeDatabaseEntry<typeof schema>
 } & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
 
+type RuntimeDatabaseName = keyof RuntimeDatabaseRegistry | "default"
+
+type RuntimeDatabaseFor<Name extends RuntimeDatabaseName> =
+  Name extends keyof RuntimeDatabaseRegistry
+    ? RuntimeDatabaseRegistry[Name]
+    : RuntimeDatabaseEntry<typeof schema>
+
 export const databases = runtimeDatabases as RuntimeDatabaseLookup
 
 export const db = runtimeDb as DrizzleRuntimeDatabase<typeof schema>
 
-export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {
-  return databases[name]
+export function useDatabase<Name extends RuntimeDatabaseName>(name: Name): RuntimeDatabaseFor<Name> {
+  return databases[name] as RuntimeDatabaseFor<Name>
 }
 
 export const agentDb = createAgentDatabase(databases)

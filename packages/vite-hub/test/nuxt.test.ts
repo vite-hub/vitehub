@@ -864,6 +864,7 @@ describe("ViteHub Nuxt integration", () => {
       nitro: { alias: Record<string, string>, plugins: string[] }
     }
     expect(options.imports.imports).toEqual([
+      { from: "vite-hub/source/client", name: "useCollection" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useSession" },
       { from: "vite-hub/auth/vue", name: "useSignIn" },
@@ -888,6 +889,7 @@ describe("ViteHub Nuxt integration", () => {
       { from: "vite-hub/agent/vue", name: "useAgentInvocation" },
       { from: "vite-hub/agent/vue", name: "useAgentInvocations" },
       { from: "vite-hub/agent/vue", name: "useChat" },
+      { from: "vite-hub/source/client", name: "useCollection" },
     ])
   })
 
@@ -956,7 +958,7 @@ describe("ViteHub Nuxt integration", () => {
       imports: { imports: Array<{ from: string, name: string }> }
       nitro: Record<string, unknown>
     }
-    expect(options.imports.imports).toHaveLength(5)
+    expect(options.imports.imports).toHaveLength(6)
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
     expect(options.nitro.alias).toEqual({
       "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",

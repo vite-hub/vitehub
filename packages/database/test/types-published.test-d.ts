@@ -29,8 +29,7 @@ describe("published package types", () => {
     expectTypeOf(agentDb.query).toBeFunction()
     expectTypeOf(agentDb.database("analytics").exec).toBeFunction()
     expectTypeOf(useDatabase("analytics").schema.events).toEqualTypeOf(analyticsSchema.events)
-    // @ts-expect-error The default database is not configured by this generated registry.
-    useDatabase("default")
+    expectTypeOf(useDatabase("default").schema).toEqualTypeOf<typeof schema>()
     // @ts-expect-error Unknown database names must be rejected by the generated registry.
     useDatabase("missing")
   })

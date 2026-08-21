@@ -62,12 +62,12 @@ article.metadata?.revision
 const articles = await useSource("articles").items()
 ```
 
-Compose runtime Source readers into a typed Collection when keys can overlap:
+Combine runtime Source readers when keys can overlap:
 
 ```ts
-import { defineCollection, defineSource } from "@vite-hub/source"
+import { combineSources, defineSource } from "@vite-hub/source"
 
-const recaps = defineCollection({
+const recaps = combineSources({
   sources: {
     github: defineSource({
       get: async (month: `${number}-${number}`) => ({ month }),
@@ -79,6 +79,59 @@ const recaps = defineCollection({
 await recaps.get(["github", "2026-07"])
 await recaps.items() // [{ key: "2026-07", source: "github", identity: ["github", "2026-07"] }]
 ```
+
+Define a Collection when a database or other origin should become a typed,
+paginated client read model:
+
+```ts
+// server/collections/articles.ts
+import { defineCollection } from "@vite-hub/source"
+
+import type { CollectionLoadOptions } from "@vite-hub/source"
+
+export const articles = defineCollection(async ({ cursor, limit, query }: CollectionLoadOptions<
+  { author?: string },
+  readonly [createdAt: number, id: string]
+>) => {
+  return db.listArticles({ after: cursor, author: query.author, limit })
+}, {
+  cursor: article => [article.createdAt, article.id] as const,
+  parseCursor(input) {
+    if (!Array.isArray(input) || input.length !== 2
+      || typeof input[0] !== "number" || typeof input[1] !== "string") {
+      throw new TypeError("Article cursor must contain a timestamp and id.")
+    }
+    return [input[0], input[1]] as const
+  },
+  query(input): { author?: string } {
+    return typeof input.author === "string" ? { author: input.author } : {}
+  },
+  transform: article => ({ id: article.id, title: article.title }),
+})
+```
+
+```ts
+// server/api/articles.get.ts
+import { defineCollectionHandler } from "@vite-hub/source/server"
+import { articles } from "../collections/articles"
+
+export default defineCollectionHandler(articles)
+```
+
+```ts
+// app/composables/articles.ts
+import { useCollection } from "@vite-hub/source/client"
+
+import type { articles } from "../../server/collections/articles"
+
+export const useArticles = () => useCollection<typeof articles>("/api/articles", {
+  query: { author: "Ada" },
+})
+```
+
+The loader owns the origin-specific query. Collection owns limit enforcement,
+opaque cursor transport, response shaping, and the exact item and query types
+consumed by `useCollection()`.
 
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured

@@ -49,7 +49,8 @@ export default defineEventHandler(() => {
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources`, `createSource`, `defineCollection`, `custom` from `vite-hub/source` | Define Sources, create context-dependent readers, and combine keyed readers. |
+| `defineSource`, `defineSources`, `createSource`, `combineSources`, `custom` from `vite-hub/source` | Define Sources, create context-dependent readers, and combine keyed readers. |
+| `defineCollection` from `vite-hub/source`, `defineCollectionHandler` from `vite-hub/source/server`, `useCollection` from `vite-hub/source/client` | Turn any loader into a typed, paginated HTTP read model and consume it from Vue. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
@@ -194,14 +195,14 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## Compose keyed Source readers
+## Combine keyed Source readers
 
-Use `defineCollection()` when several readers can return the same key. A
-Collection identifies each item with a `[source, key]` tuple, so the source
+Use `combineSources()` when several readers can return the same key. A
+combined reader identifies each item with a `[source, key]` tuple, so the source
 alias remains part of the runtime value and its inferred type.
 
 ```ts [server/recaps.ts]
-import { createSource, defineCollection, defineSource } from 'vite-hub/source'
+import { combineSources, createSource, defineSource } from 'vite-hub/source'
 
 const github = defineSource(context => ({
   async get(month: `${number}-${number}`) {
@@ -212,7 +213,7 @@ const github = defineSource(context => ({
   },
 }))
 
-export const recaps = defineCollection({
+export const recaps = combineSources({
   sources: {
     github: createSource(github, { rootDir: process.cwd() }),
   },
@@ -223,15 +224,77 @@ await recaps.items()
 // [{ key: '2026-07', source: 'github', identity: ['github', '2026-07'] }]
 ```
 
-Collection aliases must be strings. `get()` infers the accepted key and result
-for each alias. `items()` is available on every Collection, but it rejects a
-partially enumerable Collection before starting any reader. When every reader
+Source aliases must be strings. `get()` infers the accepted key and result
+for each alias. `items()` is available on every combined reader, but it rejects a
+partially enumerable reader before starting any work. When every reader
 implements `items()`, each returned item includes `source` and `identity`.
 
 `defineSource(context => reader)` declares a context-dependent keyed reader.
-`createSource()` creates that reader with a `SourceContext`. Collections do not
+`createSource()` creates that reader with a `SourceContext`. Combined readers do not
 change the process-local registry: `defineSources()`, `registerSources()`, and
 `useSource()` keep their existing behavior.
+
+## Expose a typed Collection
+
+A Source describes where data comes from. A Collection describes the paginated
+object shape an application exposes to a client. Its loader can call a database,
+a Source reader, an SDK, or any other server-side origin.
+
+```ts [server/collections/articles.ts]
+import { defineCollection } from 'vite-hub/source'
+
+import type { CollectionLoadOptions } from 'vite-hub/source'
+
+export const articles = defineCollection(async ({ cursor, limit, query }: CollectionLoadOptions<
+  { author?: string },
+  readonly [createdAt: number, id: string]
+>) => {
+  return db.listArticles({ after: cursor, author: query.author, limit })
+}, {
+  cursor: article => [article.createdAt, article.id] as const,
+  defaultLimit: 25,
+  maxLimit: 100,
+  parseCursor(input) {
+    if (!Array.isArray(input) || input.length !== 2
+      || typeof input[0] !== 'number' || typeof input[1] !== 'string') {
+      throw new TypeError('Article cursor must contain a timestamp and id.')
+    }
+    return [input[0], input[1]] as const
+  },
+  query(input): { author?: string } {
+    return typeof input.author === 'string' ? { author: input.author } : {}
+  },
+  transform: article => ({ id: article.id, title: article.title }),
+})
+```
+
+The Collection requests one extra row from the loader, enforces its configured
+limits, and turns the last visible row into an opaque cursor. `transform()` is
+the server-to-client boundary, so private columns and provider objects stay out
+of the response while its return type becomes the client item type.
+
+```ts [server/api/articles.get.ts]
+import { defineCollectionHandler } from 'vite-hub/source/server'
+import { articles } from '../collections/articles'
+
+export default defineCollectionHandler(articles)
+```
+
+```vue [app/pages/articles.vue]
+<script setup lang="ts">
+import type { articles } from '../../server/collections/articles'
+
+const author = ref<string>()
+const { items, pending, error, hasMore, loadMore } = useCollection<typeof articles>(
+  '/api/articles',
+  { query: computed(() => ({ author: author.value })) },
+)
+</script>
+```
+
+The ViteHub Nuxt module auto-imports `useCollection`. Outside Nuxt, import it
+from `vite-hub/source/client`. `cursor` and `limit` are reserved route query
+parameters. Invalid limits, cursor encodings, and parsed queries return HTTP 400.
 
 ## Use Sources with Workspace
 
