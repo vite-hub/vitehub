@@ -3223,6 +3223,19 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("does not infer coverage warnings from unresolved dynamic instructions", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      capabilities: [workspaceShell()],
+      driver: { instructions: async () => "::capability{name=\"workspace-shell\"}\nInspect files.\n::", model: {} as never },
+      workspace: {},
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentInspectionMetadata(agent, { resolveSources: false })
+    expect(metadata.warnings).toBeUndefined()
+  })
+
   it("does not resolve Workspace-backed instructions when Source resolution is disabled", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("docs/AGENTS.md"))
@@ -3281,7 +3294,8 @@ describe("defineAgent workspace option", () => {
 
   it("resolves dynamic model metadata for Agent inspection", async () => {
     const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
-    const resolveModel = vi.fn((context: { channel?: { meta?: { customer?: string } }, invoker: { kind?: string } }) => ({
+    const abortSignal = new AbortController().signal
+    const resolveModel = vi.fn((context: { abortSignal?: AbortSignal, channel?: { meta?: { customer?: string } }, invoker: { kind?: string } }) => ({
       modelId: `test/${context.invoker.kind || "unknown"}/${context.channel?.meta?.customer || "unknown"}`,
       provider: "test",
     }))
@@ -3292,6 +3306,7 @@ describe("defineAgent workspace option", () => {
 
     expect(await resolveAgentInspectionMetadata(agent, {
       input: {
+        abortSignal,
         context: {
           channel: { meta: { customer: "acme" } },
           invoker: {
@@ -3313,6 +3328,7 @@ describe("defineAgent workspace option", () => {
       },
     })
     expect(resolveModel).toHaveBeenCalledWith(expect.objectContaining({
+      abortSignal,
       channel: { meta: { customer: "acme" } },
     }))
   })

@@ -1146,6 +1146,9 @@ async function staticWorkspaceMetadataInstructions<
 ): Promise<{ instructions: string[], warnings: AgentInspectionWarning[] }> {
   const instructions = workspaceMetadataInstructions(options, false)
   const coverage = await collectStaticInstructionCoverage(instructions.join("\n\n"))
+  const configuredInstructions = modelDriverInstructions(options)
+  const hasDynamicInstructions = (Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions])
+    .some(instruction => typeof instruction === "function")
   const visibleSources = new Set(workspaceMetadataFiles(options, context).map(file => file.source).filter(Boolean))
   const visibleDefinition = definition.sources
     ? {
@@ -1155,7 +1158,9 @@ async function staticWorkspaceMetadataInstructions<
     : definition
   return {
     instructions,
-    warnings: instructionCoverageWarnings(coverage, visibleDefinition, staticAgentCapabilities(options.capabilities), workspaceAgentDriverKind(options)),
+    warnings: hasDynamicInstructions
+      ? []
+      : instructionCoverageWarnings(coverage, visibleDefinition, staticAgentCapabilities(options.capabilities), workspaceAgentDriverKind(options)),
   }
 }
 
@@ -1504,6 +1509,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
     metadataContext: {
       ...agentInvocationCallbackContextValues(invocationContext),
       ...agentCallbackContext(runtime),
+      abortSignal: input.abortSignal,
       actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
@@ -1588,6 +1594,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     const context = {
       ...agentInvocationCallbackContextValues(selection.invocationContext),
       ...agentCallbackContext(selection.runtime),
+      abortSignal: selection.input.abortSignal,
       actor: selection.invoker,
       context: selection.invocationContext,
       driver: { kind: selection.driverKind },
