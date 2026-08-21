@@ -2080,14 +2080,7 @@ function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, 
 function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>, invocationId: string, runId?: string): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
   const invocationTraceLog = {
     append(event: Parameters<typeof traceLog.append>[0]) {
-      return traceLog.append({
-        ...event,
-        attributes: {
-          ...event.attributes,
-          "agent.invocation.id": invocationId,
-          ...(runId ? { "agent.run.id": runId } : {}),
-        },
-      })
+      return traceLog.append(agentInvocationTraceEvent(event, invocationId, runId))
     },
     entries: () => traceLog.entries(),
   }
@@ -2097,15 +2090,33 @@ function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeConte
   return invocationTraceLog
 }
 
+function agentInvocationTraceEvent(
+  event: Parameters<NonNullable<ResolvedAgentRuntimeContext["traceLog"]>["append"]>[0],
+  invocationId: string,
+  runId?: string,
+) {
+  return {
+    ...event,
+    attributes: {
+      ...event.attributes,
+      "agent.invocation.id": invocationId,
+      ...(runId ? { "agent.run.id": runId } : {}),
+    },
+  }
+}
+
 function agentContentTraceLog(
   destination: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>,
+  invocationId: string,
+  runId?: string,
 ): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
   const content = createTraceEventLog({ content: "content" })
   const traceLog = {
     async append(event: Parameters<typeof destination.append>[0]) {
+      const correlated = agentInvocationTraceEvent(event, invocationId, runId)
       const [entry] = await Promise.all([
-        content.append(event),
-        destination.append(event),
+        content.append(correlated),
+        destination.append(correlated),
       ])
       return entry
     },
@@ -2264,21 +2275,26 @@ async function createAgentInvocationContext<
         ...resolvedContext,
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
-      }
+  }
   const initialTelemetry = agentCapabilityTelemetry(definition?.capabilities)
-  const tracedRuntimeContext = initialTelemetry.length && tracedRuntimeContextBase.traceLog
-    ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId) }
+  const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)
+  const initialTraceLog = initialTelemetryUsesContent && tracedRuntimeContextBase.traceLog
+    ? agentContentTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId)
+    : tracedRuntimeContextBase.traceLog
+  const tracedRuntimeContext = initialTelemetry.length && initialTraceLog
+    ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(initialTraceLog, telemetryInvocationId, context.run?.runId) }
     : tracedRuntimeContextBase
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
   let failureTelemetry = initialTelemetry
   const telemetryTraceLogWrapped = initialTelemetry.length > 0
+  const telemetryContentTraceLogWrapped = initialTelemetryUsesContent
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
     runtimeContext = boundRunEvents
       ? { ...tracedRuntimeContext, runEvents: boundRunEvents }
       : tracedRuntimeContext
-    const callbackContext = createAgentCallbackContext(runtimeContext)
+    let callbackContext = createAgentCallbackContext(runtimeContext)
     bindMessageChannelInstructions(
       invocationContext,
       activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
@@ -2362,6 +2378,13 @@ async function createAgentInvocationContext<
       : undefined
     const agentModel = internalDefinition?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
+    if (!telemetryTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.length) {
+      runtimeContext = { ...runtimeContext, traceLog: agentInvocationTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId) }
+    }
+    if (!telemetryContentTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)) {
+      runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId) }
+    }
+    callbackContext = createAgentCallbackContext(runtimeContext)
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
@@ -2371,12 +2394,6 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
-    if (!telemetryTraceLogWrapped && runtimeContext.traceLog && capabilities.registries.telemetry.length) {
-      runtimeContext = { ...runtimeContext, traceLog: agentInvocationTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId) }
-    }
-    if (runtimeContext.traceLog && capabilities.registries.telemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)) {
-      runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog) }
-    }
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {

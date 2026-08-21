@@ -176,6 +176,44 @@ describe("Agent telemetry", () => {
     expect(configuration(instructions)).toMatchObject({ instructions: ["system instructions"] })
   })
 
+  it("keeps directly appended Trace Events in content-enabled exports", async () => {
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn()
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "output-traces",
+        telemetry: { content: { outputs: true }, exporter: telemetry },
+      })],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({
+            attributes: { "agent.invocation.id": "caller-value", output: "application answer" },
+            name: "application.output",
+            type: "run",
+          })
+          return "ok"
+        },
+      },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-application-output" },
+      runtime: "unknown",
+      traceLog,
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    const applicationEvent = traceLog.entries().find(event => event.name === "application.output")
+    expect(applicationEvent?.attributes).toMatchObject({
+      "agent.run.id": "run-application-output",
+    })
+    expect(applicationEvent?.attributes?.["agent.invocation.id"]).not.toBe("caller-value")
+    expect(JSON.stringify(telemetry.mock.calls[0]![0].spans)).toContain("application answer")
+  })
+
   it("retries transient OTLP responses", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response(null, { headers: { "retry-after": "0" }, status: 503 }))
