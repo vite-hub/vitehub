@@ -59,6 +59,7 @@ export function hubEmailOptionalPeerResolver(): Plugin & { api: { prepareTypes: 
 interface InternalEmailVitePluginOptions {
   hosting?: string
   runtimeEnvImport?: string
+  workflowProvider?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -384,7 +385,9 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const configRecord = config as Record<string, unknown>
       const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
       cloudflare = hosting === "cloudflare"
-      vercel = hosting === "vercel" || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
+      vercel = hosting === "vercel"
+        || internalOptions.workflowProvider === "vercel"
+        || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       const emailTemplatePaths = cloudflare || vercel

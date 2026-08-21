@@ -277,7 +277,7 @@ it("preserves Workflow DevKit output not owned by ViteHub", async () => {
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toContainEqual(externalRoute)
 })
 
-it("does not claim unowned WDK output during native generation", { timeout: buildOutputTestTimeout }, async () => {
+it("rejects native generation that would replace unowned canonical WDK output", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-generate-with-unowned-wdk-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")
   const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
@@ -296,26 +296,16 @@ it("does not claim unowned WDK output during native generation", { timeout: buil
   await mkdir(resolve(configFile, ".."), { recursive: true })
   await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute, canonicalRoute] })}\n`)
 
-  await generateProviderOutputs({
+  await expect(generateProviderOutputs({
     clientOutDir: join(rootDir, "dist"),
     importBase: "@vite-hub/workflow",
     rootDir,
     workflow: { provider: "vercel" },
-  })
-
-  const ownership = JSON.parse(await readFile(join(workflowRoot, ".vitehub-owned"), "utf8"))
-  expect(ownership.files).not.toHaveProperty("external.mjs")
-  expect(ownership.routes).not.toContain(JSON.stringify(externalRoute))
-  expect(ownership.files).toHaveProperty("v1/webhook/[token].func/index.mjs")
-  expect(ownership.routes).toContain(JSON.stringify(canonicalRoute))
-  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
-  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toContainEqual(externalRoute)
-
-  await cleanVercelNativeWorkflowOutput(rootDir)
+  })).rejects.toThrow(/conflicts with existing unowned Workflow DevKit functions/)
 
   await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
-  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toContainEqual(externalRoute)
-  expect(JSON.parse(await readFile(configFile, "utf8")).routes).not.toContainEqual(canonicalRoute)
+  await expect(readFile(canonicalFlow, "utf8")).resolves.toBe("external canonical flow\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([externalRoute, canonicalRoute])
 })
 
 it("removes stale WDK output when the Vercel provider is disabled", async () => {
