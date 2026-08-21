@@ -2098,8 +2098,9 @@ describe("workflow runtime", () => {
   it("inspects Cloudflare runs without evaluating their handler modules", async () => {
     const name = "vitehub-agent-invocation-recovery-welcome"
     const load = vi.fn(async () => { throw new Error("module startup failed") })
+    Object.assign(load, { internalAgentInvocationRecovery: true as const })
     const status = vi.fn(async () => "complete")
-    const generatedGet = vi.fn(async () => ({ id: "generated-run", status: async () => "failed" }))
+    const generatedGet = vi.fn(async () => ({ id: "recovery-run", status }))
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
     setWorkflowRuntimeRegistry({ [name]: load })
     enterWorkflowRuntimeEvent({
@@ -2108,7 +2109,7 @@ describe("workflow runtime", () => {
           createBatch: vi.fn(),
           get: generatedGet,
         },
-        WORKFLOW_CUSTOM: { createBatch: vi.fn(), get: vi.fn(async () => ({ id: "recovery-run", status })) },
+        WORKFLOW_CUSTOM: { createBatch: vi.fn(), get: vi.fn(async () => ({ id: "custom-run", status })) },
       } } } },
     })
 
@@ -2118,7 +2119,30 @@ describe("workflow runtime", () => {
       status: "completed",
     })
     expect(load).not.toHaveBeenCalled()
-    expect(generatedGet).not.toHaveBeenCalled()
+    expect(generatedGet).toHaveBeenCalledOnce()
+  })
+
+  it("starts generated Cloudflare Agent Invocation recovery through its generated binding", async () => {
+    const name = "vitehub-agent-invocation-recovery-welcome"
+    const generatedCreateBatch = vi.fn(async () => [{ id: "recovery-run", status: async () => "queued" }])
+    const customCreateBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      [name]: Object.assign(async () => ({
+        internalAgentInvocationRecovery: true as const,
+        handler: async () => ({ ok: true }),
+      }), { internalAgentInvocationRecovery: true as const }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName(name)]: { createBatch: generatedCreateBatch, get: vi.fn() },
+        WORKFLOW_CUSTOM: { createBatch: customCreateBatch, get: vi.fn() },
+      } } } },
+    })
+
+    await expect(runWorkflow(name, {}, { id: "recovery-run" })).resolves.toMatchObject({ id: "recovery-run" })
+    expect(generatedCreateBatch).toHaveBeenCalledOnce()
+    expect(customCreateBatch).not.toHaveBeenCalled()
   })
 
   it("keeps an acknowledged Cloudflare start queued when status inspection is unavailable", async () => {

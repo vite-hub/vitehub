@@ -7,7 +7,7 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 import { runWorkflowHandler } from "./execute.ts"
 import { getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
-import { getWorkflowRunState, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
+import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
 import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult } from "../types.ts"
@@ -42,9 +42,16 @@ function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel"
   })
 }
 
-function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string) {
+function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string, definition?: { internalAgentInvocationRecovery?: true }) {
   const env = getCloudflareEnv(event)
-  return ((binding ? env?.[binding] : undefined) || env?.[getCloudflareWorkflowBindingName(name)]) as CloudflareWorkflowBinding | undefined
+  const bindingName = definition?.internalAgentInvocationRecovery
+    ? getCloudflareWorkflowBindingName(name)
+    : binding || getCloudflareWorkflowBindingName(name)
+  return env?.[bindingName] as CloudflareWorkflowBinding | undefined
+}
+
+function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
+  return resolveCloudflareBinding(event, binding, name, getWorkflowRuntimeRegistry()?.[name])
 }
 
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
@@ -75,7 +82,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
   return {
     cancel: () => unsupportedOperation("cloudflare", "cancellation"),
     async get({ event, id, name }) {
-      const binding = resolveCloudflareBinding(event, config.binding, name)
+      const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
       if (binding) {
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
@@ -90,7 +97,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       return await inlineAdapter(config).get({ event, id, name })
     },
     async run({ definition, event, id, name, options, payload }) {
-      const binding = resolveCloudflareBinding(event, config.binding, name)
+      const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         const start = () => runWorkflowProviderOperation(
           "cloudflare",
