@@ -11,6 +11,16 @@ const analyticsSchema = {
   events: sqliteTable("events", { name: text("name").notNull() }),
 }
 
+const defaultSchema = {
+  meals: sqliteTable("meals", { name: text("name").notNull() }),
+}
+
+declare module "#vitehub/database/schema" {
+  interface DatabaseSchema {
+    meals: typeof defaultSchema.meals
+  }
+}
+
 declare module "#vitehub/database/databases" {
   interface DatabaseRegistry {
     analytics: {
@@ -29,7 +39,7 @@ describe("published package types", () => {
     expectTypeOf(agentDb.query).toBeFunction()
     expectTypeOf(agentDb.database("analytics").exec).toBeFunction()
     expectTypeOf(useDatabase("analytics").schema.events).toEqualTypeOf(analyticsSchema.events)
-    expectTypeOf(useDatabase("default").schema).toEqualTypeOf<typeof schema>()
+    expectTypeOf(useDatabase("default").schema.meals).toEqualTypeOf(defaultSchema.meals)
     // @ts-expect-error Unknown database names must be rejected by the generated registry.
     useDatabase("missing")
   })

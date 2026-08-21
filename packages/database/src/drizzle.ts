@@ -23,9 +23,11 @@ type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
 type RuntimeDatabaseName = keyof RuntimeDatabaseRegistry | "default"
 
 type RuntimeDatabaseFor<Name extends RuntimeDatabaseName> =
-  Name extends keyof RuntimeDatabaseRegistry
-    ? RuntimeDatabaseRegistry[Name]
-    : RuntimeDatabaseEntry<typeof schema>
+  Name extends "default"
+    ? RuntimeDatabaseEntry<typeof schema>
+    : Name extends keyof RuntimeDatabaseRegistry
+      ? RuntimeDatabaseRegistry[Name]
+      : RuntimeDatabaseEntry<typeof schema>
 
 export const databases = runtimeDatabases as RuntimeDatabaseLookup
 
