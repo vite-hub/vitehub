@@ -37,7 +37,35 @@ export function isGlobalReflectMethodCall(
   sourceCode: SourceCode,
   callee: ESTree.Expression,
   methodName: string,
+  visited = new Set<Variable>(),
 ): boolean {
+  if (callee.type === "Identifier") {
+    const variable = resolveVariable(sourceCode, callee);
+    if (variable === null || visited.has(variable)) return false;
+    visited.add(variable);
+    return variable.defs.some((definition) => {
+      if (
+        definition.type !== "Variable" ||
+        definition.node.type !== "VariableDeclarator" ||
+        definition.parent?.type !== "VariableDeclaration" ||
+        definition.parent.kind !== "const" ||
+        definition.node.init === null
+      ) {
+        return false;
+      }
+      const { id, init } = definition.node;
+      if (id.type === "Identifier") {
+        return isGlobalReflectMethodCall(sourceCode, init, methodName, visited);
+      }
+      if (id.type !== "ObjectPattern" || !isGlobalReflect(sourceCode, init)) return false;
+      return id.properties.some((property) => {
+        if (property.type !== "Property" || property.value.type !== "Identifier") return false;
+        if (property.value.name !== callee.name) return false;
+        const name = property.key.type === "Identifier" ? property.key.name : property.key.value;
+        return name === methodName;
+      });
+    });
+  }
   if (!("property" in callee) || !("object" in callee) || !("computed" in callee)) return false;
   if (!isGlobalReflect(sourceCode, callee.object)) return false;
   const property = callee.property;

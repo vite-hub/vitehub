@@ -30,10 +30,32 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
       });
     };
 
+    const reportForbiddenLiteralKey = (
+      node: ESTree.Node & { key: ESTree.Node; computed?: boolean },
+    ) => {
+      if (
+        node.key.type !== "Literal" ||
+        typeof node.key.value !== "string" ||
+        !containsForbiddenSymbolName(node.key.value)
+      ) {
+        return;
+      }
+      context.report({
+        node: node.key,
+        messageId: "forbiddenSymbolName",
+        data: { name: node.key.value },
+      });
+    };
+
     return {
       Identifier: reportForbiddenSymbolName,
       PrivateIdentifier: reportForbiddenSymbolName,
       JSXIdentifier: reportForbiddenSymbolName,
+      Property: reportForbiddenLiteralKey,
+      PropertyDefinition: reportForbiddenLiteralKey,
+      MethodDefinition: reportForbiddenLiteralKey,
+      TSPropertySignature: reportForbiddenLiteralKey,
+      TSMethodSignature: reportForbiddenLiteralKey,
     };
   },
 });
