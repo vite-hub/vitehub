@@ -65,7 +65,13 @@ beforeAll(async () => {
   )))
   const failedPack = packResults.find(result => result.status === "rejected")
   if (failedPack) throw failedPack.reason
-  await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], consumerRoot)
+  await runPnpm([
+    "install",
+    "--prefer-offline",
+    "--ignore-scripts",
+    "--no-frozen-lockfile",
+    "--config.blockExoticSubdeps=false",
+  ], consumerRoot)
 }, 45_000)
 
 afterAll(async () => {
