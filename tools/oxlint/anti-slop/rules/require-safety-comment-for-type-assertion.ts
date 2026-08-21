@@ -20,6 +20,19 @@ function isConstAssertion(node: TypeAssertion): boolean {
   );
 }
 
+function hasJustification(comment: ESTree.Comment): boolean {
+  const marker = /\bSAFETY\s*:/u.exec(comment.value);
+  if (marker === null) return false;
+  let justification = comment.value.slice(marker.index + marker[0].length);
+  if (comment.type === "Block") {
+    justification = justification
+      .split(/\r?\n/u)
+      .map((line) => line.replace(/^\s*\*\s?/u, ""))
+      .join("\n");
+  }
+  return justification.trim().length > 0;
+}
+
 function hasSafetyComment(sourceCode: SourceCode, node: TypeAssertion): boolean {
   let current: ESTree.Node = node;
   while (true) {
@@ -27,8 +40,7 @@ function hasSafetyComment(sourceCode: SourceCode, node: TypeAssertion): boolean 
       sourceCode
         .getCommentsBefore(current)
         .some(
-          (comment) =>
-            comment.end <= node.start && /\bSAFETY\s*:(?:\s|\*)*[^\s*/]/u.test(comment.value),
+          (comment) => comment.end <= node.start && hasJustification(comment),
         )
     ) {
       return true;

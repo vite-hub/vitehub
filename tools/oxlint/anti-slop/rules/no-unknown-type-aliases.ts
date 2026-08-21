@@ -58,14 +58,14 @@ export const noUnknownTypeAliasesRule = defineRule({
 						aliases.set(declaration.id.name, declaration);
 					}
 				}
-				for (const alias of aliases.values()) {
-					if (!resolvesToUnknown(alias.typeAnnotation, new Set([alias.id.name]))) continue;
-					context.report({
-						node: alias.id,
-						messageId: "unknownAlias",
-						data: { alias: alias.id.name },
-					});
-				}
+			},
+			TSTypeAliasDeclaration(alias) {
+				if (!resolvesToUnknown(alias.typeAnnotation, new Set([alias.id.name]))) return;
+				context.report({
+					node: alias.id,
+					messageId: "unknownAlias",
+					data: { alias: alias.id.name },
+				});
 			},
 		};
 	},
