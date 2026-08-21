@@ -58,7 +58,12 @@ function moduleMockCall(
     if (variable === null || visited.has(variable)) return false;
     visited.add(variable);
     return variable.defs.some((definition) => {
-      if (definition.type !== "Variable" || definition.node.type !== "VariableDeclarator") {
+      if (
+        definition.type !== "Variable" ||
+        definition.node.type !== "VariableDeclarator" ||
+        definition.parent?.type !== "VariableDeclaration" ||
+        definition.parent.kind !== "const"
+      ) {
         return false;
       }
       const { id, init } = definition.node;

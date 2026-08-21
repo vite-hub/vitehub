@@ -31,7 +31,7 @@ const nativeErrors = nativeDiagnostics.filter((diagnostic) => diagnostic.severit
 const sourceByFilename = new Map(
   await Promise.all(
     [...new Set(antiSlopDiagnostics.map((diagnostic) => diagnostic.filename))].map(
-      async (filename) => [filename, await readFile(filename, "utf8")],
+      async (filename) => [filename, await readFile(filename)],
     ),
   ),
 );
@@ -45,7 +45,8 @@ const baseIdentity = (diagnostic) =>
           label: label.label,
           source: sourceByFilename
             .get(diagnostic.filename)
-            ?.slice(label.span.offset, label.span.offset + label.span.length),
+            ?.subarray(label.span.offset, label.span.offset + label.span.length)
+            .toString("utf8"),
         })),
         message: diagnostic.message,
       }),
