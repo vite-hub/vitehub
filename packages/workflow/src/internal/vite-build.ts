@@ -22,6 +22,7 @@ import type { Plugin as VitePlugin } from "vite"
 
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
+const vercelNativeWorkflowOwnershipMarker = ".vitehub-owned"
 
 const generatedRegistryFileName = "registry.mjs"
 const cloudflareWorkflowWranglerConfigKeys = ["compatibility_date", "compatibility_flags", "main", "observability", "workflows"]
@@ -200,7 +201,9 @@ export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: stri
 
 export async function cleanVercelNativeWorkflowOutput(rootDir: string): Promise<void> {
   const outputRoot = resolve(rootDir, ".vercel", "output")
-  await rm(resolve(outputRoot, "functions", ".well-known", "workflow"), { force: true, recursive: true })
+  const workflowRoot = resolve(outputRoot, "functions", ".well-known", "workflow")
+  if (!existsSync(resolve(workflowRoot, vercelNativeWorkflowOwnershipMarker))) return
+  await rm(workflowRoot, { force: true, recursive: true })
   const configFile = resolve(outputRoot, "config.json")
   let config: { routes?: Array<Record<string, unknown>>, [key: string]: unknown }
   try {
@@ -244,6 +247,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     workingDir: rootDir,
   })
   await withVercelWorkflowPackageLink(rootDir, async () => await builder.build())
+  await writeFile(resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", vercelNativeWorkflowOwnershipMarker), "\n", "utf8")
   const emailDefinitionFile = aliases["#vitehub/email/definition"]
   if (emailDefinitionFile) await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
   const workflowConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[], [key: string]: unknown }

@@ -76,6 +76,7 @@ it("removes stale WDK functions and routes", async () => {
   const configFile = join(rootDir, ".vercel", "output", "config.json")
   await mkdir(workflowRoot, { recursive: true })
   await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
+  await writeFile(join(workflowRoot, ".vitehub-owned"), "\n")
   await writeFile(configFile, `${JSON.stringify({ routes: [
     { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" },
     { src: "/user", dest: "/user" },
@@ -87,12 +88,28 @@ it("removes stale WDK functions and routes", async () => {
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
 })
 
+it("preserves Workflow DevKit output not owned by ViteHub", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-unowned-wdk-")
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const externalRoute = { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" }
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "external.mjs"), "external\n")
+  await writeFile(configFile, `${JSON.stringify({ routes: [externalRoute] })}\n`)
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  await expect(readFile(join(workflowRoot, "external.mjs"), "utf8")).resolves.toBe("external\n")
+  expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([externalRoute])
+})
+
 it("removes stale WDK output when the Vercel provider is disabled", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-disable-vercel-")
   const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
   const configFile = join(rootDir, ".vercel", "output", "config.json")
   await mkdir(workflowRoot, { recursive: true })
   await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
+  await writeFile(join(workflowRoot, ".vitehub-owned"), "\n")
   await writeFile(configFile, `${JSON.stringify({ routes: [
     { src: "/.well-known/workflow/v1/flow", dest: "/.well-known/workflow/v1/flow" },
     { src: "/user", dest: "/user" },
