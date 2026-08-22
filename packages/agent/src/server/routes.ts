@@ -2421,10 +2421,15 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     await resolved.state.connect()
     requireAtomicAgentStateQueue(resolved.state)
     const { claimId, lock, pendingQueue: ownedPendingQueue, queue, ttlMs } = binding.steer
-    const executionTtlMs = Math.max(1_000, Math.floor(ttlMs / 2))
+    const executionTtlMs = ttlMs
     const executionLock = await acquireRequiredStateLock(resolved.state, `${ownedPendingQueue}:execution:${claimId}`, executionTtlMs)
     let ownershipLost = false
-    const stopExecutionHeartbeat = startWebhookLockHeartbeat(resolved.state, executionLock, executionTtlMs, () => { ownershipLost = true })
+    const executionAbort = new AbortController()
+    const loseOwnership = () => {
+      ownershipLost = true
+      if (!executionAbort.signal.aborted) executionAbort.abort(new Error("[vitehub] Durable steered Channel delivery lost execution ownership."))
+    }
+    const stopExecutionHeartbeat = startWebhookLockHeartbeat(resolved.state, executionLock, executionTtlMs, loseOwnership)
     let pending: DurableSteerQueueEntry | null
     try {
       if (!await resolved.state.extendLock(lock, ttlMs)) {
@@ -2453,8 +2458,8 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       await resolved.state.releaseLock(executionLock).catch(() => undefined)
       throw error
     }
-    const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, () => { ownershipLost = true })
-    return async (status) => {
+    const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, loseOwnership)
+    const settle = async (status: "completed" | "failed") => {
       let handoffLock: Lock | undefined
       let stopHandoffHeartbeat: () => void = () => undefined
       let queued: DurableSteerQueueEntry | null = null
@@ -2464,16 +2469,19 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       let successorClaimId: string | undefined
       let successorStartAttempted = false
       try {
-        for (const deliveryId of binding.steer?.deliveryIds ?? []) {
-          const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
-          if (mergedDelivery) await settleChannelDeliveryInvocation(mergedDelivery, status, status)
-        }
         handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
         stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => { ownershipLost = true })
         // A transient heartbeat error is not permanent ownership loss. The
         // token check below is the authority at settlement.
-        if (!await resolved.state.extendLock(executionLock, executionTtlMs) || !await resolved.state.extendLock(lock, ttlMs)) return
+        if (!await resolved.state.extendLock(executionLock, executionTtlMs) || !await resolved.state.extendLock(lock, ttlMs)) {
+          loseOwnership()
+          return
+        }
         ownershipLost = false
+        for (const deliveryId of binding.steer?.deliveryIds ?? []) {
+          const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
+          if (mergedDelivery) await settleChannelDeliveryInvocation(mergedDelivery, status, status)
+        }
         if (!await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, pending)) return
         const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
         queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
@@ -2554,6 +2562,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         await resolved.state.releaseLock(executionLock).catch(() => undefined)
       }
     }
+    return { abortSignal: executionAbort.signal, settle }
   })
 }
 
@@ -2630,6 +2639,10 @@ function durableSteerDeliveryIds(message: DurableSteerQueueMessage | undefined):
     ...message?.deliveryIds ?? [],
     ...(deliveryId ? [deliveryId] : []),
   ])]
+}
+
+function durableSteerMergedDeliveryIds(message: DurableSteerQueueMessage | undefined, primaryDeliveryId: unknown): string[] {
+  return [...new Set(message?.deliveryIds ?? [])].filter(deliveryId => deliveryId !== primaryDeliveryId)
 }
 
 async function failDurableSteerMessage(state: StateAdapter, message: DurableSteerQueueMessage, error: unknown): Promise<void> {
@@ -3871,6 +3884,7 @@ async function handleChatSdkMessage(
             if (recoveredInvoker) workflowInput = withResolvedAgentInvokerInput(workflowInput, recoveredInvoker)
           }
           const recoveredDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+          const recoveredPrimaryDeliveryId = isRecord(recoveredDelivery) ? recoveredDelivery.deliveryId : undefined
           workflowInput.context![agentChannelDeliveryWorkflowContextKey] = {
             ...(isRecord(recoveredDelivery) ? recoveredDelivery : workflowBinding),
             steer: {
@@ -3879,7 +3893,7 @@ async function handleChatSdkMessage(
               queue: steerQueue,
               pendingQueue: durableSteerPendingQueue(steerQueue),
               ttlMs: steerTtlMs,
-              deliveryIds: sameInvoker ? deliveryIds : durableSteerDeliveryIds(reclaimedMessage),
+              deliveryIds: sameInvoker ? deliveryIds : durableSteerMergedDeliveryIds(reclaimedMessage, recoveredPrimaryDeliveryId),
             },
           }
         }

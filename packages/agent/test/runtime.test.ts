@@ -12399,7 +12399,7 @@ describe("agent message protocol", () => {
         duplicate: false,
         event: async (input: unknown) => input,
       }) as never)
-      setAgentChannelDeliveryWorkflowOwnershipResolver(async () => settlement)
+      setAgentChannelDeliveryWorkflowOwnershipResolver(async () => ({ settle: settlement }))
 
       try {
         await expect(runAgentWorkflowDefinition({} as never, {

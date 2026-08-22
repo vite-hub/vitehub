@@ -10450,6 +10450,7 @@ describe("server helpers", () => {
   it("starts the recovered steer head before a reclaiming different invoker", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { resolveInputAgentInvoker } = await import("../src/invoker.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
@@ -10495,6 +10496,7 @@ describe("server helpers", () => {
         },
       }
       await handler(request(91_135, "alpha"), "telegram", runtime)
+      await handler(request(91_137, "alpha"), "telegram", runtime)
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
 
@@ -10502,11 +10504,101 @@ describe("server helpers", () => {
       await handler(request(91_136, "beta"), "telegram", runtime)
 
       expect(workflowPayloads).toHaveLength(2)
-      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91135"])
+      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91135", "91137"])
       expect(resolveInputAgentInvoker(workflowPayloads[1]?.input?.context)).toMatchObject({ id: "alpha" })
       const queued = await state.dequeue(`${ownershipKey}:queue`) as { message?: { input?: AgentRunInput } } | null
       expect(queued?.message?.input?.messages?.map(message => message.id)).toEqual(["91136"])
       expect(resolveInputAgentInvoker(queued?.message?.input?.context)).toMatchObject({ id: "beta" })
+
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "recovered-alpha",
+        name: "calories",
+        payload: workflowPayloads[1],
+        provider: "cloudflare",
+      }, async () => "completed")).resolves.toBe("completed")
+      const deliveries = await handler.deliveries(request(91_135, "alpha"), "telegram", runtime)
+      for (const runId of ["telegram:91135", "telegram:91137"]) {
+        const recovered = deliveries.find(delivery => delivery.events.some(event => event.runId === runId))
+        expect(recovered?.events.filter(event => event.type === "invocation.completed")).toHaveLength(1)
+        expect(recovered?.events.filter(event => event.type === "completed")).toHaveLength(1)
+      }
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("does not settle merged steer deliveries after ownership is reclaimed", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentChannelDeliveryWorkflowContextKey, resumeAgentChannelDeliveryWorkflowOwnership } = await import("../src/internal/channel-delivery.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-stale-settlement-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+      invoker: {
+        resolve: ({ request }) => ({ id: request?.headers.get("x-invoker") || "anonymous" }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    const request = (messageId: number, invoker: string) => {
+      const webhook = chatWebhookRequest(messageId)
+      webhook.headers.set("x-invoker", invoker)
+      return webhook
+    }
+
+    try {
+      await state.connect()
+      const runtime = {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+          },
+        },
+      }
+      await handler(request(91_138, "alpha"), "telegram", runtime)
+      await handler(request(91_139, "alpha"), "telegram", runtime)
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+      await handler(request(91_140, "beta"), "telegram", runtime)
+
+      const binding = workflowPayloads[1]?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
+      const ownership = await resumeAgentChannelDeliveryWorkflowOwnership(agent, { agentIdentity: { name: "calories" } } as never, binding as never)
+      expect(ownership).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+      await handler(request(91_141, "gamma"), "telegram", runtime)
+      await ownership!.settle("failed")
+
+      const deliveries = await handler.deliveries(request(91_138, "alpha"), "telegram", runtime)
+      for (const runId of ["telegram:91138", "telegram:91139"]) {
+        const merged = deliveries.find(delivery => delivery.events.some(event => event.runId === runId))
+        expect(merged?.events).not.toEqual(expect.arrayContaining([
+          expect.objectContaining({ type: "invocation.failed" }),
+          expect.objectContaining({ type: "failed" }),
+        ]))
+      }
     }
     finally {
       resetWorkflowRuntime()
@@ -10779,7 +10871,9 @@ describe("server helpers", () => {
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     let release!: () => void
     const blocked = new Promise<void>(resolve => { release = resolve })
-    const runs = vi.fn(async () => {
+    const driverSignals: AbortSignal[] = []
+    const runs = vi.fn(async ({ input }: { input: AgentRunInput }) => {
+      if (input.abortSignal) driverSignals.push(input.abortSignal)
       await blocked
       return "internal output"
     })
@@ -10795,6 +10889,7 @@ describe("server helpers", () => {
         }),
       },
       driver: { run: runs },
+      hooks: { "agent:finish": event => event.reply("stale reply") },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const env = {
@@ -10811,9 +10906,16 @@ describe("server helpers", () => {
 
       expect(response.status).toBe(200)
       const binding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as {
-        steer?: { lock: { key: string, token: string }, pendingQueue: string, queue: string, ttlMs: number }
+        steer?: {
+          claimId: string
+          lock: { threadId: string, token: string }
+          pendingQueue: string
+          queue: string
+          ttlMs: number
+        }
       } | undefined
       expect(binding?.steer).toBeDefined()
+      binding!.steer!.ttlMs = 400
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
       expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
 
@@ -10829,27 +10931,37 @@ describe("server helpers", () => {
         return "completed"
       }
       const firstExecution = runAgentWorkflowDefinition(agent as never, workflow, inline as never)
+        .then(value => ({ value }), error => ({ error }))
       await vi.waitFor(() => expect(runs).toHaveBeenCalledOnce())
-      let replaySettled = false
       const replay = runAgentWorkflowDefinition(agent as never, workflow, inline as never)
         .then(value => ({ value }), error => ({ error }))
-        .finally(() => { replaySettled = true })
-      await new Promise(resolve => setTimeout(resolve, 25))
+      await new Promise(resolve => setTimeout(resolve, 10))
       expect(runs).toHaveBeenCalledOnce()
-      expect(replaySettled).toBe(false)
+      const extendLock = vi.spyOn(state, "extendLock").mockResolvedValue(false)
+      await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
 
-      release()
-      await expect(firstExecution).resolves.toBe("completed")
       const replayOutcome = await replay
       expect(replayOutcome).toHaveProperty("error")
       expect((replayOutcome as { error: Error }).error.message).toMatch(/lost ownership|could not claim/)
+      release()
+      const firstOutcome = await firstExecution
+      expect(firstOutcome).toHaveProperty("error")
+      expect((firstOutcome as { error: Error }).error.message).toContain("lost execution ownership")
       expect(runs).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
-      expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
+      extendLock.mockRestore()
+
+      await handler(chatWebhookRequest(91_145), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env },
+      })
+      expect(workflowPayloads.at(-1)?.input?.messages?.map(message => message.id)).toEqual(["91142", "91145"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_142), "telegram", { agentIdentity: { name: "calories" } })
       const delivery = deliveries.find(item => item.events.some(event => event.runId === "telegram:91142"))
-      expect(delivery).toMatchObject({ status: "completed" })
+      expect(delivery).not.toMatchObject({ status: "failed" })
       expect(delivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "failed" })]))
     }
     finally {

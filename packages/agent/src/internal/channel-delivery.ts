@@ -50,7 +50,12 @@ type AgentChannelDeliveryWorkflowOwnershipResolver = (
   agent: unknown,
   context: AgentRuntimeContext,
   binding: AgentChannelDeliveryWorkflowBinding,
-) => Promise<((status: "completed" | "failed") => Promise<void>) | undefined>
+) => Promise<AgentChannelDeliveryWorkflowOwnership | undefined>
+
+export interface AgentChannelDeliveryWorkflowOwnership {
+  abortSignal?: AbortSignal
+  settle(status: "completed" | "failed"): Promise<void>
+}
 
 function deliveryRecordKey(deliveryId: string): string {
   return `deliveries:${deliveryId}`
@@ -299,7 +304,7 @@ export async function resumeAgentChannelDeliveryWorkflowOwnership(
   agent: unknown,
   context: AgentRuntimeContext,
   binding: AgentChannelDeliveryWorkflowBinding,
-): Promise<((status: "completed" | "failed") => Promise<void>) | undefined> {
+): Promise<AgentChannelDeliveryWorkflowOwnership | undefined> {
   return await workflowOwnershipResolver?.(agent, context, binding)
 }
 

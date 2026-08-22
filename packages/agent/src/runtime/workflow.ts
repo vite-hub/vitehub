@@ -325,21 +325,31 @@ export async function runAgentWorkflowDefinition<
     throw new Error(`[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.`)
   }
   if (channelDelivery) runtimeContext = withAgentChannelDelivery(runtimeContext, channelDelivery)
-  const settleChannelOwnership = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
+  const channelOwnership = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
     ? await resumeAgentChannelDeliveryWorkflowOwnership(agent, runtimeContext, channelDeliveryBinding)
     : undefined
+  const workflowInput = channelOwnership?.abortSignal
+    ? {
+        ...payload.input,
+        abortSignal: payload.input?.abortSignal
+          ? AbortSignal.any([payload.input.abortSignal, channelOwnership.abortSignal])
+          : channelOwnership.abortSignal,
+      }
+    : payload.input ?? {}
 
   let channelDeliveryStatus: "completed" | "failed" = "failed"
   try {
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
-    const result = await portableWorkflowResult(await runAgentInline(
+    const inlineResult = await runAgentInline(
       agent,
       runtimeContext,
       payload.resolvedInvoker
-        ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
-        : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
-    ))
-    if (channelDelivery) {
+        ? restoreResolvedAgentInvokerInput(workflowInput as AgentRunInput<CALL_OPTIONS>)
+        : workflowInput as AgentRunInput<CALL_OPTIONS>,
+    )
+    channelOwnership?.abortSignal?.throwIfAborted()
+    const result = await portableWorkflowResult(inlineResult)
+    if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery.event({ type: "invocation.completed", runId }).catch(() => undefined)
       await channelDelivery.event({ type: "completed", runId }).catch(() => undefined)
     }
@@ -347,7 +357,7 @@ export async function runAgentWorkflowDefinition<
     return result
   }
   catch (error) {
-    if (channelDelivery) {
+    if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "invocation.failed", runId }).catch(() => undefined)
       await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "failed", runId }).catch(() => undefined)
     }
@@ -357,7 +367,7 @@ export async function runAgentWorkflowDefinition<
     while (backgroundTasks.length) {
       await Promise.allSettled(backgroundTasks.splice(0))
     }
-    await settleChannelOwnership?.(channelDeliveryStatus).catch(() => undefined)
+    await channelOwnership?.settle(channelDeliveryStatus).catch(() => undefined)
   }
 }
 
