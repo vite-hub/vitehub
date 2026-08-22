@@ -19,6 +19,7 @@ interface RequestCall {
 
 function controlledRequester() {
   const calls: RequestCall[] = [];
+  // SAFETY: Controlled tests resolve each call with the response type requested by the composable.
   const request = (<T>(path: string, options: Parameters<AgentInvocationRequester>[1]) =>
     new Promise<T>((resolve, reject) => {
       options.signal?.addEventListener(
@@ -32,10 +33,12 @@ function controlledRequester() {
 }
 
 function record(id: string): AgentInvocationRecord {
+  // SAFETY: Tests exercise list behavior and only require a stable invocation identity.
   return { id } as AgentInvocationRecord;
 }
 
 function observation(sequence: number): TraceEventLogEntry {
+  // SAFETY: Tests exercise observation replacement and only require a stable sequence.
   return { sequence } as TraceEventLogEntry;
 }
 
@@ -236,11 +239,11 @@ describe("Agent Invocation Vue composables", () => {
 
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
-    const requestMock = vi.fn(async () => ({
-      cursor: "next",
-      invocations: [record("inv-1")],
-    }) as AgentInvocationListResult);
-    const request = requestMock as unknown as AgentInvocationRequester;
+    const requestMock = vi.fn();
+    const request: AgentInvocationRequester = async (_path, _options, parse) => {
+      requestMock();
+      return parse({ cursor: "next", invocations: [record("inv-1")] });
+    };
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
 
