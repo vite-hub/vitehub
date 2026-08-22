@@ -3164,7 +3164,7 @@ packages:
     engines: {node: '>=24.0.0'}
 
   '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015':
-    resolution: {integrity: sha512-AnKbp258DfdZhaMEz7H2tn+fipJxnPZcUy3PCYrDkD36XF8st81ertCO5B56Dwkn43ja6CIALgVmAE5LjNH5xw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015}
+    resolution: {integrity: sha512-xby9qbMZd77+RMlM0lbaT7F3t6YubYnrRJR7umOxIEz0PZSoyg8vbQ5VU+sxkNT3lMFBcsvLxip5nGEjBoluGA==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
