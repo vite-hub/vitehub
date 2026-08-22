@@ -159,15 +159,24 @@ describe("defineCollectionHandler", () => {
     expect(response.status).toBe(500)
   })
 
-  it("rejects an active bigint branch from a Collection item union", async () => {
-    const id: bigint | string = 1n
-    const collection = defineCollection(async () => [{ id }], {
+  it("serializes only the supported active branches of item unions", async () => {
+    let value: bigint | string = "one"
+    const collection = defineCollection(async () => [{ array: [value], nested: { value }, value }], {
       cursor: () => "done",
       cursorSchema: v.string(),
     })
-    const response = await new H3().get("/unions", defineCollectionHandler(collection)).request("/unions")
+    const app = new H3().get("/unions", defineCollectionHandler(collection))
 
-    expect(response.status).toBe(500)
+    const supported = await app.request("/unions")
+    expect(supported.status).toBe(200)
+    expect(await supported.json()).toEqual({
+      items: [{ array: ["one"], nested: { value: "one" }, value: "one" }],
+      nextCursor: null,
+    })
+
+    value = 1n
+    const unsupported = await app.request("/unions")
+    expect(unsupported.status).toBe(500)
   })
 
   it.each([

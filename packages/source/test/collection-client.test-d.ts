@@ -15,6 +15,8 @@ interface Article {
 type JSONValueRow = {
   array: Array<number | undefined | (() => void) | symbol>
   invalidUnion: bigint | string
+  invalidUnionArray: Array<bigint | string>
+  invalidUnionNested: { value: bigint | string }
   omitted: undefined
   optional: string | undefined
   toJSONOmitted: { toJSON(): undefined }
@@ -174,7 +176,9 @@ describe("useCollection types", () => {
     expectTypeOf(useCollection("events").items.value).toEqualTypeOf<Array<{ at: string; id: never }>>()
     type JSONValue = {
       array: Array<number | null>
-      invalidUnion: never
+      invalidUnion: string
+      invalidUnionArray: string[]
+      invalidUnionNested: { value: string }
       optional?: string
       value: number | null
     }

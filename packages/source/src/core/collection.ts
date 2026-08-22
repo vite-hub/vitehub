@@ -63,37 +63,33 @@ type JSONUnsupportedObject =
   | WeakMap<object, unknown>
   | WeakSet<object>
 
-type JSONUnsupportedBranch<T> = T extends { toJSON(): infer TJSON }
-  ? JSONUnsupportedBranch<TJSON>
-  : T extends bigint | JSONUnsupportedObject
-    ? T
-    : never
-
 type JSONOmittedBranch<T> = T extends { toJSON(): infer TJSON }
   ? JSONOmittedBranch<TJSON>
   : T extends JSONOmitted
     ? T
     : never
 
-type JSONSerialized<T> = [JSONUnsupportedBranch<T>] extends [never] ? JSONSerializedValue<T> : never
-
+// This projection describes decoded successful response bodies. Unsupported active values fail serialization,
+// so distributive union members that cannot occur in a successful body project to never.
 type JSONSerializedValue<T> = T extends { toJSON(): infer TJSON }
-  ? JSONSerialized<TJSON>
-  : T extends number
-    ? number | null
-    : T extends boolean | null | string
-      ? T
-      : T extends readonly (infer TItem)[]
-        ? Array<JSONSerializedArrayItem<TItem>>
-        : T extends object
-          ? JSONSerializedObject<T>
-          : never
+  ? JSONSerializedValue<TJSON>
+  : T extends bigint | JSONUnsupportedObject
+    ? never
+    : T extends number
+      ? number | null
+      : T extends boolean | null | string
+        ? T
+        : T extends readonly (infer TItem)[]
+          ? Array<JSONSerializedArrayItem<TItem>>
+          : T extends object
+            ? JSONSerializedObject<T>
+            : never
 
-type JSONSerializedArrayItem<T> = [JSONUnsupportedBranch<T>] extends [never]
-  ? T extends { toJSON(): infer TJSON }
-    ? JSONSerializedArrayValue<TJSON>
-    : JSONSerializedArrayValue<T>
-  : never
+type JSONSerialized<T> = T extends unknown ? JSONSerializedValue<T> : never
+
+type JSONSerializedArrayItem<T> = T extends { toJSON(): infer TJSON }
+  ? JSONSerializedArrayValue<TJSON>
+  : JSONSerializedArrayValue<T>
 
 type JSONSerializedArrayValue<T> = T extends JSONOmitted ? null : JSONSerialized<T>
 
