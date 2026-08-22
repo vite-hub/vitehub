@@ -141,7 +141,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("preserves loaded pages when polling refreshes the first page", async () => {
+  it("refreshes every loaded page when polling", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ request }))!;
@@ -164,12 +164,18 @@ describe("Agent Invocation Vue composables", () => {
       cursor: "older",
       invocations: [record("inv-3"), { ...record("inv-2"), status: "completed" }],
     } satisfies AgentInvocationListResult);
+    await settle();
+    expect(calls[3]!.path).toBe("/api/invocations?cursor=older");
+    calls[3]!.resolve({
+      cursor: "oldest",
+      invocations: [{ ...record("inv-1"), status: "failed" }],
+    } satisfies AgentInvocationListResult);
     await refresh;
 
     expect(resource.invocations.value).toEqual([
       record("inv-3"),
       { ...record("inv-2"), status: "completed" },
-      record("inv-1"),
+      { ...record("inv-1"), status: "failed" },
     ]);
     expect(resource.cursor.value).toBe("oldest");
     scope.stop();

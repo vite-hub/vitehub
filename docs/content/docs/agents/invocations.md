@@ -207,6 +207,8 @@ export default defineNuxtConfig({
 
 During `nuxt dev`, open `/_vitehub` to inspect local Agent sessions and trace observations. ViteHub stores the console journal in `.vitehub/data/console.sqlite`. The console is not installed in production builds, even when the option remains enabled in shared configuration.
 
+The console accepts direct loopback requests only. It rejects forwarded requests, so do not place it behind a reverse proxy or tunnel.
+
 The fallback applies to Agent Definitions imported from `vite-hub/agent`. An explicit `defineAgent({ invocations })` store, including one assigned later by an integration, remains authoritative. Imports directly from `@vite-hub/agent` do not receive the framework console fallback.
 
 ## Control child work

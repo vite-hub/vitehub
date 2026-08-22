@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRootKey, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-import { assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
+import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
 
 import { runAgent } from "@vite-hub/agent"
 
@@ -122,12 +122,22 @@ describe("Agent invocation console", () => {
     expect(() => assertLocalConsoleRequest(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
   })
 
-  it("ignores forwarding headers after validating the socket peer", () => {
+  it("accepts Nitro forwarding headers after the outer guard", () => {
     const value = event("127.0.0.1")
     value.headers = new Headers({ host: "localhost", "x-forwarded-for": "203.0.113.2" })
 
     expect(() => assertLocalConsoleRequest(value)).not.toThrow()
   })
+
+  it.each(["forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip", "cf-connecting-ip"])(
+    "rejects the %s proxy header",
+    (name) => {
+      const value = event("127.0.0.1")
+      value.headers = new Headers({ host: "localhost", [name]: "127.0.0.1" })
+
+      expect(() => assertLocalConsolePeer(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
+    },
+  )
 
   it("keeps the local host check as defense in depth", () => {
     const value = event("127.0.0.1")

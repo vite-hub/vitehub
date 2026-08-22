@@ -193,25 +193,17 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
-  let paginated = false;
+  let loadedPages = 1;
   let revision = 0;
   let stopped = false;
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
-      if (paginated) {
-        const refreshedIds = new Set(result.invocations.map(invocation => invocation.id));
-        invocations.value = [
-          ...result.invocations,
-          ...invocations.value.filter(invocation => !refreshedIds.has(invocation.id)),
-        ];
-      } else {
-        invocations.value = result.invocations;
-        cursor.value = result.cursor;
-      }
+      invocations.value = result.invocations;
+      cursor.value = result.cursor;
     },
     clear() {
-      paginated = false;
+      loadedPages = 1;
       invocations.value = [];
       cursor.value = undefined;
     },
@@ -222,15 +214,29 @@ export function useAgentInvocations(
       isLoadingMore.value = false;
     },
     beforeSourceChange() {
-      paginated = false;
+      loadedPages = 1;
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
-    load: (signal) =>
-      request<AgentInvocationListResult>(
-        appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
+    async load(signal) {
+      const query = options.query ? toValue(options.query) : undefined;
+      const first = await request<AgentInvocationListResult>(
+        appendQuery(toValue(baseURL), query),
         { signal },
-      ),
+      );
+      const refreshed = [...first.invocations];
+      let nextCursor = first.cursor;
+      for (let page = 1; page < loadedPages && nextCursor; page++) {
+        const next = await request<AgentInvocationListResult>(
+          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
+          { signal },
+        );
+        const ids = new Set(refreshed.map(invocation => invocation.id));
+        refreshed.push(...next.invocations.filter(invocation => !ids.has(invocation.id)));
+        nextCursor = next.cursor;
+      }
+      return { cursor: nextCursor, invocations: refreshed };
+    },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,
@@ -258,7 +264,7 @@ export function useAgentInvocations(
         ...invocations.value,
         ...result.invocations.filter(invocation => !ids.has(invocation.id)),
       ];
-      paginated = true;
+      loadedPages++;
       cursor.value = result.cursor;
       return result;
     } catch (cause) {
