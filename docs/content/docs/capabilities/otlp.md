@@ -76,7 +76,9 @@ This contribution belongs to the Capability's entry in the configuration event. 
 
 ## Delivery behavior
 
-The exporter retries transient HTTP failures and honors `Retry-After`. Export is best effort and runs through the host's `waitUntil()` boundary; an unavailable receiver does not change Agent output. Receivers should deduplicate by trace ID and span ID because a retried request can contain the same completed invocation.
+The exporter retries transient HTTP failures and honors `Retry-After`. Export is best effort and runs through the host's `waitUntil()` boundary; an unavailable receiver does not change Agent output. Receiver failures produce a bounded structured local error with the Capability ID, invocation ID, run ID, and export phase.
+
+Set `live: true` when the receiver should see trace state while the invocation runs. Live delivery permits one request in flight and coalesces additional changes into one latest snapshot. It cannot build an unbounded request or memory backlog when the receiver is slow. The terminal snapshot supersedes stale live work and is always attempted after the active request settles. Receivers should deduplicate by trace ID and span ID because a retried or live request can contain spans seen previously.
 
 Streaming command output remains trace activity, not a log drain. Provider command start, output deltas, and completion use the same tool-call ID so a session UI can group them without inspecting terminal escape sequences.
 
@@ -87,6 +89,7 @@ Streaming command output remains trace activity, not a log drain. Provider comma
 | `endpoint` | `string` | Required | Complete OTLP traces endpoint, commonly ending in `/v1/traces`. |
 | `headers` | `Record<string, string>` or resolver | None | Request headers resolved for each export. |
 | `resource` | OTLP resource attributes or resolver | Agent and runtime defaults | Additional resource attributes. |
+| `live` | `boolean` | `false` | Exports coalesced trace snapshots while the invocation runs, followed by the terminal snapshot. |
 | `content.inputs` | `boolean` | `false` | Includes user and tool input content in invocation spans. |
 | `content.instructions` | `boolean` | `false` | Includes resolved Agent instructions in the configuration event. |
 | `content.outputs` | `boolean` | `false` | Includes assistant, tool, and result output content in invocation spans. |

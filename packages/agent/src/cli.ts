@@ -6,6 +6,7 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
+import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
 import { enrichAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
@@ -1296,6 +1297,12 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       run: async (args, context) => await runAgentDevCli(args, context),
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
+    {
+      description: "Inspect an application's durable Agent Invocation journal.",
+      name: "invocations",
+      run: async (args, context) => await runAgentInvocationsCli(args, context),
+      usage: "vitehub agent invocations <list|show|tail> [id] [--url <url>] [--json]",
+    },
   ]
   if (evalFiles.length) {
     features.unshift({
@@ -1345,4 +1352,4 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   }
 }
 
-export { runAgentInfoCli }
+export { runAgentInfoCli, runAgentInvocationsCli }

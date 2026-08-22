@@ -146,9 +146,10 @@ function agentInfoExecutionAuthority(authority: ExecutionAuthority): string[] {
   ]
 }
 
-function agentInfoNames(values: Array<{ name: string }>, fallback: string): string {
+function agentInfoNames(values: Array<{ id?: string, name?: string }>, fallback: string): string {
   if (!values.length) return fallback
-  const names = values.slice(0, 5).map(value => value.name)
+  const names = values.slice(0, 5).map(value => value.name || value.id).filter(value => value !== undefined)
+  if (!names.length) return fallback
   return values.length > names.length ? `${names.join(", ")}, +${values.length - names.length} more` : names.join(", ")
 }
 
@@ -161,6 +162,7 @@ function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionM
     `Driver: ${agentInfoDriver(metadata.config)}`,
     `Capacity: ${agentInfoCapacity(metadata.config)}`,
     ...(isExecutionAuthority(authority) ? agentInfoExecutionAuthority(authority) : ["Execution authority: unavailable"]),
+    `Capabilities: ${plural(metadata.capabilities?.length || 0, "Capability", "Capabilities")} (${agentInfoNames(metadata.capabilities || [], "none")})`,
     `Tools: ${plural(metadata.tools?.length || 0, "tool")} (${agentInfoNames(metadata.tools || [], "none")})`,
     `Workspace files: ${plural(files.files, "file")}, ${plural(files.directories, "directory", "directories")}, ${plural(files.sources, "source")}`,
     `Instructions: ${plural(metadata.instructions?.length || 0, "document")}`,
