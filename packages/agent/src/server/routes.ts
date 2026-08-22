@@ -2719,6 +2719,7 @@ interface DurableSteerQueueEntry {
 }
 
 const durableSteerQueueMaximum = Number.MAX_SAFE_INTEGER
+const durableSteerFallbackProgressWriteAttempts = 2
 
 function durableSteerPendingQueue(queue: string): string {
   return `${queue}:pending`
@@ -2813,17 +2814,25 @@ async function deliverDurableSteerErrorFallbacks(
       ...active,
       message: { ...active.message!, errorDeliveries },
     }
-    try {
-      if (!await requireAtomicAgentStateQueue(state).queueReplaceHead(
-        queue,
-        active as never,
-        [updated as never],
-        durableSteerQueueMaximum,
-      )) {
-        throw new Error("[vitehub] Durable steered Channel delivery queue changed while error fallback progress was being recorded.")
+    let progressError: unknown
+    for (let attempt = 0; attempt < durableSteerFallbackProgressWriteAttempts; attempt++) {
+      try {
+        if (await requireAtomicAgentStateQueue(state).queueReplaceHead(
+          queue,
+          active as never,
+          [updated as never],
+          durableSteerQueueMaximum,
+        )) {
+          progressError = undefined
+          break
+        }
+        progressError = new Error("[vitehub] Durable steered Channel delivery queue changed while error fallback progress was being recorded.")
+      }
+      catch (error) {
+        progressError = error
       }
     }
-    catch (progressError) {
+    if (progressError) {
       console.error({
         component: "@vite-hub/agent",
         error: serializeErrorForLog(progressError),
@@ -2831,7 +2840,7 @@ async function deliverDurableSteerErrorFallbacks(
         message_id: delivery.message.id,
         thread_id: delivery.message.threadId,
       })
-      continue
+      throw progressError
     }
     active = updated
     try {

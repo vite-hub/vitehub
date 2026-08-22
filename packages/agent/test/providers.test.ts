@@ -11157,7 +11157,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("terminally settles recovered and reclaiming deliveries when replacement startup fails", async () => {
+  it("retries fallback progress before settling failed recovered and reclaiming deliveries", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -11225,9 +11225,10 @@ describe("server helpers", () => {
       const queue = `${ownershipKey}:queue`
       expect(await state.queueDepth(queue)).toBe(0)
       expect(await state.queueDepth(`${queue}:pending`)).toBe(0)
-      expect(errorFallbackText).toHaveBeenCalledOnce()
-      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(errorFallbackText).toHaveBeenCalledTimes(2)
+      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
       expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
       expect(rejectFallbackProgress).toBe(false)
       expect(queueReplaceHead).toHaveBeenCalledWith(
         expect.any(String),
@@ -11239,6 +11240,9 @@ describe("server helpers", () => {
         })],
         expect.any(Number),
       )
+      expect(queueReplaceHead.mock.calls.filter(([, , replacement]) => (
+        replacement as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>
+      ).some(entry => entry.message?.errorDeliveries?.some(item => item.fallbackAttempted)))).toHaveLength(3)
 
       const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", runtime)
       for (const runId of ["telegram:91146", "telegram:91147"]) {
@@ -11253,7 +11257,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 10_000)
 
   it("does not settle merged steer deliveries after ownership is reclaimed", async () => {
     const { defineAgent } = await import("../src/index.ts")
