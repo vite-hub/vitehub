@@ -26,7 +26,7 @@ describe("agent-ready HTTP contracts", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
 
-    expect(workspace).toContain("docus: https://pkg.pr.new/docus@7343e51");
+    expect(workspace).toContain("docus: https://pkg.pr.new/docus@faa30be");
     expect(config).not.toContain("routeRules:");
     expect(config).not.toContain("run_worker_first");
   });
