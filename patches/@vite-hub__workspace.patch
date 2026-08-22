@@ -19,6 +19,49 @@ diff --git a/dist/host-BJ0osb-7.js b/dist/host-BJ0osb-7.js
  		return (await host.exec("test", ["-x", workspaceEntry.path], { cwd: root })).code === 0 ? {
  			...workspaceEntry,
  			metadata: {
+@@ -329,6 +329,11 @@
+ function isExcludedWriteBackPath(path, excluded) {
+ 	return Boolean(gitMetadataRoot(path)) || excluded.some((item) => path === item || path.startsWith(`${item}/`) || item.startsWith(`${path}/`));
+ }
++const defaultExcludedSessionPaths = [".agent-runs", ".git", ".vitehub"];
++function isExcludedSessionSourcePath(path) {
++	if (path === ".vitehub/sources" || path.startsWith(".vitehub/sources/")) return false;
++	return isExcludedWriteBackPath(path, defaultExcludedSessionPaths);
++}
+ function filterWriteBackDiff(diff, excluded) {
+ 	return {
+ 		...diff,
+@@ -347,8 +352,9 @@
+ async function sessionEntries(workspace, options) {
+ 	const paths = normalizeSessionPaths(options);
+-	if (!paths) return await workspace.list("", { recursive: true });
++	if (!paths) return (await workspace.list("", { recursive: true })).filter((entry) => !isExcludedSessionSourcePath(entry.path));
+ 	const entries = /* @__PURE__ */ new Map();
+ 	for (const path of paths) {
++		if (isExcludedSessionSourcePath(path)) continue;
+ 		const stat = await workspace.stat(path).catch((error) => {
+ 			if (isMissingWorkspacePathError(error)) return void 0;
+ 			throw error;
+@@ -355,7 +361,7 @@
+ 		});
+ 		if (!stat) continue;
+ 		entries.set(stat.path, stat);
+-		if (stat.type === "directory") for (const entry of await workspace.list(path, { recursive: true })) entries.set(entry.path, entry);
++		if (stat.type === "directory") for (const entry of await workspace.list(path, { recursive: true })) if (!isExcludedSessionSourcePath(entry.path)) entries.set(entry.path, entry);
+ 	}
+ 	return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path));
+ }
+@@ -562,9 +568,7 @@
+ 	const root = normalizeTarget(options.target);
+ 	const sessionPaths = normalizeSessionPaths(options);
+ 	const excludedWriteBackPaths = [
+-		".agent-runs",
+-		".git",
+-		".vitehub",
++		...defaultExcludedSessionPaths,
+ 		...(options.writeBack?.exclude || []).map((path) => normalizeSafeWorkspacePath(path, { allowReserved: true }))
+ 	];
+ 	let closed = false;
 diff --git a/dist/types-Y18g7o0_.d.ts b/dist/types-Y18g7o0_.d.ts
 --- a/dist/types-Y18g7o0_.d.ts
 +++ b/dist/types-Y18g7o0_.d.ts
