@@ -109,6 +109,27 @@ describe("Agent telemetry", () => {
     })
   })
 
+  it("treats partially accepted OTLP logs as failed delivery", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({
+      partialSuccess: { rejectedLogRecords: "1" },
+    }), { headers: { "content-type": "application/json" }, status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const telemetry = otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })
+
+    await expect(telemetry({
+      agent: { name: "support" },
+      records: [{
+        attributes: { "vitehub.event.sequence": 2 },
+        eventName: "agent.model.failed",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })).rejects.toThrow("partially rejected")
+  })
+
   it("configures OTLP as a Capability", () => {
     expect(otlp({
       content: { instructions: true },
@@ -594,6 +615,44 @@ describe("Agent telemetry", () => {
     error.mockRestore()
   })
 
+  it("retains span events when an OTLP receiver partially accepts live logs", async () => {
+    const requests: Array<{ body: unknown, endpoint: string }> = []
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const endpoint = String(input)
+      requests.push({ body: JSON.parse(String(init?.body)), endpoint })
+      return endpoint.endsWith("/v1/logs")
+        ? new Response(JSON.stringify({ partialSuccess: { rejectedLogRecords: 1 } }), { status: 200 })
+        : new Response(null, { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const tasks: Promise<unknown>[] = []
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const agent = defineAgent({
+      capabilities: [otlp({ endpoint: "https://telemetry.example/otlp", live: true })],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({ name: "application.progress", type: "run" })
+          return "ok"
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).resolves.toBe("ok")
+    await Promise.all(tasks)
+
+    const traceRequest = requests.find(request => request.endpoint.endsWith("/v1/traces"))
+    expect(JSON.stringify(traceRequest?.body)).toContain("application.progress")
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      capability_id: "otlp",
+      event: "agent.telemetry.export.failed",
+    }))
+    error.mockRestore()
+  })
+
   it("exports live logs and a completed trace for streamed Agent output", async () => {
     const telemetry = vi.fn()
     const tasks: Promise<unknown>[] = []
@@ -705,6 +764,70 @@ describe("Agent telemetry", () => {
       expect(telemetry).toHaveBeenCalledTimes(3)
       expect(telemetry.mock.calls[1]![0]).toMatchObject({ signal: "logs" })
       expect((telemetry.mock.calls[2]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("caps coalesced catch-up exports while one live export is blocked", async () => {
+    vi.useFakeTimers()
+    try {
+      let releaseDriver!: () => void
+      let releaseExport!: () => void
+      let runtimeTraceLog: { append(event: { name: string, type: "run" }): unknown } | undefined
+      const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+      const tasks: Promise<unknown>[] = []
+      const telemetry = vi.fn(async (_context: unknown) => {
+        if (telemetry.mock.calls.length === 1) await exportGate
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "live-telemetry",
+          telemetry: { exporter: telemetry, live: true },
+        })],
+        driver: {
+          async run(context) {
+            runtimeTraceLog = context.traceLog
+            await driverGate
+            return "ok"
+          },
+        },
+      })
+
+      const active = runAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: "run-bounded-live" },
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})
+      await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
+      await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress.initial", type: "run" }))
+      await vi.advanceTimersByTimeAsync(5_000)
+      await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(1))
+
+      for (let index = 0; index < 1_200; index += 1) {
+        await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
+      }
+      expect(tasks).toHaveLength(1)
+
+      releaseDriver()
+      await active
+      releaseExport()
+      await vi.runAllTimersAsync()
+      await Promise.all(tasks)
+
+      const logs = telemetry.mock.calls.map(call => call[0])
+        .filter(exported => (exported as { signal: string }).signal === "logs") as Array<{ records: Array<{ eventName: string }> }>
+      expect(logs.length).toBeGreaterThan(2)
+      expect(logs.every(exported => exported.records.length <= 512)).toBe(true)
+      const progress = logs.flatMap(exported => exported.records)
+        .map(record => record.eventName)
+        .filter(name => name.startsWith("application.progress"))
+      expect(progress).toHaveLength(1_201)
+      expect(new Set(progress).size).toBe(progress.length)
+      expect(telemetry.mock.calls.at(-1)?.[0]).toMatchObject({ signal: "traces" })
     }
     finally {
       vi.useRealTimers()

@@ -2296,59 +2296,66 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
   if (!telemetry.length || !runtime.traceLog) return
   const name = runtime.agentIdentity?.name || agent.name
   const configuration = getAgentTelemetryConfiguration(context)
+  const invocationEvents = runtime.traceLog.entries().filter(event => event.sequence <= throughSequence
+    && event.attributes?.["agent.invocation.id"] === invocationId)
   const exports = await Promise.allSettled(telemetry.map(async (item) => {
     const { capabilityId, registration } = item
-    const afterSequence = cursors.get(item) || 0
-    const invocationEvents = runtime.traceLog!.entries().filter(event => event.sequence <= throughSequence
-      && event.attributes?.["agent.invocation.id"] === invocationId)
-    const events = invocationEvents.filter(event => event.sequence > afterSequence)
-    if (!events.length) return
-    const anchor = invocationEvents[0]
-    const conversionEvents = anchor && anchor.sequence <= afterSequence ? [anchor, ...events] : events
-    const currentRecords = (records: OpenTelemetryLogRecordView[]) => records.filter(record => {
-      const sequence = record.attributes?.["vitehub.event.sequence"]
-      return typeof sequence === "number" && sequence > afterSequence
-    })
-    const metadataRecords = currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "metadata" }))
-    const records = registration.content?.inputs || registration.content?.outputs
-      ? withAgentTelemetryLogContent(
-          metadataRecords,
-          currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "content" })),
-          registration.content,
-        )
-      : metadataRecords
-    let configurationValue = configuration?.value
-    if (configurationValue && !registration.content?.instructions) {
-      const { instructions: _instructions, ...metadataConfiguration } = configurationValue
-      configurationValue = metadataConfiguration
-    }
-    const configuredRecords = configurationValue && includeConfiguration && records[0]
-      ? [{
-          attributes: {
-            "agent.invocation.id": invocationId,
-            "vitehub.agent.configuration": configurationValue,
-            "vitehub.event.sequence": 0,
-            "vitehub.event.type": "capability",
-          },
-          eventName: "vitehub.agent.configured",
-          spanId: records[0].spanId,
-          time: records[0].time,
-          traceId: records[0].traceId,
-        }, ...records]
-      : records
-    try {
-      await registration.exporter({
-        agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) },
-        records: configuredRecords,
-        run: runtime.run,
-        runtime,
-        signal: "logs",
+    let afterSequence = cursors.get(item) || 0
+    while (true) {
+      const nextIndex = invocationEvents.findIndex(event => event.sequence > afterSequence)
+      if (nextIndex < 0) return
+      const remainingCount = invocationEvents.length - nextIndex
+      const finalBatchIncludesConfiguration = includeConfiguration && remainingCount <= agentTelemetryMaxBatchSize
+      const eventLimit = finalBatchIncludesConfiguration ? agentTelemetryMaxBatchSize - 1 : agentTelemetryMaxBatchSize
+      const events = invocationEvents.slice(nextIndex, nextIndex + eventLimit)
+      const anchor = invocationEvents[0]
+      const conversionEvents = anchor && anchor.sequence <= afterSequence ? [anchor, ...events] : events
+      const currentRecords = (records: OpenTelemetryLogRecordView[]) => records.filter(record => {
+        const sequence = record.attributes?.["vitehub.event.sequence"]
+        return typeof sequence === "number" && sequence > afterSequence
       })
+      const metadataRecords = currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "metadata" }))
+      const records = registration.content?.inputs || registration.content?.outputs
+        ? withAgentTelemetryLogContent(
+            metadataRecords,
+            currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "content" })),
+            registration.content,
+          )
+        : metadataRecords
+      let configurationValue = configuration?.value
+      if (configurationValue && !registration.content?.instructions) {
+        const { instructions: _instructions, ...metadataConfiguration } = configurationValue
+        configurationValue = metadataConfiguration
+      }
+      const configuredRecords = configurationValue && finalBatchIncludesConfiguration && records[0]
+        ? [{
+            attributes: {
+              "agent.invocation.id": invocationId,
+              "vitehub.agent.configuration": configurationValue,
+              "vitehub.event.sequence": 0,
+              "vitehub.event.type": "capability",
+            },
+            eventName: "vitehub.agent.configured",
+            spanId: records[0].spanId,
+            time: records[0].time,
+            traceId: records[0].traceId,
+          }, ...records]
+        : records
+      try {
+        await registration.exporter({
+          agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) },
+          records: configuredRecords,
+          run: runtime.run,
+          runtime,
+          signal: "logs",
+        })
+      }
+      catch (error) {
+        throw new AgentTelemetryCapabilityError(capabilityId, error)
+      }
+      afterSequence = events.at(-1)!.sequence
+      cursors.set(item, afterSequence)
     }
-    catch (error) {
-      throw new AgentTelemetryCapabilityError(capabilityId, error)
-    }
-    cursors.set(item, events.at(-1)!.sequence)
   }))
   throwAgentTelemetryFailures(exports)
 }

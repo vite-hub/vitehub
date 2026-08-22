@@ -109,7 +109,21 @@ async function wait(milliseconds: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, milliseconds))
 }
 
-async function postOtlp(endpoint: string, headers: Headers, body: string): Promise<void> {
+function otlpResponseRejected(response: unknown, field: "rejectedLogRecords" | "rejectedSpans"): boolean {
+  if (!response || typeof response !== "object") return false
+  const partialSuccess = (response as { partialSuccess?: unknown }).partialSuccess
+  if (!partialSuccess || typeof partialSuccess !== "object") return false
+  const value = (partialSuccess as Record<string, unknown>)[field]
+  if (typeof value === "number") return value > 0
+  return typeof value === "string" && /^\d+$/.test(value) && !/^0+$/.test(value)
+}
+
+async function postOtlp(
+  endpoint: string,
+  headers: Headers,
+  body: string,
+  rejectedField: "rejectedLogRecords" | "rejectedSpans",
+): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let response: Response
     try {
@@ -127,7 +141,21 @@ async function postOtlp(endpoint: string, headers: Headers, body: string): Promi
       }
       throw new Error("OTLP/HTTP JSON telemetry export failed.", { cause: error })
     }
-    if (response.ok) return
+    if (response.ok) {
+      const responseBody = await response.text()
+      if (!responseBody) return
+      let payload: unknown
+      try {
+        payload = JSON.parse(responseBody)
+      }
+      catch (error) {
+        throw new Error("OTLP/HTTP JSON telemetry export returned an invalid response.", { cause: error })
+      }
+      if (otlpResponseRejected(payload, rejectedField)) {
+        throw new Error("OTLP/HTTP JSON telemetry export was partially rejected.")
+      }
+      return
+    }
     if (attempt < 2 && retryableStatuses.has(response.status)) {
       await wait(retryAfterMs(response, attempt))
       continue
@@ -162,7 +190,7 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
             scope: { name: "vitehub.agent" },
           }],
         }],
-      }))
+      }), "rejectedLogRecords")
       return
     }
     const fallbackEndTime = context.spans[0]?.endTime || new Date().toISOString()
@@ -174,6 +202,6 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
           spans: context.spans.map(span => otlpSpan(span, fallbackEndTime)),
         }],
       }],
-    }))
+    }), "rejectedSpans")
   }
 }
