@@ -86,12 +86,6 @@
   "peerDependenciesMeta": {
     "@nuxt/ui": {
       "optional": true
-    },
-    "ai": {
-      "optional": true
-    },
-    "vue": {
-      "optional": true
     }
   },
   "engines": {

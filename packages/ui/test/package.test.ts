@@ -28,8 +28,6 @@ describe("@vite-hub/ui package contract", () => {
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
       "@nuxt/ui": { optional: true },
-      ai: { optional: true },
-      vue: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.6.2",
