@@ -191,7 +191,7 @@ export function visibleTypeBindingForParts(
 	return visibleTypeBindingsForParts(parts, site, bindings)[0];
 }
 
-function visibleTypeBindingsForParts(
+export function visibleTypeBindingsForParts(
 	parts: readonly string[],
 	site: ESTree.Node,
 	bindings: readonly TypeBinding[],

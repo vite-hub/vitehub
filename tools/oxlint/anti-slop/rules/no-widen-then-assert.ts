@@ -9,8 +9,12 @@ import {
 } from "../shared/dictionary-types.ts";
 
 import type { TypeEnvironment } from "../shared/dictionary-types.ts";
+import type { TypeBinding } from "../shared/lexical-type-bindings.ts";
 import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
-import { visibleTypeBindingsForName } from "../shared/lexical-type-bindings.ts";
+import {
+  visibleTypeBindingsForName,
+  visibleTypeBindingsForParts,
+} from "../shared/lexical-type-bindings.ts";
 import { resolvesThroughTypeAliases } from "../shared/type-alias-resolution.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
@@ -209,9 +213,7 @@ function objectTypeAliasSubstitutions(
 
 function classHasObjectMembers(binding: {
   readonly body: ESTree.ClassBody;
-  readonly superClass: ESTree.Expression | null;
 }): boolean {
-  if (binding.superClass !== null) return true;
   return binding.body.body.some((member) => {
     if (member.type === "StaticBlock") return false;
     if (member.type !== "TSIndexSignature" && member.static) return false;
@@ -219,11 +221,103 @@ function classHasObjectMembers(binding: {
   });
 }
 
+type ObjectDeclarationBinding = Extract<
+  TypeBinding,
+  { readonly type: "ClassDeclaration" | "TSInterfaceDeclaration" }
+>;
+
+function heritageExpressionParts(expression: ESTree.Expression): readonly string[] | null {
+  if (expression.type === "Identifier") return [expression.name];
+  if (expression.type !== "MemberExpression" || expression.object.type === "Super") return null;
+  const object = heritageExpressionParts(expression.object);
+  if (object === null) return null;
+  const property = expression.computed
+    ? expression.property.type === "Literal" && typeof expression.property.value === "string"
+      ? expression.property.value
+      : null
+    : expression.property.type === "Identifier"
+      ? expression.property.name
+      : null;
+  return property === null ? null : [...object, property];
+}
+
+function bindingHasObjectMembers(
+  binding: ObjectDeclarationBinding,
+  environment: TypeEnvironment,
+  resolvingDeclarations: ReadonlySet<ObjectDeclarationBinding>,
+  resolvingAliases: ReadonlySet<ESTree.TSTypeAliasDeclaration>,
+): boolean {
+  if (resolvingDeclarations.has(binding)) return false;
+  const nextResolving = new Set(resolvingDeclarations);
+  nextResolving.add(binding);
+  if (binding.type === "TSInterfaceDeclaration") {
+    if (binding.body.body.length > 0) return true;
+    return binding.extends.some((heritage: ESTree.TSInterfaceHeritage) =>
+      heritageHasObjectMembers(
+        heritage.expression,
+        heritage.typeArguments,
+        environment,
+        nextResolving,
+        resolvingAliases,
+      ),
+    );
+  }
+  if (classHasObjectMembers(binding)) return true;
+  return (
+    binding.superClass !== null &&
+    heritageHasObjectMembers(
+      binding.superClass,
+      binding.superTypeArguments,
+      environment,
+      nextResolving,
+      resolvingAliases,
+    )
+  );
+}
+
+function heritageHasObjectMembers(
+  expression: ESTree.Expression,
+  typeArguments: ESTree.TSTypeParameterInstantiation | null | undefined,
+  environment: TypeEnvironment,
+  resolvingDeclarations: ReadonlySet<ObjectDeclarationBinding>,
+  resolvingAliases: ReadonlySet<ESTree.TSTypeAliasDeclaration>,
+): boolean {
+  const parts = heritageExpressionParts(expression);
+  if (parts === null) return false;
+  return visibleTypeBindingsForParts(parts, expression, environment.typeBindings).some(
+    (binding) => {
+      if (binding.type === "TSInterfaceDeclaration" || binding.type === "ClassDeclaration") {
+        return bindingHasObjectMembers(
+          binding,
+          environment,
+          resolvingDeclarations,
+          resolvingAliases,
+        );
+      }
+      if (binding.type !== "TSTypeAliasDeclaration" || resolvingAliases.has(binding)) {
+        return false;
+      }
+      const substitutions = objectTypeAliasSubstitutions(binding, typeArguments, new Map());
+      if (substitutions === null) return false;
+      const nextResolvingAliases = new Set(resolvingAliases);
+      nextResolvingAliases.add(binding);
+      return isDefinitelyObjectType(
+        binding.typeAnnotation,
+        environment,
+        substitutions,
+        nextResolvingAliases,
+        resolvingDeclarations,
+      );
+    },
+  );
+}
+
 function isDefinitelyObjectType(
   type: ESTree.TSType,
   environment: TypeEnvironment,
   substitutions: ObjectTypeSubstitutions = new Map(),
-  resolvingAliases = new Set<ESTree.TSTypeAliasDeclaration>(),
+  resolvingAliases: ReadonlySet<ESTree.TSTypeAliasDeclaration> = new Set(),
+  resolvingDeclarations: ReadonlySet<ObjectDeclarationBinding> = new Set(),
 ): boolean {
   const unwrapped = unwrapTypeParentheses(type);
   switch (unwrapped.type) {
@@ -238,7 +332,13 @@ function isDefinitelyObjectType(
       return unwrapped.members.length > 0;
     case "TSIntersectionType":
       return unwrapped.types.every((member) =>
-        isDefinitelyObjectType(member, environment, substitutions, resolvingAliases),
+        isDefinitelyObjectType(
+          member,
+          environment,
+          substitutions,
+          resolvingAliases,
+          resolvingDeclarations,
+        ),
       );
     case "TSTypeOperator":
       return (
@@ -248,6 +348,7 @@ function isDefinitelyObjectType(
           environment,
           substitutions,
           resolvingAliases,
+          resolvingDeclarations,
         )
       );
     case "TSTypeReference": {
@@ -259,6 +360,7 @@ function isDefinitelyObjectType(
           environment,
           substitution.substitutions,
           resolvingAliases,
+          resolvingDeclarations,
         );
       }
       if (
@@ -277,8 +379,13 @@ function isDefinitelyObjectType(
           binding.type === "TSInterfaceDeclaration",
       );
       if (
-        interfaces.some(
-          (binding) => binding.extends.length > 0 || binding.body.body.length > 0,
+        interfaces.some((binding) =>
+          bindingHasObjectMembers(
+            binding,
+            environment,
+            resolvingDeclarations,
+            resolvingAliases,
+          ),
         )
       ) {
         return true;
@@ -286,7 +393,17 @@ function isDefinitelyObjectType(
       const classBinding = bindings.find(
         (binding) => binding.type === "ClassDeclaration",
       );
-      if (classBinding !== undefined && classHasObjectMembers(classBinding)) return true;
+      if (
+        classBinding !== undefined &&
+        bindingHasObjectMembers(
+          classBinding,
+          environment,
+          resolvingDeclarations,
+          resolvingAliases,
+        )
+      ) {
+        return true;
+      }
       const binding = bindings.find(
         (candidate) => candidate.type === "TSTypeAliasDeclaration",
       );
@@ -306,6 +423,7 @@ function isDefinitelyObjectType(
         environment,
         nextSubstitutions,
         nextResolving,
+        resolvingDeclarations,
       );
     }
     default:

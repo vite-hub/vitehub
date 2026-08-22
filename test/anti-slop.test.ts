@@ -683,6 +683,14 @@ describe("anti-slop lexical type resolution", () => {
         type ScalarValue = string;
         class ClassValue { id = "class"; }
         class EmptyClass {}
+        interface EmptyDerivedContract extends EmptyContract {}
+        interface PopulatedDerivedContract extends DomainValue {}
+        type EmptyBaseAlias = {};
+        type PopulatedBaseAlias = { id: string };
+        interface EmptyAliasDerivedContract extends EmptyBaseAlias {}
+        interface PopulatedAliasDerivedContract extends PopulatedBaseAlias {}
+        class EmptyDerivedClass extends EmptyClass {}
+        class PopulatedDerivedClass extends ClassValue {}
         const domain: object = { id: "domain" };
         const alias: object = { id: "alias" };
         const instance: object = new ClassValue();
@@ -690,6 +698,12 @@ describe("anti-slop lexical type resolution", () => {
         const emptyInterface: object = {};
         const emptyAlias: object = {};
         const emptyClass: object = {};
+        const emptyDerivedInterface: object = {};
+        const populatedDerivedInterface: object = { id: "derived" };
+        const emptyAliasDerivedInterface: object = {};
+        const populatedAliasDerivedInterface: object = { id: "alias-derived" };
+        const emptyDerivedClass: object = {};
+        const populatedDerivedClass: object = new PopulatedDerivedClass();
         // SAFETY: fixtures intentionally recreate discarded named object types.
         const restoredDomain = domain as DomainValue;
         // SAFETY: fixtures intentionally recreate discarded named object types.
@@ -704,6 +718,18 @@ describe("anti-slop lexical type resolution", () => {
         const unresolvedAlias = emptyAlias as EmptyAlias;
         // SAFETY: fixture verifies primitive-compatible classes remain excluded.
         const unresolvedClass = emptyClass as EmptyClass;
+        // SAFETY: fixture verifies inherited empty interfaces remain primitive-compatible.
+        const unresolvedDerivedInterface = emptyDerivedInterface as EmptyDerivedContract;
+        // SAFETY: fixture intentionally recreates inherited object members.
+        const restoredDerivedInterface = populatedDerivedInterface as PopulatedDerivedContract;
+        // SAFETY: fixture verifies inherited empty aliases remain primitive-compatible.
+        const unresolvedAliasDerivedInterface = emptyAliasDerivedInterface as EmptyAliasDerivedContract;
+        // SAFETY: fixture intentionally recreates members inherited through an alias.
+        const restoredAliasDerivedInterface = populatedAliasDerivedInterface as PopulatedAliasDerivedContract;
+        // SAFETY: fixture verifies inherited empty classes remain primitive-compatible.
+        const unresolvedDerivedClass = emptyDerivedClass as EmptyDerivedClass;
+        // SAFETY: fixture intentionally recreates inherited class members.
+        const restoredDerivedClass = populatedDerivedClass as PopulatedDerivedClass;
         void restoredDomain;
         void restoredAlias;
         void restoredClass;
@@ -711,8 +737,14 @@ describe("anti-slop lexical type resolution", () => {
         void unresolvedInterface;
         void unresolvedAlias;
         void unresolvedClass;
+        void unresolvedDerivedInterface;
+        void restoredDerivedInterface;
+        void unresolvedAliasDerivedInterface;
+        void restoredAliasDerivedInterface;
+        void unresolvedDerivedClass;
+        void restoredDerivedClass;
       `);
-    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(3);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(6);
   });
 
   test("substitutes generic object assertion targets", () => {
