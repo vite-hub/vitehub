@@ -1,7 +1,11 @@
 import type { ESTree } from "@oxlint/plugins";
 
 import { lexicalTypeParameterNames } from "./lexical-type-parameters.ts";
-import { visibleTypeBinding, type TypeBinding, type VisitorKeys } from "./lexical-type-bindings.ts";
+import {
+	visibleTypeBindingForName,
+	type TypeBinding,
+	type VisitorKeys,
+} from "./lexical-type-bindings.ts";
 
 type Substitutions = ReadonlyMap<string, ESTree.TSType>;
 
@@ -18,6 +22,27 @@ function resolvedSubstitution(
 	const nextResolving = new Set(resolving);
 	nextResolving.add(name);
 	return resolvedSubstitution(substitution, substitutions, nextResolving);
+}
+
+function aliasSubstitutions(
+	alias: ESTree.TSTypeAliasDeclaration,
+	typeArguments: ESTree.TSTypeParameterInstantiation | null | undefined,
+	outer: Substitutions,
+): Substitutions | null {
+	const next = new Map<string, ESTree.TSType>();
+	const parameters = alias.typeParameters?.params ?? [];
+	const arguments_ = typeArguments?.params ?? [];
+	for (const [index, parameter] of parameters.entries()) {
+		const suppliedArgument = arguments_[index];
+		const argument = suppliedArgument ?? parameter.default;
+		if (argument === null || argument === undefined) return null;
+		// Explicit arguments resolve at the call site. Defaults can reference earlier parameters.
+		next.set(
+			parameter.name.name,
+			resolvedSubstitution(argument, suppliedArgument === undefined ? next : outer),
+		);
+	}
+	return next;
 }
 
 export function resolvesThroughTypeAliases(
@@ -42,9 +67,27 @@ export function resolvesThroughTypeAliases(
 			),
 		);
 	}
-	if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return false;
+	if (type.type !== "TSTypeReference") return false;
 
-	const name = type.typeName.name;
+	const name = type.typeName.type === "Identifier" ? type.typeName.name : null;
+	const binding = visibleTypeBindingForName(type.typeName, type, bindings);
+	if (name === null) {
+		const alias = binding?.type === "TSTypeAliasDeclaration" ? binding : undefined;
+		if (alias === undefined || visited.has(alias)) return false;
+		const nextSubstitutions = aliasSubstitutions(alias, type.typeArguments, substitutions);
+		if (nextSubstitutions === null) return false;
+		const nextVisited = new Set(visited);
+		nextVisited.add(alias);
+		return resolvesThroughTypeAliases(
+			alias.typeAnnotation,
+			bindings,
+			visitorKeys,
+			matches,
+			transparentBuiltIns,
+			nextSubstitutions,
+			nextVisited,
+		);
+	}
 	const substitution = substitutions.get(name);
 	if (substitution !== undefined) {
 		const resolved = resolvedSubstitution(substitution, substitutions);
@@ -53,7 +96,6 @@ export function resolvesThroughTypeAliases(
 		);
 	}
 
-	const binding = visibleTypeBinding(name, type, bindings);
 	if (
 		transparentBuiltIns.has(name) &&
 		binding === undefined &&
@@ -71,19 +113,8 @@ export function resolvesThroughTypeAliases(
 		lexicalTypeParameterNames(type, visitorKeys).has(name)
 	) return false;
 
-	const nextSubstitutions = new Map(substitutions);
-	const parameters = alias.typeParameters?.params ?? [];
-	const arguments_ = type.typeArguments?.params ?? [];
-	for (const [index, parameter] of parameters.entries()) {
-		const suppliedArgument = arguments_[index];
-		const argument = suppliedArgument ?? parameter.default;
-		if (argument === null || argument === undefined) return false;
-		// Resolve in the caller environment before the alias parameter can shadow it.
-		nextSubstitutions.set(
-			parameter.name.name,
-			resolvedSubstitution(argument, suppliedArgument === undefined ? nextSubstitutions : substitutions),
-		);
-	}
+	const nextSubstitutions = aliasSubstitutions(alias, type.typeArguments, substitutions);
+	if (nextSubstitutions === null) return false;
 	const nextVisited = new Set(visited);
 	nextVisited.add(alias);
 	return resolvesThroughTypeAliases(

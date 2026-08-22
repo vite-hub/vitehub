@@ -179,4 +179,158 @@ describe("anti-slop lexical type resolution", () => {
       expect(result).toContain(code);
     }
   });
+
+  test("keeps free alias references outside caller substitutions", () => {
+    const unsafeResult = diagnostics(`
+        type T = unknown;
+        type Identity<X> = T;
+        type Wrapper<T> = Identity<T>;
+        function consume(value: Wrapper<string>) { return value; }
+      `);
+    expect(unsafeResult).toContain("anti-slop(no-unknown-parameters)");
+
+    const safeResult = diagnostics(`
+        type T = string;
+        type Identity<X> = T;
+        type Wrapper<T> = Identity<T>;
+        function consume(value: Wrapper<unknown>) { return value; }
+      `);
+    expect(safeResult).not.toContain("anti-slop(no-unknown-parameters)");
+  });
+
+  test("resolves namespace imports for test framework objects", () => {
+    const result = diagnostics(`
+        import * as vitest from "vitest";
+        import * as jestGlobals from "@jest/globals";
+        vitest.vi.mock("./vitest-dependency");
+        jestGlobals.jest.unstable_mockModule("./jest-dependency");
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-module-mocking)")).toHaveLength(2);
+  });
+
+  test("keeps static-block aliases inside the static block", () => {
+    const result = diagnostics(`
+        type Result = unknown;
+        class Safe {
+          static {
+            type Result = { id: string };
+            function value(): Result { return { id: "ok" }; }
+            void value;
+          }
+        }
+        void Safe;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-unknown-type-aliases)")).toHaveLength(1);
+    expect(result).not.toContain("anti-slop(no-unknown-returns)");
+  });
+
+  test("resolves widening aliases in their declaration scopes", () => {
+    const safeResult = diagnostics(`
+        type Entry = { id: string };
+        type Target = Entry;
+        function create() {
+          type Entry = unknown;
+          const value: Target = { id: "ok" };
+          return value;
+        }
+      `);
+    expect(safeResult).not.toContain("anti-slop(no-known-value-widening)");
+
+    const unsafeResult = diagnostics(`
+        type Entry = unknown;
+        type Target = Entry;
+        function create() {
+          type Entry = { id: string };
+          const value: Target = { id: "lost" };
+          return value;
+        }
+      `);
+    expect(unsafeResult).toContain("anti-slop(no-known-value-widening)");
+  });
+
+  test("checks assignments to annotated class fields", () => {
+    const result = diagnostics(`
+        class Store {
+          value: unknown;
+          set() { this.value = { id: "lost" }; }
+        }
+
+        type Value = { id: string };
+        class SafeStore {
+          value: Value;
+          set() { this.value = { id: "kept" }; }
+        }
+
+        const other = new Store();
+        other.value = { id: "not-statically-owned" };
+        void SafeStore;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(1);
+  });
+
+  test("checks dictionary interface heritage", () => {
+    const result = diagnostics(`
+        interface UnsafeEnvironment extends Record<string, unknown> {}
+        interface SafeEnvironment extends Record<string, string> {}
+        void (null as unknown as UnsafeEnvironment);
+        void (null as unknown as SafeEnvironment);
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-unsafe-dictionary-type)")).toHaveLength(
+      1,
+    );
+  });
+
+  test("checks annotated default parameter initializers", () => {
+    const result = diagnostics(`
+        type Precise = { id: string };
+        function unsafe(value: Record<string, string> = { id: "lost" }) { return value; }
+        function safe(value: Precise = { id: "kept" }) { return value; }
+        void unsafe;
+        void safe;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(1);
+  });
+
+  test("unwraps TypeScript expression wrappers in conditional empty-object spreads", () => {
+    const result = diagnostics(`
+        declare const condition: boolean;
+        const first = { ...((condition ? { id: "x" } : {}) satisfies object) };
+        const second = { ...(condition ? { id: "x" } : ({} satisfies object)) };
+        void first;
+        void second;
+      `);
+    expect(
+      result.filter((code) => code === "anti-slop(no-conditional-empty-object-spread)"),
+    ).toHaveLength(2);
+  });
+
+  test("resolves qualified and generic aliases across contract rules", () => {
+    const result = diagnostics(`
+        namespace Contracts {
+          export type Identity<T> = T;
+          export type UnsafeValue = object;
+          export type Nested = UnsafeValue;
+        }
+        type Hidden = Contracts.Identity<unknown>;
+        function unknownInput(value: Contracts.Identity<unknown>) { return value; }
+        function objectInput(value: Contracts.Identity<object>) { return value; }
+        function unknownOutput(): Contracts.Identity<unknown> { throw new Error(); }
+        const dictionary: Record<string, Contracts.UnsafeValue> = {};
+        const genericWidening: Contracts.Identity<object> = { id: "lost" };
+        const nestedWidening: Contracts.Nested = { id: "lost" };
+        void dictionary;
+        void genericWidening;
+        void nestedWidening;
+      `);
+    for (const code of [
+      "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unsafe-dictionary-type)",
+    ]) {
+      expect(result).toContain(code);
+    }
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(2);
+  });
 });

@@ -22,11 +22,19 @@ function importedName(node: ESTree.Node): string | null {
   return node.imported.type === "Identifier" ? node.imported.name : node.imported.value;
 }
 
-function isTestFrameworkObject(
+function memberName(expression: ESTree.MemberExpression): string | null {
+  if (!expression.computed) return expression.property.name;
+  return expression.property.type === "Literal" && typeof expression.property.value === "string"
+    ? expression.property.value
+    : null;
+}
+
+function isTestFrameworkNamespace(
   sourceCode: SourceCode,
   expression: ESTree.Expression,
-  visited = new Set<Variable>(),
-): expression is ESTree.IdentifierReference {
+  expectedSource: "@jest/globals" | "vitest",
+  visited: Set<Variable>,
+): boolean {
   while (
     expression.type === "ParenthesizedExpression" ||
     expression.type === "TSAsExpression" ||
@@ -35,6 +43,52 @@ function isTestFrameworkObject(
     expression.type === "TSTypeAssertion"
   ) {
     expression = expression.expression;
+  }
+  if (expression.type !== "Identifier") return false;
+  const variable = resolveVariable(sourceCode, expression);
+  if (variable === null || visited.has(variable)) return false;
+  visited.add(variable);
+  return variable.defs.some((definition) => {
+    if (definition.type === "ImportBinding" && definition.parent?.type === "ImportDeclaration") {
+      return (
+        definition.node.type === "ImportNamespaceSpecifier" &&
+        definition.parent.source.value === expectedSource
+      );
+    }
+    return (
+      definition.type === "Variable" &&
+      definition.node.type === "VariableDeclarator" &&
+      definition.node.id.type === "Identifier" &&
+      definition.parent?.type === "VariableDeclaration" &&
+      definition.parent.kind === "const" &&
+      definition.node.init !== null &&
+      isTestFrameworkNamespace(sourceCode, definition.node.init, expectedSource, visited)
+    );
+  });
+}
+
+function isTestFrameworkObject(
+  sourceCode: SourceCode,
+  expression: ESTree.Expression,
+  visited = new Set<Variable>(),
+): boolean {
+  while (
+    expression.type === "ParenthesizedExpression" ||
+    expression.type === "TSAsExpression" ||
+    expression.type === "TSNonNullExpression" ||
+    expression.type === "TSSatisfiesExpression" ||
+    expression.type === "TSTypeAssertion"
+  ) {
+    expression = expression.expression;
+  }
+  if (expression.type === "MemberExpression") {
+    const name = memberName(expression);
+    const expectedSource =
+      name === "vi" ? "vitest" : name === "jest" ? "@jest/globals" : null;
+    return (
+      expectedSource !== null &&
+      isTestFrameworkNamespace(sourceCode, expression.object, expectedSource, visited)
+    );
   }
   if (expression.type !== "Identifier") return false;
   if (

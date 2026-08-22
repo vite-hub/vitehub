@@ -2,6 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 
 import {
 	classifyUnsafeDictionary,
+	classifyUnsafeDictionaryHeritage,
 	classifyUnsafeDictionaryValue,
 	createTypeEnvironment,
 	typeEnvironmentAt,
@@ -124,6 +125,14 @@ export const noUnsafeDictionaryTypeRule = defineRule({
 			TSTypeReference: reportIfUnsafe,
 			TSTypeLiteral: reportIfUnsafe,
 			TSMappedType: reportIfUnsafe,
+			TSInterfaceHeritage(node) {
+				if (environment === null) return;
+				const unsafe = classifyUnsafeDictionaryHeritage(
+					node,
+					typeEnvironmentAt(environment, node),
+				);
+				if (unsafe !== null) report(node, unsafe.unsafeValue);
+			},
 			TSIndexSignature(node) {
 				if (
 					environment === null ||

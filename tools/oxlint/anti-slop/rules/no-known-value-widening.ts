@@ -13,6 +13,8 @@ import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
 
 type FunctionExpression = ESTree.ArrowFunctionExpression | ESTree.Function;
 
+type AnnotatedClassField = ESTree.AccessorProperty | ESTree.PropertyDefinition;
+
 function unwrapExpression(expression: ESTree.Expression): ESTree.Expression {
 	let current = expression;
 	while (
@@ -108,6 +110,74 @@ function sourceKeyName(sourceCode: SourceCode, key: ESTree.PropertyKey): string 
 	return sourceCode.getText(key);
 }
 
+function stableKeyName(key: ESTree.PropertyKey, computed: boolean): string | null {
+	if (!computed && (key.type === "Identifier" || key.type === "PrivateIdentifier")) {
+		return key.name;
+	}
+	return key.type === "Literal" &&
+		(typeof key.value === "string" || typeof key.value === "number")
+		? String(key.value)
+		: null;
+}
+
+function enclosingThisClassContext(
+	node: ESTree.Node,
+): { readonly body: ESTree.ClassBody; readonly static: boolean } | null {
+	let current: ESTree.Node | null = node.parent;
+	while (current !== null) {
+		if (current.type === "StaticBlock") {
+			return current.parent.type === "ClassBody"
+				? { body: current.parent, static: true }
+				: null;
+		}
+		if (
+			current.type === "MethodDefinition" ||
+			current.type === "PropertyDefinition" ||
+			current.type === "AccessorProperty"
+		) {
+			return current.parent.type === "ClassBody"
+				? { body: current.parent, static: current.static }
+				: null;
+		}
+		if (current.type === "FunctionExpression") {
+			if (current.parent.type === "MethodDefinition") {
+				current = current.parent;
+				continue;
+			}
+			return null;
+		}
+		if (current.type === "FunctionDeclaration" || current.type === "ClassBody") {
+			return null;
+		}
+		current = current.parent;
+	}
+	return null;
+}
+
+function annotatedThisField(
+	member: ESTree.MemberExpression,
+): AnnotatedClassField | null {
+	if (member.object.type !== "ThisExpression") return null;
+	const name = stableKeyName(member.property, member.computed);
+	if (name === null) return null;
+	const owner = enclosingThisClassContext(member);
+	if (owner === null) return null;
+	for (const element of owner.body.body) {
+		if (
+			(element.type !== "PropertyDefinition" &&
+				element.type !== "TSAbstractPropertyDefinition" &&
+				element.type !== "AccessorProperty" &&
+				element.type !== "TSAbstractAccessorProperty") ||
+			element.static !== owner.static ||
+			stableKeyName(element.key, element.computed) !== name
+		) {
+			continue;
+		}
+		return element;
+	}
+	return null;
+}
+
 function functionName(sourceCode: SourceCode, owner: FunctionExpression | null): string {
 	if (owner === null) return "anonymous function";
 	if (owner.id !== null) return owner.id.name;
@@ -129,6 +199,31 @@ function isDictionaryAccumulatorTarget(destination: WideningTarget): boolean {
 
 function hasParentAssertion(node: ESTree.Node): boolean {
 	return node.parent?.type === "TSAsExpression" || node.parent?.type === "TSTypeAssertion";
+}
+
+function directParameterOwner(node: ESTree.AssignmentPattern): FunctionExpression | null {
+	const parameter =
+		node.parent.type === "TSParameterProperty" ? node.parent : node;
+	const owner = parameter.parent;
+	if (
+		owner.type !== "ArrowFunctionExpression" &&
+		owner.type !== "FunctionDeclaration" &&
+		owner.type !== "FunctionExpression"
+	) {
+		return null;
+	}
+	return owner.params.includes(parameter) ? owner : null;
+}
+
+function bindingAnnotation(
+	pattern: ESTree.BindingPattern,
+): ESTree.TSTypeAnnotation | null | undefined {
+	if (pattern.type === "AssignmentPattern") return bindingAnnotation(pattern.left);
+	return pattern.typeAnnotation;
+}
+
+function bindingName(pattern: ESTree.BindingPattern): string {
+	return pattern.type === "Identifier" ? pattern.name : "parameter";
 }
 
 /** Detect sound syntactic cases where a known value is explicitly widened and loses evidence. */
@@ -200,8 +295,27 @@ export const noKnownValueWideningRule = defineRule({
 					`property \`${sourceKeyName(context.sourceCode, node.key)}\``,
 				);
 			},
+			AssignmentPattern(node) {
+				if (directParameterOwner(node) === null) return;
+				reportFlow(
+					node.right,
+					targetFromAnnotation(bindingAnnotation(node.left)),
+					`parameter \`${bindingName(node.left)}\``,
+				);
+			},
 			AssignmentExpression(node) {
-				if (node.operator !== "=" || node.left.type !== "Identifier") return;
+				if (node.operator !== "=") return;
+				if (node.left.type === "MemberExpression") {
+					const field = annotatedThisField(node.left);
+					if (field === null) return;
+					reportFlow(
+						node.right,
+						targetFromAnnotation(field.typeAnnotation),
+						`property \`${sourceKeyName(context.sourceCode, field.key)}\``,
+					);
+					return;
+				}
+				if (node.left.type !== "Identifier") return;
 				const variable = resolveVariable(context.sourceCode, node.left);
 				if (variable === null) return;
 				const declarator = variableDeclarator(variable);
