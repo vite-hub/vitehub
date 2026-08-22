@@ -11,9 +11,12 @@ export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
 }
 
+export type AgentInvocationResponseParser<T> = (value: unknown) => T;
+
 export type AgentInvocationRequester = <T>(
   path: string,
   options: AgentInvocationRequestOptions,
+  parse: AgentInvocationResponseParser<T>,
 ) => Promise<T>;
 
 type QueryValue = boolean | number | string | null | undefined;
@@ -63,9 +66,23 @@ export interface UseAgentInvocationReturn {
 const defaultBaseURL = "/api/invocations";
 
 function isAbortError(error: unknown): boolean {
-  return Boolean(
-    error && typeof error === "object" && "name" in error && error.name === "AbortError",
-  );
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function parseInvocationListResult(value: unknown): AgentInvocationListResult {
+  if (!(value instanceof Object) || !("invocations" in value) || !Array.isArray(value.invocations)) {
+    throw new TypeError("Invalid Agent Invocation list response.");
+  }
+  // SAFETY: The transport boundary validates the required list shape; record fields are server-owned JSON.
+  return value as AgentInvocationListResult;
+}
+
+function parseInvocationDetailResult(value: unknown): AgentInvocationDetailResult {
+  if (!(value instanceof Object) || !("invocation" in value) || !("observations" in value) || !Array.isArray(value.observations)) {
+    throw new TypeError("Invalid Agent Invocation detail response.");
+  }
+  // SAFETY: The transport boundary validates the required detail shape; record fields are server-owned JSON.
+  return value as AgentInvocationDetailResult;
 }
 
 function appendQuery(
@@ -227,6 +244,7 @@ export function useAgentInvocations(
       const first = await request<AgentInvocationListResult>(
         appendQuery(toValue(baseURL), query),
         { signal },
+        parseInvocationListResult,
       );
       const refreshed = [...first.invocations];
       let nextCursor = first.cursor;
@@ -243,6 +261,7 @@ export function useAgentInvocations(
         const next = await request<AgentInvocationListResult>(
           appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
           { signal },
+          parseInvocationListResult,
         );
         refreshedPages++;
         const ids = new Set(refreshed.map(invocation => invocation.id));
@@ -274,6 +293,7 @@ export function useAgentInvocations(
       const result = await request<AgentInvocationListResult>(
         appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
         { signal: controller.signal },
+        parseInvocationListResult,
       );
       if (loadMoreController !== controller || revision !== currentRevision) return;
       const ids = new Set(invocations.value.map(invocation => invocation.id));
@@ -339,7 +359,7 @@ export function useAgentInvocation(
       if (resolvedId === undefined) return Promise.resolve(undefined);
       return request<AgentInvocationDetailResult>(detailPath(toValue(baseURL), resolvedId), {
         signal,
-      });
+      }, parseInvocationDetailResult);
     },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), toValue(id)],

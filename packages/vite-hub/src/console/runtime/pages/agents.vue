@@ -30,10 +30,10 @@ let media: MediaQueryList | undefined;
 
 useHead({ title: "Agents · ViteHub Console" });
 
-const request = async <T>(path: string, options: { signal?: AbortSignal }) => {
+const request = async <T>(path: string, options: { signal?: AbortSignal }, parse: (value: unknown) => T) => {
   const response = await fetch(path, { signal: options.signal });
   if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`);
-  const result = (await response.json()) as T;
+  const result = parse(await response.json());
   lastSuccessfulPollAt.value = new Date();
   return result;
 };
@@ -72,15 +72,16 @@ const selectedSession = computed(() =>
 const invocationView = computed<AgentInvocationView | undefined>(() => {
   const invocation = detail.invocation.value;
   if (!invocation) return;
-  const persistedConfiguration = record(record(invocation)?.configuration);
+  const persistedConfiguration = invocationConfiguration(record(invocation)?.configuration);
   const configuration =
-    (persistedConfiguration as AgentInvocationConfiguration | undefined) ??
+    persistedConfiguration ??
     observedConfiguration(detail.observations.value);
-  return {
+  const view: AgentInvocationView = {
     ...invocation,
-    ...(configuration ? { configuration } : {}),
     observations: detail.observations.value,
   };
+  if (configuration) view.configuration = configuration;
+  return view;
 });
 const splitterItems = computed<SplitterItem[]>(() =>
   detailsOpen.value
@@ -117,9 +118,16 @@ const syncLabel = computed(() => {
 });
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+  return value instanceof Object && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
     : undefined;
+}
+
+function invocationConfiguration(value: unknown): AgentInvocationConfiguration | undefined {
+  const configuration = record(value);
+  if (!configuration) return;
+  // SAFETY: Persisted configuration is server-owned JSON and the console treats every field as optional.
+  return configuration as AgentInvocationConfiguration;
 }
 
 function observedConfiguration(
@@ -129,7 +137,7 @@ function observedConfiguration(
     const entry = entries[index]!;
     if (entry.name !== "vitehub.agent.configured") continue;
     const configuration = record(entry.attributes?.["vitehub.agent.configuration"]);
-    if (configuration) return configuration as AgentInvocationConfiguration;
+    if (configuration) return invocationConfiguration(configuration);
   }
 }
 
