@@ -152,7 +152,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function listSourceAware(path = "", options: ListOptions = {}) {
-    const storeEntries = await store.list(path, options)
+    const normalized = normalizeWorkspacePath(path)
+    const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
     for (const entry of descriptorPathEntries(path, options)) {
       if (!isExcludedWorkspacePath(entry.path, options.exclude)) result.set(entry.path, entry)

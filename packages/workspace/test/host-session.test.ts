@@ -685,6 +685,16 @@ describe("workspace host sessions", () => {
       headers: { "content-type": "application/json" },
     }))
     const store = createMemoryWorkspaceStore() as ReturnType<typeof createMemoryWorkspaceStore> & WorkspaceRevisionMaterializerCarrier
+    const listStoreEntries = store.list.bind(store)
+    const reservedListCalls: string[] = []
+    store.list = async (path, options) => {
+      const listedPath = path || ""
+      if (listedPath === ".vitehub" || listedPath.startsWith(".vitehub/")) {
+        reservedListCalls.push(listedPath)
+        throw new Error("backing Store received a reserved list path")
+      }
+      return await listStoreEntries(path, options)
+    }
     let archiveMaterializations = 0
     store[workspaceRevisionMaterializer] = {
       async currentRevision() {
@@ -709,11 +719,13 @@ describe("workspace host sessions", () => {
     const session = await docs.startSession({ host: memoryHost() })
     await expect(session.readFile("status.json")).resolves.toContain('"status": "ok"')
     await expect(session.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+    expect(reservedListCalls).toEqual([])
     expect(archiveMaterializations).toBe(0)
     await session.close()
 
     const scoped = await docs.startSession({ host: memoryHost(), paths: [".vitehub"] })
     await expect(scoped.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+    expect(reservedListCalls).toEqual([])
     await expect(scoped.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: ".vitehub/meta" }),
     ]))
