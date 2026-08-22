@@ -37,7 +37,7 @@ export default defineConfig({
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
-      { from: "src/ui/styles.css", to: "dist/ui" },
+      { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
     deps: {
