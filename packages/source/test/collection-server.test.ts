@@ -52,6 +52,7 @@ describe("defineCollectionHandler", () => {
     expect((await app.request("/items?limit=0")).status).toBe(400)
     expect((await app.request("/items?minimum=nope")).status).toBe(400)
     expect((await app.request("/items?cursor=invalid")).status).toBe(400)
+    expect((await app.request("/items?cursor=")).status).toBe(400)
     expect((await app.request("/items?cursor=one&cursor=two")).status).toBe(400)
   })
 })

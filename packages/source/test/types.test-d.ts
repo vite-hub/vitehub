@@ -175,6 +175,14 @@ describe("@vite-hub/source types", () => {
     expectTypeOf(page.items).toEqualTypeOf<Array<{ createdAt: string, id: string }>>()
     expectTypeOf(await collection.parseQuery({ day: "2026-08-21" }))
       .toEqualTypeOf<{ day?: string }>()
+
+    defineCollection(async ({ cursor }) => {
+      expectTypeOf(cursor).toEqualTypeOf<number | undefined>()
+      return [{ id: "2" }]
+    }, {
+      cursor: row => row.id,
+      cursorSchema: v.pipe(v.string(), v.transform(Number), v.number()),
+    })
   })
 
   it("accepts SDK clients and transports without exposing SDK types", () => {

@@ -54,15 +54,16 @@ export type CollectionLoader<
   TCursor extends CollectionCursorValue,
 > = (options: CollectionLoadOptions<TQuery, TCursor>) => Promise<readonly TSourceItem[]>
 
-export type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
+type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
 
 export interface CollectionOptions<
   TSourceItem,
   TQuery extends object,
-  TCursor extends CollectionCursorValue,
+  TCursorInput extends CollectionCursorValue,
+  TCursorOutput extends CollectionCursorValue = TCursorInput,
 > {
-  cursor(item: NoInfer<TSourceItem>): Readonly<TCursor>
-  cursorSchema: StandardSchemaV1<unknown, TCursor>
+  cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
+  cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   defaultLimit?: number
   maxLimit?: number
   querySchema?: StandardSchemaV1<unknown, TQuery>
@@ -72,11 +73,21 @@ export interface CollectionOptions<
 type CollectionDefinition<
   TSourceItem,
   TQuery extends object,
-  TCursor extends CollectionCursorValue,
+  TCursorInput extends CollectionCursorValue,
 > = Omit<
-  CollectionOptions<TSourceItem, TQuery, TCursor>,
+  CollectionOptions<TSourceItem, TQuery, TCursorInput>,
   "cursorSchema" | "querySchema" | "transform"
 >
+
+type CursorInput<TSchema extends StandardSchemaV1> =
+  [StandardSchemaV1.InferInput<TSchema>] extends [CollectionCursorValue]
+    ? StandardSchemaV1.InferInput<TSchema>
+    : never
+
+type CursorOutput<TSchema extends StandardSchemaV1> =
+  [StandardSchemaV1.InferOutput<TSchema>] extends [CollectionCursorValue]
+    ? StandardSchemaV1.InferOutput<TSchema>
+    : never
 
 export class CollectionCursorError extends TypeError {
   constructor(message = "[vitehub] Collection cursor is malformed.", options?: ErrorOptions) {
@@ -109,7 +120,8 @@ function decodeBase64Url(value: string): string {
 }
 
 function isCursorValue(value: unknown): value is CollectionCursorValue {
-  if (value === null || ["boolean", "number", "string"].includes(typeof value)) return true
+  if (typeof value === "number") return Number.isFinite(value)
+  if (value === null || ["boolean", "string"].includes(typeof value)) return true
   if (Array.isArray(value)) return value.every(isCursorValue)
   if (!value || typeof value !== "object") return false
   return Object.values(value).every(isCursorValue)
@@ -132,11 +144,14 @@ async function parseSchema<TOutput>(
   return result.value
 }
 
-async function decodeCursor<TCursor extends CollectionCursorValue>(
+async function decodeCursor<
+  TCursorInput extends CollectionCursorValue,
+  TCursorOutput extends CollectionCursorValue,
+>(
   value: string | undefined,
-  schema: StandardSchemaV1<unknown, TCursor>,
-): Promise<TCursor | undefined> {
-  if (!value) return
+  schema: StandardSchemaV1<TCursorInput, TCursorOutput>,
+): Promise<TCursorOutput | undefined> {
+  if (value === undefined) return
   let decoded: unknown
   try {
     decoded = JSON.parse(decodeBase64Url(value))
@@ -145,7 +160,11 @@ async function decodeCursor<TCursor extends CollectionCursorValue>(
   }
   if (!isCursorValue(decoded)) throw new CollectionCursorError()
   try {
-    return await parseSchema(schema, decoded)
+    const cursor = await parseSchema(schema, decoded)
+    if (!isCursorValue(cursor)) {
+      throw new TypeError("Collection cursor schema returned an invalid value.")
+    }
+    return cursor
   } catch (cause) {
     throw new CollectionCursorError(undefined, { cause })
   }
@@ -153,19 +172,19 @@ async function decodeCursor<TCursor extends CollectionCursorValue>(
 
 export function defineCollection<
   TSourceItem,
-  TCursorSchema extends StandardSchemaV1<unknown, CollectionCursorValue>,
+  TCursorSchema extends StandardSchemaV1,
   TQuerySchema extends StandardSchemaV1<unknown, object>,
   TTransform extends CollectionTransform<TSourceItem>,
 >(
   load: CollectionLoader<
     TSourceItem,
     StandardSchemaV1.InferOutput<TQuerySchema>,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorOutput<TCursorSchema>
   >,
   options: CollectionDefinition<
     TSourceItem,
     StandardSchemaV1.InferOutput<TQuerySchema>,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorInput<TCursorSchema>
   > & {
     cursorSchema: TCursorSchema
     querySchema: TQuerySchema
@@ -174,18 +193,18 @@ export function defineCollection<
 ): Collection<Awaited<ReturnType<TTransform>>, StandardSchemaV1.InferOutput<TQuerySchema>>
 export function defineCollection<
   TSourceItem,
-  TCursorSchema extends StandardSchemaV1<unknown, CollectionCursorValue>,
+  TCursorSchema extends StandardSchemaV1,
   TQuerySchema extends StandardSchemaV1<unknown, object>,
 >(
   load: CollectionLoader<
     TSourceItem,
     StandardSchemaV1.InferOutput<TQuerySchema>,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorOutput<TCursorSchema>
   >,
   options: CollectionDefinition<
     TSourceItem,
     StandardSchemaV1.InferOutput<TQuerySchema>,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorInput<TCursorSchema>
   > & {
     cursorSchema: TCursorSchema
     querySchema: TQuerySchema
@@ -194,18 +213,18 @@ export function defineCollection<
 ): Collection<TSourceItem, StandardSchemaV1.InferOutput<TQuerySchema>>
 export function defineCollection<
   TSourceItem,
-  TCursorSchema extends StandardSchemaV1<unknown, CollectionCursorValue>,
+  TCursorSchema extends StandardSchemaV1,
   TTransform extends CollectionTransform<TSourceItem>,
 >(
   load: CollectionLoader<
     TSourceItem,
     CollectionRequestQuery,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorOutput<TCursorSchema>
   >,
   options: CollectionDefinition<
     TSourceItem,
     CollectionRequestQuery,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorInput<TCursorSchema>
   > & {
     cursorSchema: TCursorSchema
     querySchema?: undefined
@@ -214,17 +233,17 @@ export function defineCollection<
 ): Collection<Awaited<ReturnType<TTransform>>, CollectionRequestQuery>
 export function defineCollection<
   TSourceItem,
-  TCursorSchema extends StandardSchemaV1<unknown, CollectionCursorValue>,
+  TCursorSchema extends StandardSchemaV1,
 >(
   load: CollectionLoader<
     TSourceItem,
     CollectionRequestQuery,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorOutput<TCursorSchema>
   >,
   options: CollectionDefinition<
     TSourceItem,
     CollectionRequestQuery,
-    StandardSchemaV1.InferOutput<TCursorSchema>
+    CursorInput<TCursorSchema>
   > & {
     cursorSchema: TCursorSchema
     querySchema?: undefined
@@ -233,12 +252,13 @@ export function defineCollection<
 ): Collection<TSourceItem, CollectionRequestQuery>
 export function defineCollection<
   TSourceItem,
-  const TCursor extends CollectionCursorValue,
+  const TCursorInput extends CollectionCursorValue,
+  const TCursorOutput extends CollectionCursorValue,
   const TQuery extends object,
   TItem = TSourceItem,
 >(
-  load: CollectionLoader<TSourceItem, TQuery, TCursor>,
-  definition: CollectionOptions<TSourceItem, TQuery, TCursor> & {
+  load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>,
+  definition: CollectionOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> & {
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ): Collection<TItem, TQuery> {

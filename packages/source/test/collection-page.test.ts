@@ -70,6 +70,23 @@ describe("Collections", () => {
     expect(second.nextCursor).toBeNull()
   })
 
+  it("transforms encoded cursor input before passing it to the loader", async () => {
+    const load = vi.fn(async ({ cursor }: { cursor?: number }) =>
+      cursor === undefined ? [{ id: "2" }, { id: "1" }] : [],
+    )
+    const collection = defineCollection(load, {
+      cursor: (row: { id: string }) => row.id,
+      cursorSchema: v.pipe(v.string(), v.transform(Number), v.number()),
+      defaultLimit: 1,
+      maxLimit: 1,
+    })
+
+    const first = await collection.page({ query: {} })
+    await collection.page({ cursor: first.nextCursor!, query: {} })
+
+    expect(load).toHaveBeenLastCalledWith({ cursor: 2, limit: 2, query: {}, signal: undefined })
+  })
+
   it("rejects malformed cursors and invalid definition limits", async () => {
     const { collection } = mealsCollection()
     await expect(
@@ -81,6 +98,10 @@ describe("Collections", () => {
     const wrongShape = btoa(JSON.stringify(["wrong"])).replaceAll("=", "")
     await expect(
       collection.page({ cursor: wrongShape, query: await collection.parseQuery({}) }),
+    ).rejects.toBeInstanceOf(CollectionCursorError)
+    const nonFinite = btoa("[1e400,\"id\"]").replaceAll("=", "")
+    await expect(
+      collection.page({ cursor: nonFinite, query: await collection.parseQuery({}) }),
     ).rejects.toBeInstanceOf(CollectionCursorError)
 
     expect(() =>
