@@ -10,6 +10,7 @@ test('launches the owner without installing consumer dependencies', async () => 
   let removed = false
   const pullRequest: PullRequest = {
     body: '',
+    comments: [],
     headRefName: 'feature',
     headRefOid: 'expected-head',
     headRepository: { nameWithOwner: 'example/fork' },
@@ -17,6 +18,7 @@ test('launches the owner without installing consumer dependencies', async () => 
     mergeStateStatus: 'CLEAN',
     number: 1,
     reviewDecision: null,
+    reviews: [],
     state: 'OPEN',
     statusCheckRollup: [],
     title: 'Feature',

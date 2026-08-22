@@ -7,6 +7,7 @@ import {
   resolveRepositories,
   runPullRequestJobs,
   selectPullRequestJobs,
+  successfulPassFingerprint,
 } from '../server/babysitter.queue.ts'
 
 test('starts with one owner on an unmeasured host', () => {
@@ -16,6 +17,7 @@ test('starts with one owner on an unmeasured host', () => {
 function pullRequest(number: number): PullRequest {
   return {
     body: '',
+    comments: [],
     headRefName: `branch-${number}`,
     headRefOid: `head-${number}`,
     headRepository: { nameWithOwner: 'example/repo' },
@@ -23,6 +25,7 @@ function pullRequest(number: number): PullRequest {
     mergeStateStatus: 'CLEAN',
     number,
     reviewDecision: null,
+    reviews: [],
     state: 'OPEN',
     statusCheckRollup: [],
     title: `PR ${number}`,
@@ -85,6 +88,21 @@ test('keeps completion state qualified by repository', async () => {
   assert.notEqual(pullRequestFingerprint('vite-hub/vitehub', completed), pullRequestFingerprint('vite-hub/brief', completed))
   assert.deepEqual(jobs.map(job => job.repository), ['vite-hub/brief'])
   assert.equal(jobs[0]?.completionKey, 'babysitter/vite-hub/brief/pull-requests/1')
+})
+
+test('parks every successful open pass until its observed state changes', () => {
+  const current = pullRequest(1)
+
+  assert.equal(successfulPassFingerprint('vite-hub/vitehub', current), pullRequestFingerprint('vite-hub/vitehub', current))
+  assert.equal(successfulPassFingerprint('vite-hub/vitehub', { ...current, state: 'MERGED' }), undefined)
+})
+
+test('wakes a parked pass for reviewer activity', () => {
+  const current = pullRequest(1)
+  const fingerprint = pullRequestFingerprint('vite-hub/vitehub', current)
+
+  assert.notEqual(pullRequestFingerprint('vite-hub/vitehub', { ...current, comments: [{ id: 'comment-1' }] }), fingerprint)
+  assert.notEqual(pullRequestFingerprint('vite-hub/vitehub', { ...current, reviews: [{ id: 'review-1' }] }), fingerprint)
 })
 
 test('keeps healthy repositories when one listing fails', async (t) => {

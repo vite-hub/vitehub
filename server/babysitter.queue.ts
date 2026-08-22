@@ -4,6 +4,7 @@ export const defaultMaxOwners = '1'
 
 export type PullRequest = {
   body: string
+  comments: unknown
   headRefName: string
   headRefOid: string
   headRepository: { nameWithOwner: string } | null
@@ -11,6 +12,7 @@ export type PullRequest = {
   mergeStateStatus: string
   number: number
   reviewDecision: string | null
+  reviews: unknown
   state: string
   statusCheckRollup: unknown
   title: string
@@ -83,4 +85,8 @@ export async function runPullRequestJobs(
 
 export function pullRequestFingerprint(repository: string, pullRequest: PullRequest) {
   return createHash('sha256').update(repository).update(JSON.stringify(pullRequest)).digest('hex').slice(0, 16)
+}
+
+export function successfulPassFingerprint(repository: string, pullRequest: PullRequest) {
+  return pullRequest.state === 'OPEN' ? pullRequestFingerprint(repository, pullRequest) : undefined
 }

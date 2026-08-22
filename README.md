@@ -1,31 +1,35 @@
 # Babysitter
 
-Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that owns open pull requests across configured GitHub repositories until each one is merged, closed, or blocked. Every five minutes, it runs one globally bounded batch of coding agents.
+Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. Every five minutes, it runs one globally bounded batch of coding agents and wakes a pull request only when its observed GitHub state changes.
 
 ## How it works
 
 ```mermaid
 flowchart TD
     schedule["Every 5 minutes"] --> discover["Read open pull requests from GitHub"]
-    discover --> unchanged{"Blocked state unchanged?"}
+    discover --> unchanged{"Observed state unchanged?"}
     unchanged -- Yes --> skip
     skip --> schedule
     unchanged -- No --> checkout["Create a disposable exact-head checkout"]
     checkout --> agent["Start a coding agent, up to the configured global limit"]
     agent --> work["Codex (or Claude Code) uses Skills and your own instructions to work on the PR"]
     work --> outcome{"Outcome"}
+    outcome -- Repaired --> review["Push one commit and request review"]
+    review --> park["Record the observed pull request fingerprint"]
+    outcome -- Waiting --> park
     outcome -- Ready --> merge["Merge and delete the source branch"]
     outcome -- Obsolete --> close["Close the pull request"]
-    outcome -- External blocker --> block["Record the blocker and pull request fingerprint"]
-    block --> schedule
+    outcome -- External blocker --> block["Record the blocker"]
+    block --> park
+    park --> schedule
     merge --> schedule
     close --> schedule
 ```
 
 1. **Prepare pull requests.** The [schedule](server/babysitter.schedule.ts), built with ViteHub's [Schedule primitive](https://vitehub.dev/docs/server-primitives/schedule), reads up to 100 open pull requests from each configured GitHub repository. Each selected pull request gets a disposable checkout verified against the observed head SHA, so one run cannot inspect one revision while editing another.
 2. **Run pull requests in parallel.** One awaited worker pool applies a single concurrency limit across every repository and starts the next eligible pull request whenever an owner becomes free. ViteHub's process schedule runtime serializes schedule occurrences, so a later five-minute occurrence cannot overlap the active run. Each agent also receives a private [Box](https://vitehub.dev/docs/agents/boxes) Home containing only the declared GitHub and coding-agent credentials.
-3. **Work toward a terminal outcome.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to validate the requested direction, bring the branch up to date with its base, address checks and review feedback, verify the exact head, and then merge or close the pull request. The agent may stop only for a real external blocker, such as a missing credential, unavailable service, or unresolved product decision.
-4. **Retry only when useful.** A blocked pull request gets a completion fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later schedules skip it while its observed GitHub state is unchanged; a new commit, comment, check result, review, or metadata change updates the fingerprint and makes it eligible again. Failed, timed-out, or otherwise unfinished runs do not get that completion marker, so a later schedule retries them.
+3. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once, requests review once, and exits without polling for that review.
+4. **Wake only when useful.** Every successful pass on an open pull request records its observed fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later schedules skip it until a commit, comment, check result, review, or metadata change updates that fingerprint. Failed, timed-out, or otherwise unfinished runs remain eligible for retry.
 
 ## Requirements
 

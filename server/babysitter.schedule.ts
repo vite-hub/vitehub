@@ -14,17 +14,15 @@ import {
 } from './babysitter.operations.ts'
 import {
   type PullRequest,
-  pullRequestFingerprint,
   resolveMaxOwners,
   resolveRepositories,
   runPullRequestJobs,
   selectPullRequestJobs,
+  successfulPassFingerprint,
 } from './babysitter.queue.ts'
 
 const exec = promisify(execFile)
-const pullRequestFields = 'body,headRefName,headRefOid,headRepository,isDraft,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
-const blockerPattern = /<!-- babysitter:blocker:v1 -->[\s\S]*?<!-- \/babysitter:blocker:v1 -->/
-
+const pullRequestFields = 'body,comments,headRefName,headRefOid,headRepository,isDraft,mergeStateStatus,number,reviewDecision,reviews,state,statusCheckRollup,title,updatedAt,url'
 export default defineSchedule({
   cron: '*/5 * * * *',
   async handler(schedule) {
@@ -88,8 +86,9 @@ export default defineSchedule({
           })
 
           const current = await readPullRequest(repository, pullRequest.number)
-          if (current.state === 'OPEN' && blockerPattern.test(current.body)) {
-            const [error] = await kv.set(job.completionKey, pullRequestFingerprint(repository, current))
+          const fingerprint = successfulPassFingerprint(repository, current)
+          if (fingerprint) {
+            const [error] = await kv.set(job.completionKey, fingerprint)
             if (error) throw error
           }
         }
