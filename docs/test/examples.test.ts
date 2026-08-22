@@ -16,7 +16,7 @@ describe("examples catalog", () => {
     expect(sitemap).toContain('{ path: "/examples" }');
   });
 
-  it("publishes the open projects while retaining future candidates", () => {
+  it("publishes available examples while retaining future candidates", () => {
     expect(examples).toEqual([
       expect.objectContaining({
         name: "Drop",
