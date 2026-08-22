@@ -71,6 +71,9 @@ export default defineSchedule({
       }
       catch (error) {
         console.error(new Error(`Babysitter failed for ${repository} PR #${pullRequest.number}.`, { cause: error }))
+        if (error instanceof AggregateError) {
+          for (const detail of error.errors) console.error(detail)
+        }
       }
     })
   },
