@@ -55,6 +55,7 @@ function createTestChatAdapter(
     attachmentFetchData?: () => Promise<Buffer>
     deferMessageProcessing?: boolean
     isDM?: boolean
+    bypassIdLessMessageDedupe?: boolean
     missingIncomingMessageId?: boolean
     persistThreadHistory?: boolean
     photoData?: Blob
@@ -64,6 +65,7 @@ function createTestChatAdapter(
   } = {},
 ) {
   let chatInstance: ChatInstance | undefined
+  let idLessMessageSequence = 0
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
   const cacheMessage = (message: Message) => {
@@ -196,7 +198,10 @@ function createTestChatAdapter(
         text: isRuntimeString(rawMessage.text) ? rawMessage.text : "",
         threadId: `telegram:${String(chat?.id ?? "456")}`,
       })
-      if (options.missingIncomingMessageId) Reflect.deleteProperty(message, "id")
+      if (options.missingIncomingMessageId) {
+        Reflect.deleteProperty(message, "id")
+        if (options.bypassIdLessMessageDedupe) adapter.name = `telegram-id-less-${++idLessMessageSequence}`
+      }
       cacheMessage(message)
       const adapterBoundary: unknown = adapter
       // SAFETY: createTestChatAdapter implements the Adapter methods exercised by ChatInstance.
@@ -12097,6 +12102,102 @@ describe("server helpers", () => {
     }
   }, 10_000)
 
+  it("preserves shared history and distinct id-less messages while deduplicating a replayed durable steer delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-idless-steer-state-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const adapter = createTestChatAdapter({ bypassIdLessMessageDedupe: true, missingIncomingMessageId: true })
+    const sharedHistory = new Message({
+      attachments: [],
+      author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+      formatted: { children: [], type: "root" },
+      id: "missing-id",
+      metadata: { dateSent: new Date("2026-06-10T11:59:00.000Z"), edited: false },
+      raw: {},
+      text: "shared history",
+      threadId: "telegram:456",
+    })
+    Reflect.deleteProperty(sharedHistory, "id")
+    adapter.fetchMessages.mockResolvedValue({ messages: [sharedHistory] })
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const hookHistoryIds: string[][] = []
+    const inputs: Array<{ ids: string[], texts: string[] }> = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer",
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: ({ history }) => {
+              hookHistoryIds.push(history.map(message => message.id))
+              return null
+            },
+            state,
+            triggerHistory: { maxMessages: 10, source: "thread" },
+          },
+        }),
+      },
+      driver: {
+        run: async ({ input }) => {
+          inputs.push({
+            ids: input.messages?.map(message => message.id) ?? [],
+            texts: input.messages?.map(getMessageText) ?? [],
+          })
+          if (inputs.length === 1) await pending
+          return "internal output"
+        },
+      },
+      hooks: { "agent:finish": (event) => event.reply("Durable reply") },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    const request = (messageId: number, deliveryId: string, text: string) => {
+      const webhook = chatWebhookRequest(messageId, 456, text)
+      webhook.headers.set("x-vitehub-delivery-id", deliveryId)
+      return webhook
+    }
+
+    try {
+      await state.connect()
+      const runtime = {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+      }
+      await handler(request(91_160, "blocking", "blocking"), "telegram", runtime)
+      await vi.waitFor(() => expect(inputs).toHaveLength(1))
+      await handler(request(91_161, "different", "different"), "telegram", runtime)
+      await handler(request(91_162, "identical-a", "identical"), "telegram", runtime)
+      await handler(request(91_163, "identical-b", "identical"), "telegram", runtime)
+      await handler(request(91_163, "identical-b", "identical"), "telegram", runtime)
+
+      release()
+      await vi.waitFor(() => expect(inputs).toHaveLength(2), { timeout: 5_000 })
+      expect(inputs[1]?.texts).toEqual(["shared history", "different", "identical", "identical"])
+      expect(new Set(inputs[1]?.ids ?? [])).toHaveLength(4)
+      expect(inputs[1]?.ids.at(0)).toBe("ui-0")
+      expect(inputs[1]?.ids.slice(1)).toEqual(hookHistoryIds.slice(1, 4).map(ids => ids.at(-1)))
+      expect(hookHistoryIds[4]?.at(-1)).toBe(hookHistoryIds[3]?.at(-1))
+    } finally {
+      release()
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  }, 10_000)
+
   it("restores queued portable Capability overrides from persistent State", async () => {
     const blobList = vi.fn(async () => ({ blobs: [] }))
     const blobPrimitive = { list: blobList }
@@ -12880,6 +12981,7 @@ describe("server helpers", () => {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
             adapter: (context) => {
               adapterContexts.push({ capabilities: context.capabilities, runId: context.run?.runId, url: context.request?.url ?? "" })
+              // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this resolver fixture.
               return adapter as never
             },
             messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },

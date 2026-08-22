@@ -2860,9 +2860,11 @@ async function acquireRequiredStateLock(state: StateAdapter, key: string, ttlMs:
 
 function mergeDurableSteerInput(previous: AgentRunInput | undefined, current: AgentRunInput): AgentRunInput {
   if (!previous?.messages?.length || !current.messages?.length) return current
-  const currentIds = new Set(current.messages.map((message) => message.id).filter(Boolean))
-  const skipped = previous.messages.filter((message) => !message.id || !currentIds.has(message.id))
-  return skipped.length ? { ...current, messages: [...skipped, ...current.messages] } : current
+  const currentById = new Map(current.messages.map((message) => [message.id, message]))
+  const previousIds = new Set(previous.messages.map((message) => message.id))
+  const refreshedPrevious = previous.messages.map((message) => currentById.get(message.id) ?? message)
+  const appended = current.messages.filter((message) => !previousIds.has(message.id))
+  return appended.length ? { ...current, messages: [...refreshedPrevious, ...appended] } : { ...current, messages: refreshedPrevious }
 }
 
 interface DurableSteerQueueMessage {
@@ -3657,8 +3659,10 @@ function createChatTriggerInput(
   messages: UIMessageLike[],
   messageContext?: MessageContext,
   channelId?: string,
+  deliveryId?: string,
 ): AgentChatMessageTriggerInput {
   const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
+  const runId = `${provider}:${message.id || deliveryId}`
   const user = objectWithoutUndefined({
     id: message.author.userId,
     isBot: message.author.isBot,
@@ -3669,16 +3673,23 @@ function createChatTriggerInput(
   const email = chatMessageAuthorEmail(message)
   return {
     ...(email ? { meta: { email } } : {}),
-    messages,
+    messages: scopeCurrentChatUiMessage(messages, message.id, runId),
     run: {
       channelId: channelId || platformChannelId,
       messageId: message.id,
       origin: provider,
-      runId: `${provider}:${message.id}`,
+      runId,
       threadId: message.threadId,
     },
     user,
   }
+}
+
+function scopeCurrentChatUiMessage(messages: UIMessageLike[], messageId: string | undefined, scope: string): UIMessageLike[] {
+  const currentIndex = messageId ? messages.findIndex((message) => message.id === messageId) : messages.length - 1
+  const current = messages[currentIndex]
+  if (!current || current.id) return messages
+  return messages.map((message, index) => (index === currentIndex ? { ...message, id: `${scope}:ui-${index}` } : message))
 }
 
 function accessChatInput(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): Record<string, unknown> {
@@ -4140,6 +4151,7 @@ async function handleChatSdkMessage(
       [chatAuthorizationUiMessage(thread, message, messageContext)],
       messageContext,
       registration.channelId,
+      delivery.delivery.id,
     )
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
@@ -4153,7 +4165,11 @@ async function handleChatSdkMessage(
 
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
-    const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
+    const messages = scopeCurrentChatUiMessage(
+      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
+      message.id,
+      input.run?.runId || delivery.delivery.id,
+    )
     const currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
