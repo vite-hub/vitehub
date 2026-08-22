@@ -153,11 +153,15 @@ type CursorOutput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferOut
   ? StandardSchemaV1.InferOutput<TSchema>
   : never
 
-type QueryInput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferInput<TSchema>] extends [
-  CollectionRequestQuery,
-]
-  ? StandardSchemaV1.InferInput<TSchema>
+type WireQueryInput<TInput> = TInput extends object
+  ? [Exclude<keyof TInput, string>] extends [never]
+    ? [TInput[keyof TInput]] extends [CollectionRequestQuery[string]]
+      ? TInput
+      : never
+    : never
   : never
+
+type QueryInput<TSchema extends StandardSchemaV1> = WireQueryInput<StandardSchemaV1.InferInput<TSchema>>
 
 export class CollectionCursorError extends TypeError {
   constructor(message = "[vitehub] Collection cursor is malformed.", options?: ErrorOptions) {

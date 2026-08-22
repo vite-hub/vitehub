@@ -4,6 +4,7 @@ import * as v from "valibot"
 import { defineCollection } from "../src/index.ts"
 import { useCollection } from "../src/client.ts"
 
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { CollectionQuery } from "../src/index.ts"
 
 interface Article {
@@ -18,6 +19,41 @@ type JSONValueRow = {
   toJSONOmitted: { toJSON(): undefined }
   value: number
 }
+
+interface InterfaceFilters {
+  author?: string
+}
+
+type AliasFilters = {
+  q: string
+  tags?: string[]
+}
+
+declare const filterKey: unique symbol
+type SymbolFilters = { [filterKey]: string }
+type NumericFilters = { 0: string }
+type MixedFilters = { author?: string } | { page: number } | { tags: string[] }
+
+function defineQueryFixture<TInput extends object>(querySchema: StandardSchemaV1<TInput, TInput>) {
+  // SAFETY: This type-only fixture declares the rows returned by its synthetic loader.
+  return defineCollection(async () => [] as Array<{ id: string }>, {
+    cursor: row => row.id,
+    cursorSchema: v.string(),
+    querySchema,
+  })
+}
+
+declare const interfaceFilterSchema: StandardSchemaV1<InterfaceFilters, InterfaceFilters>
+declare const aliasFilterSchema: StandardSchemaV1<AliasFilters, AliasFilters>
+declare const symbolFilterSchema: StandardSchemaV1<SymbolFilters, SymbolFilters>
+declare const numericFilterSchema: StandardSchemaV1<NumericFilters, NumericFilters>
+declare const mixedFilterSchema: StandardSchemaV1<MixedFilters, MixedFilters>
+
+const interfaceQuery = defineQueryFixture(interfaceFilterSchema)
+const aliasQuery = defineQueryFixture(aliasFilterSchema)
+const symbolQuery = defineQueryFixture(symbolFilterSchema)
+const numericQuery = defineQueryFixture(numericFilterSchema)
+const mixedQuery = defineQueryFixture(mixedFilterSchema)
 
 // SAFETY: This type-only fixture declares the rows its loader would return.
 const articles = defineCollection(async () => [] as Article[], {
@@ -102,6 +138,7 @@ const nonWireQuery = defineCollection(async ({ query }) => [{ id: query.page }],
 declare global {
   interface ViteHubCollectionMap {
     articles: typeof articles
+    interfaceQuery: typeof interfaceQuery
     events: typeof events
     jsonValues: typeof jsonValues
     toJSONOmittedItems: typeof toJSONOmittedItems
@@ -128,7 +165,15 @@ describe("useCollection types", () => {
       Array<{ custom: { id: string }; url: string }>
     >()
     expectTypeOf(useCollection("nonPlainItems").items.value).toEqualTypeOf<never[]>()
+    expectTypeOf<CollectionQuery<typeof interfaceQuery>>().toEqualTypeOf<InterfaceFilters>()
+    expectTypeOf<CollectionQuery<typeof aliasQuery>>().toEqualTypeOf<AliasFilters>()
+    expectTypeOf<CollectionQuery<typeof symbolQuery>>().toEqualTypeOf<never>()
+    expectTypeOf<CollectionQuery<typeof numericQuery>>().toEqualTypeOf<never>()
+    expectTypeOf<CollectionQuery<typeof mixedQuery>>().toEqualTypeOf<
+      { author?: string } | { tags: string[] }
+    >()
     expectTypeOf<CollectionQuery<typeof nonWireQuery>>().toEqualTypeOf<never>()
+    useCollection("interfaceQuery", { filter: { author: "Ada" } })
     useCollection("transformedQuery", { filter: { q: "Ada" } })
 
     // @ts-expect-error Collection names come from ViteHubCollectionMap
