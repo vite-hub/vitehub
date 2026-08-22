@@ -99,7 +99,7 @@ catalogs:
       specifier: ^4.9.0
       version: 4.9.0
     docus:
-      specifier: https://pkg.pr.new/docus@faa30be
+      specifier: https://pkg.pr.new/docus@986a334
       version: 5.12.3
     nuxt:
       specifier: ^4.4.8
@@ -524,7 +524,7 @@ importers:
         version: 0.17.4(bdbc85a752478fb9559e82b249c163ae)
       docus:
         specifier: catalog:nuxt
-        version: https://pkg.pr.new/docus@faa30be(17e72aecb8488d88843b8e39db5af1ec)
+        version: https://pkg.pr.new/docus@986a334(17e72aecb8488d88843b8e39db5af1ec)
       h3:
         specifier: catalog:h3-v1-compat
         version: 1.15.11
@@ -7745,6 +7745,9 @@ packages:
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
+  '@types/negotiator@0.6.5':
+    resolution: {integrity: sha512-MPOlB48mfWhoUlynY0ga7CFsXIPcH6vGPkjzXMn2p+4PH1QUyn2KPtw0hrLLmO6SaX4zse3X6h2x/083vveAlA==}
+
   '@types/node-fetch@2.6.13':
     resolution: {integrity: sha512-QGpRVpzSaUs30JBSGPjOg4Uveu384erbHBoT1zeONvyCfwQxIkUshLAOqN/k9EjGviPRmWTTe6aH2qySWKTVSw==}
 
@@ -9518,8 +9521,8 @@ packages:
     resolution: {integrity: sha512-qHbFlFG2N7y3LjPySYsL6A1+BnX6bkTVgo842EX0CqVPk/KTMwZkojPHEXKsQUpWZNyz5BISNHK1cPpQw0+m4A==}
     engines: {node: '>=18'}
 
-  docus@https://pkg.pr.new/docus@faa30be:
-    resolution: {integrity: sha512-JRdKL2Y240qARQUBtAnAAISmKhJO/OfGLzcZRPyWLPRTq3q37uxDpXvHJACJga8sFyQoZ+WI1lXrIw8a3UeMBA==, tarball: https://pkg.pr.new/docus@faa30be}
+  docus@https://pkg.pr.new/docus@986a334:
+    resolution: {integrity: sha512-ie4nvZMauP8xRR+W626SLTI31madGy0yna71O1PRGVW+ZwYe4AS3/9bW6AlcJahb1KoUVQ66hTFWuhY4u5zwpQ==, tarball: https://pkg.pr.new/docus@986a334}
     version: 5.12.3
     peerDependencies:
       better-sqlite3: 12.x
@@ -20847,6 +20850,8 @@ snapshots:
 
   '@types/ms@2.1.0': {}
 
+  '@types/negotiator@0.6.5': {}
+
   '@types/node-fetch@2.6.13':
     dependencies:
       '@types/node': 26.1.1
@@ -23910,7 +23915,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  docus@https://pkg.pr.new/docus@faa30be(17e72aecb8488d88843b8e39db5af1ec):
+  docus@https://pkg.pr.new/docus@986a334(17e72aecb8488d88843b8e39db5af1ec):
     dependencies:
       '@ai-sdk/gateway': 4.0.29(zod@4.4.3)
       '@ai-sdk/mcp': 2.0.36(zod@4.4.3)
@@ -23933,6 +23938,7 @@ snapshots:
       '@shikijs/stream': 4.3.1(react@19.2.6)(vue@3.5.40(typescript@6.0.3))
       '@shikijs/themes': 4.3.1
       '@takumi-rs/core': 2.10.0(csstype@3.2.3)(react@19.2.6)
+      '@types/negotiator': 0.6.5
       '@vueuse/core': 14.3.0(vue@3.5.40(typescript@6.0.3))
       ai: 7.0.38(zod@4.4.3)
       better-sqlite3: 12.9.0
