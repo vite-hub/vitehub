@@ -32,7 +32,7 @@ export interface InvocationActivity {
   paths: readonly string[];
   preview?: string;
   reasoningTokens?: number;
-  role?: "assistant" | "user";
+  role?: "assistant" | "system" | "tool" | "user";
   status: "running" | "completed" | "failed";
   totalTokens?: number;
 }
@@ -43,17 +43,20 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function textFromMessages(value: unknown): string | undefined {
-  if (!Array.isArray(value)) return;
-  const messages = value.flatMap((message) => {
-    const value = record(message);
-    if (!Array.isArray(value?.parts)) return [];
-    return value.parts.flatMap((part) => {
-      const item = record(part);
-      return typeof item?.text === "string" ? [item.text] : [];
-    });
+function messageText(value: unknown): string | undefined {
+  const message = record(value);
+  if (!Array.isArray(message?.parts)) return;
+  const parts = message.parts.flatMap((part) => {
+    const item = record(part);
+    return typeof item?.text === "string" ? [item.text] : [];
   });
-  return messages.length ? messages.join("\n\n") : undefined;
+  return parts.length ? parts.join("") : undefined;
+}
+
+function messageRole(value: unknown): InvocationActivity["role"] {
+  return value === "assistant" || value === "system" || value === "tool" || value === "user"
+    ? value
+    : undefined;
 }
 
 function activityBody(attributes: Record<string, unknown>): string | undefined {
@@ -71,10 +74,6 @@ function activityBody(attributes: Record<string, unknown>): string | undefined {
   ]) {
     const value = attributes[key];
     if (value === undefined || value === "undefined") continue;
-    if (key === "input.messages") {
-      const messages = textFromMessages(value);
-      if (messages) return messages;
-    }
     if (typeof value === "string" && value) return value;
     const json = JSON.stringify(value, null, 2);
     if (json) return json;
@@ -210,8 +209,32 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   let anonymousMessageKey: string | undefined;
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded" || observation.name === "vitehub.agent.configured") continue;
-    const attributes = observation.attributes ?? {};
-    const isAnonymousMessage = typeof attributes["message.content"] === "string"
+    const originalAttributes = observation.attributes ?? {};
+    const inputMessages = originalAttributes["input.messages"];
+    if (Array.isArray(inputMessages)) {
+      inputMessages.forEach((message, index) => {
+        const value = record(message);
+        const body = messageText(value);
+        const role = messageRole(value?.role);
+        if (!body || !role) return;
+        const key = `input-message:${observation.sequence}:${index}`;
+        groups.set(key, [{
+          ...observation,
+          attributes: {
+            "message.content": body,
+            "message.id": value ? stringAttribute(value, "id") ?? key : key,
+            "message.role": role,
+          },
+          name: "agent.input.message",
+          sequence: observation.sequence + index / Math.max(inputMessages.length, 1),
+        }]);
+      });
+    }
+    const attributes = inputMessages === undefined
+      ? originalAttributes
+      : Object.fromEntries(Object.entries(originalAttributes).filter(([key]) => key !== "input.messages" && key !== "input.prompt"));
+    if (inputMessages !== undefined && Object.keys(attributes).length === 0) continue;
+    const isAnonymousMessage = stringAttribute(attributes, "message.content") !== undefined
       && !attributes["message.id"];
     if (isAnonymousMessage && !anonymousMessageKey) {
       anonymousMessageKey = `message:assistant:${anonymousMessage++}`;
@@ -219,7 +242,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       anonymousMessageKey = undefined;
     }
     const key = activityKey(observation, anonymousMessageKey);
-    groups.set(key, [...(groups.get(key) ?? []), observation]);
+    groups.set(key, [...(groups.get(key) ?? []), { ...observation, attributes }]);
   }
 
   return [...groups.entries()]
@@ -235,11 +258,12 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
       const completed = sorted.some(item => /\.(finish|decision|recorded)$/.test(item.name));
-      const role = attributes["message.role"] === "assistant" || attributes["result.text"]
+      const explicitRole = messageRole(attributes["message.role"]);
+      const role = explicitRole ?? (attributes["result.text"]
         ? "assistant"
         : kind === "message"
           ? "user"
-          : undefined;
+          : undefined);
       const command = commandDetails(attributes);
       const draft = {
         attributes,

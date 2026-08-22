@@ -24,7 +24,7 @@ describe("Agent Invocation UI", () => {
   });
 
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {
-    const base = { timestamp: "2026-08-22T00:00:00.000Z", type: "event" as const };
+    const base = { timestamp: "2026-08-22T00:00:00.000Z", type: "lifecycle" as const };
     const invocation = {
       createdAt: base.timestamp,
       id: "invocation",
@@ -42,6 +42,36 @@ describe("Agent Invocation UI", () => {
       "before",
       undefined,
       "after",
+    ]);
+  });
+
+  it("preserves input message roles and turn boundaries", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "system", parts: [{ text: "Follow the repository rules.", type: "text" }], role: "system" },
+            { id: "user", parts: [{ text: "Review this change.", type: "text" }], role: "user" },
+            { id: "assistant", parts: [{ text: "I found one issue.", type: "text" }], role: "assistant" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => [activity.role, activity.body])).toEqual([
+      ["system", "Follow the repository rules."],
+      ["user", "Review this change."],
+      ["assistant", "I found one issue."],
     ]);
   });
 
@@ -95,6 +125,22 @@ describe("Agent Invocation UI", () => {
     expect(writeText).toHaveBeenCalledWith(invocation.traceId);
     expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copied");
     wrapper.unmount();
+  });
+
+  it("uses the cancellation timestamp for terminal duration", () => {
+    const invocation: AgentInvocationView = {
+      cancelledAt: "2026-08-22T00:01:05.000Z",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "cancelled",
+      observations: [],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "cancelled",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:01:05.000Z",
+    };
+
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
   });
 
   it("lets a user retry lazy loading by scrolling again after a failed page", async () => {

@@ -327,7 +327,7 @@ export const AgentInvocationInspector = defineComponent({
 
     return () => {
       const configuration = props.invocation.configuration;
-      const endedAt = props.invocation.completedAt ?? props.invocation.failedAt;
+      const endedAt = props.invocation.completedAt ?? props.invocation.failedAt ?? props.invocation.cancelledAt;
       return h("aside", {
           "aria-label": "Session details",
           class: "vh-invocation-inspector",

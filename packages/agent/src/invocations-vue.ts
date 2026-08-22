@@ -267,6 +267,7 @@ export function useAgentInvocations(
   let loadMoreController: AbortController | undefined;
   let revision = 0;
   let resetFirstPage = true;
+  let departedIds = new Set<string>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
@@ -287,8 +288,9 @@ export function useAgentInvocations(
       }
       const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
       const retained = invocations.value.filter(invocation =>
-        !firstPageIds.has(invocation.id),
+        !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id),
       );
+      departedIds = new Set();
       invocations.value = [...result.invocations, ...retained];
       if (retained.length === 0) cursor.value = result.cursor;
     },
@@ -311,13 +313,26 @@ export function useAgentInvocations(
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
-    load: async (signal) =>
-      parseInvocationListResult(
-        await request(
-          appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
-          { signal },
-        ),
-      ),
+    load: async (signal) => {
+      const query = options.query ? toValue(options.query) : undefined;
+      const result = parseInvocationListResult(
+        await request(appendQuery(toValue(baseURL), query), { signal }),
+      );
+      const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
+      const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
+      if (resetFirstPage || statuses.size === 0) return result;
+      const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
+      const displaced = invocations.value.filter(invocation => !returnedIds.has(invocation.id));
+      const reconciled = await Promise.allSettled(displaced.map(invocation =>
+        request(detailPath(toValue(baseURL), invocation.id), { signal }).then(parseAgentInvocationDetailResult),
+      ));
+      departedIds = new Set(reconciled.flatMap((outcome, index) =>
+        outcome.status === "fulfilled" && !statuses.has(outcome.value.invocation.status)
+          ? [displaced[index]!.id]
+          : [],
+      ));
+      return result;
+    },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,

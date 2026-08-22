@@ -70,6 +70,7 @@ export interface AgentInvocationConfiguration {
 export interface AgentInvocationView {
   agentName?: string;
   annotations?: Record<string, boolean | number | string | null>;
+  cancelledAt?: string;
   completedAt?: string;
   configuration?: AgentInvocationConfiguration;
   createdAt: string;
