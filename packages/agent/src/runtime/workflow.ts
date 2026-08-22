@@ -339,6 +339,10 @@ export async function runAgentWorkflowDefinition<
 
   let channelDeliveryStatus: "completed" | "failed" = "failed"
   try {
+    if (channelOwnership?.settlementStatus) {
+      channelDeliveryStatus = channelOwnership.settlementStatus
+      return
+    }
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
     const inlineResult = await runAgentInline(
       agent,

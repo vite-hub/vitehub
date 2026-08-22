@@ -2460,8 +2460,10 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       await resolved.state.releaseLock(executionLock).catch(() => undefined)
       throw error
     }
+    const claimedPending = pending as DurableSteerQueueEntry & { message: DurableSteerQueueMessage & { input: AgentRunInput } }
     const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, loseOwnership)
     const settle = async (status: "completed" | "failed") => {
+      let activePending: DurableSteerQueueEntry = claimedPending
       let handoffLock: Lock | undefined
       let stopHandoffHeartbeat: () => void = () => undefined
       let queued: DurableSteerQueueEntry | null = null
@@ -2480,11 +2482,27 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           return
         }
         ownershipLost = false
+        if (!activePending.message?.settlementStatus) {
+          const settlementPending: DurableSteerQueueEntry = {
+            ...activePending,
+            message: { ...claimedPending.message, ...activePending.message, settlementStatus: status },
+          }
+          if (!await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(
+            ownedPendingQueue,
+            activePending as never,
+            [settlementPending as never],
+            1,
+          )) {
+            loseOwnership()
+            return
+          }
+          activePending = settlementPending
+        }
         for (const deliveryId of binding.steer?.deliveryIds ?? []) {
           const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
           if (mergedDelivery) await settleChannelDeliveryInvocation(mergedDelivery, status, status)
         }
-        if (!await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, pending)) return
+        if (!await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, activePending)) return
         const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
         queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
         if (!queued?.message?.input) {
@@ -2564,7 +2582,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         await resolved.state.releaseLock(executionLock).catch(() => undefined)
       }
     }
-    return { abortSignal: executionAbort.signal, settle }
+    return { abortSignal: executionAbort.signal, settlementStatus: claimedPending.message.settlementStatus, settle }
   })
 }
 
@@ -2607,6 +2625,7 @@ interface DurableSteerQueueMessage {
   ownerToken?: string
   resolvedInvoker?: boolean
   run?: AgentRunMetadata
+  settlementStatus?: "completed" | "failed"
 }
 
 interface DurableSteerQueueEntry {
@@ -2689,7 +2708,12 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
   const atomicQueue = requireAtomicAgentStateQueue(state)
   const newer = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
   const newerMessage = newer?.message
-  const sameInvoker = Boolean(newerMessage?.input && durableSteerInvokerKey(previous) === durableSteerInvokerKey(newerMessage))
+  const sameInvoker = Boolean(
+    previous.settlementStatus === undefined
+    && newerMessage?.input
+    && newerMessage.settlementStatus === undefined
+    && durableSteerInvokerKey(previous) === durableSteerInvokerKey(newerMessage),
+  )
   let restoredMessage = previous
   if (newerMessage?.input && sameInvoker) {
     const restoredInput = mergeDurableSteerInput(previous.input, newerMessage.input)
@@ -3781,6 +3805,7 @@ async function handleChatSdkMessage(
       let workflowCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
       let workflowRun = run
       let workflowRunContext = runContext
+      let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
       if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
       const handoffTimeout = maximumInvocationDeadline === undefined
         ? undefined
@@ -3813,7 +3838,10 @@ async function handleChatSdkMessage(
           const atomicQueue = requireAtomicAgentStateQueue(state.state)
           const previous = await atomicQueue.queuePeek(steerQueue) as DurableSteerQueueEntry | null
           const deliveryIds = durableSteerDeliveryIds(previous?.message)
-          const sameInvoker = !previous?.message?.input || durableSteerInvokerKey(previous.message) === workflowInvokerKey
+          const sameInvoker = !previous?.message?.input || (
+            previous.message.settlementStatus === undefined
+            && durableSteerInvokerKey(previous.message) === workflowInvokerKey
+          )
           if (sameInvoker) workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
           const queued: DurableSteerQueueEntry = {
             enqueuedAt: Date.now(),
@@ -3856,7 +3884,10 @@ async function handleChatSdkMessage(
           }
           const previous = await atomicQueue.queuePeek(steerQueue) as DurableSteerQueueEntry | null
           const deliveryIds = durableSteerDeliveryIds(previous?.message)
-          const sameInvoker = !previous?.message?.input || durableSteerInvokerKey(previous.message) === workflowInvokerKey
+          const sameInvoker = !previous?.message?.input || (
+            previous.message.settlementStatus === undefined
+            && durableSteerInvokerKey(previous.message) === workflowInvokerKey
+          )
           if (sameInvoker) {
             reclaimedMessage = previous?.message
             workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
@@ -3883,6 +3914,7 @@ async function handleChatSdkMessage(
             workflowInvokerKey = durableSteerInvokerKey(previous.message)
             workflowCapabilities = previous.message.capabilities
             workflowRun = previous.message.run
+            workflowSettlementStatus = previous.message.settlementStatus
             workflowRunContext = {
               ...context,
               capabilities: workflowCapabilities,
@@ -3943,6 +3975,7 @@ async function handleChatSdkMessage(
               ownerToken: steerLock.token,
               resolvedInvoker: workflowInputHasResolvedInvoker,
               run: workflowRun,
+              ...(workflowSettlementStatus ? { settlementStatus: workflowSettlementStatus } : {}),
             },
           }
           await state.state.enqueue(durableSteerPendingQueue(steerQueue), steerPending as never, 1)

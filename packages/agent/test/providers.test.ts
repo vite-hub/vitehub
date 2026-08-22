@@ -10647,6 +10647,108 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["completed", "failed"] as const)("does not re-execute a %s steer input after pending acknowledgement throws", async (settlementStatus) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-settlement-replay-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<Record<string, unknown> & { input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: Record<string, unknown> & { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    const executionError = new Error("Agent execution failed")
+    const sideEffect = vi.fn(async () => {
+      if (settlementStatus === "failed") throw executionError
+      return "completed"
+    })
+
+    try {
+      await state.connect()
+      const env = {
+        [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+      }
+      const runtime = {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env },
+      }
+      setActiveCloudflareEnv(env)
+      await handler(chatWebhookRequest(91_152), "telegram", runtime)
+      const binding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as {
+        steer?: { pendingQueue: string }
+      } | undefined
+      expect(binding?.steer).toBeDefined()
+
+      const originalReplaceHead = state.queueReplaceHead.bind(state)
+      let throwAcknowledgement = true
+      const replaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (queue, current, replacements, maximum) => {
+        const settlementStatus = (current as { message?: { settlementStatus?: string } } | null)?.message?.settlementStatus
+        if (throwAcknowledgement && queue === binding!.steer!.pendingQueue && replacements.length === 0 && settlementStatus) {
+          throwAcknowledgement = false
+          throw new Error("pending acknowledgement unavailable")
+        }
+        return await originalReplaceHead(queue, current, replacements, maximum)
+      })
+
+      const execution = runAgentWorkflowDefinition(agent as never, {
+        id: "completed-before-ack-failure",
+        name: "calories",
+        payload: workflowPayloads[0],
+        provider: "cloudflare",
+      }, sideEffect)
+      if (settlementStatus === "failed") await expect(execution).rejects.toThrow(executionError)
+      else await expect(execution).resolves.toBe("completed")
+      expect(sideEffect).toHaveBeenCalledOnce()
+      expect(throwAcknowledgement).toBe(false)
+
+      const pending = await state.queuePeek(binding!.steer!.pendingQueue) as { message?: { settlementStatus?: string } } | null
+      expect(pending?.message?.settlementStatus).toBe(settlementStatus)
+      await handler(chatWebhookRequest(91_153), "telegram", runtime)
+      expect(workflowPayloads).toHaveLength(2)
+      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91152"])
+
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "settlement-only-replay",
+        name: "calories",
+        payload: workflowPayloads[1],
+        provider: "cloudflare",
+      }, sideEffect)).resolves.toBeUndefined()
+      expect(sideEffect).toHaveBeenCalledOnce()
+      expect(workflowPayloads[2]?.input?.messages?.map(message => message.id)).toEqual(["91153"])
+
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_152), "telegram", runtime)
+      const delivery = deliveries.find(item => item.events.some(event => event.runId === "telegram:91152"))
+      expect(delivery?.events.filter(event => event.type === `invocation.${settlementStatus}`)).toHaveLength(1)
+      expect(delivery?.events.filter(event => event.type === settlementStatus)).toHaveLength(1)
+      replaceHead.mockRestore()
+    }
+    finally {
+      setActiveCloudflareEnv(undefined)
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("terminally settles recovered and reclaiming deliveries when replacement startup fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
