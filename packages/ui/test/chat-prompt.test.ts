@@ -4,6 +4,7 @@ import { mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h } from "vue";
 import { describe, expect, it } from "vitest";
 import { AgentChatPrompt } from "../src/components/agent-chat-prompt.ts";
+import { nextPromptFiles } from "../src/internal/prompt-files.ts";
 import { useAgentAttachments } from "../src/composables/attachments.ts";
 
 const TrimGuardPrompt = defineComponent({
@@ -66,6 +67,13 @@ describe("AgentChatPrompt", () => {
     expect(attachments.inputProps.value.multiple).toBe(true);
     expect(attachments.files.value.map(({ file }) => file.name)).toEqual(["first.txt", "second.txt"]);
     scope.stop();
+  });
+
+  it("replaces the controlled attachment when multiple files are disabled", () => {
+    const oldFile = { filename: "old.txt", mediaType: "text/plain", type: "file" as const, url: "data:,old" };
+    const newFile = { filename: "new.txt", mediaType: "text/plain", type: "file" as const, url: "data:,new" };
+
+    expect(nextPromptFiles([oldFile], [newFile], false)).toEqual([newFile]);
   });
 
   it("passes attachment-only form and keyboard submissions through a text-only host guard", async () => {

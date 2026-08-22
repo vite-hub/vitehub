@@ -33,11 +33,11 @@ const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUIOptio
   async setup(options, nuxt) {
     const resolver = createResolver(import.meta.url);
     await installModule("@nuxt/ui", {}, nuxt);
-    nuxt.options.css.push("@vite-hub/ui/styles.css");
+    nuxt.options.css.push(resolver.resolve("./styles.css"));
     nuxt.options.runtimeConfig.public.viteHubUI = options;
     addPlugin(resolver.resolve("./runtime/nuxt-plugin.js"));
     for (const name of componentNames)
-      addComponent({ export: name, filePath: "@vite-hub/ui", name });
+      addComponent({ export: name, filePath: resolver.resolve("./index.js"), name });
   },
 });
 

@@ -9030,6 +9030,9 @@ describe("agent message protocol", () => {
       }),
       name: "agent.invocation.start",
     }))
+    expect(traceLog.entries().slice(1)).not.toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "input.messages": expect.anything() }),
+    }))
     expect(traceLog.entries()).toContainEqual(expect.objectContaining({
       attributes: expect.objectContaining({ "tool.input": { query: "users" } }),
       name: "agent.tool.start",

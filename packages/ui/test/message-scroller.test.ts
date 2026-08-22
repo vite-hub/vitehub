@@ -164,7 +164,8 @@ describe("message scroller behavior", () => {
     const observer = resizeObservers[0]!;
     expect(observer.targets.has(content.element)).toBe(true);
     scrollTo.mockClear();
-    await viewport.trigger("wheel", { deltaY: -10 });
+    scrollTop = 250;
+    await viewport.trigger("scroll");
     scrollHeight = 600;
     observer.callback([], observer);
     expect(scrollTo).not.toHaveBeenCalled();

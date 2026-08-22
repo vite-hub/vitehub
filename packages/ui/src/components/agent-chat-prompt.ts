@@ -1,6 +1,7 @@
 import type { ChatStatus, FileUIPart } from "ai";
 import { defineComponent, h, type PropType, ref, resolveComponent } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
+import { nextPromptFiles } from "../internal/prompt-files.ts";
 
 const attachmentSubmitSentinel = "\u200B";
 
@@ -84,7 +85,7 @@ export const AgentChatPrompt = defineComponent({
                   const files = await Promise.all(
                     Array.from((event.target as HTMLInputElement).files ?? []).map(fileToUIPart),
                   );
-                  emit("update:files", [...props.files, ...files]);
+                  emit("update:files", nextPromptFiles(props.files, files, props.multiple));
                   (event.target as HTMLInputElement).value = "";
                 },
                 ref: input,

@@ -28,7 +28,11 @@ export function hasAgentTraceLog(context: { runtime: ResolvedAgentRuntimeContext
   return Boolean(context.runtime.traceLog)
 }
 
-function invocationAttributes(context: AgentTraceContext, extra: Record<string, unknown> = {}) {
+function invocationAttributes(
+  context: AgentTraceContext,
+  extra: Record<string, unknown> = {},
+  includeInput = false,
+) {
   return {
     "agent.invoker.id": context.invoker.id,
     "agent.invoker.kind": context.invoker.kind,
@@ -38,8 +42,8 @@ function invocationAttributes(context: AgentTraceContext, extra: Record<string, 
     "channel.delivery.source.id": context.runtime.channelDelivery?.sourceId,
     "input.hasMessages": Boolean(context.input.messages?.length),
     "input.hasPrompt": Boolean(context.input.prompt),
-    ...(context.input.messages?.length ? { "input.messages": context.input.messages } : {}),
-    ...(context.input.prompt ? { "input.prompt": context.input.prompt } : {}),
+    ...(includeInput && context.input.messages?.length ? { "input.messages": context.input.messages } : {}),
+    ...(includeInput && context.input.prompt ? { "input.prompt": context.input.prompt } : {}),
     "runtime.name": context.runtime.runtime,
     ...extra,
   }
@@ -132,7 +136,7 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
   context: AgentTraceContext<TRuntimeConfig>,
 ): Promise<void> {
   await traceAgentEvent(context, {
-    attributes: invocationAttributes(context),
+    attributes: invocationAttributes(context, {}, true),
     name: "agent.invocation.start",
     type: "run",
   })

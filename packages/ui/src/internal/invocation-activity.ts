@@ -159,7 +159,7 @@ function activityPreview(
   return detail;
 }
 
-function activityKey(observation: TraceEventLogEntry): string {
+function activityKey(observation: TraceEventLogEntry, anonymousMessageKey?: string): string {
   const attributes = observation.attributes ?? {};
   return String(
     attributes["step.id"]
@@ -167,7 +167,7 @@ function activityKey(observation: TraceEventLogEntry): string {
       ?? attributes["approval.id"]
       ?? attributes["model.call.id"]
       ?? attributes["message.id"]
-      ?? (typeof attributes["message.content"] === "string" ? "message:assistant" : undefined)
+      ?? (typeof attributes["message.content"] === "string" ? anonymousMessageKey : undefined)
       ?? `observation:${observation.sequence}`,
   );
 }
@@ -206,9 +206,19 @@ function numericAttribute(attributes: Record<string, unknown>, ...keys: string[]
 
 export function invocationActivities(invocation: AgentInvocationView): InvocationActivity[] {
   const groups = new Map<string, TraceEventLogEntry[]>();
+  let anonymousMessage = 0;
+  let anonymousMessageKey: string | undefined;
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded" || observation.name === "vitehub.agent.configured") continue;
-    const key = activityKey(observation);
+    const attributes = observation.attributes ?? {};
+    const isAnonymousMessage = typeof attributes["message.content"] === "string"
+      && !attributes["message.id"];
+    if (isAnonymousMessage && !anonymousMessageKey) {
+      anonymousMessageKey = `message:assistant:${anonymousMessage++}`;
+    } else if (!isAnonymousMessage) {
+      anonymousMessageKey = undefined;
+    }
+    const key = activityKey(observation, anonymousMessageKey);
     groups.set(key, [...(groups.get(key) ?? []), observation]);
   }
 

@@ -6,10 +6,33 @@ import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
+import { invocationActivities } from "../src/internal/invocation-activity.ts";
 
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("keeps anonymous assistant turns on either side of a tool in sequence", () => {
+    const base = { timestamp: "2026-08-22T00:00:00.000Z", type: "event" as const };
+    const invocation = {
+      createdAt: base.timestamp,
+      id: "invocation",
+      observations: [
+        { ...base, attributes: { "message.content": "before", "message.role": "assistant" }, name: "agent.message.delta", sequence: 1 },
+        { ...base, attributes: { "tool.id": "tool-1", "tool.name": "shell" }, name: "agent.tool.finish", sequence: 2 },
+        { ...base, attributes: { "message.content": "after", "message.role": "assistant" }, name: "agent.message.delta", sequence: 3 },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: base.timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual([
+      "before",
+      undefined,
+      "after",
+    ]);
+  });
+
   it("hydrates virtual invocation lists from the complete server-rendered list", async () => {
     const items = Array.from({ length: 40 }, (_, index) => ({
       id: `inv-${index}`,

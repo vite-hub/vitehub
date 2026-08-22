@@ -150,7 +150,7 @@ export const MessageScrollerViewport = defineComponent({
     };
     const onScroll = () => {
       context.refresh();
-      if (context.atEnd.value) context.following.value = true;
+      context.following.value = context.atEnd.value;
     };
     const interruptFollowing = () => {
       context.following.value = false;
