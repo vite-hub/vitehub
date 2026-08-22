@@ -135,3 +135,98 @@ const limitFilteredMeals = defineCollection({
   }),
 })
 expectTypeOf<CollectionQuery<typeof limitFilteredMeals>>().toEqualTypeOf<never>()
+
+interface ReadonlyMealFilters {
+  tags?: string | readonly string[]
+}
+
+declare const readonlyMealQuerySchema: StandardSchemaV1<ReadonlyMealFilters, ReadonlyMealFilters>
+const readonlyFilteredMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: readonlyMealQuerySchema,
+    table: schema.meals,
+  }),
+})
+expectTypeOf<CollectionQuery<typeof readonlyFilteredMeals>>().toEqualTypeOf<ReadonlyMealFilters>()
+
+interface DuplicateMealFilters {
+  tags?: string | readonly [string, string, ...string[]]
+}
+
+declare const duplicateMealQuerySchema: StandardSchemaV1<DuplicateMealFilters, DuplicateMealFilters>
+const duplicateFilteredMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: duplicateMealQuerySchema,
+    table: schema.meals,
+  }),
+})
+expectTypeOf<CollectionQuery<typeof duplicateFilteredMeals>>().toEqualTypeOf<DuplicateMealFilters>()
+
+interface ReadonlyOnlyMealFilters {
+  tags?: readonly string[]
+}
+
+declare const readonlyOnlyMealQuerySchema: StandardSchemaV1<ReadonlyOnlyMealFilters, ReadonlyOnlyMealFilters>
+const readonlyOnlyFilteredMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: readonlyOnlyMealQuerySchema,
+    table: schema.meals,
+  }),
+})
+expectTypeOf<CollectionQuery<typeof readonlyOnlyFilteredMeals>>().toEqualTypeOf<never>()
+
+interface TupleMealFilters {
+  tags?: string | readonly [string]
+}
+
+declare const tupleMealQuerySchema: StandardSchemaV1<TupleMealFilters, TupleMealFilters>
+const tupleFilteredMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: tupleMealQuerySchema,
+    table: schema.meals,
+  }),
+})
+expectTypeOf<CollectionQuery<typeof tupleFilteredMeals>>().toEqualTypeOf<never>()
+
+interface FixedTupleMealFilters {
+  tags?: string | readonly [string, string]
+}
+
+declare const fixedTupleMealQuerySchema: StandardSchemaV1<FixedTupleMealFilters, FixedTupleMealFilters>
+const fixedTupleFilteredMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: fixedTupleMealQuerySchema,
+    table: schema.meals,
+  }),
+})
+expectTypeOf<CollectionQuery<typeof fixedTupleFilteredMeals>>().toEqualTypeOf<never>()

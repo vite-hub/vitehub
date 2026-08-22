@@ -4,7 +4,7 @@ const defaultPageLimit = 50
 const defaultMaxLimit = 100
 declare const collectionQueryInput: unique symbol
 
-export type CollectionRequestQuery = Record<string, string | string[] | undefined>
+export type CollectionRequestQuery = Record<string, string | readonly string[] | undefined>
 
 export type CollectionCursorValue =
   | boolean
@@ -155,14 +155,19 @@ type CursorOutput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferOut
   ? StandardSchemaV1.InferOutput<TSchema>
   : never
 
+// H3 represents no value as undefined, one value as a string, and repeated values as an array of two or more strings.
+type RepeatedQueryValues = [string, string, ...string[]]
+
 type AmbiguousArrayQueryKey<TInput extends object> = {
-  [TKey in keyof TInput]-?: string[] extends TInput[TKey]
-    ? string extends TInput[TKey]
-      ? undefined extends TInput[TKey]
-        ? never
+  [TKey in keyof TInput]-?: [Extract<TInput[TKey], readonly string[]>] extends [never]
+    ? never
+    : RepeatedQueryValues extends TInput[TKey]
+      ? string extends TInput[TKey]
+        ? undefined extends TInput[TKey]
+          ? never
+          : TKey
         : TKey
       : TKey
-    : never
 }[keyof TInput]
 
 type ReservedCollectionQueryKey = "cursor" | "limit"
