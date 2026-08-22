@@ -78,7 +78,8 @@ function createMonitor(options: {
   timeout: number
 }): DiagnosticsMonitor {
   const peaks = new Map<string, number>()
-  let active: Promise<void> | undefined
+  let activeAttempt: Promise<void> | undefined
+  let activeInspection: Promise<void> | undefined
   let interval: ReturnType<typeof setInterval> | undefined
   let lastHeartbeatAt = 0
   let pending: "finish" | "poll" | "start" | undefined
@@ -96,13 +97,12 @@ function createMonitor(options: {
     timestamp: snapshot.observedAt,
   })
 
-  const inspect = async (reason: "finish" | "poll" | "start") => {
-    const controller = new AbortController()
+  const inspect = async (reason: "finish" | "poll" | "start", inspection: Promise<RuntimeResourceSnapshot>, controller: AbortController) => {
     const timer = setTimeout(() => controller.abort(new DOMException("Resource inspection timed out.", "TimeoutError")), options.timeout)
     timer.unref?.()
     try {
       const snapshot = await Promise.race([
-        Promise.resolve(options.inspector.inspect({ signal: controller.signal })),
+        inspection,
         new Promise<never>((_resolve, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true })),
       ])
       const changed: RuntimeResourceObservation[] = []
@@ -148,18 +148,23 @@ function createMonitor(options: {
   }
 
   const drain = (reason: "finish" | "poll" | "start"): Promise<void> => {
-    if (active) {
+    if (activeInspection) {
       if (reason === "finish" || pending !== "finish") pending = reason
-      return active.then(() => active || Promise.resolve())
+      return activeAttempt || Promise.resolve()
     }
-    const task = inspect(reason)
-    active = task
-    void task.then(() => {
-      if (active !== task) return
-      active = undefined
+    const controller = new AbortController()
+    const controlledInspection = Promise.resolve().then(() => options.inspector.inspect({ signal: controller.signal }))
+    const task = inspect(reason, controlledInspection, controller)
+    activeAttempt = task
+    const slot = controlledInspection.then(() => undefined, () => undefined)
+    activeInspection = slot
+    void slot.then(() => {
+      if (activeInspection !== slot) return
+      activeAttempt = undefined
+      activeInspection = undefined
       const next = pending
       pending = undefined
-      if (next) void drain(next)
+      if (next && !stopped) void drain(next)
     })
     return task
   }
@@ -172,7 +177,6 @@ function createMonitor(options: {
       if (interval) clearInterval(interval)
       interval = undefined
       await drain("finish")
-      while (active) await active
     },
     async start() {
       await drain("start")
@@ -215,15 +219,16 @@ export function diagnostics<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
       await context.context.get<DiagnosticsMonitor>(monitorContextKey)?.stop()
     },
     async finish(event) {
+      const cancelled = event.input.abortSignal?.aborted === true
       await report(reporter, {
         attributes: {
           duration_ms: event.invocation.durationMs,
-          outcome: event.error ? "failed" : "completed",
+          outcome: cancelled ? "cancelled" : event.error ? "failed" : "completed",
           ...(event.invocation.run?.runId ? { run_id: event.invocation.run.runId } : {}),
         },
         component: "@vite-hub/agent",
         ...(event.error ? { error: normalizeRuntimeDiagnosticError(event.error, { includeStack: true }) } : {}),
-        level: event.error ? "error" : "info",
+        level: cancelled ? "info" : event.error ? "error" : "info",
         name: "agent.invocation.terminal",
         timestamp: new Date().toISOString(),
       })

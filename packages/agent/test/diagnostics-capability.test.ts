@@ -69,6 +69,48 @@ describe("diagnostics Capability", () => {
     warn.mockRestore()
   })
 
+  it("does not overlap an inspector that ignores timeout abort", async () => {
+    let active = 0
+    let maxActive = 0
+    let release: (() => void) | undefined
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const inspect = vi.fn(async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await blocked
+      active -= 1
+      return snapshot(64)
+    })
+    const agent = defineAgent({
+      capabilities: [diagnostics({ interval: 1, reporter: () => {}, resources: { inspect }, timeout: 5 })],
+      driver: { run: async () => {
+        await new Promise(resolve => setTimeout(resolve, 15))
+        return "ok"
+      } },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    expect(inspect).toHaveBeenCalledTimes(1)
+    expect(maxActive).toBe(1)
+    release?.()
+    await blocked
+  })
+
+  it("reports an aborted invocation as cancelled", async () => {
+    const events: RuntimeDiagnosticEvent[] = []
+    const controller = new AbortController()
+    const agent = defineAgent({
+      capabilities: [diagnostics({ reporter: (event) => { events.push(event) } })],
+      driver: { run: () => {
+        controller.abort(new DOMException("Cancelled.", "AbortError"))
+        throw controller.signal.reason
+      } },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { abortSignal: controller.signal })).rejects.toThrow("Cancelled.")
+    expect(events.at(-1)).toMatchObject({ attributes: { outcome: "cancelled" }, level: "info", name: "agent.invocation.terminal" })
+  })
+
   it("rejects invalid sampling options", () => {
     expect(() => diagnostics({ interval: 0 })).toThrow("diagnostics({ interval })")
     expect(() => diagnostics({ peakStepBytes: 0 })).toThrow("diagnostics({ peakStepBytes })")

@@ -1353,6 +1353,32 @@ describe("agent CLI", () => {
     )
   })
 
+  it("shows a wrapped invocation detail record", async () => {
+    const stdout = stream()
+    const timestamp = "2026-08-22T10:00:00.000Z"
+    const fetchInvocations = vi.fn(async () => Response.json({
+      invocation: {
+        createdAt: timestamp,
+        cursor: "1",
+        id: "invocation-1",
+        status: "completed",
+        traceId: "trace-1",
+        updatedAt: timestamp,
+      },
+      observations: [{ name: "agent.completed", sequence: 1, timestamp, type: "lifecycle" }],
+    }))
+
+    const exitCode = await runAgentInvocationsCli(["show", "invocation-1"], {
+      env: {},
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchInvocations as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toContain("invocation-1 completed")
+    expect(stdout.output()).toContain("1 2026-08-22T10:00:00.000Z agent.completed")
+  })
+
   it("tails new observations and prints a nested terminal failure", async () => {
     const stdout = stream()
     const stderr = stream()
@@ -1365,22 +1391,23 @@ describe("agent CLI", () => {
     }
     const fetchInvocations = vi.fn()
       .mockResolvedValueOnce(Response.json({
-        ...base,
+        invocation: { ...base, status: "running" },
         observations: [{ name: "agent.started", sequence: 1, timestamp: base.createdAt, type: "lifecycle" }],
-        status: "running",
       }))
       .mockResolvedValueOnce(Response.json({
-        ...base,
-        error: {
-          errors: [{ message: "Checkout failed", name: "Error" }, { message: "Restore failed", name: "Error" }],
-          message: "Workspace failed",
-          name: "AggregateError",
+        invocation: {
+          ...base,
+          error: {
+            errors: [{ message: "Checkout failed", name: "Error" }, { message: "Restore failed", name: "Error" }],
+            message: "Workspace failed",
+            name: "AggregateError",
+          },
+          status: "failed",
         },
         observations: [
           { name: "agent.started", sequence: 1, timestamp: base.createdAt, type: "lifecycle" },
           { name: "agent.failed", sequence: 2, timestamp: base.updatedAt, type: "error" },
         ],
-        status: "failed",
       }))
 
     const exitCode = await runAgentInvocationsCli(["tail", "invocation-1", "--json"], {

@@ -1,4 +1,5 @@
 import type { AgentInvocationListResult, AgentInvocationRecord } from "../invocations.ts"
+import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -122,6 +123,10 @@ function writeRecord(context: AgentInvocationsCliContext, record: AgentInvocatio
   }
 }
 
+function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecord {
+  return { ...result.invocation, observations: result.observations }
+}
+
 export async function runAgentInvocationsCli(
   args: string[],
   context: AgentInvocationsCliContext,
@@ -150,14 +155,14 @@ export async function runAgentInvocationsCli(
       return 0
     }
     if (parsed.action === "show") {
-      writeRecord(context, await request<AgentInvocationRecord>(endpoint(parsed, parsed.id), fetchImpl, timeout), parsed.json)
+      writeRecord(context, detailRecord(await request<AgentInvocationDetailResult>(endpoint(parsed, parsed.id), fetchImpl, timeout)), parsed.json)
       return 0
     }
 
     const sleep = options.sleep || (async milliseconds => await new Promise(resolve => setTimeout(resolve, milliseconds)))
     let sequence = 0
     for (;;) {
-      const record = await request<AgentInvocationRecord>(endpoint(parsed, parsed.id), fetchImpl, timeout)
+      const record = detailRecord(await request<AgentInvocationDetailResult>(endpoint(parsed, parsed.id), fetchImpl, timeout))
       for (const observation of record.observations.filter(observation => observation.sequence > sequence)) {
         sequence = Math.max(sequence, observation.sequence)
         context.stdout.write(parsed.json ? `${JSON.stringify(observation)}\n` : `${observation.sequence} ${observation.timestamp} ${observation.name}\n`)
