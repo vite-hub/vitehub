@@ -10304,6 +10304,60 @@ describe("server helpers", () => {
     }
   })
 
+  it("releases steer ownership when pending Workflow input cannot be persisted", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-pending-start-failure-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const enqueue = state.enqueue.bind(state)
+    vi.spyOn(state, "enqueue").mockImplementation(async (queue, ...args) => {
+      if (queue.endsWith(":queue:pending")) throw new Error("pending State unavailable")
+      return await enqueue(queue, ...args)
+    })
+    const adapter = createTestChatAdapter()
+    const createBatch = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      await expect(handler(chatWebhookRequest(91_128), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+          },
+        },
+      })).rejects.toThrow("pending ownership changed")
+
+      expect(createBatch).not.toHaveBeenCalled()
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      const reacquired = await state.acquireLock(ownershipKey!, 1_000)
+      expect(reacquired).not.toBeNull()
+      if (reacquired) await state.releaseLock(reacquired)
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("serializes steered manual delivery across durable Agent Workflows", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

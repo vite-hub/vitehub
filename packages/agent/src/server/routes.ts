@@ -4185,35 +4185,39 @@ async function handleChatSdkMessage(
         }
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
-        if (steerQueue && steerPending && !steerStartOwnershipLost) {
-          const pendingQueue = durableSteerPendingQueue(steerQueue)
-          if (reclaimingDeliveryQueued) {
-            await failDurableSteerQueue(
-              state.state,
-              steerQueue,
-              pendingQueue,
-              steerPending,
-              error,
-              async (delivery, failure) => await postDurableSteerErrorFallback(
-                agent,
-                context,
-                registration,
+        try {
+          if (steerQueue && steerPending && !steerStartOwnershipLost) {
+            const pendingQueue = durableSteerPendingQueue(steerQueue)
+            if (reclaimingDeliveryQueued) {
+              await failDurableSteerQueue(
                 state.state,
-                delivery,
-                failure,
-              ),
-            )
-          }
-          else {
-            if (!await acknowledgeDurableSteerPending(state.state, pendingQueue, steerPending)) {
-              throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
+                steerQueue,
+                pendingQueue,
+                steerPending,
+                error,
+                async (delivery, failure) => await postDurableSteerErrorFallback(
+                  agent,
+                  context,
+                  registration,
+                  state.state,
+                  delivery,
+                  failure,
+                ),
+              )
             }
-            if (reclaimedMessage?.input) {
-              await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
+            else {
+              if (!await acknowledgeDurableSteerPending(state.state, pendingQueue, steerPending)) {
+                throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
+              }
+              if (reclaimedMessage?.input) {
+                await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
+              }
             }
           }
         }
-        if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)
+        finally {
+          if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)
+        }
         if (reclaimingDeliveryQueued) {
           durableHandoff = true
           detachAgentChannelDelivery(delivery)
