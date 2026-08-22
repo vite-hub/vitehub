@@ -5,7 +5,7 @@ import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
-import { contentStreamChunks, contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
+import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
   DiffOptions,
@@ -64,10 +64,6 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
   }
 }
 
-function isExcludedWalkPath(path: string, excluded: readonly string[]): boolean {
-  return excluded.some(item => path === item || path.startsWith(`${item}/`))
-}
-
 async function walk(root: string, current = root, excluded: readonly string[] = []): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
@@ -80,7 +76,7 @@ async function walk(root: string, current = root, excluded: readonly string[] = 
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
-    if (isExcludedWalkPath(path, excluded)) continue
+    if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined

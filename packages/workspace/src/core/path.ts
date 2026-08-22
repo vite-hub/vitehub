@@ -10,6 +10,14 @@ export function normalizeWorkspacePath(path = ""): string {
   return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
 }
 
+export function isExcludedWorkspacePath(path: string, excluded: readonly string[] = []): boolean {
+  const normalized = normalizeWorkspacePath(path)
+  return excluded.some((item) => {
+    const excludedPath = normalizeWorkspacePath(item)
+    return normalized === excludedPath || normalized.startsWith(`${excludedPath}/`)
+  })
+}
+
 export interface SafeWorkspacePathOptions {
   allowEmpty?: boolean
   allowReserved?: boolean

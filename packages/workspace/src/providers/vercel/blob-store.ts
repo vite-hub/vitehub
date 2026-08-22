@@ -1,5 +1,5 @@
 import { workspaceError } from "../../core/errors.ts"
-import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
+import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
 
@@ -195,6 +195,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     for (const blob of files) {
       const path = normalizeWorkspacePath(blob.key.slice(`${this.#fileKey("", { allowEmpty: true })}/`.length))
       if (!path) continue
+      if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
       if (!options.recursive && normalizedPrefix && path.slice(normalizedPrefix.length + 1).includes("/")) continue
       if (!options.recursive && !normalizedPrefix && path.includes("/")) {
@@ -213,6 +214,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
         const parts = path.split("/")
         for (let index = 1; index < parts.length; index++) {
           const dir = parts.slice(0, index).join("/")
+          if (isExcludedWorkspacePath(dir, options.exclude)) continue
           entries.set(dir, { path: dir, type: "directory" })
         }
       }
