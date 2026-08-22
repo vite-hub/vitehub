@@ -26,9 +26,12 @@ function localHost(): WorkspaceSessionHost {
       },
       async list(path, options) {
         const entries: WorkspaceSessionHostFileEntry[] = []
+        const excluded = options?.exclude || []
+        const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         async function visit(root: string) {
           for (const entry of await readdir(root, { withFileTypes: true })) {
             const path = join(root, entry.name)
+            if (isExcluded(path)) continue
             const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
             entries.push({ path, ...(type === "file" ? { size: (await stat(path)).size } : {}), type })
             if (options?.recursive && type === "directory") await visit(path)
@@ -146,21 +149,26 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
       async list(path, options) {
         const root = normalize(path)
         const prefix = root === "/" ? "/" : `${root}/`
+        const excluded = options?.exclude?.map(normalize) || []
+        const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         const entries: WorkspaceSessionHostFileEntry[] = []
         for (const directory of directories) {
           if (directory === root || !directory.startsWith(prefix)) continue
+          if (isExcluded(directory)) continue
           const relative = directory.slice(prefix.length)
           if (!options?.recursive && relative.includes("/")) continue
           entries.push({ path: directory, type: "directory" })
         }
         for (const [file, content] of files) {
           if (!file.startsWith(prefix)) continue
+          if (isExcluded(file)) continue
           const relative = file.slice(prefix.length)
           if (!options?.recursive && relative.includes("/")) continue
           entries.push({ path: file, size: content.byteLength, type: "file" })
         }
         for (const file of symlinks.keys()) {
           if (!file.startsWith(prefix)) continue
+          if (isExcluded(file)) continue
           const relative = file.slice(prefix.length)
           if (!options?.recursive && relative.includes("/")) continue
           entries.push({ path: file, type: "symlink" })
@@ -720,9 +728,9 @@ describe("workspace host sessions", () => {
     await docs.writeFile("private/secret.txt", "private")
     const session = await docs.startSession({ host })
     const list = host.files.list.bind(host.files)
-    const inspected: string[] = []
+    const inspected: Array<{ options?: { exclude?: readonly string[], recursive?: boolean }, path: string }> = []
     host.files.list = async (path, options) => {
-      inspected.push(path)
+      inspected.push({ options, path })
       if (path.startsWith("/workspace/private")) throw new Error("excluded subtree inspected")
       return await list(path, options)
     }
@@ -731,12 +739,18 @@ describe("workspace host sessions", () => {
       expect.objectContaining({ path: "public", type: "directory" }),
       expect.objectContaining({ path: "public/readme.md", type: "file" }),
     ])
-    expect(inspected).toEqual(["/workspace", "/workspace/public"])
+    expect(inspected).toEqual([{
+      options: { exclude: ["/workspace/private"], recursive: true },
+      path: "/workspace",
+    }])
     inspected.length = 0
     await expect(session.list("", { exclude: ["private"] })).resolves.toEqual([
       expect.objectContaining({ path: "public", type: "directory" }),
     ])
-    expect(inspected).toEqual(["/workspace"])
+    expect(inspected).toEqual([{
+      options: { exclude: ["/workspace/private"], recursive: false },
+      path: "/workspace",
+    }])
     inspected.length = 0
     await expect(session.list("private", { exclude: ["private"], recursive: true })).resolves.toEqual([])
     expect(inspected).toEqual([])
