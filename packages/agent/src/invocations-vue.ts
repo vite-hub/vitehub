@@ -210,8 +210,6 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
-  let loadedPageCount = 1;
-  let oldestLoadedId: string | undefined;
   let revision = 0;
   let resetFirstPage = true;
   let sourceSignature: string | undefined;
@@ -226,13 +224,18 @@ export function useAgentInvocations(
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
-      invocations.value = result.invocations;
-      cursor.value = result.cursor;
-      oldestLoadedId = result.invocations.at(-1)?.id;
+      if (resetFirstPage || invocations.value.length === 0) {
+        invocations.value = result.invocations;
+        cursor.value = result.cursor;
+        resetFirstPage = false;
+        return;
+      }
+      const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
+      const retained = invocations.value.filter(invocation => !firstPageIds.has(invocation.id));
+      invocations.value = [...result.invocations, ...retained];
+      if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
-      loadedPageCount = 1;
-      oldestLoadedId = undefined;
       invocations.value = [];
       cursor.value = undefined;
     },
@@ -249,46 +252,13 @@ export function useAgentInvocations(
       loadMoreController = undefined;
       isLoadingMore.value = false;
     },
-    beforeSourceChange() {
-      loadedPageCount = 1;
-      oldestLoadedId = undefined;
-    },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
-    async load(signal) {
-      const query = options.query ? toValue(options.query) : undefined;
-      const first = await request<AgentInvocationListResult>(
-        appendQuery(toValue(baseURL), query),
-        { signal },
-        parseInvocationListResult,
-      );
-      const refreshed = [...first.invocations];
-      let nextCursor = first.cursor;
-      const boundaryId = oldestLoadedId;
-      const continuationCursor = cursor.value;
-      const seenCursors = new Set<string>();
-      let refreshedPages = 1;
-      const firstBoundaryIndex = boundaryId ? refreshed.findIndex(invocation => invocation.id === boundaryId) : -1;
-      if (firstBoundaryIndex !== -1) {
-        return { cursor: continuationCursor, invocations: refreshed.slice(0, firstBoundaryIndex + 1) };
-      }
-      while (boundaryId && nextCursor && !seenCursors.has(nextCursor) && refreshedPages <= loadedPageCount) {
-        seenCursors.add(nextCursor);
-        const next = await request<AgentInvocationListResult>(
-          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
-          { signal },
-          parseInvocationListResult,
-        );
-        refreshedPages++;
-        const ids = new Set(refreshed.map(invocation => invocation.id));
-        const additions = next.invocations.filter(invocation => !ids.has(invocation.id));
-        const boundaryIndex = additions.findIndex(invocation => invocation.id === boundaryId);
-        refreshed.push(...(boundaryIndex === -1 ? additions : additions.slice(0, boundaryIndex + 1)));
-        nextCursor = next.cursor;
-        if (boundaryIndex !== -1) return { cursor: continuationCursor, invocations: refreshed };
-      }
-      return { cursor: nextCursor, invocations: refreshed };
-    },
+    load: signal => request<AgentInvocationListResult>(
+      appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
+      { signal },
+      parseInvocationListResult,
+    ),
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,
@@ -317,8 +287,6 @@ export function useAgentInvocations(
         ...invocations.value,
         ...result.invocations.filter(invocation => !ids.has(invocation.id)),
       ];
-      oldestLoadedId = invocations.value.at(-1)?.id;
-      loadedPageCount++;
       cursor.value = result.cursor;
       return result;
     } catch (cause) {
