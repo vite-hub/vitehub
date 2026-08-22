@@ -240,6 +240,38 @@ function workspace() {
 }
 
 describe("workspace host sessions", () => {
+  it("omits reserved local-store metadata during Session materialization", async () => {
+    const source = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-source-"))
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-target-"))
+    const target = join(targetParent, "workspace")
+    await mkdir(join(source, ".git"), { recursive: true })
+    await mkdir(join(source, ".agent-runs"), { recursive: true })
+    await mkdir(join(source, ".vitehub", "meta"), { recursive: true })
+    await writeFile(join(source, ".git", "config"), "internal")
+    await writeFile(join(source, ".agent-runs", "trace.json"), "internal")
+    await writeFile(join(source, ".vitehub", "meta", "state.json"), "internal")
+    await writeFile(join(source, "README.md"), "# Docs\n")
+    const docs = createWorkspace({
+      ...defineWorkspace({ store: { provider: "local", root: source } }),
+      name: "local-docs",
+    })
+
+    try {
+      const session = await docs.startSession({ host: localHost(), target })
+      await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
+      await expect(stat(join(target, ".agent-runs"))).rejects.toThrow()
+      await expect(stat(join(target, ".git"))).rejects.toThrow()
+      await expect(stat(join(target, ".vitehub", "meta"))).rejects.toThrow()
+      await session.close()
+    }
+    finally {
+      await Promise.all([
+        rm(source, { force: true, recursive: true }),
+        rm(targetParent, { force: true, recursive: true }),
+      ])
+    }
+  })
+
   it("extracts a pinned revision archive with root, mode, symlink, and progress semantics", async () => {
     const docs = workspace()
     const archive = await revisionArchive()

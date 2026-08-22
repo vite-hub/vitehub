@@ -109,9 +109,11 @@ import {
 } from "./trigger-runtime.ts"
 import {
   isWorkspaceAgentOptions,
+  markWorkspaceAgentDefinitionRegistered,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
+  workspaceAgentUsesRegisteredDefinition,
   workspaceDefinitionFromOptions,
   workspaceDefinitionWithAutoCommitRules,
   workspaceModeFromOptions,
@@ -2017,6 +2019,25 @@ function mergeAgentWorkspaceDefinition(
   }
 }
 
+function mergeOwnedAgentWorkspaceDefinition(
+  name: string,
+  registered: WorkspaceDefinition | undefined,
+  configured: WorkspaceDefinition | undefined,
+): WorkspaceDefinition | undefined {
+  if (!registered) return configured ? { ...configured, name } : undefined
+  if (!configured) return { ...registered, name: registered.name || name }
+
+  const { name: _configuredName, sources, mode: _mode, ...fields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
+  return {
+    ...registered,
+    ...fields,
+    name: registered.name || name,
+    sources: registered.sources || sources
+      ? { ...registered.sources, ...sources }
+      : undefined,
+  }
+}
+
 function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
   if (!definition) return false
   const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: AgentCapabilityMode }
@@ -2184,17 +2205,30 @@ async function createAgentInvocationContext<
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
     const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
-    const configuredDefinitionForMerge = ownsWorkspaceDefinition && registeredWorkspaceDefinition
-      ? undefined
-      : configuredWorkspaceDefinition
-    const baseResolvedWorkspaceDefinition = workspaceName
-      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
+    let usesRegisteredOwnedDefinition = Boolean(
+      workspaceName
+      && ownsWorkspaceDefinition
+      && registeredWorkspaceDefinition
+      && workspaceAgentUsesRegisteredDefinition(workspaceDefinition, workspaceName),
+    )
+    const configuredDefinitionForMerge = ownsWorkspaceDefinition ? undefined : configuredWorkspaceDefinition
+    const resolvedWorkspaceDefinition = workspaceName
+      ? ownsWorkspaceDefinition
+        ? usesRegisteredOwnedDefinition
+          ? registeredWorkspaceDefinition
+          : mergeOwnedAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
+        : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
-    const resolvedWorkspaceDefinition = baseResolvedWorkspaceDefinition
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+      markWorkspaceAgentDefinitionRegistered(workspaceDefinition, workspaceName)
+      usesRegisteredOwnedDefinition = true
     }
-    const workspaceUseOptions = !ownsWorkspaceDefinition && hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge) && resolvedWorkspaceDefinition
+    const workspaceUseOptions = resolvedWorkspaceDefinition && (
+      ownsWorkspaceDefinition
+        ? !usesRegisteredOwnedDefinition
+        : hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge)
+    )
       ? { definition: resolvedWorkspaceDefinition }
       : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined

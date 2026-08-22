@@ -411,6 +411,13 @@ function isExcludedWriteBackPath(path: string, excluded: readonly string[]) {
   return Boolean(gitMetadataRoot(path)) || excluded.some(item => path === item || path.startsWith(`${item}/`) || item.startsWith(`${path}/`))
 }
 
+const defaultExcludedSessionPaths = [".agent-runs", ".git", ".vitehub"] as const
+
+function isExcludedSessionSourcePath(path: string): boolean {
+  if (path === ".vitehub/sources" || path.startsWith(".vitehub/sources/")) return false
+  return isExcludedWriteBackPath(path, defaultExcludedSessionPaths)
+}
+
 function filterWriteBackDiff(diff: WorkspaceDiff, excluded: readonly string[]): WorkspaceDiff {
   return {
     ...diff,
@@ -427,10 +434,14 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
 
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
   const paths = normalizeSessionPaths(options)
-  if (!paths) return await workspace.list("", { recursive: true })
+  if (!paths) {
+    return (await workspace.list("", { recursive: true }))
+      .filter(entry => !isExcludedSessionSourcePath(entry.path))
+  }
 
   const entries = new Map<string, WorkspaceEntry>()
   for (const path of paths) {
+    if (isExcludedSessionSourcePath(path)) continue
     const stat = await workspace.stat(path).catch((error) => {
       if (isMissingWorkspacePathError(error)) return undefined
       throw error
@@ -438,7 +449,9 @@ async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOp
     if (!stat) continue
     entries.set(stat.path, stat)
     if (stat.type === "directory") {
-      for (const entry of await workspace.list(path, { recursive: true })) entries.set(entry.path, entry)
+      for (const entry of await workspace.list(path, { recursive: true })) {
+        if (!isExcludedSessionSourcePath(entry.path)) entries.set(entry.path, entry)
+      }
     }
   }
   return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
@@ -679,9 +692,7 @@ export async function createHostedWorkspaceSession(
   const root = normalizeTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
   const excludedWriteBackPaths = [
-    ".agent-runs",
-    ".git",
-    ".vitehub",
+    ...defaultExcludedSessionPaths,
     ...(options.writeBack?.exclude || []).map(path => normalizeSafeWorkspacePath(path, { allowReserved: true })),
   ]
   let closed = false

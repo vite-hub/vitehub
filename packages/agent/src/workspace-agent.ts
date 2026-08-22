@@ -210,6 +210,21 @@ export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
 }
 
+const registeredWorkspaceAgentNames = new WeakMap<object, Set<string>>()
+
+export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: string): void {
+  if (typeof agent !== "object" || agent === null) return
+  const names = registeredWorkspaceAgentNames.get(agent) || new Set<string>()
+  names.add(name)
+  registeredWorkspaceAgentNames.set(agent, names)
+}
+
+export function workspaceAgentUsesRegisteredDefinition(agent: unknown, name: string): boolean {
+  return typeof agent === "object"
+    && agent !== null
+    && Boolean(registeredWorkspaceAgentNames.get(agent)?.has(name))
+}
+
 export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir: string, colocatedInstructions?: string): Agent {
   if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return agent
 
