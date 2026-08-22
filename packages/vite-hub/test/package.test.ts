@@ -179,6 +179,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./database/drizzle",
       "./nuxt",
+      "./source",
     ])
 
     for (const { subpath, targets } of manifestForwarders) {

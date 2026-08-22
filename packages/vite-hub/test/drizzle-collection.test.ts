@@ -44,10 +44,10 @@ async function createTestDatabase() {
   return { db, schema: collectionSchema }
 }
 
-describe("defineDrizzleCollection", () => {
+describe("table Collection source", () => {
   it("owns stable keyset pagination and applies filters before fetching pages", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineDrizzleCollection } = await import("../src/database/drizzle.ts")
+    const { defineCollection, table } = await import("../src/source.ts")
     await db.run(sql`
       create table meals (
         id text primary key,
@@ -62,15 +62,17 @@ describe("defineDrizzleCollection", () => {
       { createdAt: new Date(2_000), id: "z", kind: "dinner" },
     ])
 
-    const meals = defineDrizzleCollection({
-      db,
-      defaultLimit: 2,
-      keyset: {
-        by: schema.meals.createdAt,
-        order: "desc",
-        tieBreaker: schema.meals.id,
-      },
-      table: schema.meals,
+    const meals = defineCollection({
+      source: table({
+        db,
+        defaultLimit: 2,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        table: schema.meals,
+      }),
     })
 
     const first = await meals.page({ query: {} })
@@ -81,17 +83,19 @@ describe("defineDrizzleCollection", () => {
     expect(second.items.map(meal => meal.id)).toEqual(["a", "z"])
     expect(second.nextCursor).toBeNull()
 
-    const dinners = defineDrizzleCollection({
-      db,
-      defaultLimit: 2,
-      keyset: {
-        by: schema.meals.createdAt,
-        order: "desc",
-        tieBreaker: schema.meals.id,
-      },
-      table: schema.meals,
-      where: ({ query, table }) =>
-        typeof query.kind === "string" ? eq(table.kind, query.kind) : undefined,
+    const dinners = defineCollection({
+      source: table({
+        db,
+        defaultLimit: 2,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        table: schema.meals,
+        where: ({ query, table }) =>
+          typeof query.kind === "string" ? eq(table.kind, query.kind) : undefined,
+      }),
     })
     const dinnerPage = await dinners.page({ query: { kind: "dinner" } })
     expect(dinnerPage.items.map(meal => meal.id)).toEqual(["c", "a"])
@@ -104,17 +108,18 @@ describe("defineDrizzleCollection", () => {
 
   it("rejects an unstable tie-breaker", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineDrizzleCollection } = await import("../src/database/drizzle.ts")
+    const { defineCollection, table } = await import("../src/source.ts")
 
-    expect(() => defineDrizzleCollection({
-      db,
-      keyset: {
-        by: schema.meals.createdAt,
-        order: "desc",
-        tieBreaker: schema.meals.kind,
-      },
-      table: schema.meals,
-    })).toThrow("Collection keyset tieBreaker must be unique")
+    expect(() => defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.kind,
+        },
+        table: schema.meals,
+      }),
+    })).toThrow("Collection orderBy tieBreaker must be unique")
   })
 })
-

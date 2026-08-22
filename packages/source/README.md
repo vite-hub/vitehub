@@ -102,14 +102,6 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
 output types flow into the loader, so the loader needs no manual generic types.
 
 ```ts
-// server/api/articles.get.ts
-import { defineCollectionHandler } from "@vite-hub/source/server"
-import { articles } from "../collections/articles"
-
-export default defineCollectionHandler(articles)
-```
-
-```ts
 // app/composables/articles.ts
 import { useCollection } from "@vite-hub/source/client"
 
@@ -120,7 +112,9 @@ export const useArticles = () => useCollection("articles", {
 ```
 
 ViteHub discovers named exports in `server/collections` and generates the
-collection registry, binding each filename to its endpoint and definition type.
+collection registry and GET handler, binding each filename to its endpoint and
+definition type. Everything in that directory is a public read model; keep
+private definitions elsewhere and do not repeat the route under `server/api`.
 Callers do not repeat URL strings or generic imports. `filter` is validated by
 the Collection's query schema before the loader runs and remains fixed across
 cursor pages. Set `all: true` for bounded Collections that should materialize

@@ -50,8 +50,8 @@ export default defineEventHandler(() => {
 | Import | Use |
 | --- | --- |
 | `defineSource`, `defineSources`, `createSource`, `combineSources`, `custom` from `vite-hub/source` | Define Sources, create context-dependent readers, and combine keyed readers. |
-| `defineCollection` from `vite-hub/source`, `defineCollectionHandler` from `vite-hub/source/server`, `useCollection` from `vite-hub/source/client` | Turn any loader into a typed, paginated HTTP read model and consume it from Vue. |
-| `defineDrizzleCollection`, `useDatabase` from `vite-hub/database/drizzle` | Expose a Drizzle table as a Collection without writing cursor SQL. |
+| `defineCollection`, `table` from `vite-hub/source`, `useCollection` from `vite-hub/source/client` | Turn a table or custom loader into a typed, paginated HTTP read model and consume it from Vue. |
+| `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
@@ -244,30 +244,33 @@ database, let the database adapter own the keyset query:
 ```ts [server/collections/articles.ts]
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
-import { defineDrizzleCollection, useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database/drizzle'
+import { defineCollection, table } from 'vite-hub/source'
 
 const { db, schema } = useDatabase('default')
 
-export const articles = defineDrizzleCollection({
-  db,
-  table: schema.articles,
-  keyset: {
-    by: schema.articles.createdAt,
-    order: 'desc',
-    tieBreaker: schema.articles.id,
-  },
-  defaultLimit: 25,
-  maxLimit: 100,
-  querySchema: v.object({ author: v.optional(v.string()) }),
-  where: ({ query, table }) => query.author
-    ? eq(table.author, query.author)
-    : undefined,
+export const articles = defineCollection({
+  source: table({
+    db,
+    table: schema.articles,
+    orderBy: {
+      column: schema.articles.createdAt,
+      direction: 'desc',
+      tieBreaker: schema.articles.id,
+    },
+    defaultLimit: 25,
+    maxLimit: 100,
+    querySchema: v.object({ author: v.optional(v.string()) }),
+    where: ({ query, table }) => query.author
+      ? eq(table.author, query.author)
+      : undefined,
+  }),
   transform: article => ({ id: article.id, title: article.title }),
 })
 ```
 
-`by` and `tieBreaker` must be non-null columns on the selected table, and the
-tie-breaker must be unique. The adapter applies `where` before its lexicographic
+`column` and `tieBreaker` must be non-null columns on the selected table, and the
+tie-breaker must be unique. The table source applies `where` before its lexicographic
 cursor predicate, orders both columns consistently, requests the extra row, and
 keeps the cursor opaque to clients. Omit `querySchema` and `where` when the
 Collection has no filters.
@@ -299,13 +302,6 @@ of the response while its return type becomes the client item type. Any Standard
 Schema validator can provide `cursorSchema` and `querySchema`; their output types
 flow into the loader without manual generic annotations.
 
-```ts [server/api/articles.get.ts]
-import { defineCollectionHandler } from 'vite-hub/source/server'
-import { articles } from '../collections/articles'
-
-export default defineCollectionHandler(articles)
-```
-
 ```vue [app/pages/articles.vue]
 <script setup lang="ts">
 const author = ref<string>()
@@ -315,10 +311,12 @@ const { items, pending, error, hasMore, loadMore } = useCollection('articles', {
 </script>
 ```
 
-ViteHub discovers named exports in `server/collections`, generates their name
-and type registry, and maps `articles` to `/api/articles`. The Nuxt module
+ViteHub discovers named exports in `server/collections`, generates their name,
+type registry, and read-only GET route, and maps `articles` to `/api/articles`. The Nuxt module
 auto-imports `useCollection`; outside Nuxt, import it from
-`vite-hub/source/client`. Use `filter` for validated request input. It stays
+`vite-hub/source/client`. Everything in `server/collections` is public through
+its transformed shape; keep private definitions elsewhere and do not create a
+matching `server/api` handler. Use `filter` for validated request input. It stays
 fixed while `loadMore()` advances the opaque cursor. For a bounded Collection,
 set `all: true` to fetch every page asynchronously. `cursor` and `limit` are
 reserved route query parameters. Invalid limits, cursor encodings, and parsed

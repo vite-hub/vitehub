@@ -638,6 +638,28 @@ describe("ViteHub Nuxt integration", () => {
     expect(steps).toEqual(["email", "types"])
   })
 
+  it("registers generated Collection handlers without replacing configured handlers", async () => {
+    const generated = {
+      handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/meals.mjs",
+      method: "get" as const,
+      route: "/api/meals",
+    }
+    const prepareTypes = vi.fn(async () => [generated])
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "vite-hub/types",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const nitroConfig = { handlers: [existing] }
+    await runNitroConfigHook(nitroConfig)
+
+    expect(prepareTypes).toHaveBeenCalledWith("/tmp/vitehub-nuxt")
+    expect(nitroConfig.handlers).toEqual([existing, generated])
+  })
+
   it("replaces existing Env array declarations instead of concatenating data values", async () => {
     const { nuxt } = createNuxt()
     const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }

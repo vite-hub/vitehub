@@ -102,7 +102,9 @@ describe("framework generated types", () => {
       writeFile(join(root, "server/collections/admin/history.ts"), "export const history = {}\n"),
     ])
 
-    await configResolved(viteHubTypesPlugin())({ root: viteRoot })
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({ root: viteRoot })
+    const handlers = await plugin.api.prepareTypes(root)
 
     await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toBe([
       `declare global {`,
@@ -118,5 +120,24 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
       `./source/collections.d.ts`,
     )
+    expect(handlers).toEqual([
+      {
+        handler: join(root, ".vitehub/source/routes/admin/history.mjs"),
+        method: "get",
+        route: "/api/admin/history",
+      },
+      {
+        handler: join(root, ".vitehub/source/routes/meals.mjs"),
+        method: "get",
+        route: "/api/meals",
+      },
+    ])
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe([
+      `import { defineCollectionHandler } from "vite-hub/source/server"`,
+      `import { meals as collection } from ${JSON.stringify(join(root, "server/collections/meals.ts"))}`,
+      ``,
+      `export default defineCollectionHandler(collection)`,
+      ``,
+    ].join("\n"))
   })
 })
