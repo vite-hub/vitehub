@@ -192,8 +192,6 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
     const statusCode = scalarProperty(value, "statusCode", state)
     const stack = state.includeStack ? boundedString(readProperty(value, "stack"), state) : undefined
     if (code !== undefined) result.code = code
-    const details = publicError?.details ? normalizeDetails(publicError.details, state, depth + 1) : undefined
-    if (details) result.details = details
     if (requestId) result.requestId = requestId
     if (stack) result.stack = stack
     if (status !== undefined) result.status = status
@@ -208,6 +206,8 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
       return normalized ? [normalized] : []
     })
     if (normalizedErrors?.length) result.errors = normalizedErrors
+    const details = publicError?.details ? normalizeDetails(publicError.details, state, depth + 1) : undefined
+    if (details) result.details = details
     return result
   }
   finally {

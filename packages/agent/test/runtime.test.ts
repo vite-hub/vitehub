@@ -9249,6 +9249,7 @@ describe("agent message protocol", () => {
   it("projects an already-framed UI message stream Response", async () => {
     const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
     const finish = vi.fn()
     const providerResult = vi.fn()
     const downstreamProviderResult = vi.fn()
@@ -9296,6 +9297,9 @@ describe("agent message protocol", () => {
               controller.enqueue({ id: "text-1", type: "text-start" })
               controller.enqueue({ delta: "public", id: "text-1", type: "text-delta" })
               controller.enqueue({ id: "text-1", type: "text-end" })
+              controller.enqueue({ input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" })
+              controller.enqueue({ output: "42", toolCallId: "tool-1", type: "tool-output-available" })
+              controller.enqueue({ type: "usage", usageRecord: { usage: { totalTokens: 3 } } })
               controller.enqueue({ finishReason: "stop", type: "finish" })
               controller.close()
             },
@@ -9307,7 +9311,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {}, {
       output: "ui-message-stream",
     }) as Response
     expect(response.status).toBe(201)
@@ -9321,6 +9325,20 @@ describe("agent message protocol", () => {
     expect(body).not.toContain("private")
     expect(body).toContain("public")
     expect(finish).toHaveBeenCalledOnce()
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.message",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.usage.recorded",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+    expect(traceLog.entries().find(event => event.name === "agent.message")?.attributes?.["message.content"]).toBe("public")
+    expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ query: "users" })
+    expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes?.["tool.output"]).toBe("42")
+    expect(traceLog.entries().find(event => event.name === "agent.usage.recorded")?.attributes?.["usage.totalTokens"]).toBe(3)
+    expect(JSON.stringify(traceLog.entries())).not.toContain("private")
   })
 
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {

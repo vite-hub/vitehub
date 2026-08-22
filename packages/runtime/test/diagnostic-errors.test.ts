@@ -72,7 +72,12 @@ describe("Runtime diagnostic errors", () => {
   })
 
   it("applies the whole-graph budget to public error details", () => {
+    const cause = new AggregateError([
+      new Error("First nested failure"),
+      new Error("Second nested failure"),
+    ], "Nested failures")
     const error = new ViteHubError("PROVIDER_FAILED", "Provider failed", {
+      cause,
       details: {
         items: Array.from({ length: 100 }, (_item, index) => ({
           label: `private-${index}-${"x".repeat(1_000)}`,
@@ -83,7 +88,7 @@ describe("Runtime diagnostic errors", () => {
 
     const normalized = normalizeRuntimeDiagnosticError(error, {
       maxDepth: 2,
-      maxErrors: 4,
+      maxErrors: 3,
       maxStringLength: 64,
     })
     const serialized = JSON.stringify(normalized)
@@ -91,8 +96,13 @@ describe("Runtime diagnostic errors", () => {
     expect(serialized.length).toBeLessThan(1_000)
     expect(serialized).not.toContain("private-0")
     expect(serialized).not.toContain("y".repeat(1_000))
-    expect(normalized.details).toEqual({
-      items: ["[Detail depth exceeded]", "[Detail depth exceeded]"],
+    expect(normalized.cause).toMatchObject({
+      errors: [
+        { message: "First nested failure" },
+        { message: "Second nested failure" },
+      ],
+      message: "Nested failures",
     })
+    expect(normalized.details).toBeUndefined()
   })
 })

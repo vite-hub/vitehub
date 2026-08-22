@@ -5007,9 +5007,10 @@ async function executeAgentInvocationWithCapacityLease<
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
           }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions, response)
           const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
+          const tracedResponseStream = maybeTraceUiMessageStreamOutput(enrichedResponseStream, invocation)
           const shouldWrapOutput = shouldHoldInvocationOutput()
           const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
-          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
+          const finalized = await finalizeUiMessageStreamOutput(tracedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
               await lifecycle.finish({
                 result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
