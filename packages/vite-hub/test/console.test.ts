@@ -1,13 +1,21 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { existsSync } from "node:fs"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsKey } from "../src/console/internal.ts"
+import { consoleInvocationsKey, consoleInvocationsRootKey, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
 
-import type { AgentInvocations } from "@vite-hub/agent"
+import { runAgent } from "@vite-hub/agent"
+
+import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/local-request.ts"
 
-type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | undefined>
+type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | string | undefined>
 
 const scope = globalThis as ConsoleGlobal
 const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocations
@@ -15,15 +23,28 @@ const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocati
 function event(address: string | undefined, method = "GET"): ConsoleRequestEvent {
   const headers = new Headers({ host: "localhost" })
   return {
-    context: address ? { clientAddress: address } : {},
     headers,
     method,
-    req: { url: "http://localhost/_vitehub" },
+    node: { req: { method, socket: { remoteAddress: address }, url: "http://localhost/_vitehub" } },
+    req: { method, url: "http://localhost/_vitehub" },
+  }
+}
+
+function runtime(runId: string): AgentRuntimeContext {
+  return {
+    memo: vi.fn(),
+    run: { runId },
+    runtime: "unknown",
+    waitUntil: vi.fn(),
   }
 }
 
 afterEach(() => {
   delete scope[consoleInvocationsKey]
+  delete scope[consoleInvocationsRootKey]
+  delete (process as unknown as Record<symbol, unknown>)[consoleInvocationsKey]
+  delete (process as unknown as Record<symbol, unknown>)[consoleInvocationsRootKey]
+  vi.restoreAllMocks()
 })
 
 describe("Agent invocation console", () => {
@@ -56,49 +77,61 @@ describe("Agent invocation console", () => {
     expect(agent.invocations).toBe(assigned)
   })
 
+  it("shares the installed journal through the process across module realms", () => {
+    const fallback = fakeInvocations("console")
+    ;(process as unknown as Record<symbol, unknown>)[consoleInvocationsKey] = fallback
+
+    expect(resolveConsoleInvocations({ process })).toBe(fallback)
+  })
+
+  it("anchors the durable journal to the project root and shares it between runtime instances", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-project-"))
+    const unrelatedCwd = await mkdtemp(join(tmpdir(), "vitehub-console-cwd-"))
+    vi.spyOn(process, "cwd").mockReturnValue(unrelatedCwd)
+    try {
+      const writer = installConsoleInvocations(projectRoot)
+      const agent = defineAgent({ driver: { run: () => "persisted" }, runtime: false })
+      await runAgent(agent, runtime("console-cross-realm"), {})
+
+      const reader = createConsoleInvocations(projectRoot)
+      await expect(reader.getByRunId("console-cross-realm")).resolves.toMatchObject({ status: "completed" })
+      expect(agent.invocations).toBe(writer)
+      expect(existsSync(join(projectRoot, ".vitehub/data/console.sqlite"))).toBe(true)
+      expect(existsSync(join(unrelatedCwd, ".vitehub/data/console.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+      await rm(unrelatedCwd, { force: true, recursive: true })
+    }
+  })
+
   it.each(["127.0.0.1", "::1", "::ffff:127.0.0.1"])("accepts GET requests from loopback address %s", (address) => {
     expect(() => assertLocalConsoleRequest(event(address))).not.toThrow()
   })
 
-  it("accepts loopback addresses from Nitro's Node request adapter", () => {
-    const value = event(undefined)
-    value.node = { req: { socket: { remoteAddress: "127.0.0.1" } } }
-
-    expect(() => assertLocalConsoleRequest(value)).not.toThrow()
-  })
-
-  it("accepts Nuxt development requests forwarded from loopback", () => {
-    const value = event(undefined)
-    value.headers = new Headers({ host: "127.0.0.1:3000", "x-forwarded-for": "127.0.0.1" })
-
-    expect(() => assertLocalConsoleRequest(value)).not.toThrow()
-  })
-
-  it("hides console handlers from non-loopback requests and untrusted forwarding headers", () => {
-    const forwarded = event("203.0.113.2")
-    forwarded.headers = new Headers({ host: "localhost", "x-forwarded-for": "127.0.0.1" })
-
-    expect(() => assertLocalConsoleRequest(forwarded)).toThrow(expect.objectContaining({ statusCode: 404 }))
+  it("hides console handlers from requests without a trusted socket peer", () => {
+    expect(() => assertLocalConsoleRequest(event("203.0.113.2"))).toThrow(expect.objectContaining({ statusCode: 404 }))
     expect(() => assertLocalConsoleRequest(event(undefined))).toThrow(expect.objectContaining({ statusCode: 404 }))
   })
 
-  it("rejects a non-loopback forwarded client behind a loopback proxy", () => {
-    const value = event("127.0.0.1")
-    value.headers = new Headers({ host: "localhost", "x-forwarded-for": "203.0.113.2, 127.0.0.1" })
+  it("does not trust spoofed localhost forwarding headers from a remote socket", () => {
+    const value = event("203.0.113.2")
+    value.context = { clientAddress: "127.0.0.1" }
+    value.headers = new Headers({ host: "localhost", "x-forwarded-for": "127.0.0.1" })
 
     expect(() => assertLocalConsoleRequest(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
   })
 
-  it("rejects forwarded requests for a non-local host", () => {
-    const value = event(undefined)
-    value.headers = new Headers({ host: "192.0.2.10:3000", "x-forwarded-for": "127.0.0.1" })
+  it("ignores forwarding headers after validating the socket peer", () => {
+    const value = event("127.0.0.1")
+    value.headers = new Headers({ host: "localhost", "x-forwarded-for": "203.0.113.2" })
 
-    expect(() => assertLocalConsoleRequest(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
+    expect(() => assertLocalConsoleRequest(value)).not.toThrow()
   })
 
-  it("treats malformed hosts as unavailable", () => {
+  it("keeps the local host check as defense in depth", () => {
     const value = event("127.0.0.1")
-    value.headers = new Headers({ host: "[invalid" })
+    value.headers = new Headers({ host: "192.0.2.10:3000" })
 
     expect(() => assertLocalConsoleRequest(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
   })

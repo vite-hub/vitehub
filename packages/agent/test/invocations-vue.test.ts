@@ -141,6 +141,61 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("preserves loaded pages when polling refreshes the first page", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({
+      cursor: "older",
+      invocations: [record("inv-2")],
+    } satisfies AgentInvocationListResult);
+    await settle();
+
+    const older = resource.loadMore();
+    calls[1]!.resolve({
+      cursor: "oldest",
+      invocations: [record("inv-1")],
+    } satisfies AgentInvocationListResult);
+    await older;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({
+      cursor: "older",
+      invocations: [record("inv-3"), { ...record("inv-2"), status: "completed" }],
+    } satisfies AgentInvocationListResult);
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([
+      record("inv-3"),
+      { ...record("inv-2"), status: "completed" },
+      record("inv-1"),
+    ]);
+    expect(resource.cursor.value).toBe("oldest");
+    scope.stop();
+  });
+
+  it("discards loaded pages when the list source changes", async () => {
+    const { calls, request } = controlledRequester();
+    const query = ref({ status: ["running"] });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query, request }))!;
+
+    calls[0]!.resolve({ cursor: "older", invocations: [record("inv-2")] } satisfies AgentInvocationListResult);
+    await settle();
+    const older = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] } satisfies AgentInvocationListResult);
+    await older;
+
+    query.value = { status: ["completed"] };
+    await nextTick();
+    calls[2]!.resolve({ invocations: [record("inv-3")] } satisfies AgentInvocationListResult);
+    await settle();
+
+    expect(resource.invocations.value).toEqual([record("inv-3")]);
+    scope.stop();
+  });
+
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
     const requestMock = vi.fn(async () => ({

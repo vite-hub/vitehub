@@ -42,28 +42,20 @@ function requestHostname(host: string | undefined): string | undefined {
   }
 }
 
-export function assertLocalConsoleRequest(event: ConsoleRequestEvent): void {
-  const method = event.method ?? event.req?.method ?? event.node?.req?.method
-  if (method !== "GET") throw consoleRequestError(405, "Method not allowed")
-  const headers = event.headers ?? event.req?.headers
-  const forwardedAddresses = headers?.get("x-forwarded-for")
-    ?.split(",")
-    .map(address => address.trim())
-    .filter(Boolean) ?? []
-  if (forwardedAddresses.some(address => !loopbackAddresses.has(address))) {
-    throw consoleRequestError(404, "Not found")
-  }
-  const address = event.context?.clientAddress
-    ?? event.req?.context?.clientAddress
-    ?? event.req?.ip
-    ?? event.node?.req?.socket?.remoteAddress
-    ?? forwardedAddresses[0]
-  const host = headers?.get("host")
-  const hostname = requestHostname(host ?? undefined)
-  if (!hostname || !localHosts.has(hostname)) throw consoleRequestError(404, "Not found")
+export function assertLocalConsolePeer(event: ConsoleRequestEvent): void {
+  const address = event.node?.req?.socket?.remoteAddress
   if (!address || !loopbackAddresses.has(address)) {
     throw consoleRequestError(404, "Not found")
   }
+  const headers = event.headers ?? event.req?.headers
+  const hostname = requestHostname(headers?.get("host") ?? undefined)
+  if (!hostname || !localHosts.has(hostname)) throw consoleRequestError(404, "Not found")
+}
+
+export function assertLocalConsoleRequest(event: ConsoleRequestEvent): void {
+  const method = event.method ?? event.req?.method ?? event.node?.req?.method
+  if (method !== "GET") throw consoleRequestError(405, "Method not allowed")
+  assertLocalConsolePeer(event)
 }
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {

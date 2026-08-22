@@ -92,6 +92,7 @@ function detailPath(baseURL: string, id: string): string {
 interface InvocationResourceOptions<T> {
   apply: (value: T) => void;
   beforeLoad?: () => void;
+  beforeSourceChange?: () => void;
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
@@ -154,6 +155,7 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
     ? watch(
         options.source,
         () => {
+          options.beforeSourceChange?.();
           void refresh();
         },
         { deep: true },
@@ -191,15 +193,25 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
+  let paginated = false;
   let revision = 0;
   let stopped = false;
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
-      invocations.value = result.invocations;
-      cursor.value = result.cursor;
+      if (paginated) {
+        const refreshedIds = new Set(result.invocations.map(invocation => invocation.id));
+        invocations.value = [
+          ...result.invocations,
+          ...invocations.value.filter(invocation => !refreshedIds.has(invocation.id)),
+        ];
+      } else {
+        invocations.value = result.invocations;
+        cursor.value = result.cursor;
+      }
     },
     clear() {
+      paginated = false;
       invocations.value = [];
       cursor.value = undefined;
     },
@@ -208,6 +220,9 @@ export function useAgentInvocations(
       loadMoreController?.abort();
       loadMoreController = undefined;
       isLoadingMore.value = false;
+    },
+    beforeSourceChange() {
+      paginated = false;
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
@@ -243,6 +258,7 @@ export function useAgentInvocations(
         ...invocations.value,
         ...result.invocations.filter(invocation => !ids.has(invocation.id)),
       ];
+      paginated = true;
       cursor.value = result.cursor;
       return result;
     } catch (cause) {

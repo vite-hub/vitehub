@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -79,6 +80,10 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       },
       buildDir: "/tmp/vitehub-nuxt/.nuxt",
       dev,
+      devServerHandlers: undefined as Array<{
+        handler: (event: import("../src/console/runtime/server/local-request.ts").ConsoleRequestEvent) => void
+        route?: string
+      }> | undefined,
       nitro: {} as Record<string, unknown>,
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
@@ -216,8 +221,21 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
       ],
-      plugins: [expect.stringContaining("/console/runtime/server/plugin.js")],
+      plugins: ["/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs"],
     })
+    expect(development.nuxt.options.devServerHandlers).toEqual([
+      expect.objectContaining({ route: "/_vitehub" }),
+      expect.objectContaining({ route: "/api/_vitehub/console" }),
+    ])
+    const apiGuard = development.nuxt.options.devServerHandlers?.find(handler => handler.route === "/api/_vitehub/console")
+    expect(() => apiGuard?.handler({
+      context: { clientAddress: "127.0.0.1" },
+      headers: new Headers({ host: "localhost", "x-forwarded-for": "127.0.0.1" }),
+      node: { req: { socket: { remoteAddress: "203.0.113.2" } } },
+    })).toThrow(expect.objectContaining({ statusCode: 404 }))
+    await expect(readFile("/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleInvocations("/tmp/vitehub-nuxt")`,
+    )
 
     mocks.uiModule.mockClear()
     const production = createNuxt(false)
@@ -226,6 +244,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.pageHooks).toHaveLength(0)
     expect(production.nuxt.options.nitro).not.toHaveProperty("handlers")
     expect(production.nuxt.options.nitro).not.toHaveProperty("plugins")
+    expect(production.nuxt.options.devServerHandlers).toBeUndefined()
   })
 
   it("does not install the console when the option is omitted", async () => {

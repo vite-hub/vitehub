@@ -1,3 +1,4 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -9,6 +10,8 @@ import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
+import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
+import { assertLocalConsolePeer } from "./console/runtime/server/local-request.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
@@ -32,6 +35,10 @@ type NuxtLike = {
     buildDir: string
     database?: DatabaseNuxtIntegrationOptions
     dev?: boolean
+    devServerHandlers?: Array<{
+      handler: (event: import("./console/runtime/server/local-request.ts").ConsoleRequestEvent) => void
+      route?: string
+    }>
     imports?: {
       imports?: Array<{ as?: string, from: string, name: string }>
     }
@@ -93,9 +100,26 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   }
 }
 
-async function installConsole(nuxt: NuxtLike): Promise<void> {
+function renderConsoleNitroPlugin(projectRoot: string): string {
+  return [
+    `import { installConsoleInvocations } from "vite-hub/console/server"`,
+    `installConsoleInvocations(${JSON.stringify(projectRoot)})`,
+    "export default function viteHubConsolePlugin() {}",
+    "",
+  ].join("\n")
+}
+
+async function writeConsoleNitroPlugin(file: string, projectRoot: string): Promise<void> {
+  const contents = renderConsoleNitroPlugin(projectRoot)
+  if (await readFile(file, "utf8").catch(() => undefined) === contents) return
+  await mkdir(resolve(file, ".."), { recursive: true })
+  await writeFile(file, contents, "utf8")
+}
+
+async function installConsole(nuxt: NuxtLike, projectRoot: string): Promise<void> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   await uiModule(undefined, nuxt)
+  installConsoleInvocations(projectRoot)
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
   hookPages?.("pages:extend", (pages) => {
     const additions: NuxtPage[] = [
@@ -119,8 +143,16 @@ async function installConsole(nuxt: NuxtLike): Promise<void> {
   for (const handler of additions) {
     if (!handlers.some(candidate => candidate.route === handler.route)) handlers.push(handler)
   }
+  const devServerHandlers = (nuxt.options.devServerHandlers ??= [])
+  for (const route of ["/_vitehub", "/api/_vitehub/console"]) {
+    if (!devServerHandlers.some(candidate => candidate.route === route)) {
+      devServerHandlers.push({ handler: assertLocalConsolePeer, route })
+    }
+  }
   const plugins = (nitro.plugins ??= [])
-  const plugin = join(consoleRuntimeRoot, "server/plugin.js")
+  const plugin = join(nuxt.options.buildDir, "vitehub-console-plugin.mjs")
+  // Nitro runs in another runtime realm, so install a second journal instance over the same project SQLite file.
+  await writeConsoleNitroPlugin(plugin, projectRoot)
   if (!plugins.includes(plugin)) plugins.push(plugin)
 }
 
@@ -321,10 +353,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...moduleOptions,
     env: envOptions,
   } as Parameters<typeof vitehub>[0]
-  if (options.console && nuxt.options.dev) await installConsole(nuxt)
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
+  if (options.console && nuxt.options.dev) await installConsole(nuxt, projectRoot)
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string

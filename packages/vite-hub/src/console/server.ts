@@ -1,3 +1,7 @@
-import { getConsoleInvocations } from "./runtime/server/invocations.ts"
+import {
+  createConsoleInvocations,
+  getConsoleInvocations,
+  installConsoleInvocations,
+} from "./runtime/server/invocations.ts"
 
-export { getConsoleInvocations }
+export { createConsoleInvocations, getConsoleInvocations, installConsoleInvocations }
