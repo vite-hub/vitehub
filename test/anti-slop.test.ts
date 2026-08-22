@@ -181,21 +181,18 @@ describe("anti-slop lexical type resolution", () => {
   });
 
   test("keeps free alias references outside caller substitutions", () => {
-    const unsafeResult = diagnostics(`
+    const result = diagnostics(`
         type T = unknown;
         type Identity<X> = T;
         type Wrapper<T> = Identity<T>;
-        function consume(value: Wrapper<string>) { return value; }
-      `);
-    expect(unsafeResult).toContain("anti-slop(no-unknown-parameters)");
+        function consumeUnsafe(value: Wrapper<string>) { return value; }
 
-    const safeResult = diagnostics(`
-        type T = string;
-        type Identity<X> = T;
-        type Wrapper<T> = Identity<T>;
-        function consume(value: Wrapper<unknown>) { return value; }
+        type U = string;
+        type SafeIdentity<X> = U;
+        type SafeWrapper<U> = SafeIdentity<U>;
+        function consumeSafe(value: SafeWrapper<unknown>) { return value; }
       `);
-    expect(safeResult).not.toContain("anti-slop(no-unknown-parameters)");
+    expect(result.filter((code) => code === "anti-slop(no-unknown-parameters)")).toHaveLength(1);
   });
 
   test("resolves namespace imports for test framework objects", () => {
@@ -225,27 +222,24 @@ describe("anti-slop lexical type resolution", () => {
   });
 
   test("resolves widening aliases in their declaration scopes", () => {
-    const safeResult = diagnostics(`
+    const result = diagnostics(`
         type Entry = { id: string };
         type Target = Entry;
-        function create() {
+        function createSafe() {
           type Entry = unknown;
           const value: Target = { id: "ok" };
           return value;
         }
-      `);
-    expect(safeResult).not.toContain("anti-slop(no-known-value-widening)");
 
-    const unsafeResult = diagnostics(`
-        type Entry = unknown;
-        type Target = Entry;
-        function create() {
-          type Entry = { id: string };
-          const value: Target = { id: "lost" };
+        type UnsafeEntry = unknown;
+        type UnsafeTarget = UnsafeEntry;
+        function createUnsafe() {
+          type UnsafeEntry = { id: string };
+          const value: UnsafeTarget = { id: "lost" };
           return value;
         }
       `);
-    expect(unsafeResult).toContain("anti-slop(no-known-value-widening)");
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(1);
   });
 
   test("checks assignments to annotated class fields", () => {
