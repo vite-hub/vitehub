@@ -1740,13 +1740,17 @@ async function generateAgentDeploymentCatalog(
       "",
       ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions", typescript),
       "",
-      `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
-      "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
-      "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
-      "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
-      "  return [workspaceName, async () => ({ ...module, default: agent })]",
-      "}",
-      "",
+      ...(workspaceEntries
+        ? [
+            `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
+            "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
+            "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
+            "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
+            "  return [workspaceName, async () => ({ ...module, default: agent })]",
+            "}",
+            "",
+          ]
+        : []),
       ...hostedWorkspaceRuntime.setup,
       ...(options.workspaceRuntimeImport
         ? [`setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`, ""]
