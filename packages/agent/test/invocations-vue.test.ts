@@ -174,7 +174,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("preserves filtered records displaced from the refreshed first page", async () => {
+  it("bounds filtered reconciliation to records displaced from the first page", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({
@@ -192,10 +192,30 @@ describe("Agent Invocation Vue composables", () => {
     calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
     await settle();
     calls[3]!.resolve({ invocation: record("inv-1"), observations: [] });
-    calls[4]!.reject(new Error("detail unavailable"));
     await refresh;
 
     expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
+    expect(calls).toHaveLength(4);
+    scope.stop();
+  });
+
+  it("removes first-page records that leave a search filter", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { search: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [] });
+    await settle();
+    calls[2]!.resolve({
+      invocation: { ...record("inv-1"), completedAt: "2026-08-22T12:01:00.000Z", status: "completed" },
+      observations: [],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([]);
     scope.stop();
   });
 

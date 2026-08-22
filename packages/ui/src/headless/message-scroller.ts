@@ -237,6 +237,7 @@ export const MessageScrollerContent = defineComponent({
         viewport &&
         previousFirst &&
         first !== previousFirst &&
+        props.items.includes(previousFirst) &&
         !context.following.value
       ) {
         viewport.scrollTop = calculatePrependScrollTop(

@@ -18,12 +18,13 @@ export type AgentInvocationRequester = (
 ) => Promise<unknown>;
 
 type QueryValue = boolean | number | string | null | undefined;
+type AgentInvocationQuery = Record<string, QueryValue | readonly QueryValue[]> & { search?: string };
 
 export interface UseAgentInvocationsOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
-  query?: MaybeRefOrGetter<Record<string, QueryValue | readonly QueryValue[]>>;
+  query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
   watch?: boolean;
 }
@@ -265,6 +266,7 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
+  let firstPage: readonly AgentInvocationSummary[] = [];
   let revision = 0;
   let resetFirstPage = true;
   let departedIds = new Set<string>();
@@ -283,6 +285,7 @@ export function useAgentInvocations(
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
         cursor.value = result.cursor;
+        firstPage = result.invocations;
         resetFirstPage = false;
         return;
       }
@@ -292,11 +295,13 @@ export function useAgentInvocations(
       );
       departedIds = new Set();
       invocations.value = [...result.invocations, ...retained];
+      firstPage = result.invocations;
       if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
+      firstPage = [];
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -320,14 +325,18 @@ export function useAgentInvocations(
       );
       const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
       const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
-      if (resetFirstPage || statuses.size === 0) return result;
+      const search = query?.search?.trim().toLowerCase();
+      if (resetFirstPage || (statuses.size === 0 && !search)) return result;
       const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
-      const displaced = invocations.value.filter(invocation => !returnedIds.has(invocation.id));
+      const displaced = firstPage.filter(invocation => !returnedIds.has(invocation.id));
       const reconciled = await Promise.allSettled(displaced.map(invocation =>
         request(detailPath(toValue(baseURL), invocation.id), { signal }).then(parseAgentInvocationDetailResult),
       ));
       departedIds = new Set(reconciled.flatMap((outcome, index) =>
-        outcome.status === "fulfilled" && !statuses.has(outcome.value.invocation.status)
+        outcome.status === "fulfilled" && (
+          (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))
+          || (search && !JSON.stringify(outcome.value.invocation).toLowerCase().includes(search))
+        )
           ? [displaced[index]!.id]
           : [],
       ));
