@@ -180,6 +180,22 @@ describe("framework generated types", () => {
     })).rejects.toThrow('Collection name "meals" is defined in more than one server directory')
   })
 
+  it("preserves an explicitly empty server directory selection", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), "export const meals = {}\n")
+
+    const plugin = viteHubTypesPlugin()
+    const handlers = await plugin.api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [],
+    })
+
+    expect(handlers).toEqual([])
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+  })
+
   it("preserves configured server directories across Vite lifecycle refreshes", async () => {
     const { root, viteRoot } = await createNestedProject()
     const serverDir = join(root, "api")

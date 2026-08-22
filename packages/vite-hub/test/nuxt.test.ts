@@ -724,6 +724,43 @@ describe("ViteHub Nuxt integration", () => {
     })).rejects.toThrow('Generated Collection route "/api/meals" conflicts with an existing GET handler')
   })
 
+  it("rejects scanned server routes that bypass a generated Collection route", async () => {
+    const generated = {
+      handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/meals.mjs",
+      method: "get" as const,
+      route: "/api/meals",
+    }
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes: vi.fn(async () => [generated]) },
+      name: "vite-hub/types",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    const modules = nitroConfig.modules as Array<{
+      name?: string
+      setup?: (nitro: {
+        hooks: { hook: (name: "build:before", callback: () => void) => void }
+        scannedHandlers: Array<{ method?: string, route?: string }>
+      }) => void
+    }>
+    const guard = modules.find(module => module.name === "vite-hub/collection-route-guard")
+    let checkRoutes = () => {}
+    guard?.setup?.({
+      hooks: {
+        hook(_name, callback) {
+          checkRoutes = callback
+        },
+      },
+      scannedHandlers: [{ route: "/api/meals" }],
+    })
+
+    expect(checkRoutes).toThrow('Generated Collection route "/api/meals" conflicts with an existing GET handler')
+  })
+
   it("replaces existing Env array declarations instead of concatenating data values", async () => {
     const { nuxt } = createNuxt()
     const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }

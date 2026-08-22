@@ -52,9 +52,9 @@ async function collectCollectionFiles(directory: string): Promise<string[]> {
 
 async function discoverCollections(options: ViteHubTypesOptions): Promise<DiscoveredCollection[]> {
   const { projectRoot } = options
-  const serverDirs = options.serverDirs?.length
-    ? options.serverDirs.map(directory => resolve(projectRoot, directory))
-    : [resolve(projectRoot, "server")]
+  const serverDirs = options.serverDirs === undefined
+    ? [resolve(projectRoot, "server")]
+    : options.serverDirs.map(directory => resolve(projectRoot, directory))
   const collections = (await Promise.all(serverDirs.map(async (serverDir) => {
     const collectionsDirectory = resolve(serverDir, "collections")
     const files = (await collectCollectionFiles(collectionsDirectory)).sort()

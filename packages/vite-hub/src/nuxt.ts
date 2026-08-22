@@ -128,6 +128,37 @@ type WorkflowNitroConfigHandler = (options: {
 
 type WorkflowRegistryTransform = (code: string, id: string) => string | Promise<string>
 
+interface NitroRouteGuard {
+  hooks: {
+    hook(name: "build:before", callback: () => void): void
+  }
+  scannedHandlers: Array<{
+    method?: string
+    route?: string
+  }>
+}
+
+function collectionRouteGuard(collectionHandlers: GeneratedCollectionHandler[]) {
+  return {
+    name: "vite-hub/collection-route-guard",
+    setup(nitro: NitroRouteGuard) {
+      nitro.hooks.hook("build:before", () => {
+        for (const collectionHandler of collectionHandlers) {
+          const duplicate = nitro.scannedHandlers.some(candidate =>
+            candidate.route === collectionHandler.route
+            && (!candidate.method || candidate.method.toLowerCase() === collectionHandler.method),
+          )
+          if (duplicate) {
+            throw new TypeError(
+              `[vitehub] Generated Collection route ${JSON.stringify(collectionHandler.route)} conflicts with an existing GET handler. Remove the matching server route.`,
+            )
+          }
+        }
+      })
+    },
+  }
+}
+
 function agentWorkflowRegistryTransform(plugin: Plugin): WorkflowRegistryTransform | undefined {
   return (plugin as Plugin & {
     vitehub?: { agent?: { transformWorkflowRegistry?: (code: string, id: string) => string | Promise<string> } }
@@ -454,6 +485,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         )
       }
       handlers.push(handler)
+    }
+    if (collectionHandlers.length > 0) {
+      const modules = (config.modules ??= []) as unknown[]
+      modules.push(collectionRouteGuard(collectionHandlers))
     }
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))

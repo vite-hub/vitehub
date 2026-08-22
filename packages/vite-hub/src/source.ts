@@ -91,6 +91,22 @@ function driverType(column: AnySQLiteColumn): "number" | "string" {
   throw new TypeError("[vitehub] Collection orderBy columns must encode as number or string values.")
 }
 
+function isColumnDriverValue(
+  column: AnySQLiteColumn,
+  type: "number" | "string",
+  value: unknown,
+): boolean {
+  if (typeof value !== type || (typeof value === "number" && !Number.isFinite(value))) {
+    return false
+  }
+  try {
+    return Object.is(column.mapToDriverValue(column.mapFromDriverValue(value)), value)
+  }
+  catch {
+    return false
+  }
+}
+
 function keysetCursorSchema(columns: readonly AnySQLiteColumn[]): StandardSchemaV1<KeysetCursor> {
   const types = columns.map(driverType)
   return {
@@ -100,8 +116,7 @@ function keysetCursorSchema(columns: readonly AnySQLiteColumn[]): StandardSchema
       validate(value) {
         return Array.isArray(value)
           && value.length === columns.length
-          && value.every((entry, index) => typeof entry === types[index]
-            && (typeof entry !== "number" || Number.isFinite(entry)))
+          && value.every((entry, index) => isColumnDriverValue(columns[index]!, types[index]!, entry))
           ? { value: value as unknown as KeysetCursor }
           : { issues: [{ message: "Collection keyset cursor is malformed." }] }
       },
