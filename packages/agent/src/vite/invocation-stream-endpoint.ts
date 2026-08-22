@@ -13,7 +13,7 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
+import { markDiscoveredWorkspaceAgentDefinitionRegistered, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
@@ -286,6 +286,12 @@ async function installServerAgentWorkspaceRegistry(
     throw new Error(`[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.`)
   })
   setWorkspaceRuntimeRegistry(registry)
+  for (const { agent, definition } of entries) {
+    markDiscoveredWorkspaceAgentDefinitionRegistered(agent, {
+      name: definition.name,
+      workspace: definition.workspace,
+    })
+  }
   return registry
 }
 
