@@ -125,7 +125,7 @@ async function installConsole(nuxt: NuxtLike, projectRoot: string): Promise<void
     return module === "@vite-hub/ui/nuxt" || module === uiModule
   })
   if (!uiConfigured) {
-    await uiModule(undefined, nuxt)
+    await Reflect.apply(uiModule, undefined, [{}, nuxt])
   }
   installConsoleInvocations(projectRoot)
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
