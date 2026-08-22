@@ -8,7 +8,7 @@ icon: i-ph-activity-light
 
 `AgentInvocation` accepts the structural shape of ViteHub's `AgentInvocationRecord`. It turns append-only observations into a coding-session thread: assistant prose stays unlabelled, user input remains visually distinct, and compact tool rows expand in place. `AgentInvocationInspector` presents the invocation metadata separately so the host can put it in a splitter, drawer, or its own route.
 
-Rich session replay requires a trace log created with `{ content: "full" }`. The default metadata-only trace policy records activity milestones but strips prompts, message text, tool input, and tool output. Agent Invocation journals still bound full-content records to 512 characters per string, 32 collection items, four nesting levels, and 256 observations per invocation.
+Rich session replay requires a trace log created with `{ content: "content" }`. The default metadata-only trace policy records activity milestones but strips prompts, message text, tool input, and tool output. Agent Invocation journals still bound full-content records to 512 characters per string, 32 collection items, four nesting levels, and 256 observations per invocation.
 
 Enable full-content traces only when the store and the current viewer are authorized to retain and inspect that session content.
 

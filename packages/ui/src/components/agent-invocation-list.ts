@@ -110,6 +110,7 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const list = ref<HTMLElement | null>(null);
+    const mounted = ref(false);
     const listOffset = computed(() => list.value?.offsetTop ?? 0);
     const requestedLength = ref<number>();
     const scrollRevision = ref(0);
@@ -144,6 +145,7 @@ export const AgentInvocationList = defineComponent({
       if (length < previous) requestedLength.value = undefined;
     });
     onMounted(() => {
+      mounted.value = true;
       if (!viewport.value) return;
       measureViewport = () => { viewportHeight.value = viewport.value?.clientHeight ?? 0; };
       measureViewport();
@@ -176,7 +178,7 @@ export const AgentInvocationList = defineComponent({
       props.items.length === 0
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
-      props.items.length && (props.virtual && typeof window !== "undefined")
+      props.items.length && props.virtual && mounted.value
         ? h("ul", {
             class: "vh-invocation-list__virtual",
             ref: list,

@@ -8972,7 +8972,7 @@ describe("agent message protocol", () => {
   it("traces fullStream results when UI message streams are requested", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const traceLog = createTraceEventLog({ content: "full" })
+    const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
       driver: { run: () => ({
           fullStream: (async function* () {

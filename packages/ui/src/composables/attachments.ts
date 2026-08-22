@@ -79,7 +79,7 @@ export function useAgentAttachments(options: UseAgentAttachmentsOptions = {}): A
         continue;
       }
       if (
-        (!options.multiple && files.value.length > 0) ||
+        (options.multiple === false && files.value.length > 0) ||
         (options.maxFiles !== undefined && files.value.length >= options.maxFiles)
       ) {
         options.onReject?.(file, "count");

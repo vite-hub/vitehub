@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
+import { createSSRApp, h, nextTick } from "vue";
+import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
@@ -8,6 +10,32 @@ import { AgentInvocation, AgentInvocationInspector } from "../src/components/age
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("hydrates virtual invocation lists from the complete server-rendered list", async () => {
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      id: `inv-${index}`,
+      status: "completed" as const,
+      title: `Invocation ${index}`,
+    }));
+    const render = () => h(AgentInvocationList, { items });
+    const html = await renderToString(createSSRApp({ render }));
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = createSSRApp({ render });
+
+    app.mount(container);
+    await nextTick();
+
+    expect(warning.mock.calls.flat().join(" ")).not.toContain("Hydration");
+    expect(error.mock.calls.flat().join(" ")).not.toContain("Hydration");
+    app.unmount();
+    container.remove();
+    warning.mockRestore();
+    error.mockRestore();
+  });
+
   it("copies identifiers without displaying their full values", async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", {

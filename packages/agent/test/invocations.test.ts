@@ -1,4 +1,5 @@
 import { createClient } from "@libsql/client"
+import { createTraceEventLog } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -288,6 +289,48 @@ describe("Agent Invocations", () => {
     })
     await expect(invocations.list({ search: "observation-only content" })).resolves.toEqual({ invocations: [] })
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
+  })
+
+  it("preserves the configured trace content policy and coalesces message deltas", async () => {
+    const run = async (runId: string, traceLog = createTraceEventLog()) => {
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (let index = 0; index < 300; index++) {
+            await context.traceLog?.append({
+              attributes: {
+                "message.content": String(index % 10),
+                "message.id": "answer",
+                "message.role": "assistant",
+              },
+              name: "agent.message.delta",
+              type: "run",
+            })
+          }
+          await context.traceLog?.append({ name: "after-message", type: "run" })
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
+
+      await runAgent(agent, { ...runtime(runId), traceLog }, {})
+      return (await invocations.getByRunId(runId))?.observations || []
+    }
+
+    const metadata = await run("metadata-content")
+    expect(metadata.map(entry => entry.name)).toEqual([
+      "agent.invocation.start",
+      "agent.message.delta",
+      "after-message",
+      "agent.invocation.finish",
+    ])
+    expect(metadata[1]?.attributes).not.toHaveProperty("message.content")
+    expect(metadata[1]?.attributes?.["content.omitted"]).toContain("message.content")
+
+    const full = await run("full-content", createTraceEventLog({ content: "content" }))
+    expect(full[1]?.attributes?.["message.content"]).toBe("0123456789".repeat(30).slice(0, 512))
+    expect(full[1]?.attributes).not.toHaveProperty("content.omitted")
   })
 
   it("normalizes non-finite observation numbers across stores", async () => {

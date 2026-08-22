@@ -382,20 +382,56 @@ function journalTraceLog(
   observe: (entry: TraceEventLogEntry) => void,
   nextSequence: () => number,
 ): TraceEventLog {
+  let pendingMessageDelta: TraceEventLogEntry | undefined
+  const emit = (entry: TraceEventLogEntry) => {
+    void observe({ ...entry, sequence: nextSequence() })
+  }
+  const flushMessageDelta = () => {
+    if (!pendingMessageDelta) return
+    emit(pendingMessageDelta)
+    pendingMessageDelta = undefined
+  }
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       try {
-        const safeEntry = {
-          ...await createTraceEventLog().append(entry),
-          sequence: nextSequence(),
+        if (entry.name === "agent.message.delta") {
+          const pending = pendingMessageDelta
+          const previousContent = pending?.attributes?.["message.content"]
+          const content = entry.attributes?.["message.content"]
+          const sameMessage = pending
+            && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
+            && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
+          if (sameMessage && (previousContent === undefined) === (content === undefined)) {
+            const attributes = {
+              ...pending.attributes,
+              ...entry.attributes,
+            }
+            if (previousContent !== undefined && content !== undefined) {
+              attributes["message.content"] = `${previousContent}${content}`
+            }
+            pendingMessageDelta = {
+              ...entry,
+              attributes,
+            }
+          }
+          else {
+            flushMessageDelta()
+            pendingMessageDelta = entry
+          }
         }
-        void observe(safeEntry)
+        else {
+          flushMessageDelta()
+          emit(entry)
+        }
       }
       catch {}
       return entry
     },
-    entries: () => traceLog.entries(),
+    entries() {
+      flushMessageDelta()
+      return traceLog.entries()
+    },
   }
 }
 
