@@ -43,6 +43,7 @@ import {
   transcribe,
   usage,
   cost,
+  diagnostics,
   webSearch,
   workspaceShell,
 } from '@vite-hub/agent/capabilities'
@@ -80,6 +81,7 @@ import {
 | Sandbox execution | [`sandbox()`](/docs/capabilities/sandbox) | The Agent may run an allowlisted executable in an isolated runtime. |
 | Schedules | [`schedule()`](/docs/capabilities/schedule) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
 | OTLP traces | [`otlp()`](/docs/capabilities/otlp) | Completed Agent Invocation traces should be exported to an OpenTelemetry receiver. |
+| Operational diagnostics | [`diagnostics()`](/docs/capabilities/diagnostics) | Invocation outcomes and scoped runtime resource observations should go to an application-owned reporter. |
 
 ### External context
 

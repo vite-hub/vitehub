@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
-import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli } from "../src/cli.ts"
+import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli, runAgentInvocationsCli } from "../src/cli.ts"
 import { runAgentChannelHistoryCli } from "../src/internal/channel-history-cli.ts"
 import { channelRegistration, runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
@@ -49,6 +49,7 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "eval" }),
           expect.objectContaining({ name: "info" }),
           expect.objectContaining({ name: "dev" }),
+          expect.objectContaining({ name: "invocations" }),
         ],
         name: "agent",
       }, {
@@ -67,6 +68,7 @@ describe("agent CLI", () => {
         features: [
           expect.objectContaining({ name: "info" }),
           expect.objectContaining({ name: "dev" }),
+          expect.objectContaining({ name: "invocations" }),
         ],
         name: "agent",
       }, {
@@ -1268,6 +1270,7 @@ describe("agent CLI", () => {
       "  Credentials: ambient",
       "  Process execution: arbitrary",
       "  Isolation: none",
+      "Capabilities: 0 Capabilities (none)",
       "Tools: 2 tools (search, shell)",
       "Workspace files: 1 file, 1 directory, 1 source",
       "Instructions: 1 document",
@@ -1319,6 +1322,76 @@ describe("agent CLI", () => {
       warnings: [],
     })
     expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/invocation-stream?inspect=1&agent=support", expect.anything())
+  })
+
+  it("lists durable Agent Invocations as JSON", async () => {
+    const stdout = stream()
+    const fetchInvocations = vi.fn(async () => Response.json({
+      invocations: [{
+        createdAt: "2026-08-22T10:00:00.000Z",
+        cursor: "1",
+        id: "invocation-1",
+        status: "failed",
+        traceId: "trace-1",
+        updatedAt: "2026-08-22T10:01:00.000Z",
+      }],
+    }))
+
+    const exitCode = await runAgentInvocationsCli([
+      "list", "--status", "failed", "--limit", "10", "--json",
+    ], {
+      env: {},
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchInvocations as never })
+
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.output())).toMatchObject({ invocations: [{ id: "invocation-1", status: "failed" }] })
+    expect(fetchInvocations).toHaveBeenCalledWith(
+      "http://localhost:5173/api/invocations?status=failed&limit=10",
+      expect.objectContaining({ headers: { accept: "application/json" } }),
+    )
+  })
+
+  it("tails new observations and prints a nested terminal failure", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const base = {
+      createdAt: "2026-08-22T10:00:00.000Z",
+      cursor: "1",
+      id: "invocation-1",
+      traceId: "trace-1",
+      updatedAt: "2026-08-22T10:01:00.000Z",
+    }
+    const fetchInvocations = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        ...base,
+        observations: [{ name: "agent.started", sequence: 1, timestamp: base.createdAt, type: "lifecycle" }],
+        status: "running",
+      }))
+      .mockResolvedValueOnce(Response.json({
+        ...base,
+        error: {
+          errors: [{ message: "Checkout failed", name: "Error" }, { message: "Restore failed", name: "Error" }],
+          message: "Workspace failed",
+          name: "AggregateError",
+        },
+        observations: [
+          { name: "agent.started", sequence: 1, timestamp: base.createdAt, type: "lifecycle" },
+          { name: "agent.failed", sequence: 2, timestamp: base.updatedAt, type: "error" },
+        ],
+        status: "failed",
+      }))
+
+    const exitCode = await runAgentInvocationsCli(["tail", "invocation-1", "--json"], {
+      env: {},
+      stderr,
+      stdout,
+    }, { fetch: fetchInvocations as never, sleep: async () => {} })
+
+    expect(exitCode).toBe(1)
+    expect(stdout.output().trim().split("\n").map(line => JSON.parse(line).sequence)).toEqual([1, 2])
+    expect(stderr.output()).toBe("AggregateError: Workspace failed\n")
   })
 
   it("prints unknown execution authority without inferring restrictions", async () => {
