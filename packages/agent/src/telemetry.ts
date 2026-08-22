@@ -1,4 +1,4 @@
-import type { OpenTelemetrySpanView } from "@vite-hub/runtime"
+import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
 
@@ -75,6 +75,25 @@ function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
   }
 }
 
+function otlpLogRecord(record: OpenTelemetryLogRecordView) {
+  return {
+    attributes: otlpAttributes(record.attributes),
+    eventName: record.eventName,
+    ...(record.severityNumber ? { severityNumber: record.severityNumber } : {}),
+    ...(record.severityText ? { severityText: record.severityText } : {}),
+    observedTimeUnixNano: unixNanos(record.time, record.time),
+    spanId: record.spanId,
+    timeUnixNano: unixNanos(record.time, record.time),
+    traceId: record.traceId,
+  }
+}
+
+function otlpSignalEndpoint(endpoint: string, signal: "logs" | "traces"): string {
+  const url = new URL(endpoint)
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/v1/${signal}`
+  return url.toString()
+}
+
 function retryAfterMs(response: Response, attempt: number): number {
   const value = response.headers.get("retry-after")
   if (value) {
@@ -121,21 +140,33 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
   options: OtlpHttpJsonOptions<TRuntimeConfig>,
 ): AgentTelemetry<TRuntimeConfig> {
   return async (context) => {
-    if (!context.spans.length) return
+    if (context.signal === "logs" ? !context.records.length : !context.spans.length) return
     const [configuredHeaders, configuredResource] = await Promise.all([
       typeof options.headers === "function" ? options.headers(context) : options.headers,
       typeof options.resource === "function" ? options.resource(context) : options.resource,
     ])
     const headers = new Headers(configuredHeaders)
     headers.set("content-type", "application/json")
-    const fallbackEndTime = context.spans[0]?.endTime || new Date().toISOString()
     const resource = {
       "service.name": context.agent.name || "vitehub-agent",
       ...(context.agent.version ? { "service.version": context.agent.version } : {}),
       "vitehub.runtime.name": context.runtime.runtime,
       ...configuredResource,
     }
-    await postOtlp(options.endpoint, headers, JSON.stringify({
+    if (context.signal === "logs") {
+      await postOtlp(otlpSignalEndpoint(options.endpoint, "logs"), headers, JSON.stringify({
+        resourceLogs: [{
+          resource: { attributes: otlpAttributes(resource) },
+          scopeLogs: [{
+            logRecords: context.records.map(otlpLogRecord),
+            scope: { name: "vitehub.agent" },
+          }],
+        }],
+      }))
+      return
+    }
+    const fallbackEndTime = context.spans[0]?.endTime || new Date().toISOString()
+    await postOtlp(otlpSignalEndpoint(options.endpoint, "traces"), headers, JSON.stringify({
       resourceSpans: [{
         resource: { attributes: otlpAttributes(resource) },
         scopeSpans: [{

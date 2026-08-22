@@ -18,11 +18,18 @@ export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   options: OtlpCapabilityOptions<TRuntimeConfig>,
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   if (!options || typeof options !== "object" || typeof options.endpoint !== "string" || !options.endpoint.trim()) {
-    throw new TypeError("[vitehub] otlp({ endpoint }) requires a non-empty traces endpoint.")
+    throw new TypeError("[vitehub] otlp({ endpoint }) requires a non-empty OTLP base endpoint.")
+  }
+  try {
+    const endpoint = new URL(options.endpoint)
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw new Error()
+  }
+  catch {
+    throw new TypeError("[vitehub] otlp({ endpoint }) requires an absolute HTTP(S) OTLP base endpoint.")
   }
   return defineCapability({
     id: "otlp",
-    metadata: { protocol: "http/json" },
+    metadata: { protocol: "http/json", signals: options.live ? ["logs", "traces"] : ["traces"] },
     telemetry: {
       ...(options.content ? { content: options.content } : {}),
       exporter: otlpHttpJson(options),

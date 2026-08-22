@@ -191,6 +191,16 @@ export interface OpenTelemetrySpanEventView {
   time: string
 }
 
+export interface OpenTelemetryLogRecordView {
+  attributes?: Record<string, unknown>
+  eventName: string
+  severityNumber?: number
+  severityText?: string
+  spanId: string
+  time: string
+  traceId: string
+}
+
 export interface OpenTelemetrySpanViewOptions {
   content?: TraceEventContentPolicy
 }
@@ -544,6 +554,33 @@ function openTelemetryId(value: string, length: 16 | 32): string {
   }
   const id = output.slice(0, length)
   return /^0+$/.test(id) ? `1${id.slice(1)}` : id
+}
+
+export function traceEventsToOpenTelemetryLogRecords(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetryLogRecordView[] {
+  const entries = [...events]
+  return deriveTraceRuns(entries).flatMap((run) => {
+    const spanId = openTelemetryId(traceRunSpanId(run), 16)
+    const traceId = openTelemetryId(traceRunTraceId(run), 32)
+    return run.events.map((event) => {
+      const id = stepId(event)
+      const attributes = options.content === "metadata" ? metadataAttributes(event.attributes) : event.attributes
+      const error = event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
+      return {
+        attributes: {
+          ...attributes,
+          "vitehub.event.sequence": event.sequence,
+          "vitehub.event.type": event.type,
+          "vitehub.run.id": run.id,
+          ...(id ? { "vitehub.step.id": id } : {}),
+        },
+        eventName: event.name,
+        ...(error ? { severityNumber: 17, severityText: "ERROR" } : {}),
+        spanId: id ? openTelemetryId(`${spanId}:${id}`, 16) : spanId,
+        time: event.timestamp,
+        traceId,
+      }
+    })
+  })
 }
 
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {

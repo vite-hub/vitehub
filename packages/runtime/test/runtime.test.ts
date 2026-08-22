@@ -11,6 +11,7 @@ import {
   hasCapability,
   resolveCapabilityPolicy,
   resolveRuntimeValue,
+  traceEventsToOpenTelemetryLogRecords,
   traceEventsToOpenTelemetrySpans,
   type ApprovalDecision,
   type ApprovalRequest,
@@ -635,6 +636,31 @@ describe("@vite-hub/runtime", () => {
     const [secondRoot, secondChild] = traceEventsToOpenTelemetrySpans(event("invocation-2", 4))
     expect(firstRoot?.spanId).not.toBe(secondRoot?.spanId)
     expect(firstChild?.spanId).not.toBe(secondChild?.spanId)
+  })
+
+  it("maps Trace Events to correlated OpenTelemetry LogRecords", () => {
+    const events = [
+      { attributes: { "agent.invocation.id": "invocation-1", "agent.run.id": "run-1", prompt: "secret" }, name: "agent.invocation.start", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "host-trace" }, type: "run" as const },
+      { attributes: { "agent.invocation.id": "invocation-1", "agent.run.id": "run-1", "error.message": "failed", "step.id": "model-1" }, name: "agent.model.failed", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "host-trace" }, type: "error" as const },
+    ]
+
+    const [root, child] = traceEventsToOpenTelemetryLogRecords(events, { content: "metadata" })
+    const [rootSpan, childSpan] = traceEventsToOpenTelemetrySpans(events, { content: "metadata" })
+    expect(root).toMatchObject({
+      attributes: { "vitehub.event.sequence": 1, "vitehub.event.type": "run", "vitehub.run.id": "run-1" },
+      eventName: "agent.invocation.start",
+      spanId: rootSpan?.spanId,
+      traceId: rootSpan?.traceId,
+    })
+    expect(root?.attributes).not.toHaveProperty("prompt")
+    expect(child).toMatchObject({
+      attributes: { "vitehub.event.sequence": 2, "vitehub.step.id": "model-1" },
+      eventName: "agent.model.failed",
+      severityNumber: 17,
+      severityText: "ERROR",
+      spanId: childSpan?.spanId,
+      traceId: childSpan?.traceId,
+    })
   })
 
   it("keeps provider activity open through progress and fails terminal task errors", () => {

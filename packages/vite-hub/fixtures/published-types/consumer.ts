@@ -50,7 +50,11 @@ export const customAuthClient = createAuthClient({ basePath: "/auth" })
 export const userSession = useUserSession(customAuthClient)
 export const supportChat = useChat(useAgent("support"))
 export const builtInAgent = defineAgent({
-  capabilities: [otlp({ endpoint: "https://traces.example/v1/traces" })],
+  capabilities: [otlp({
+    endpoint: "https://telemetry.example/otlp",
+    headers: context => ({ "x-otlp-signal": context.signal }),
+    live: true,
+  })],
   driver: "codex",
   runtime: false,
 })
