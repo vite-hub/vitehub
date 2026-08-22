@@ -5308,6 +5308,98 @@ describe("agent message protocol", () => {
     expect(snapshot).not.toHaveBeenCalled()
   })
 
+  it("fences finish delivery when ownership aborts while its effect is resolving", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const abort = new AbortController()
+    const delivered = vi.fn()
+    let releaseEffect!: () => void
+    const effectPending = new Promise<void>(resolve => { releaseEffect = resolve })
+    let effectStarted!: () => void
+    const effectStarting = new Promise<void>(resolve => { effectStarted = resolve })
+    const finishEffect: AgentChannelDeliveryFinishEffectCallback = vi.fn(async (context) => {
+      effectStarted()
+      await effectPending
+      return context.reply("stale reply")
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "ownership-fenced-async-finish",
+          prepare(context) {
+            context.delivery.finishEffect(finishEffect)
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: delivered },
+          messages: false,
+        }),
+      },
+      driver: { run: () => ({ text: "stale" }) },
+    })
+
+    const execution = runAgent(agent, {
+      memo: vi.fn(),
+      run: { channelId: "portal", runId: "stale-async-finish" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { abortSignal: abort.signal })
+    await effectStarting
+    abort.abort(new Error("lost execution ownership"))
+    releaseEffect()
+
+    await expect(execution).resolves.toEqual({ text: "stale" })
+    expect(finishEffect).toHaveBeenCalledOnce()
+    expect(delivered).not.toHaveBeenCalled()
+  })
+
+  it("fences workspace commits when ownership aborts while its diff is resolving", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const abort = new AbortController()
+    const snapshot = vi.fn()
+    let releaseDiff!: () => void
+    const diffPending = new Promise<void>(resolve => { releaseDiff = resolve })
+    let diffStarted!: () => void
+    const diffStarting = new Promise<void>(resolve => { diffStarted = resolve })
+    const agent = defineAgent({
+      driver: { run: async ({ workspace }) => {
+          const writable = workspace as WritableWorkspaceFacade
+          const originalDiff = writable.diff.bind(writable)
+          const originalSnapshot = writable.snapshot.bind(writable)
+          vi.spyOn(writable, "diff").mockImplementation(async () => {
+            diffStarted()
+            await diffPending
+            return await originalDiff()
+          })
+          vi.spyOn(writable, "snapshot").mockImplementation(async (...args) => {
+            snapshot(...args)
+            return await originalSnapshot(...args)
+          })
+          await writable.fs.writeFile("notes.md", "stale")
+          return { text: "stale" }
+        } },
+      workspace: {
+        commit: true,
+        mode: "write",
+        store: { provider: "memory" },
+      },
+    })
+
+    const execution = runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { abortSignal: abort.signal })
+    await diffStarting
+    abort.abort(new Error("lost execution ownership"))
+    releaseDiff()
+
+    await expect(execution).resolves.toEqual({ text: "stale" })
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
   it("does not rerun finish lifecycle when a finish hook fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finishError = new Error("finish failed")

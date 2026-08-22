@@ -10530,7 +10530,124 @@ describe("server helpers", () => {
     }
   })
 
-  it("keeps a reclaiming delivery queued when the recovered Workflow start fails", async () => {
+  it("settles a same-invoker restored primary delivery once", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-restored-primary-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<Record<string, unknown> & { input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: Record<string, unknown> & { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+      invoker: { resolve: () => ({ id: "alpha" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const runtime = {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+          },
+        },
+      }
+      await handler(chatWebhookRequest(91_150), "telegram", runtime)
+      await handler(chatWebhookRequest(91_151), "telegram", runtime)
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "stale-before-restore",
+        name: "calories",
+        payload: workflowPayloads[0],
+        provider: "cloudflare",
+      }, async () => "stale")).rejects.toThrow("lost ownership before its Agent Workflow started")
+
+      const queue = `${ownershipKey}:queue`
+      const pendingQueue = `${queue}:pending`
+      const restored = await state.dequeue(queue) as {
+        message?: Record<string, unknown> & {
+          deliveryIds?: string[]
+          input?: AgentRunInput
+        }
+      } | null
+      expect(restored?.message?.input?.messages?.map(message => message.id)).toEqual(["91150", "91151"])
+      const restoredDelivery = restored?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as { deliveryId?: string } | undefined
+      expect(restoredDelivery?.deliveryId).toBeDefined()
+      expect(restored?.message?.deliveryIds).not.toContain(restoredDelivery?.deliveryId)
+
+      const lock = await state.acquireLock(ownershipKey!, 5 * 60 * 1000)
+      expect(lock).toBeDefined()
+      const claimId = crypto.randomUUID()
+      const originalBinding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as {
+        steer?: Record<string, unknown>
+      } | undefined
+      const input: AgentRunInput = {
+        ...restored!.message!.input!,
+        context: {
+          ...restored!.message!.input!.context,
+          [agentChannelDeliveryWorkflowContextKey]: {
+            ...restoredDelivery,
+            steer: {
+              ...originalBinding?.steer,
+              claimId,
+              deliveryIds: restored!.message!.deliveryIds,
+              lock,
+              pendingQueue,
+              queue,
+            },
+          },
+        },
+      }
+      const payload = { ...workflowPayloads[0], ...restored!.message, input }
+      await state.enqueue(pendingQueue, {
+        enqueuedAt: Date.now(),
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        message: { ...restored!.message, claimId, input, ownerToken: lock!.token },
+      } as never, 1)
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "restored-primary",
+        name: "calories",
+        payload,
+        provider: "cloudflare",
+      }, async () => "completed")).resolves.toBe("completed")
+
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_151), "telegram", runtime)
+      for (const runId of ["telegram:91150", "telegram:91151"]) {
+        const delivery = deliveries.find(item => item.events.some(event => event.runId === runId))
+        expect(delivery?.events.filter(event => event.type === "invocation.completed")).toHaveLength(1)
+        expect(delivery?.events.filter(event => event.type === "completed")).toHaveLength(1)
+      }
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("terminally settles recovered and reclaiming deliveries when replacement startup fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -10585,17 +10702,16 @@ describe("server helpers", () => {
       await expect(handler(request(91_147, "beta"), "telegram", runtime)).resolves.toMatchObject({ status: 200 })
       expect(createBatch.mock.calls.length).toBeGreaterThan(1)
       const queue = `${ownershipKey}:queue`
-      const recovered = await state.dequeue(queue) as { message?: { input?: AgentRunInput } } | null
-      const reclaiming = await state.dequeue(queue) as { message?: { input?: AgentRunInput } } | null
-      expect([
-        recovered?.message?.input?.messages?.map(message => message.id),
-        reclaiming?.message?.input?.messages?.map(message => message.id),
-      ]).toEqual([["91146"], ["91147"]])
+      expect(await state.queueDepth(queue)).toBe(0)
+      expect(await state.queueDepth(`${queue}:pending`)).toBe(0)
 
       const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", runtime)
-      const delivery = deliveries.find(item => item.events.some(event => event.runId === "telegram:91147"))
-      expect(delivery).toMatchObject({ status: "queued" })
-      expect(delivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "failed" })]))
+      for (const runId of ["telegram:91146", "telegram:91147"]) {
+        const delivery = deliveries.find(item => item.events.some(event => event.runId === runId))
+        expect(delivery).toMatchObject({ status: "failed" })
+        expect(delivery?.events.filter(event => event.type === "invocation.failed")).toHaveLength(1)
+        expect(delivery?.events.filter(event => event.type === "failed")).toHaveLength(1)
+      }
     }
     finally {
       resetWorkflowRuntime()

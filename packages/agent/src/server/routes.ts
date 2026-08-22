@@ -2635,12 +2635,16 @@ function durableSteerInvokerKey(message: DurableSteerQueueMessage | undefined): 
 }
 
 function durableSteerDeliveryIds(message: DurableSteerQueueMessage | undefined): string[] {
-  const binding = message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
-  const deliveryId = isRecord(binding) && typeof binding.deliveryId === "string" ? binding.deliveryId : undefined
+  const deliveryId = durableSteerPrimaryDeliveryId(message?.input)
   return [...new Set([
     ...message?.deliveryIds ?? [],
     ...(deliveryId ? [deliveryId] : []),
   ])]
+}
+
+function durableSteerPrimaryDeliveryId(input: AgentRunInput | undefined): string | undefined {
+  const binding = input?.context?.[agentChannelDeliveryWorkflowContextKey]
+  return isRecord(binding) && typeof binding.deliveryId === "string" ? binding.deliveryId : undefined
 }
 
 function durableSteerMergedDeliveryIds(message: DurableSteerQueueMessage | undefined, primaryDeliveryId: unknown): string[] {
@@ -2688,13 +2692,15 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
   const sameInvoker = Boolean(newerMessage?.input && durableSteerInvokerKey(previous) === durableSteerInvokerKey(newerMessage))
   let restoredMessage = previous
   if (newerMessage?.input && sameInvoker) {
+    const restoredInput = mergeDurableSteerInput(previous.input, newerMessage.input)
+    const restoredPrimaryDeliveryId = durableSteerPrimaryDeliveryId(restoredInput)
     restoredMessage = {
       ...previous,
       deliveryIds: [...new Set([
         ...durableSteerDeliveryIds(previous),
         ...durableSteerDeliveryIds(newerMessage),
-      ])],
-      input: mergeDurableSteerInput(previous.input, newerMessage.input),
+      ])].filter(deliveryId => deliveryId !== restoredPrimaryDeliveryId),
+      input: restoredInput,
       capabilities: newerMessage.capabilities ?? previous.capabilities,
       resolvedInvoker: newerMessage.resolvedInvoker ?? previous.resolvedInvoker,
       run: newerMessage.run ?? previous.run,
@@ -3966,17 +3972,22 @@ async function handleChatSdkMessage(
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
         if (steerQueue && steerPending && !steerStartOwnershipLost) {
-          if (!await acknowledgeDurableSteerPending(state.state, durableSteerPendingQueue(steerQueue), steerPending)) {
-            throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
+          const pendingQueue = durableSteerPendingQueue(steerQueue)
+          if (reclaimingDeliveryQueued) {
+            await failDurableSteerQueue(state.state, steerQueue, pendingQueue, steerPending, error)
           }
-          if (reclaimedMessage?.input) {
-            await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
+          else {
+            if (!await acknowledgeDurableSteerPending(state.state, pendingQueue, steerPending)) {
+              throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
+            }
+            if (reclaimedMessage?.input) {
+              await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
+            }
           }
         }
         if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)
         if (reclaimingDeliveryQueued) {
           durableHandoff = true
-          await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
           detachAgentChannelDelivery(delivery)
           return
         }

@@ -1110,7 +1110,9 @@ async function applyChannelDeliveryEffectIntents<
     let delivered = true
     for (const handler of handlers) {
       let handlerCompleted = false
+      let skippedForAbort = false
       try {
+        if (context.input.abortSignal?.aborted) return
         try {
           await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
         }
@@ -1122,6 +1124,10 @@ async function applyChannelDeliveryEffectIntents<
           owner: "channel",
           phase: "effect",
         }, async () => {
+          if (context.input.abortSignal?.aborted) {
+            skippedForAbort = true
+            return
+          }
           await handler({
             ...context.runtimeContext,
             channel: active.channel,
@@ -1140,6 +1146,7 @@ async function applyChannelDeliveryEffectIntents<
           })
           await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
         })
+        if (skippedForAbort) return
         handlerCompleted = true
       }
       catch (error) {
@@ -2877,9 +2884,10 @@ async function commitWorkspaceChanges<
     workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
     diff,
   )
-  if (!commit) return
+  if (!commit || context.input.abortSignal?.aborted) return
   for (let attempt = 0; ; attempt++) {
     try {
+      if (context.input.abortSignal?.aborted) return
       await context.workspace.snapshot({ name: commit.message })
       return
     }
