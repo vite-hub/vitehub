@@ -2502,20 +2502,28 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
           if (mergedDelivery) await settleChannelDeliveryInvocation(mergedDelivery, status, status)
         }
-        if (!await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, activePending)) return
         const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
         queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
         if (!queued?.message?.input) {
+          if (!await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, activePending)) return
           await resolved.state.releaseLock(lock)
           return
         }
         pendingQueue = durableSteerPendingQueue(queue)
         successorClaimId = crypto.randomUUID()
-        await resolved.state.enqueue(pendingQueue, {
+        const successorPending: DurableSteerQueueEntry = {
           enqueuedAt: Date.now(),
           expiresAt: Number.MAX_SAFE_INTEGER,
           message: { ...queued.message, claimId: successorClaimId, ownerToken: lock.token },
-        } as never, 1)
+        }
+        if (!await atomicQueue.queueReplaceHead(
+          pendingQueue,
+          activePending as never,
+          [successorPending as never],
+          1,
+        )) {
+          throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during successor handoff.")
+        }
         pendingPersisted = true
         if (!await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum)) {
           throw new Error("[vitehub] Durable steered Channel delivery queue changed while its successor was being claimed.")
@@ -2562,17 +2570,41 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         if (successorStartAttempted) {
           if (!pendingQueue || !successorPending?.message?.input) return
           await failDurableSteerQueue(resolved.state, queue, pendingQueue, successorPending, error)
+          await resolved.state.releaseLock(lock).catch(() => undefined)
+          return
         }
-        else if (queued?.message?.input) {
-          if (pendingQueue && successorPending) {
-            if (!await acknowledgeDurableSteerPending(resolved.state, pendingQueue, successorPending)) {
-              throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during successor recovery.")
-            }
+        if (pendingQueue && successorPending) {
+          if (!await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(
+            pendingQueue,
+            successorPending as never,
+            [activePending as never],
+            1,
+          )) {
+            throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during settlement retry.")
           }
-          if (queuedAcknowledged) await restoreDurableSteerQueue(resolved.state, queue, queued.message)
         }
-        await resolved.state.releaseLock(lock).catch(() => undefined)
-        throw error
+        if (queuedAcknowledged && queued?.message?.input) {
+          await restoreDurableSteerQueue(resolved.state, queue, queued.message)
+        }
+        let retryInput = claimedPending.message.input
+        if (claimedPending.message.resolvedInvoker) {
+          const retryInvoker = resolveInputAgentInvoker(retryInput.context)
+          if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
+        }
+        try {
+          await runAgent(agent as never, {
+            ...context,
+            capabilities: claimedPending.message.capabilities,
+            ...(claimedPending.message.run ? { run: claimedPending.message.run } : {}),
+          } as never, retryInput as never)
+        }
+        catch (retryError) {
+          if (isAmbiguousAgentWorkflowStartFailure(retryError)) return
+          throw new AggregateError(
+            [error, retryError],
+            "[vitehub] Durable steered Channel delivery settlement retry could not start.",
+          )
+        }
       }
       finally {
         stopHeartbeat()

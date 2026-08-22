@@ -10647,7 +10647,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each(["completed", "failed"] as const)("does not re-execute a %s steer input after pending acknowledgement throws", async (settlementStatus) => {
+  it.each(["completed", "failed"] as const)("retries %s steer settlement without re-executing the Agent", async (settlementStatus) => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
@@ -10694,19 +10694,20 @@ describe("server helpers", () => {
       setActiveCloudflareEnv(env)
       await handler(chatWebhookRequest(91_152), "telegram", runtime)
       const binding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as {
-        steer?: { pendingQueue: string }
+        steer?: { pendingQueue: string, queue: string }
       } | undefined
       expect(binding?.steer).toBeDefined()
+      await handler(chatWebhookRequest(91_153), "telegram", runtime)
+      expect(workflowPayloads).toHaveLength(1)
 
-      const originalReplaceHead = state.queueReplaceHead.bind(state)
-      let throwAcknowledgement = true
-      const replaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (queue, current, replacements, maximum) => {
-        const settlementStatus = (current as { message?: { settlementStatus?: string } } | null)?.message?.settlementStatus
-        if (throwAcknowledgement && queue === binding!.steer!.pendingQueue && replacements.length === 0 && settlementStatus) {
-          throwAcknowledgement = false
-          throw new Error("pending acknowledgement unavailable")
+      const originalPeek = state.queuePeek.bind(state)
+      let throwSuccessorRead = true
+      const queuePeek = vi.spyOn(state, "queuePeek").mockImplementation(async (queue) => {
+        if (throwSuccessorRead && queue === binding!.steer!.queue) {
+          throwSuccessorRead = false
+          throw new Error("successor queue unavailable")
         }
-        return await originalReplaceHead(queue, current, replacements, maximum)
+        return await originalPeek(queue)
       })
 
       const execution = runAgentWorkflowDefinition(agent as never, {
@@ -10718,13 +10719,12 @@ describe("server helpers", () => {
       if (settlementStatus === "failed") await expect(execution).rejects.toThrow(executionError)
       else await expect(execution).resolves.toBe("completed")
       expect(sideEffect).toHaveBeenCalledOnce()
-      expect(throwAcknowledgement).toBe(false)
+      expect(throwSuccessorRead).toBe(false)
+      expect(workflowPayloads).toHaveLength(2)
+      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91152"])
 
       const pending = await state.queuePeek(binding!.steer!.pendingQueue) as { message?: { settlementStatus?: string } } | null
       expect(pending?.message?.settlementStatus).toBe(settlementStatus)
-      await handler(chatWebhookRequest(91_153), "telegram", runtime)
-      expect(workflowPayloads).toHaveLength(2)
-      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91152"])
 
       await expect(runAgentWorkflowDefinition(agent as never, {
         id: "settlement-only-replay",
@@ -10739,7 +10739,7 @@ describe("server helpers", () => {
       const delivery = deliveries.find(item => item.events.some(event => event.runId === "telegram:91152"))
       expect(delivery?.events.filter(event => event.type === `invocation.${settlementStatus}`)).toHaveLength(1)
       expect(delivery?.events.filter(event => event.type === settlementStatus)).toHaveLength(1)
-      replaceHead.mockRestore()
+      queuePeek.mockRestore()
     }
     finally {
       setActiveCloudflareEnv(undefined)
@@ -10945,7 +10945,9 @@ describe("server helpers", () => {
         }
       } | undefined
       expect(binding?.steer).toBeDefined()
-      binding!.steer!.ttlMs = 200
+      // Keep the lease comfortably beyond a loaded CI worker's scheduling
+      // jitter so this exercises a transient rejection, not actual expiry.
+      binding!.steer!.ttlMs = 2_000
       binding!.steer!.lock.expiresAt = Date.now() - 1
       const originalExtendLock = state.extendLock.bind(state)
       let rejectOwnerHeartbeat = false
@@ -10962,7 +10964,7 @@ describe("server helpers", () => {
       expect(ownership).toBeDefined()
       expect(binding!.steer!.lock.expiresAt).toBeGreaterThan(Date.now())
       rejectOwnerHeartbeat = true
-      await vi.waitFor(() => expect(ownerHeartbeatRejected).toBe(true))
+      await vi.waitFor(() => expect(ownerHeartbeatRejected).toBe(true), { timeout: 3_000 })
       expect(ownership!.abortSignal?.aborted).toBe(false)
       extendLock.mockRestore()
       await ownership!.settle("failed")
