@@ -38,7 +38,11 @@ export const PierreDiff = defineComponent({
         : props.patch
           ? getSingularPatch(props.patch)
           : undefined;
-      if (!fileDiff) return;
+      if (!fileDiff) {
+        instance?.cleanUp();
+        instance = undefined;
+        return;
+      }
       if (!instance) instance = markRaw(new PierreFileDiff(toRaw(props.options), undefined, true));
       instance.setOptions(toRaw(props.options));
       instance.render({ fileContainer: host, fileDiff, forceRender: true });

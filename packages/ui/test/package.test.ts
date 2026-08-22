@@ -24,10 +24,12 @@ describe("@vite-hub/ui package contract", () => {
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
+      vite: expect.any(String),
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
       "@nuxt/ui": { optional: true },
+      vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.6.2",

@@ -2,6 +2,8 @@ import type { ChatStatus, FileUIPart } from "ai";
 import { defineComponent, h, type PropType, ref, resolveComponent } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
 
+const attachmentSubmitSentinel = "\u200B";
+
 export interface AgentChatPromptSubmit {
   files: readonly FileUIPart[];
   text: string;
@@ -35,9 +37,10 @@ export const AgentChatPrompt = defineComponent({
         {
           ...attrs,
           class: ["vh-prompt", attrs.class],
-          modelValue: props.modelValue,
+          modelValue: props.modelValue || (props.files.length > 0 ? attachmentSubmitSentinel : ""),
           placeholder: props.placeholder,
-          "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
+          "onUpdate:modelValue": (value: string) =>
+            emit("update:modelValue", value.replace(attachmentSubmitSentinel, "")),
           onSubmit: () => {
             const text = props.modelValue.trim();
             if (!text && props.files.length === 0) return;

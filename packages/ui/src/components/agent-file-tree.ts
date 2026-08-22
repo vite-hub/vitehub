@@ -49,19 +49,35 @@ export const AgentFileTree = defineComponent({
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
     let ownedModel: FileTree | undefined;
+    let mountedModel: FileTree | undefined;
     let previousPaths = props.paths;
     let previousOptions = props.options;
     const current = () =>
       props.model
         ? toRaw(props.model)
         : (ownedModel ??= markRaw(new FileTree({ ...toRaw(props.options), paths: props.paths })));
+    const releaseMountedModel = () => {
+      if (!mountedModel) return;
+      if (mountedModel === ownedModel) {
+        mountedModel.cleanUp();
+        ownedModel = undefined;
+      } else mountedModel.unmount();
+      mountedModel = undefined;
+    };
+    const renderModel = (model: FileTree) => {
+      if (!host) return;
+      if (mountedModel !== model) releaseMountedModel();
+      model.render({ fileTreeContainer: host });
+      mountedModel = model;
+    };
     const setHost = (node: Element | null) => {
       host = node instanceof HTMLElement ? node : null;
-      if (host) current().render({ fileTreeContainer: host });
+      if (host) renderModel(current());
     };
     onUpdated(() => {
       if (!props.model && previousOptions !== props.options) {
-        ownedModel?.cleanUp();
+        if (mountedModel === ownedModel) releaseMountedModel();
+        else ownedModel?.cleanUp();
         ownedModel = markRaw(new FileTree({ ...toRaw(props.options), paths: props.paths }));
         previousOptions = props.options;
         previousPaths = props.paths;
@@ -71,11 +87,12 @@ export const AgentFileTree = defineComponent({
         model.resetPaths(props.paths);
         previousPaths = props.paths;
       }
-      if (host) model.render({ fileTreeContainer: host });
+      if (host) renderModel(model);
     });
     onBeforeUnmount(() => {
-      if (ownedModel) ownedModel.cleanUp();
-      else current().unmount();
+      releaseMountedModel();
+      ownedModel?.cleanUp();
+      ownedModel = undefined;
     });
     expose({ getModel: current });
     return () =>

@@ -1,25 +1,48 @@
 ---
-title: Invocations and Traces
-description: Present persisted Agent Invocation status and derived runtime trace runs.
+title: Invocations and traces
+description: Present a persisted Agent Invocation as an inspectable coding session.
 navigation.order: 31
 navigation.group: Agent work
 icon: i-ph-activity-light
 ---
 
-`AgentInvocation` accepts the structural shape of ViteHub's `AgentInvocationRecord`. This avoids a client dependency on the complete Agent runtime while preserving the server contract.
+`AgentInvocation` accepts the structural shape of ViteHub's `AgentInvocationRecord`. It turns append-only observations into a coding-session thread: assistant prose stays unlabelled, user input remains visually distinct, commands and file changes expand in place, and usage snapshots show token counts instead of repeating timestamps.
 
 ```vue
 <AgentInvocation :invocation="record">
   <template #title="{ invocation }">
-    {{ invocation.agentName }} · {{ invocation.createdAt }}
+    {{ invocation.title || invocation.agentName }}
   </template>
-  <template #step="{ step }">
-    <TraceStep :step="step" />
+  <template #metadata="{ invocation }">
+    <DeploymentMetadata :invocation="invocation" />
   </template>
 </AgentInvocation>
 ```
 
-The component displays pending, running, completed, failed, and cancelled states; a terminal error; and every trace run derived from `record.observations`.
+The component displays pending, running, completed, failed, and cancelled states, terminal errors, conversation messages, reasoning, commands, product actions, approvals, file changes, and usage snapshots. The optional `configuration` field populates the inspector with the resolved Agent Definition, driver, model, runtime, Capabilities, tools, Workspace, Sources, and instruction document.
+
+The renderer does not own session navigation. Put it beside the application's session list so the left rail can remain visible while people move between invocations.
+
+## Inspection configuration
+
+Pass the sanitized configuration captured for that invocation. Do not reconstruct it from the current Agent Definition because dynamic Capabilities, instructions, Workspace bindings, and Sources may differ between runs.
+
+```ts
+const invocation = {
+  ...record,
+  configuration: {
+    agent: { name: "review", version: "1.0.0" },
+    capabilities: [{ id: "workspace-shell" }],
+    driver: { kind: "provider", provider: "t3" },
+    instructions: [resolvedInstructions],
+    runtime: { name: "node" },
+    tools: [{ name: "exec" }],
+    workspace: { mode: "write", name: "review", sources: ["repository"] },
+  },
+}
+```
+
+Only include instruction content when the application has explicitly authorized that inspection data for the current viewer.
 
 ## Trace only
 
