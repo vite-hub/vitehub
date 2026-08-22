@@ -10295,7 +10295,7 @@ describe("server helpers", () => {
       await state.forceReleaseLock(ownershipKey!)
       await handler(chatWebhookRequest(91_124), "telegram", runtime)
       await vi.waitFor(() => expect(inputs).toHaveLength(4))
-      expect(inputs[3]?.messages?.map(message => message.id)).toEqual(["91123", "91124"])
+      expect(inputs[3]?.messages?.map(message => message.id)).toEqual(["91122", "91123", "91124"])
     }
     finally {
       pending = undefined
@@ -10611,7 +10611,7 @@ describe("server helpers", () => {
           resolvedInvoker: true,
         },
       } as never, 1)
-      rejectReplacement(new Error("Workflow handoff failed"))
+      rejectReplacement(Object.assign(new Error("Workflow handoff failed"), { status: 503 }))
       await expect(replacementHandler).rejects.toThrow("Workflow provider operation failed")
 
       await handler(chatWebhookRequest(91_110), "telegram", {
@@ -10643,7 +10643,9 @@ describe("server helpers", () => {
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
-      if (createBatch.mock.calls.length > 1) throw new Error("successor provider unavailable")
+      if (createBatch.mock.calls.length > 1) {
+        throw Object.assign(new Error("successor provider unavailable"), { status: 503 })
+      }
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const agent = defineAgent({
@@ -10686,6 +10688,160 @@ describe("server helpers", () => {
       ]))
     }
     finally {
+      setActiveCloudflareEnv(undefined)
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps an ambiguously accepted steered Workflow input claimable across restarts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const {
+      agentChannelDeliveryWorkflowContextKey,
+      resumeAgentChannelDeliveryWorkflowOwnership,
+    } = await import("../src/internal/channel-delivery.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-ambiguous-start-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ params }]: Array<{ params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      throw new Error("provider response was lost")
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state, timeout: 20 },
+        }),
+      },
+      driver: { run: () => "internal output" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const response = await handler(chatWebhookRequest(91_142), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+          },
+        },
+      })
+
+      expect(response.status).toBe(200)
+      const binding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as {
+        steer?: { lock: { key: string, token: string }, pendingQueue: string, queue: string, ttlMs: number }
+      } | undefined
+      expect(binding?.steer).toBeDefined()
+      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
+      expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
+
+      const runtimeContext = { agentIdentity: { name: "calories" } }
+      const firstClaim = await resumeAgentChannelDeliveryWorkflowOwnership(agent, runtimeContext as never, binding as never)
+      const restartedClaim = await resumeAgentChannelDeliveryWorkflowOwnership(agent, runtimeContext as never, binding as never)
+      expect(firstClaim).toBeTypeOf("function")
+      expect(restartedClaim).toBeTypeOf("function")
+
+      await restartedClaim!("completed")
+      await firstClaim!("completed")
+      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
+
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_142), "telegram", { agentIdentity: { name: "calories" } })
+      const delivery = deliveries.find(item => item.events.some(event => event.runId === "telegram:91142"))
+      expect(delivery).toMatchObject({ status: "queued" })
+      expect(delivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "failed" })]))
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves pending steer input when terminal settlement cannot read its delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-terminal-state-failure-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    let failDeliveryRead = false
+    const originalGet = state.get.bind(state)
+    const get = vi.spyOn(state, "get").mockImplementation(async key => {
+      if (failDeliveryRead && String(key).startsWith("deliveries:")) {
+        failDeliveryRead = false
+        throw new Error("State read unavailable")
+      }
+      return await originalGet(key)
+    })
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      if (createBatch.mock.calls.length > 1) {
+        failDeliveryRead = true
+        throw Object.assign(new Error("successor provider unavailable"), { status: 503 })
+      }
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "internal output" },
+      hooks: { "agent:finish": event => event.reply("Durable reply") },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const runtime = { agentIdentity: { name: "calories" }, cloudflare: { env } }
+      await handler(chatWebhookRequest(91_143), "telegram", runtime)
+      await handler(chatWebhookRequest(91_144), "telegram", runtime)
+      const binding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as {
+        steer?: { lock: { key: string, token: string }, pendingQueue: string, queue: string, ttlMs: number }
+      } | undefined
+      expect(binding?.steer).toBeDefined()
+
+      setActiveCloudflareEnv(env)
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "completed-before-terminal-state-failure",
+        name: "calories",
+        payload: workflowPayloads[0],
+        provider: "cloudflare",
+      }, async () => "completed")).resolves.toBe("completed")
+
+      expect(failDeliveryRead).toBe(false)
+      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
+      expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
+      get.mockRestore()
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_144), "telegram", { agentIdentity: { name: "calories" } })
+      const successor = deliveries.find(delivery => delivery.events.some(event => event.runId === "telegram:91144"))
+      expect(successor).toMatchObject({ status: "queued" })
+    }
+    finally {
+      get.mockRestore()
       setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
       await state.disconnect()

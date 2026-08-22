@@ -26,6 +26,7 @@ import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
+import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
@@ -2419,13 +2420,16 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     )
     await resolved.state.connect()
     requireAtomicAgentStateQueue(resolved.state)
-    const { lock, queue, ttlMs } = binding.steer
+    const { lock, pendingQueue: ownedPendingQueue, queue, ttlMs } = binding.steer
     if (!await resolved.state.extendLock(lock, ttlMs)) {
       const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
       try {
-        const pending = await takeDurableSteerPending(resolved.state, binding.steer.pendingQueue, lock.token)
+        const pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token)
         if (pending?.message?.input) {
           await restoreDurableSteerQueue(resolved.state, queue, pending.message)
+          if (!await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, pending)) {
+            throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
+          }
         }
       }
       finally {
@@ -2433,7 +2437,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       }
       throw new Error("[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started.")
     }
-    const pending = await takeDurableSteerPending(resolved.state, binding.steer.pendingQueue, lock.token)
+    const pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token)
     if (!pending?.message?.input) {
       throw new Error("[vitehub] Durable steered Channel delivery could not claim its persisted Agent Workflow input.")
     }
@@ -2443,6 +2447,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       let handoffLock: Lock | undefined
       let stopHandoffHeartbeat: () => void = () => undefined
       let queued: DurableSteerQueueEntry | null = null
+      let queuedAcknowledged = false
       let pendingQueue: string | undefined
       let pendingPersisted = false
       let successorStartAttempted = false
@@ -2457,7 +2462,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         // token check below is the authority at settlement.
         if (!await resolved.state.extendLock(lock, ttlMs)) return
         ownershipLost = false
-        queued = await resolved.state.dequeue(queue) as DurableSteerQueueEntry | null
+        if (!await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, pending)) return
+        const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
+        queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
         if (!queued?.message?.input) {
           await resolved.state.releaseLock(lock)
           return
@@ -2469,6 +2476,10 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           message: { ...queued.message, ownerToken: lock.token },
         } as never, 1)
         pendingPersisted = true
+        if (!await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum)) {
+          throw new Error("[vitehub] Durable steered Channel delivery queue changed while its successor was being claimed.")
+        }
+        queuedAcknowledged = true
         let queuedInput = queued.message.input
         if (queued.message.resolvedInvoker) {
           const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
@@ -2496,20 +2507,27 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         } as never)
       }
       catch (error) {
+        if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error)) return
         if (ownershipLost && queued?.message?.input) {
           stopHandoffHeartbeat()
           if (handoffLock) await resolved.state.releaseLock(handoffLock).catch(() => undefined)
           handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
           stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => undefined)
         }
-        const pending = pendingQueue && pendingPersisted
-          ? await takeDurableSteerPending(resolved.state, pendingQueue, lock.token).catch(() => null)
+        const successorPending = pendingQueue && pendingPersisted
+          ? await claimDurableSteerPending(resolved.state, pendingQueue, lock.token)
           : null
-        if (successorStartAttempted && pending?.message?.input) {
-          await failDurableSteerQueue(resolved.state, queue, pending.message, error)
+        if (successorStartAttempted) {
+          if (!pendingQueue || !successorPending?.message?.input) return
+          await failDurableSteerQueue(resolved.state, queue, pendingQueue, successorPending, error)
         }
-        else if (queued?.message?.input && (!pendingPersisted || pending?.message?.input)) {
-          await restoreDurableSteerQueue(resolved.state, queue, queued.message)
+        else if (queued?.message?.input) {
+          if (pendingQueue && successorPending) {
+            if (!await acknowledgeDurableSteerPending(resolved.state, pendingQueue, successorPending)) {
+              throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during successor recovery.")
+            }
+          }
+          if (queuedAcknowledged) await restoreDurableSteerQueue(resolved.state, queue, queued.message)
         }
         await resolved.state.releaseLock(lock).catch(() => undefined)
         throw error
@@ -2575,11 +2593,13 @@ function durableSteerPendingQueue(queue: string): string {
   return `${queue}:pending`
 }
 
-async function takeDurableSteerPending(state: StateAdapter, queue: string, ownerToken: string): Promise<DurableSteerQueueEntry | null> {
-  const pending = await state.dequeue(queue) as DurableSteerQueueEntry | null
-  if (!pending || pending.message?.ownerToken === ownerToken) return pending
-  await state.enqueue(queue, pending as never, 1)
-  return null
+async function claimDurableSteerPending(state: StateAdapter, queue: string, ownerToken: string): Promise<DurableSteerQueueEntry | null> {
+  const pending = await requireAtomicAgentStateQueue(state).queuePeek(queue) as DurableSteerQueueEntry | null
+  return !pending || pending.message?.ownerToken === ownerToken ? pending : null
+}
+
+async function acknowledgeDurableSteerPending(state: StateAdapter, queue: string, pending: DurableSteerQueueEntry): Promise<boolean> {
+  return await requireAtomicAgentStateQueue(state).queueReplaceHead(queue, pending as never, [], durableSteerQueueMaximum)
 }
 
 function durableSteerInvokerKey(message: DurableSteerQueueMessage | undefined): string {
@@ -2595,18 +2615,35 @@ function durableSteerDeliveryIds(message: DurableSteerQueueMessage | undefined):
   ])]
 }
 
-async function failDurableSteerQueue(state: StateAdapter, queue: string, failed: DurableSteerQueueMessage, error: unknown): Promise<void> {
-  const messages = [failed]
-  for (;;) {
-    const queued = await state.dequeue(queue) as DurableSteerQueueEntry | null
-    if (!queued) break
-    if (queued.message) messages.push(queued.message)
+async function failDurableSteerMessage(state: StateAdapter, message: DurableSteerQueueMessage, error: unknown): Promise<void> {
+  for (const deliveryId of durableSteerDeliveryIds(message)) {
+    const delivery = await resumeAgentChannelDelivery(state, deliveryId)
+    if (!delivery) throw new Error(`[vitehub] Durable steered Channel delivery ${JSON.stringify(deliveryId)} could not be resumed for terminal settlement.`)
+    const input = { error: channelDeliveryError(error) }
+    await delivery.event({ ...input, type: "invocation.failed" })
+    await delivery.event({ ...input, type: "failed" })
   }
-  const deliveryIds = [...new Set(messages.flatMap(message => durableSteerDeliveryIds(message)))]
-  for (const deliveryId of deliveryIds) {
-    const delivery = await resumeAgentChannelDelivery(state, deliveryId).catch(() => undefined)
-    if (delivery) {
-      await settleChannelDeliveryInvocation(delivery, "failed", "failed", { error: channelDeliveryError(error) })
+}
+
+async function failDurableSteerQueue(
+  state: StateAdapter,
+  queue: string,
+  pendingQueue: string,
+  failed: DurableSteerQueueEntry,
+  error: unknown,
+): Promise<void> {
+  if (!failed.message) return
+  await failDurableSteerMessage(state, failed.message, error)
+  if (!await acknowledgeDurableSteerPending(state, pendingQueue, failed)) {
+    throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during terminal settlement.")
+  }
+  const atomicQueue = requireAtomicAgentStateQueue(state)
+  for (;;) {
+    const queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
+    if (!queued) break
+    if (queued.message) await failDurableSteerMessage(state, queued.message, error)
+    if (!await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum)) {
+      throw new Error("[vitehub] Durable steered Channel delivery queue changed during terminal settlement.")
     }
   }
 }
@@ -3714,6 +3751,7 @@ async function handleChatSdkMessage(
       const steerHandoffLock = steerKey === undefined ? undefined : await acquireRequiredStateLock(state.state, `${steerKey}:handoff`, steerTtlMs, handoffAbort)
       let steerLock: Lock | undefined
       let reclaimedMessage: DurableSteerQueueMessage | undefined
+      let reclaimedEntry: DurableSteerQueueEntry | null = null
       try {
         steerLock = steerKey === undefined ? undefined : await state.state.acquireLock(steerKey, steerTtlMs) ?? undefined
         if (steerLock && steerQueue) {
@@ -3763,18 +3801,23 @@ async function handleChatSdkMessage(
         // Workflow abandoned an expired lease. Preserve that accepted input and
         // its delivery records when the current message reclaims the scope.
         if (steerLock && steerQueue) {
-          const pending = await state.state.dequeue(durableSteerPendingQueue(steerQueue)) as DurableSteerQueueEntry | null
-          if (pending?.message?.input) await restoreDurableSteerQueue(state.state, steerQueue, pending.message)
-          const previous = await state.state.dequeue(steerQueue) as { message?: typeof reclaimedMessage } | null
-          reclaimedMessage = previous?.message
+          const atomicQueue = requireAtomicAgentStateQueue(state.state)
+          const pendingQueue = durableSteerPendingQueue(steerQueue)
+          const pending = await atomicQueue.queuePeek(pendingQueue) as DurableSteerQueueEntry | null
+          if (pending?.message?.input) {
+            await restoreDurableSteerQueue(state.state, steerQueue, pending.message)
+            if (!await acknowledgeDurableSteerPending(state.state, pendingQueue, pending)) {
+              throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
+            }
+          }
+          const previous = await atomicQueue.queuePeek(steerQueue) as DurableSteerQueueEntry | null
           const deliveryIds = durableSteerDeliveryIds(previous?.message)
           const sameInvoker = !previous?.message?.input || durableSteerInvokerKey(previous.message) === workflowInvokerKey
-          if (sameInvoker) workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
-          else if (previous) await state.state.enqueue(steerQueue, {
-            enqueuedAt: Date.now(),
-            expiresAt: Number.MAX_SAFE_INTEGER,
-            message: previous.message,
-          } as never, durableSteerQueueMaximum)
+          if (sameInvoker) {
+            reclaimedMessage = previous?.message
+            workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
+            reclaimedEntry = previous
+          }
           workflowInput.context![agentChannelDeliveryWorkflowContextKey] = {
             ...workflowBinding,
             steer: {
@@ -3797,6 +3840,7 @@ async function handleChatSdkMessage(
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
       const steerStartLocks = [steerLock, steerHandoffLock].filter((lock): lock is Lock => lock != null)
       let steerStartOwnershipLost = false
+      let steerPending: DurableSteerQueueEntry | undefined
       const stopSteerStartHeartbeats = steerStartLocks.map(lock => startWebhookLockHeartbeat(
         state.state,
         lock,
@@ -3809,7 +3853,7 @@ async function handleChatSdkMessage(
           const workflowSteer = isRecord(workflowDelivery) && isRecord(workflowDelivery.steer)
             ? workflowDelivery.steer
             : undefined
-          await state.state.enqueue(durableSteerPendingQueue(steerQueue), {
+          steerPending = {
             enqueuedAt: Date.now(),
             expiresAt: Number.MAX_SAFE_INTEGER,
             message: {
@@ -3821,19 +3865,37 @@ async function handleChatSdkMessage(
               resolvedInvoker: workflowInputHasResolvedInvoker,
               run,
             },
-          } as never, 1)
+          }
+          await state.state.enqueue(durableSteerPendingQueue(steerQueue), steerPending as never, 1)
+          if (reclaimedEntry && !await requireAtomicAgentStateQueue(state.state).queueReplaceHead(
+            steerQueue,
+            reclaimedEntry as never,
+            [],
+            durableSteerQueueMaximum,
+          )) {
+            throw new Error("[vitehub] Durable steered Channel delivery queue changed while ownership was being reclaimed.")
+          }
         }
         await runAgent(agent as never, runContext as never, workflowInput as never)
         durableHandoff = true
-        if (steerStartOwnershipLost) {
+        if (steerStartOwnershipLost && steerLock && !await state.state.extendLock(steerLock, steerTtlMs)) {
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
         }
+        steerStartOwnershipLost = false
       }
       catch (error) {
+        if (steerLock && steerQueue && steerPending && isAmbiguousAgentWorkflowStartFailure(error)) {
+          durableHandoff = true
+          await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+          detachAgentChannelDelivery(delivery)
+          return
+        }
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
-        if (steerQueue && !steerStartOwnershipLost) {
-          await state.state.dequeue(durableSteerPendingQueue(steerQueue)).catch(() => null)
+        if (steerQueue && steerPending && !steerStartOwnershipLost) {
+          if (!await acknowledgeDurableSteerPending(state.state, durableSteerPendingQueue(steerQueue), steerPending)) {
+            throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
+          }
           if (reclaimedMessage?.input) {
             await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
           }
