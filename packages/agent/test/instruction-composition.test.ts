@@ -534,15 +534,6 @@ describe("instruction composition", () => {
     expect([...coverage.sources]).toEqual(["authored-source"])
   })
 
-  it("rejects legacy ambient instruction slots", async () => {
-    await expect(composeInstructionDocument("{{ workspace.sources }}"))
-      .rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
-    await expect(composeInstructionDocument("{{ capabilities }}"))
-      .rejects.toThrow("{{ capabilities }}\" is no longer supported")
-    await expect(composeInstructionDocument("{{ capabilities.openapi }}"))
-      .rejects.toThrow("{{ capabilities.openapi }}\" is no longer supported")
-  })
-
   it("rejects unsafe expressions and non-scalar double bindings", async () => {
     await expect(composeInstructionDocument("::if{process.exit()}\nNo\n::"))
       .rejects.toThrow("Unsafe instruction condition")

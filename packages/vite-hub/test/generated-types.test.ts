@@ -59,7 +59,7 @@ describe("framework generated types", () => {
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
     const { root, viteRoot } = await createNestedProject()
     await Promise.all([
-      writeFile(join(root, ".vitehub/types/templates.d.ts"), "declare module \"#vitehub/templates\" {}\n"),
+      writeFile(join(root, ".vitehub/types/markdown-template.d.ts"), "declare module \"*.template.md\" {}\n"),
       writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n"),
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
       writeFile(join(root, ".vitehub/sandbox/runtime/sandbox.d.ts"), "declare module \"#vitehub/sandbox\" {}\n"),
@@ -72,7 +72,7 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe([
       `/// <reference path="./env/env.d.ts" />`,
       `/// <reference path="./sandbox/runtime/sandbox.d.ts" />`,
-      `/// <reference path="./types/templates.d.ts" />`,
+      `/// <reference path="./types/markdown-template.d.ts" />`,
       ``,
       `export {}`,
       ``,

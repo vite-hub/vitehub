@@ -188,15 +188,17 @@ describe("agent discovery", () => {
     ])
   })
 
-  it("does not discover legacy folder config files", async () => {
-    const root = await createTempRoot("vitehub-agent-legacy-config-")
+  it("discovers config files as flat Agents", async () => {
+    const root = await createTempRoot("vitehub-agent-config-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ driver: { model } })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "server-agents",
       scanDirs: [join(root, "server")],
-    })).toEqual([])
+    })).toEqual([
+      expect.objectContaining({ name: "support/config", source: "server-agents" }),
+    ])
   })
 
   it("does not discover TypeScript files inside Agent Skill trees", async () => {
@@ -227,7 +229,7 @@ describe("agent discovery", () => {
     ])
   })
 
-  it("keeps legacy Agent Home paths reserved from Agent discovery", async () => {
+  it("discovers an Agent in a folder named home", async () => {
     const root = await createTempRoot("vitehub-agent-server-home-")
     await mkdir(join(root, "server", "agents", "review", "home", "tools"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review", "agent.ts"), "export default {}", "utf8")
@@ -239,6 +241,7 @@ describe("agent discovery", () => {
       scanDirs: [join(root, "server")],
     })).toEqual([
       expect.objectContaining({ name: "review", source: "server-agents" }),
+      expect.objectContaining({ name: "review/home", source: "server-agents" }),
     ])
   })
 

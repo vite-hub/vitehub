@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -287,26 +287,6 @@ describe("hubRateLimit", () => {
     for (const entry of entries) {
       expect(transform("export {}", entry)).toContain(`${join(root, ".vitehub", "rate-limit", "cloudflare-runtime.mjs")}"`)
     }
-  })
-
-  it("removes the legacy generated registry", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-legacy-registry-"))
-    roots.push(root)
-    const registry = join(root, ".vitehub", "nitro", "rate-limit", "registry.mjs")
-    await mkdir(join(root, ".vitehub", "nitro", "rate-limit"), { recursive: true })
-    await writeFile(registry, "export default {}\n")
-
-    const plugin = hubRateLimit({ provider: "memory" })
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({
-      build: { outDir: "dist" },
-      command: "serve",
-      plugins: [],
-      resolve: { alias: [] },
-      root,
-    } as never)
-
-    await expect(access(registry)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("uses the configured internal import base", async () => {

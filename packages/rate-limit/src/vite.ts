@@ -1,4 +1,3 @@
-import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -25,9 +24,7 @@ import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConf
 const packageName = "@vite-hub/rate-limit"
 const pluginName = "@vite-hub/rate-limit/vite"
 const generatedNitroPlugin = ".vitehub/nitro/rate-limit/plugin.ts"
-const legacyGeneratedNitroMiddleware = ".vitehub/nitro/rate-limit/middleware.ts"
 const generatedRuntimeModule = ".vitehub/rate-limit/cloudflare-runtime.mjs"
-const legacyGeneratedRegistry = ".vitehub/nitro/rate-limit/registry.mjs"
 const mergeNoExternal = createNoExternalMerger(packageName)
 
 interface InternalRateLimitModuleOptions extends RateLimitModuleOptions {
@@ -174,12 +171,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       )
       await writeRateLimitManifest(config.root, declarations, provider)
       const pluginFile = resolve(config.root, generatedNitroPlugin)
-      const middlewareFile = resolve(config.root, legacyGeneratedNitroMiddleware)
       const runtimeFile = resolve(config.root, generatedRuntimeModule)
       const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
       await Promise.all([
-        rm(resolve(config.root, legacyGeneratedRegistry), { force: true }),
-        rm(middlewareFile, { force: true }),
         writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true)),
         writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeConfig, importBase, false)),
       ])

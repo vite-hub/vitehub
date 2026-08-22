@@ -119,9 +119,6 @@ export function normalizeWorkspaceSources(sources: WorkspaceDefinition["sources"
 
 export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInput): ResolvedWorkspaceSource {
   const source = toWorkspaceSource(input)
-  if (source && typeof source === "object" && "instructions" in source) {
-    throw new TypeError(`[vitehub] Workspace source "${key}" instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::source coverage.`)
-  }
   const mount = normalizeSourceMount(source)
   const cache = mount.cache ?? normalizeSourceCache(source) ?? false
   const sync = normalizeSourceSync(source.sync)

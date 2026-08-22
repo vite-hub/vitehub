@@ -182,9 +182,6 @@ export function defineCapability<
   if (!capability || typeof capability !== "object") {
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
   }
-  if ("instructions" in capability) {
-    throw new TypeError("[vitehub] Capability instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::capability coverage.")
-  }
   assertCapabilityId((capability as { id?: unknown }).id)
   const cli = (capability as AgentCapabilityDefinition).cli
   if (typeof cli !== "function") assertCapabilityCliContribution((capability as { id: string }).id, cli)
