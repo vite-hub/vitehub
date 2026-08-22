@@ -391,6 +391,122 @@ describe("Agent Invocations", () => {
     expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { generation: "older" } }))
   })
 
+  it("requeues an in-flight earliest fatal observation when its write fails", async () => {
+    let releaseFatal!: () => void
+    let reportFatalStarted!: () => void
+    let failFatal = true
+    const fatalGate = new Promise<void>((resolve) => { releaseFatal = resolve })
+    const fatalStarted = new Promise<void>((resolve) => { reportFatalStarted = resolve })
+    const memory = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        async update(id, input, claimId) {
+          if (failFatal && input.observation?.attributes?.["error.message"] === "earliest fatal") {
+            reportFatalStarted()
+            await fatalGate
+            failFatal = false
+            return
+          }
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("retried-earliest-fatal"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({
+      attributes: { "error.message": "earliest fatal" },
+      name: "agent.stream.error",
+      type: "error",
+    })
+    await fatalStarted
+    for (let index = 0; index < 255; index++) {
+      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+    }
+    await journal.context.traceLog?.append({
+      attributes: { "error.message": "later fatal" },
+      name: "agent.stream.error",
+      type: "error",
+    })
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+    const finishing = journal.finish("failed", new Error("earliest fatal"))
+    releaseFatal()
+    await finishing
+
+    const record = await invocations.getByRunId("retried-earliest-fatal")
+    expect(record?.observations).toHaveLength(256)
+    expect(record?.observations.slice(-2)).toMatchObject([
+      { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
+      { name: "agent.invocation.finish" },
+    ])
+    expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { "error.message": "later fatal" } }))
+  })
+
+  it("requeues an in-flight earliest fatal observation after its write times out", async () => {
+    vi.useFakeTimers()
+    try {
+      let fatalWrites = 0
+      let reportFatalStarted!: () => void
+      let reportTerminalPersisted!: () => void
+      let settleLateFatal!: () => Promise<void>
+      const fatalStarted = new Promise<void>((resolve) => { reportFatalStarted = resolve })
+      const terminalPersisted = new Promise<void>((resolve) => { reportTerminalPersisted = resolve })
+      const memory = createMemoryAgentInvocationStore()
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.attributes?.["error.message"] === "earliest fatal" && fatalWrites++ === 0) {
+              reportFatalStarted()
+              return new Promise((resolve) => {
+                settleLateFatal = async () => { resolve(await memory.update(id, input, claimId)) }
+              })
+            }
+            const updated = await memory.update(id, input, claimId)
+            if (input.observation?.name === "agent.invocation.finish") reportTerminalPersisted()
+            return updated
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("timed-out-earliest-fatal"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "earliest fatal" },
+        name: "agent.stream.error",
+        type: "error",
+      })
+      await fatalStarted
+      for (let index = 0; index < 255; index++) {
+        await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+      }
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "later fatal" },
+        name: "agent.stream.error",
+        type: "error",
+      })
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await terminalPersisted
+      await settleLateFatal()
+      await journal.finish("failed", new Error("earliest fatal"))
+
+      const record = await invocations.getByRunId("timed-out-earliest-fatal")
+      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations.slice(-2)).toMatchObject([
+        { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
+        { name: "agent.invocation.finish" },
+      ])
+      expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { "error.message": "later fatal" } }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("terminalizes records created after the store timeout", async () => {
     const memory = createMemoryAgentInvocationStore()
     let releaseCreate!: () => void

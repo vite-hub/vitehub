@@ -1,7 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { describe, expect, it } from "vitest"
 
-import { normalizeRuntimeDiagnosticError } from "../src/index.ts"
+import { normalizeRuntimeDiagnosticError, ViteHubError } from "../src/index.ts"
 
 describe("Runtime diagnostic errors", () => {
   it("normalizes causes, AggregateError children, codes, cycles, and budgets", () => {
@@ -69,5 +69,30 @@ describe("Runtime diagnostic errors", () => {
         if (hasRuntimeType(value, "string")) expect(value.length).toBeLessThanOrEqual(64)
       }
     }
+  })
+
+  it("applies the whole-graph budget to public error details", () => {
+    const error = new ViteHubError("PROVIDER_FAILED", "Provider failed", {
+      details: {
+        items: Array.from({ length: 100 }, (_item, index) => ({
+          label: `private-${index}-${"x".repeat(1_000)}`,
+        })),
+        nested: { deeper: { value: "y".repeat(16_000) } },
+      },
+    })
+
+    const normalized = normalizeRuntimeDiagnosticError(error, {
+      maxDepth: 2,
+      maxErrors: 4,
+      maxStringLength: 64,
+    })
+    const serialized = JSON.stringify(normalized)
+
+    expect(serialized.length).toBeLessThan(1_000)
+    expect(serialized).not.toContain("private-0")
+    expect(serialized).not.toContain("y".repeat(1_000))
+    expect(normalized.details).toEqual({
+      items: ["[Detail depth exceeded]", "[Detail depth exceeded]"],
+    })
   })
 })

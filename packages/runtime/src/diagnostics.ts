@@ -68,7 +68,7 @@ interface ErrorNormalizationState {
   readonly includeStack: boolean
   readonly maxDepth: number
   readonly maxStringLength: number
-  remainingErrors: number
+  remainingNodes: number
   remainingStringLength: number
 }
 
@@ -123,9 +123,51 @@ function errorChildren(value: unknown, maximum: number): unknown[] | undefined {
   }
 }
 
+function normalizeDetailValue(value: unknown, state: ErrorNormalizationState, depth: number): unknown {
+  if (state.remainingNodes <= 0) return
+  state.remainingNodes -= 1
+  if (value === null || hasRuntimeType(value, "boolean")) return value
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
+  if (hasRuntimeType(value, "string")) return boundedString(value, state)
+  if (depth > state.maxDepth) return boundedString("[Detail depth exceeded]", state)
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const normalized = normalizeDetailValue(item, state, depth + 1)
+      return normalized === undefined ? [] : [normalized]
+    })
+  }
+  if (!isRuntimeObject(value)) return
+  const normalized: Record<string, unknown> = {}
+  let keys: string[]
+  try {
+    keys = Object.keys(value)
+  }
+  catch {
+    return normalized
+  }
+  for (const key of keys) {
+    const normalizedKey = boundedString(key, state)
+    if (!normalizedKey) break
+    const child = normalizeDetailValue(readProperty(value, key), state, depth + 1)
+    if (child !== undefined) normalized[normalizedKey] = child
+  }
+  return normalized
+}
+
+function normalizeDetails(
+  details: Readonly<Record<string, unknown>>,
+  state: ErrorNormalizationState,
+  depth: number,
+): Readonly<Record<string, unknown>> | undefined {
+  const normalized = normalizeDetailValue(details, state, depth)
+  if (!isRuntimeObject(normalized) || Array.isArray(normalized)) return
+  // SAFETY: Detail normalization constructs every non-array object as a string-keyed diagnostic record.
+  return normalized as Readonly<Record<string, unknown>>
+}
+
 function normalizeError(value: unknown, state: ErrorNormalizationState, depth: number): RuntimeDiagnosticError | undefined {
-  if (state.remainingErrors <= 0) return
-  state.remainingErrors -= 1
+  if (state.remainingNodes <= 0) return
+  state.remainingNodes -= 1
   if (hasRuntimeType(value, "string")) return { message: boundedString(value, state) || "Error" }
   if (!value || !hasRuntimeType(value, "object")) return { message: boundedString(safeString(value), state) || "Error" }
   if (state.ancestors.has(value)) return { message: boundedString("[Circular error cause]", state) || "Error" }
@@ -150,7 +192,8 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
     const statusCode = scalarProperty(value, "statusCode", state)
     const stack = state.includeStack ? boundedString(readProperty(value, "stack"), state) : undefined
     if (code !== undefined) result.code = code
-    if (publicError?.details) result.details = publicError.details
+    const details = publicError?.details ? normalizeDetails(publicError.details, state, depth + 1) : undefined
+    if (details) result.details = details
     if (requestId) result.requestId = requestId
     if (stack) result.stack = stack
     if (status !== undefined) result.status = status
@@ -159,7 +202,7 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
     const cause = readProperty(value, "cause")
     const normalizedCause = cause === undefined ? undefined : normalizeError(cause, state, depth + 1)
     if (normalizedCause) result.cause = normalizedCause
-    const errors = errorChildren(readProperty(value, "errors"), state.remainingErrors)
+    const errors = errorChildren(readProperty(value, "errors"), state.remainingNodes)
     const normalizedErrors = errors?.flatMap((error) => {
       const normalized = normalizeError(error, state, depth + 1)
       return normalized ? [normalized] : []
@@ -187,7 +230,7 @@ export function normalizeRuntimeDiagnosticError(
     includeStack: options.includeStack === true,
     maxDepth,
     maxStringLength,
-    remainingErrors: maxErrors + 1,
+    remainingNodes: maxErrors + 1,
     remainingStringLength: maxStringLength * (maxErrors + 1),
   }, 0)!
 }

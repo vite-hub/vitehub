@@ -75,12 +75,14 @@ describe("Agent telemetry", () => {
     }])
   })
 
-  it("encodes binary content as one bounded OTLP value", async () => {
+  it("rejects oversized binary content before encoding or delivery", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    const encode = vi.fn(globalThis.btoa)
     vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("btoa", encode)
     const binary = new Uint8Array(25 * 1024 * 1024)
 
-    await otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
       agent: {},
       runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       spans: [{
@@ -91,13 +93,10 @@ describe("Agent telemetry", () => {
         status: { code: "OK" },
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-    })
+    })).rejects.toThrow("OTLP binary attributes cannot exceed 1048576 bytes")
 
-    const request = fetch.mock.calls[0]?.[1]
-    const body = String(request?.body)
-    expect(body).not.toContain('"kvlistValue":{"values":[{"key":"0"')
-    expect(body).toContain('"bytesValue":"')
-    expect(body.length).toBeLessThan(binary.byteLength * 2)
+    expect(encode).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("encodes the exact bytes from binary buffers and offset views", async () => {
@@ -130,6 +129,50 @@ describe("Agent telemetry", () => {
       dataView: { bytesValue: "AgM=" },
       offsetBytes: { bytesValue: "AQID" },
     })
+  })
+
+  it("rejects oversized serialized OTLP requests before delivery", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      spans: [{
+        attributes: { "input.prompt": "x".repeat(4 * 1024 * 1024) },
+        name: "vitehub.run",
+        spanId: "0123456789abcdef",
+        startTime: "2026-01-01T00:00:00.000Z",
+        status: { code: "OK" },
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+    })).rejects.toThrow("OTLP/HTTP JSON payloads cannot exceed 4194304 bytes")
+
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("rejects aggregate binary content before encoding the value that exceeds the request budget", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    const encode = vi.fn(globalThis.btoa)
+    vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("btoa", encode)
+    const allowed = new Uint8Array(1024 * 1024)
+
+    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      spans: [{
+        attributes: { first: allowed, second: allowed, third: allowed },
+        name: "vitehub.run",
+        spanId: "0123456789abcdef",
+        startTime: "2026-01-01T00:00:00.000Z",
+        status: { code: "OK" },
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+    })).rejects.toThrow("OTLP/HTTP JSON payloads cannot exceed 4194304 bytes")
+
+    expect(encode).toHaveBeenCalledTimes(2)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("configures OTLP as a Capability", () => {
@@ -281,6 +324,37 @@ describe("Agent telemetry", () => {
     })
     expect(capabilityMetadata(outputs)).toEqual({ nested: { output: "Nested output", safe: "visible" } })
     expect(capabilityMetadata(instructions)).toEqual({ instructions: "Capability instructions", nested: { safe: "visible" } })
+  })
+
+  it("correlates trace events emitted by a resolver that discovers telemetry", async () => {
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: async (context) => {
+        await context.traceLog?.append({
+          attributes: { output: "resolver output" },
+          name: "capability.resolving",
+          type: "run",
+        })
+        return [defineCapability({
+          id: "resolved-telemetry",
+          telemetry: { content: { outputs: true }, exporter: telemetry },
+        })]
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-resolved-telemetry" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).resolves.toBe("ok")
+    await Promise.all(tasks)
+
+    const resolverEvent = telemetry.mock.calls[0]![0].spans[0].events
+      .find((event: { name: string }) => event.name === "capability.resolving")
+    expect(resolverEvent).toMatchObject({ attributes: { output: "resolver output" } })
   })
 
   it("keeps directly appended Trace Events in content-enabled exports", async () => {

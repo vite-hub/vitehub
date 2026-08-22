@@ -309,18 +309,27 @@ function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEnt
 function prioritizePendingOutcomes(
   pending: TraceEventLogEntry[],
   incoming: TraceEventLogEntry,
-  activeWrite: boolean,
+  active: TraceEventLogEntry | undefined,
+  retryIncoming = false,
 ): void {
-  const fatal = pending.find(failureEvidenceObservation)
-    ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
-  const terminal = terminalObservation(incoming)
+  const activeFatal = active && failureEvidenceObservation(active)
+  const fatal = retryIncoming && failureEvidenceObservation(incoming)
     ? incoming
-    : pending.findLast(terminalObservation)
+    : activeFatal
+      ? undefined
+      : pending.find(failureEvidenceObservation)
+        ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
+  const pendingTerminal = pending.findLast(terminalObservation)
+  const terminal = retryIncoming
+    ? pendingTerminal ?? (terminalObservation(incoming) ? incoming : undefined)
+    : terminalObservation(incoming)
+      ? incoming
+      : pendingTerminal
   const outcomes: TraceEventLogEntry[] = []
   if (fatal) outcomes.push(fatal)
   if (terminal && terminal !== fatal) outcomes.push(terminal)
   const ordinary = pending.filter(observation => !failureEvidenceObservation(observation) && !terminalObservation(observation))
-  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (activeWrite ? 1 : 0) - outcomes.length)
+  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
   pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
 
@@ -346,9 +355,8 @@ export function applyAgentInvocationStoreUpdate(
             : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
         })()
       : (() => {
-          const failureEvidence = failureEvidenceObservation(input.observation)
-            ? input.observation
-            : record.observations.find(failureEvidenceObservation)
+          const failureEvidence = record.observations.find(failureEvidenceObservation)
+            ?? (failureEvidenceObservation(input.observation) ? input.observation : undefined)
           const terminal = terminalObservation(input.observation)
             ? input.observation
             : record.observations.findLast(terminalObservation)
@@ -504,7 +512,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
       let heartbeatDeadline: number | undefined
       let observationWrite: Promise<void> | undefined
+      let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
+      const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
         if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout)
@@ -603,23 +613,42 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (finished || observationWrite) return
         const observation = pendingObservations.shift()
         if (!observation) return
+        activeObservation = observation
         const task = (async () => {
-          if (finished || !await renew()) return
-          const timestamp = normalizedTimestamp(observation.timestamp)
-          const persistedObservation = boundedObservation({
-            ...observation,
-            timestamp,
-            ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-          })
-          const updated = await boundedStoreOperation(() => store.update(recordId, {
-            observation: persistedObservation,
-            timestamp,
-          }, claimId))
-          if (updated && updated !== storeOperationTimedOut) observationCount = updated.observations.length
+          let persisted = false
+          try {
+            if (finished || !await renew()) return
+            const timestamp = normalizedTimestamp(observation.timestamp)
+            const persistedObservation = boundedObservation({
+              ...observation,
+              timestamp,
+              ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+            })
+            const updated = await boundedStoreOperation(() => store.update(recordId, {
+              observation: persistedObservation,
+              timestamp,
+            }, claimId))
+            if (updated && updated !== storeOperationTimedOut) {
+              observationCount = updated.observations.length
+              persisted = true
+            }
+          }
+          finally {
+            if (!persisted
+              && !finished
+              && outcomeObservationPriority(observation) !== undefined
+              && !retriedObservations.has(observation)) {
+              observationsTruncated = true
+              const retry = truncatedObservation(observation)
+              retriedObservations.add(retry)
+              prioritizePendingOutcomes(pendingObservations, retry, undefined, true)
+            }
+          }
         })().catch(() => {})
         const settled = task.finally(() => {
           if (observationWrite === settled) {
             observationWrite = undefined
+            activeObservation = undefined
             writeNextObservation()
           }
         })
@@ -635,7 +664,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (atCapacity) {
           observationsTruncated = true
           if (priority === undefined) return
-          prioritizePendingOutcomes(pendingObservations, queuedObservation, observationWrite !== undefined)
+          prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
           writeNextObservation()
           return
         }

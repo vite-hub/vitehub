@@ -21,6 +21,12 @@ type OtlpAnyValue =
   | { stringValue: string }
 
 const retryableStatuses = new Set([429, 502, 503, 504])
+const MAX_OTLP_BINARY_BYTES = 1024 * 1024
+const MAX_OTLP_REQUEST_BYTES = 4 * 1024 * 1024
+
+interface OtlpEncodingBudget {
+  encodedBinaryBytes: number
+}
 
 function binaryBytes(value: unknown): Uint8Array | undefined {
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
@@ -36,7 +42,7 @@ function base64Bytes(bytes: Uint8Array): string {
   return btoa(chunks.join(""))
 }
 
-function otlpAnyValue(value: unknown): OtlpAnyValue {
+function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget): OtlpAnyValue {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
@@ -49,20 +55,30 @@ function otlpAnyValue(value: unknown): OtlpAnyValue {
   }
   if (hasRuntimeType(value, "string")) return { stringValue: value }
   const bytes = binaryBytes(value)
-  if (bytes) return { bytesValue: base64Bytes(bytes) }
-  if (Array.isArray(value)) return { arrayValue: { values: value.map(otlpAnyValue) } }
+  if (bytes) {
+    if (bytes.byteLength > MAX_OTLP_BINARY_BYTES) {
+      throw new RangeError(`OTLP binary attributes cannot exceed ${MAX_OTLP_BINARY_BYTES} bytes.`)
+    }
+    const encodedBytes = 4 * Math.ceil(bytes.byteLength / 3)
+    if (budget.encodedBinaryBytes + encodedBytes > MAX_OTLP_REQUEST_BYTES) {
+      throw new RangeError(`OTLP/HTTP JSON payloads cannot exceed ${MAX_OTLP_REQUEST_BYTES} bytes.`)
+    }
+    budget.encodedBinaryBytes += encodedBytes
+    return { bytesValue: base64Bytes(bytes) }
+  }
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(child => otlpAnyValue(child, budget)) } }
   if (value && hasRuntimeType(value, "object")) {
     return {
       kvlistValue: {
-        values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child) }]),
+        values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child, budget) }]),
       },
     }
   }
   return { stringValue: String(value) }
 }
 
-function otlpAttributes(attributes: Record<string, unknown> | undefined) {
-  return Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined ? [] : [{ key, value: otlpAnyValue(value) }])
+function otlpAttributes(attributes: Record<string, unknown> | undefined, budget: OtlpEncodingBudget) {
+  return Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined ? [] : [{ key, value: otlpAnyValue(value, budget) }])
 }
 
 function unixNanos(value: string | undefined, fallback: string): string {
@@ -70,14 +86,14 @@ function unixNanos(value: string | undefined, fallback: string): string {
   return String(BigInt(Number.isFinite(millis) ? millis : Date.parse(fallback)) * 1_000_000n)
 }
 
-function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
+function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: OtlpEncodingBudget) {
   return {
-    attributes: otlpAttributes(span.attributes),
+    attributes: otlpAttributes(span.attributes, budget),
     endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime),
     ...(span.events?.length
       ? {
           events: span.events.map(event => ({
-            attributes: otlpAttributes(event.attributes),
+            attributes: otlpAttributes(event.attributes, budget),
             name: event.name,
             timeUnixNano: unixNanos(event.time, fallbackEndTime),
           })),
@@ -153,14 +169,19 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
       "vitehub.runtime.name": context.runtime.runtime,
       ...configuredResource,
     }
-    await postOtlp(options.endpoint, headers, JSON.stringify({
+    const budget: OtlpEncodingBudget = { encodedBinaryBytes: 0 }
+    const body = JSON.stringify({
       resourceSpans: [{
-        resource: { attributes: otlpAttributes(resource) },
+        resource: { attributes: otlpAttributes(resource, budget) },
         scopeSpans: [{
           scope: { name: "vitehub.agent" },
-          spans: context.spans.map(span => otlpSpan(span, fallbackEndTime)),
+          spans: context.spans.map(span => otlpSpan(span, fallbackEndTime, budget)),
         }],
       }],
-    }))
+    })
+    if (new TextEncoder().encode(body).byteLength > MAX_OTLP_REQUEST_BYTES) {
+      throw new RangeError(`OTLP/HTTP JSON payloads cannot exceed ${MAX_OTLP_REQUEST_BYTES} bytes.`)
+    }
+    await postOtlp(options.endpoint, headers, body)
   }
 }

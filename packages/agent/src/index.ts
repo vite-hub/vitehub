@@ -2602,19 +2602,30 @@ async function createAgentInvocationContext<
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
+  const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
   const initialTelemetry = agentCapabilityTelemetry(definition?.capabilities)
   const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)
-  const initialTraceLog = initialTelemetryUsesContent && tracedRuntimeContextBase.traceLog
-    ? agentContentTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId)
-    : tracedRuntimeContextBase.traceLog
-  const tracedRuntimeContext = initialTelemetry.length && initialTraceLog
-    ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(initialTraceLog, telemetryInvocationId, context.run?.runId, telemetryChanged) }
-    : tracedRuntimeContextBase
+  const mayResolveContentTelemetry = capabilitiesResolver !== undefined
+  const baseTraceLog = tracedRuntimeContextBase.traceLog || createTraceEventLog()
+  const telemetryTraceLogWrapped = initialTelemetry.length > 0 || mayResolveContentTelemetry
+  const correlatedTraceLog = telemetryTraceLogWrapped
+    ? agentInvocationTraceLog(baseTraceLog, telemetryInvocationId, context.run?.runId, telemetryChanged)
+    : baseTraceLog
+  const initialTraceLog = initialTelemetryUsesContent || mayResolveContentTelemetry
+    ? agentContentTraceLog(baseTraceLog, telemetryInvocationId, context.run?.runId)
+    : correlatedTraceLog
+  const tracedRuntimeContext = {
+    ...tracedRuntimeContextBase,
+    traceLog: initialTraceLog === correlatedTraceLog
+      ? correlatedTraceLog
+      : agentInvocationTraceLog(initialTraceLog, telemetryInvocationId, context.run?.runId, telemetryChanged),
+  }
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
   let failureTelemetry = initialTelemetry
-  const telemetryTraceLogWrapped = initialTelemetry.length > 0
-  const telemetryContentTraceLogWrapped = initialTelemetryUsesContent
+  const telemetryContentTraceLogWrapped = initialTelemetryUsesContent || mayResolveContentTelemetry
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
     runtimeContext = boundRunEvents
@@ -2639,13 +2650,10 @@ async function createAgentInvocationContext<
       invocationContext.get(scheduledAgentTurnContextKey) === true,
     )
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
-    const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
@@ -2668,6 +2676,10 @@ async function createAgentInvocationContext<
       ...channelCapabilities,
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     failureTelemetry = agentCapabilityTelemetry(resolvedCapabilityDefinitions)
+    const resolvedTelemetryUsesContent = failureTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)
+    if (mayResolveContentTelemetry && !resolvedTelemetryUsesContent) {
+      runtimeContext = { ...runtimeContext, traceLog: correlatedTraceLog }
+    }
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
       driverKind,
