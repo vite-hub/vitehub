@@ -8,7 +8,9 @@
     "completeness": "complete"
   },
   "unused_files": [],
-  "unused_exports": [],
+  "unused_exports": [
+    "tools/oxlint/anti-slop/shared/dictionary-types.ts:isPopulatedObjectExpression"
+  ],
   "unused_types": [],
   "private_type_leaks": [],
   "unused_dependencies": [
@@ -66,6 +68,7 @@
   "type_only_dependencies": [],
   "test_only_dependencies": [],
   "dev_dependencies_in_production": [
+    "package.json:@oxlint/plugins",
     "package.json:drizzle-orm",
     "package.json:h3",
     "package.json:valibot"

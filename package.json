@@ -7,6 +7,7 @@
   "type": "module",
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
+    "@oxlint/plugins": "catalog:tooling",
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
     "@vercel/queue": "catalog:vercel",
@@ -41,7 +42,6 @@
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
-    "vite-doctor": "catalog:",
     "vite-hub": "workspace:*",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

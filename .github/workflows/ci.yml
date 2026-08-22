@@ -17,8 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: denoland/setup-deno@v2
         with:
@@ -43,9 +41,6 @@ jobs:
         run: vp run knip:catalog
 
       - run: vp run lint
-      - run: vp run doctor:typescript
-        env:
-          VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
       - run: vp run typecheck
       - run: vp run test:contracts
       - run: vp run test

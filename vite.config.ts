@@ -1,6 +1,36 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  fmt: {
+    ignorePatterns: [".agents/**", "tools/oxlint/anti-slop/**"],
+  },
+  lint: {
+    ignorePatterns: [".agents/**", "tools/oxlint/anti-slop/**"],
+    jsPlugins: [
+      {
+        name: "anti-slop",
+        specifier: "./tools/oxlint/anti-slop/index.ts",
+      },
+    ],
+    rules: {
+      // Preserve existing findings through a counted stable-attribute baseline.
+      "anti-slop/no-chained-type-assertions": "warn",
+      "anti-slop/no-conditional-empty-object-spread": "warn",
+      "anti-slop/no-known-value-widening": "warn",
+      "anti-slop/no-module-mocking": "warn",
+      "anti-slop/no-object-parameters": "warn",
+      "anti-slop/no-reflect-apply": "warn",
+      "anti-slop/no-reflect-get": "warn",
+      "anti-slop/no-runtime-typeof": "warn",
+      "anti-slop/no-shape-in-symbol-names": "warn",
+      "anti-slop/no-unknown-parameters": "warn",
+      "anti-slop/no-unknown-returns": "warn",
+      "anti-slop/no-unknown-type-aliases": "warn",
+      "anti-slop/no-unsafe-dictionary-type": "warn",
+      "anti-slop/no-widen-then-assert": "warn",
+      "anti-slop/require-safety-comment-for-type-assertion": "warn",
+    },
+  },
   run: {
     tasks: {
       "blob:e2e": {
@@ -16,11 +46,6 @@ export default defineConfig({
         cache: false,
         command: "node packages/database/test/e2e.mjs",
         dependsOn: ["@vite-hub/database#build"],
-      },
-      "doctor:typescript": {
-        cache: false,
-        command:
-          'node node_modules/vite-doctor/dist/cli.mjs scan . --extends vite-doctor/typescript/strict --since "${VITE_DOCTOR_SINCE:-HEAD^}" --no-cache --max-warnings 0',
       },
       "docs:build": {
         cache: false,
@@ -65,7 +90,7 @@ export default defineConfig({
       },
       lint: {
         cache: false,
-        command: "vp exec oxlint . --ignore-path .gitignore",
+        command: "node tools/oxlint/run.mjs",
       },
       "playground:vite:build": {
         cache: false,
@@ -145,7 +170,7 @@ export default defineConfig({
       verify: {
         cache: false,
         command:
-          "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+          "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,

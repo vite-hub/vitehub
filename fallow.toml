@@ -1,5 +1,7 @@
 ignorePatterns = []
 
+entry = ["tools/oxlint/anti-slop/index.ts"]
+
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
   "fixtures/consumer/vite-hub/runtime-smoke.mjs",
@@ -9,6 +11,7 @@ dynamicallyLoaded = [
   "test/local/deno-real-project.mjs",
   "test/local/build-playground.mjs",
   "test/run-package-task.mjs",
+  "tools/oxlint/run.mjs",
   "docs/content.config.ts",
   "docs/app/assets/main.css",
   "docs/app/shims/*.ts",
@@ -155,8 +158,6 @@ ignoreDependencies = [
   "publint",
   "ssh2",
   "uploadthing",
-  # Invoked by the root Vite+ verification task.
-  "vite-doctor",
   "workflow",
 ]
 
