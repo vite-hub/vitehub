@@ -10759,18 +10759,30 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-start-failure-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
+    const queueReplaceHead = vi.spyOn(state, "queueReplaceHead")
     const adapter = createTestChatAdapter()
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    let rejectNextAdapterResolution = false
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
-      if (createBatch.mock.calls.length > 1) throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
+      if (createBatch.mock.calls.length > 1) {
+        rejectNextAdapterResolution = true
+        throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
+      }
       return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const adapterResolver = vi.fn(async () => {
+      if (rejectNextAdapterResolution) {
+        rejectNextAdapterResolution = false
+        throw new Error("adapter resolver unavailable")
+      }
+      return adapter as never
     })
     const errorFallbackText = vi.fn(() => "Could not process message.")
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
-          adapter: () => adapter as never,
+          adapter: adapterResolver,
           messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
         }),
       },
@@ -10807,10 +10819,19 @@ describe("server helpers", () => {
       const queue = `${ownershipKey}:queue`
       expect(await state.queueDepth(queue)).toBe(0)
       expect(await state.queueDepth(`${queue}:pending`)).toBe(0)
-      expect(errorFallbackText).toHaveBeenCalledTimes(2)
-      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+      expect(errorFallbackText).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
       expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
+      expect(queueReplaceHead).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.anything(),
+        [expect.objectContaining({
+          message: expect.objectContaining({
+            errorDeliveries: expect.arrayContaining([expect.objectContaining({ fallbackDelivered: true })]),
+          }),
+        })],
+        expect.any(Number),
+      )
 
       const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", runtime)
       for (const runId of ["telegram:91146", "telegram:91147"]) {

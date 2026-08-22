@@ -2575,12 +2575,12 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             pendingQueue,
             successorPending,
             error,
-            async (message, failure) => await postDurableSteerErrorFallbacks(
+            async (delivery, failure) => await postDurableSteerErrorFallback(
               agent as AgentInput<ViteAgentRouteRuntimeContext>,
               context as ViteAgentRouteRuntimeContext,
               registration,
               resolved.state,
-              message,
+              delivery,
               failure,
             ),
           )
@@ -2676,6 +2676,7 @@ interface DurableSteerQueueMessage {
 }
 
 interface DurableSteerErrorDelivery {
+  fallbackDelivered?: true
   input: AgentRunInput
   message: {
     id?: string
@@ -2731,20 +2732,24 @@ function mergeDurableSteerErrorDeliveries(...deliveries: Array<DurableSteerError
   const merged = new Map<string, DurableSteerErrorDelivery>()
   for (const delivery of deliveries.flatMap(item => item ?? [])) {
     const key = `${delivery.message.threadId}:${delivery.message.id ?? delivery.run?.runId ?? ""}`
-    merged.set(key, delivery)
+    const previous = merged.get(key)
+    merged.set(key, {
+      ...previous,
+      ...delivery,
+      ...(previous?.fallbackDelivered || delivery.fallbackDelivered ? { fallbackDelivered: true } : {}),
+    })
   }
   return [...merged.values()]
 }
 
-async function postDurableSteerErrorFallbacks(
+async function postDurableSteerErrorFallback(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
   state: StateAdapter,
-  message: DurableSteerQueueMessage,
+  delivery: DurableSteerErrorDelivery,
   error: unknown,
 ): Promise<void> {
-  if (!message.errorDeliveries?.length) return
   const baseOptions = getAgentChatOptions(agent)
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
   const adapters = await resolveChatAdapters(baseOptions, context)
@@ -2754,33 +2759,76 @@ async function postDurableSteerErrorFallbacks(
     throw new Error("[vitehub] Durable steered Channel error delivery could not resolve its configured Chat adapter.")
   }
   const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, options))
-  for (const delivery of message.errorDeliveries) {
-    await postChatErrorFallback(
-      error,
-      chat.thread(delivery.message.threadId),
-      delivery.message as ChatSdkMessage,
-      options,
-      delivery.input as AgentChatMessageTriggerInput,
-      delivery.run,
-      [],
-    )
-  }
+  await postChatErrorFallback(
+    error,
+    chat.thread(delivery.message.threadId),
+    delivery.message as ChatSdkMessage,
+    options,
+    delivery.input as AgentChatMessageTriggerInput,
+    delivery.run,
+    [],
+  )
 }
 
-async function failDurableSteerMessage(
+async function deliverDurableSteerErrorFallbacks(
   state: StateAdapter,
-  message: DurableSteerQueueMessage,
+  queue: string,
+  entry: DurableSteerQueueEntry,
   error: unknown,
-  deliverErrorFallback: (message: DurableSteerQueueMessage, error: unknown) => Promise<void>,
-): Promise<void> {
-  await deliverErrorFallback(message, error)
-  for (const deliveryId of durableSteerDeliveryIds(message)) {
+  deliverErrorFallback: (delivery: DurableSteerErrorDelivery, error: unknown) => Promise<void>,
+): Promise<DurableSteerQueueEntry> {
+  let active = entry
+  for (let index = 0; index < (active.message?.errorDeliveries?.length ?? 0); index++) {
+    const delivery = active.message?.errorDeliveries?.[index]
+    if (!delivery || delivery.fallbackDelivered) continue
+    try {
+      await deliverErrorFallback(delivery, error)
+    }
+    catch (deliveryError) {
+      console.error({
+        component: "@vite-hub/agent",
+        error: serializeErrorForLog(deliveryError),
+        event: "chat.message.error_fallback.failed",
+        message_id: delivery.message.id,
+        thread_id: delivery.message.threadId,
+      })
+      continue
+    }
+    const errorDeliveries = [...active.message!.errorDeliveries!]
+    errorDeliveries[index] = { ...delivery, fallbackDelivered: true }
+    const updated: DurableSteerQueueEntry = {
+      ...active,
+      message: { ...active.message!, errorDeliveries },
+    }
+    if (!await requireAtomicAgentStateQueue(state).queueReplaceHead(
+      queue,
+      active as never,
+      [updated as never],
+      durableSteerQueueMaximum,
+    )) {
+      throw new Error("[vitehub] Durable steered Channel delivery queue changed while error fallback progress was being recorded.")
+    }
+    active = updated
+  }
+  return active
+}
+
+async function failDurableSteerEntry(
+  state: StateAdapter,
+  queue: string,
+  entry: DurableSteerQueueEntry,
+  error: unknown,
+  deliverErrorFallback: (delivery: DurableSteerErrorDelivery, error: unknown) => Promise<void>,
+): Promise<DurableSteerQueueEntry> {
+  const failed = await deliverDurableSteerErrorFallbacks(state, queue, entry, error, deliverErrorFallback)
+  for (const deliveryId of durableSteerDeliveryIds(failed.message)) {
     const delivery = await resumeAgentChannelDelivery(state, deliveryId)
     if (!delivery) throw new Error(`[vitehub] Durable steered Channel delivery ${JSON.stringify(deliveryId)} could not be resumed for terminal settlement.`)
     const input = { error: channelDeliveryError(error) }
     await delivery.event({ ...input, type: "invocation.failed" })
     await delivery.event({ ...input, type: "failed" })
   }
+  return failed
 }
 
 async function failDurableSteerQueue(
@@ -2789,18 +2837,18 @@ async function failDurableSteerQueue(
   pendingQueue: string,
   failed: DurableSteerQueueEntry,
   error: unknown,
-  deliverErrorFallback: (message: DurableSteerQueueMessage, error: unknown) => Promise<void>,
+  deliverErrorFallback: (delivery: DurableSteerErrorDelivery, error: unknown) => Promise<void>,
 ): Promise<void> {
   if (!failed.message) return
-  await failDurableSteerMessage(state, failed.message, error, deliverErrorFallback)
+  failed = await failDurableSteerEntry(state, pendingQueue, failed, error, deliverErrorFallback)
   if (!await acknowledgeDurableSteerPending(state, pendingQueue, failed)) {
     throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during terminal settlement.")
   }
   const atomicQueue = requireAtomicAgentStateQueue(state)
   for (;;) {
-    const queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
+    let queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
     if (!queued) break
-    if (queued.message) await failDurableSteerMessage(state, queued.message, error, deliverErrorFallback)
+    if (queued.message) queued = await failDurableSteerEntry(state, queue, queued, error, deliverErrorFallback)
     if (!await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum)) {
       throw new Error("[vitehub] Durable steered Channel delivery queue changed during terminal settlement.")
     }
@@ -4135,12 +4183,12 @@ async function handleChatSdkMessage(
               pendingQueue,
               steerPending,
               error,
-              async (message, failure) => await postDurableSteerErrorFallbacks(
+              async (delivery, failure) => await postDurableSteerErrorFallback(
                 agent,
                 context,
                 registration,
                 state.state,
-                message,
+                delivery,
                 failure,
               ),
             )
