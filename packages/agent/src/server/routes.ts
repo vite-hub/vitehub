@@ -4041,8 +4041,8 @@ async function handleChatSdkMessage(
             await state.state.enqueue(steerQueue, queued as never, durableSteerQueueMaximum)
           }
           durableHandoff = true
-          await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
           detachAgentChannelDelivery(delivery)
+          await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
           if (steerHandoffLock) await state.state.releaseLock(steerHandoffLock).catch(() => undefined)
           return
         }

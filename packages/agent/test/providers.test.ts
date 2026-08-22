@@ -10304,6 +10304,98 @@ describe("server helpers", () => {
     }
   })
 
+  it("keeps overlapping steer input accepted when queued evidence cannot be journaled", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-overlap-journal-failure-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    let queuedJournalWrites = 0
+    const failingState = Object.assign(new Proxy(state, {
+      get(target, property, receiver) {
+        if (property !== "appendToList") return Reflect.get(target, property, receiver)
+        return async (...args: Parameters<typeof state.appendToList>) => {
+          if ((args[1] as { type?: string })?.type === "queued" && ++queuedJournalWrites === 2) {
+            throw new Error("overlapping queued journal unavailable")
+          }
+          return await state.appendToList(...args)
+        }
+      },
+    }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<Record<string, unknown> & { input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: Record<string, unknown> & { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const sideEffect = vi.fn(async () => "completed")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer",
+            delivery: "manual",
+            errorFallbackText: "Workflow failed.",
+            state: failingState,
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    const cloudflareEnv = {
+      [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+    }
+    setActiveCloudflareEnv(cloudflareEnv)
+    const runtime = {
+      agentIdentity: { name: "calories" },
+      cloudflare: { env: cloudflareEnv },
+    }
+
+    try {
+      await state.connect()
+      await expect(handler(chatWebhookRequest(91_154), "telegram", runtime)).resolves.toMatchObject({ status: 200 })
+      await expect(handler(chatWebhookRequest(91_155), "telegram", runtime)).resolves.toMatchObject({ status: 200 })
+
+      expect(queuedJournalWrites).toBe(2)
+      expect(workflowPayloads).toHaveLength(1)
+      expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "Workflow failed.")
+
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "accepted-before-overlap-journal-failure",
+        name: "calories",
+        payload: workflowPayloads[0],
+        provider: "cloudflare",
+      }, sideEffect)).resolves.toBe("completed")
+      expect(workflowPayloads).toHaveLength(2)
+      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91155"])
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "overlap-after-journal-failure",
+        name: "calories",
+        payload: workflowPayloads[1],
+        provider: "cloudflare",
+      }, sideEffect)).resolves.toBe("completed")
+      expect(sideEffect).toHaveBeenCalledTimes(2)
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_154), "telegram", runtime)
+      const overlapping = deliveries.find(item => item.events.some(event => event.runId === "telegram:91155"))
+      expect(overlapping?.events.some(event => event.type === "failed")).toBe(false)
+      expect(overlapping?.status).toBe("completed")
+    }
+    finally {
+      setActiveCloudflareEnv(undefined)
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("releases steer ownership when pending Workflow input cannot be persisted", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
