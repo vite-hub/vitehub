@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/plugin-schema.json",
+  "name": "vitehub-docs",
+  "detection": {
+    "type": "fileExists",
+    "pattern": "docs/nuxt.config.ts"
+  },
+  "alwaysUsed": [
+    "docs/server/error-handler.ts"
+  ],
+  "toolingDependencies": [
+    "nuxt-schema-org"
+  ]
+}

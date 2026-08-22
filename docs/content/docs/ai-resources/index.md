@@ -11,12 +11,18 @@ Use the smallest resource that gives your agent enough context to complete the t
 
 ## Public resources
 
-| Resource | Use |
+| ViteHub resource | Use |
 | --- | --- |
 | [ViteHub coding-agent skill](/docs/ai-resources/agent-instructions-skills) | Give Cursor, Claude Code, Codex, and other coding agents a repeatable ViteHub process. |
 | [`/llms.txt`](https://vitehub.dev/llms.txt) | Discover the current documentation map. |
 | [Raw Markdown pages](/docs/ai-resources/markdown-pages) | Load one canonical page without the rendered site shell. |
 | [`/llms-full.txt`](https://vitehub.dev/llms-full.txt) | Load the complete documentation set when a broad audit genuinely needs it. |
+| [ViteHub OpenAPI document](https://vitehub.dev/openapi.json) | Discover the machine-readable resources served by the documentation host. |
+| [ViteHub MCP server](https://vitehub.dev/mcp) | Search the documentation from an MCP client over Streamable HTTP. |
+| [ViteHub CLI on npm](https://www.npmjs.com/package/vite-hub) | Install the official `vitehub` command with the framework distribution. |
+
+The OpenAPI document describes `vitehub.dev`, not a shared hosted runtime API.
+ViteHub runs inside your application, so its application endpoints depend on the Agent Definitions, Channels, and server routes that application declares.
 
 ## Install the skill
 

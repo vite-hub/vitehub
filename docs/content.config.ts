@@ -55,5 +55,14 @@ export default defineContentConfig({
       },
       schema: blogSchema,
     }),
+    trust: defineCollection({
+      type: "page",
+      source: {
+        cwd: resolve(import.meta.dirname, "content/trust"),
+        include: "**/*.md",
+        prefix: "/",
+      },
+      schema: pageSchema,
+    }),
   },
 });
