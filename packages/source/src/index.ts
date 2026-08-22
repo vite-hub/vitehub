@@ -11,6 +11,7 @@ export type {
   CollectionPage,
   CollectionPageOptions,
   CollectionQuery,
+  CollectionQueryInput,
   CollectionRequestQuery,
 } from "./core/collection.ts"
 export { combineSources } from "./core/combine-sources.ts"

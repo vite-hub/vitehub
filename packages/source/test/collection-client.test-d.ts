@@ -39,6 +39,8 @@ type ArrayFilters = { tags?: string[] }
 type SymbolFilters = { [filterKey]: string }
 type NumericFilters = { 0: string }
 type MixedFilters = { author?: string } | { page: number } | { tags: string | string[] }
+type ReservedFilters = { cursor?: string; limit?: string }
+type ReservedUnionFilters = { author?: string } | { limit: string }
 
 function defineQueryFixture<TInput extends object>(querySchema: StandardSchemaV1<TInput, TInput>) {
   // SAFETY: This type-only fixture declares the rows returned by its synthetic loader.
@@ -56,6 +58,8 @@ declare const arrayFilterSchema: StandardSchemaV1<ArrayFilters, ArrayFilters>
 declare const symbolFilterSchema: StandardSchemaV1<SymbolFilters, SymbolFilters>
 declare const numericFilterSchema: StandardSchemaV1<NumericFilters, NumericFilters>
 declare const mixedFilterSchema: StandardSchemaV1<MixedFilters, MixedFilters>
+declare const reservedFilterSchema: StandardSchemaV1<ReservedFilters, ReservedFilters>
+declare const reservedUnionFilterSchema: StandardSchemaV1<ReservedUnionFilters, ReservedUnionFilters>
 
 const interfaceQuery = defineQueryFixture(interfaceFilterSchema)
 const aliasQuery = defineQueryFixture(aliasFilterSchema)
@@ -64,6 +68,8 @@ const arrayQuery = defineQueryFixture(arrayFilterSchema)
 const symbolQuery = defineQueryFixture(symbolFilterSchema)
 const numericQuery = defineQueryFixture(numericFilterSchema)
 const mixedQuery = defineQueryFixture(mixedFilterSchema)
+const reservedQuery = defineQueryFixture(reservedFilterSchema)
+const reservedUnionQuery = defineQueryFixture(reservedUnionFilterSchema)
 
 // SAFETY: This type-only fixture declares the rows its loader would return.
 const articles = defineCollection(async () => [] as Article[], {
@@ -157,6 +163,7 @@ declare global {
     transformedQuery: typeof transformedQuery
     nonWireQuery: typeof nonWireQuery
     nonPlainItems: typeof nonPlainItems
+    reservedQuery: typeof reservedQuery
   }
 }
 
@@ -184,6 +191,8 @@ describe("useCollection types", () => {
     expectTypeOf<CollectionQuery<typeof symbolQuery>>().toEqualTypeOf<never>()
     expectTypeOf<CollectionQuery<typeof numericQuery>>().toEqualTypeOf<never>()
     expectTypeOf<CollectionQuery<typeof mixedQuery>>().toEqualTypeOf<{ author?: string }>()
+    expectTypeOf<CollectionQuery<typeof reservedQuery>>().toEqualTypeOf<never>()
+    expectTypeOf<CollectionQuery<typeof reservedUnionQuery>>().toEqualTypeOf<{ author?: string }>()
     expectTypeOf<CollectionQuery<typeof nonWireQuery>>().toEqualTypeOf<never>()
     useCollection("cardinalityQuery", { filter: { tags: [] } })
     useCollection("cardinalityQuery", { filter: { tags: ["one"] } })
@@ -199,5 +208,7 @@ describe("useCollection types", () => {
     useCollection("transformedQuery", { filter: { search: "Ada" } })
     // @ts-expect-error Collection filters only accept values representable by a GET query string
     useCollection("nonWireQuery", { filter: { page: 2 } })
+    // @ts-expect-error Pagination keys are reserved by the Collection request boundary
+    useCollection("reservedQuery", { filter: { limit: "10" } })
   })
 })

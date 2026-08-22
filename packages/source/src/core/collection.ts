@@ -169,17 +169,21 @@ type AmbiguousArrayQueryKey<TInput extends object> = {
     : never
 }[keyof TInput]
 
-type WireQueryInput<TInput> = TInput extends object
+type ReservedCollectionQueryKey = "cursor" | "limit"
+
+export type CollectionQueryInput<TInput> = TInput extends object
   ? [Exclude<keyof TInput, string>] extends [never]
-    ? [TInput[keyof TInput]] extends [CollectionRequestQuery[string]]
-      ? [AmbiguousArrayQueryKey<TInput>] extends [never]
-        ? TInput
+    ? [Extract<ReservedCollectionQueryKey, keyof TInput>] extends [never]
+      ? [TInput[keyof TInput]] extends [CollectionRequestQuery[string]]
+        ? [AmbiguousArrayQueryKey<TInput>] extends [never]
+          ? TInput
+          : never
         : never
       : never
     : never
   : never
 
-type QueryInput<TSchema extends StandardSchemaV1> = WireQueryInput<StandardSchemaV1.InferInput<TSchema>>
+type QueryInput<TSchema extends StandardSchemaV1> = CollectionQueryInput<StandardSchemaV1.InferInput<TSchema>>
 
 export class CollectionCursorError extends TypeError {
   constructor(message = "[vitehub] Collection cursor is malformed.", options?: ErrorOptions) {

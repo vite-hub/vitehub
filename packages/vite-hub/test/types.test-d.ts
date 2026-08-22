@@ -63,7 +63,11 @@ const meals = defineCollection({
 })
 expectTypeOf<CollectionItem<typeof meals>>().toEqualTypeOf<{ id: string }>()
 
-declare const mealQuerySchema: StandardSchemaV1<{ day?: string }, { day?: string }>
+interface MealFilters {
+  day?: string
+}
+
+declare const mealQuerySchema: StandardSchemaV1<MealFilters, MealFilters>
 const filteredMeals = defineCollection({
   source: table({
     db,
@@ -80,7 +84,7 @@ const filteredMeals = defineCollection({
     },
   }),
 })
-expectTypeOf<CollectionQuery<typeof filteredMeals>>().toEqualTypeOf<{ day?: string }>()
+expectTypeOf<CollectionQuery<typeof filteredMeals>>().toEqualTypeOf<MealFilters>()
 
 declare const transformedMealQuerySchema: StandardSchemaV1<{ q: string }, { search: string }>
 const searchedMeals = defineCollection({
@@ -100,3 +104,34 @@ const searchedMeals = defineCollection({
   }),
 })
 expectTypeOf<CollectionQuery<typeof searchedMeals>>().toEqualTypeOf<{ q: string }>()
+
+type ReservedMealFilters = { cursor?: string } | { day?: string }
+declare const reservedMealQuerySchema: StandardSchemaV1<ReservedMealFilters, ReservedMealFilters>
+const reservedFilteredMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: reservedMealQuerySchema,
+    table: schema.meals,
+  }),
+})
+expectTypeOf<CollectionQuery<typeof reservedFilteredMeals>>().toEqualTypeOf<{ day?: string }>()
+
+declare const limitMealQuerySchema: StandardSchemaV1<{ limit?: string }, { limit?: string }>
+const limitFilteredMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: limitMealQuerySchema,
+    table: schema.meals,
+  }),
+})
+expectTypeOf<CollectionQuery<typeof limitFilteredMeals>>().toEqualTypeOf<never>()

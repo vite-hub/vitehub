@@ -1,7 +1,13 @@
 import { defineCollection as defineCoreCollection } from "@vite-hub/source"
 import { and, asc, desc, eq, getTableColumns, gt, lt, or } from "drizzle-orm"
 
-import type { Collection, CollectionCursorValue, CollectionLoader, CollectionRequestQuery } from "@vite-hub/source"
+import type {
+  Collection,
+  CollectionCursorValue,
+  CollectionLoader,
+  CollectionQueryInput,
+  CollectionRequestQuery,
+} from "@vite-hub/source"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { SQL } from "drizzle-orm"
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
@@ -37,9 +43,7 @@ type QueryOutput<TSchema extends StandardSchemaV1<unknown, object> | undefined> 
 
 type QueryInput<TSchema extends StandardSchemaV1<unknown, object> | undefined> =
   TSchema extends StandardSchemaV1<infer TInput extends object, object>
-    ? [TInput] extends [CollectionRequestQuery]
-      ? TInput
-      : never
+    ? CollectionQueryInput<TInput>
     : CollectionRequestQuery
 
 export interface TableSourceOptions<
