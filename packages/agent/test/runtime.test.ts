@@ -45,12 +45,13 @@ function nativeSummarySchema() {
           type: "object",
         }),
       },
-      validate: (value: unknown) => value
-        && typeof value === "object"
-        && typeof (value as { summary?: unknown }).summary === "string"
-        && typeof (value as { title?: unknown }).title === "string"
-        ? { value: value as { summary: string, title: string } }
-        : { issues: [{ message: "Expected a string", path: ["title"] }] },
+      validate: (value: unknown) =>
+        value &&
+        typeof value === "object" &&
+        typeof (value as { summary?: unknown }).summary === "string" &&
+        typeof (value as { title?: unknown }).title === "string"
+          ? { value: value as { summary: string; title: string } }
+          : { issues: [{ message: "Expected a string", path: ["title"] }] },
       vendor: "vitehub-test",
       version: 1 as const,
     },
@@ -82,35 +83,53 @@ async function failedTitleInvocation(options: {
     delivered.push(value)
   })
   const agent = defineAgent({
-    capabilities: [title({
-      execute: options.execute,
-      ...(options.fallback === undefined ? {} : { fallback: options.fallback }),
-      ...(options.maxLength === undefined ? {} : { maxLength: options.maxLength }),
-      ...(options.trigger === undefined ? {} : { trigger: options.trigger }),
-      ...(options.when === undefined ? {} : { when: options.when }),
-    })],
+    capabilities: [
+      title({
+        execute: options.execute,
+        ...(options.fallback === undefined ? {} : { fallback: options.fallback }),
+        ...(options.maxLength === undefined ? {} : { maxLength: options.maxLength }),
+        ...(options.trigger === undefined ? {} : { trigger: options.trigger }),
+        ...(options.when === undefined ? {} : { when: options.when }),
+      }),
+    ],
     channels: {
       portal: defineChannel("portal", {
         effects: { title: titleEffect as never },
         messages: false,
         triggers: {
           message: {
-            invoke: context => ({
+            invoke: (context) => ({
               input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-              run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              run: {
+                channelId: context.trigger.channelId,
+                origin: context.channel.kind,
+                runId: "portal-run",
+                threadId: "thread-1",
+              },
             }),
           },
         },
       }),
     },
-    driver: { run: () => { throw failure } },
+    driver: {
+      run: () => {
+        throw failure
+      },
+    },
   })
 
-  await expect(runAgentTrigger(agent, {
-    memo: vi.fn(),
-    runtime: "unknown" as const,
-    waitUntil: vi.fn(),
-  }, "portal.message", {})).rejects.toBe(failure)
+  await expect(
+    runAgentTrigger(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        waitUntil: vi.fn(),
+      },
+      "portal.message",
+      {},
+    ),
+  ).rejects.toBe(failure)
   return { delivered, titleEffect }
 }
 
@@ -121,15 +140,17 @@ describe("agent message protocol", () => {
 
   it("runs custom Agent Drivers through the invocation lifecycle", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const run = vi.fn(context => `received ${context.prompt}`)
+    const run = vi.fn((context) => `received ${context.prompt}`)
     const agent = defineAgent({
       driver: { run },
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toBe("received hello")
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "hello",
-    }))
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "hello",
+      }),
+    )
   })
 
   it("resolves Agent Capabilities from invocation context before composition", async () => {
@@ -158,7 +179,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: resolveCapabilities,
       driver: {
-        run: context => Object.keys(context.tools || {}),
+        run: (context) => Object.keys(context.tools || {}),
       },
     })
     const runtime = {
@@ -170,18 +191,22 @@ describe("agent message protocol", () => {
     const abortController = new AbortController()
 
     expect(resolveCapabilities).not.toHaveBeenCalled()
-    await expect(runAgent(agent, runtime, {
-      abortSignal: abortController.signal,
-      context: { enableSelected: true },
-      prompt: "hello",
-    })).resolves.toEqual(["selected"])
+    await expect(
+      runAgent(agent, runtime, {
+        abortSignal: abortController.signal,
+        context: { enableSelected: true },
+        prompt: "hello",
+      }),
+    ).resolves.toEqual(["selected"])
     expect(prepare).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
-    await expect(runAgent(agent, runtime, {
-      abortSignal: abortController.signal,
-      context: { enableSelected: false },
-      prompt: "hello",
-    })).resolves.toEqual([])
+    await expect(
+      runAgent(agent, runtime, {
+        abortSignal: abortController.signal,
+        context: { enableSelected: false },
+        prompt: "hello",
+      }),
+    ).resolves.toEqual([])
     expect(resolveCapabilities).toHaveBeenCalledTimes(2)
     expect(prepare).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
@@ -207,11 +232,17 @@ describe("agent message protocol", () => {
       workspace: workspaceName,
     })
 
-    await expect(runAgent(workspaceAgent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).resolves.toMatchObject({
+    await expect(
+      runAgent(
+        workspaceAgent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        { prompt: "hello" },
+      ),
+    ).resolves.toMatchObject({
       workspaceScope: { all: true, scope: "all" },
     })
 
@@ -219,13 +250,17 @@ describe("agent message protocol", () => {
       capabilities: () => [access({ chat: { resolve: () => true } })],
       driver: { run: () => "ok" },
     })
-    await expect(runAgent(chatAgent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).rejects.toThrow(
-      'Invocation-resolved Capability "access" cannot contribute chat access',
-    )
+    await expect(
+      runAgent(
+        chatAgent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        { prompt: "hello" },
+      ),
+    ).rejects.toThrow('Invocation-resolved Capability "access" cannot contribute chat access')
   })
 
   it("rejects definition-time contributions from invocation-resolved Capabilities", async () => {
@@ -244,22 +279,28 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).rejects.toThrow(
-      'Invocation-resolved Capability "dynamic-trigger" cannot contribute triggers',
-    )
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        { prompt: "hello" },
+      ),
+    ).rejects.toThrow('Invocation-resolved Capability "dynamic-trigger" cannot contribute triggers')
   })
 
   it("rejects structured output at the agent root", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    expect(() => defineAgent({
-      driver: { run: () => "{}" },
-      output: { schema: {} },
-    } as never)).toThrowError("defineAgent({ output }) is no longer supported")
+    expect(() =>
+      defineAgent({
+        driver: { run: () => "{}" },
+        output: { schema: {} },
+      } as never),
+    ).toThrowError("defineAgent({ output }) is no longer supported")
   })
 
   it("runs agent input hooks once before driver execution and can abort", async () => {
@@ -277,16 +318,28 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      context: { pullRequest: true as never },
-      prompt: "review",
-    })).resolves.toBe("ok")
+    await expect(
+      runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          context: { pullRequest: true as never },
+          prompt: "review",
+        },
+      ),
+    ).resolves.toBe("ok")
     expect(inputHook).toHaveBeenCalledTimes(1)
     expect(run).toHaveBeenCalledTimes(1)
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      prompt: "review",
-    })).rejects.toThrow("Missing GitHub field: context.pullRequest")
+    await expect(
+      runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          prompt: "review",
+        },
+      ),
+    ).rejects.toThrow("Missing GitHub field: context.pullRequest")
     expect(inputHook).toHaveBeenCalledTimes(2)
     expect(run).toHaveBeenCalledTimes(1)
   })
@@ -298,21 +351,27 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           text: "ok",
           totalUsage: {
             inputTokens: 4,
             outputTokens: 6,
           },
-        }) },
+        }),
+      },
     })
 
-    const result = await runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-1" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })
+    const result = await runAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-1" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      { prompt: "hello" },
+    )
 
     expect(result).toMatchObject({
       text: "ok",
@@ -332,7 +391,7 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "usage-renderer",
           output(context) {
-            context.output.render(result => ({
+            context.output.render((result) => ({
               ...(result as Record<string, unknown>),
               totalUsage: {
                 inputTokens: 4,
@@ -348,11 +407,17 @@ describe("agent message protocol", () => {
       driver: { run: () => ({ text: "ok" }) },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).resolves.toMatchObject({
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        { prompt: "hello" },
+      ),
+    ).resolves.toMatchObject({
       text: "ok",
       totalUsage: {
         inputTokens: 4,
@@ -386,9 +451,13 @@ describe("agent message protocol", () => {
       },
     })
 
-    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      prompt: "review",
-    }) as Response
+    const response = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        prompt: "review",
+      },
+    )) as Response
     expect(response).not.toBe(handled)
     await expect(response.text()).resolves.toBe("handled")
     expect(inputHook).not.toHaveBeenCalled()
@@ -400,27 +469,31 @@ describe("agent message protocol", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const events: string[] = []
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          review: {
-            description: "Review the request.",
-            call: ({ args }) => `review:${args}`,
-            hooks: {
-              "agent:input"(context) {
-                events.push(`command-input:${context.input.prompt}`)
-              },
-              "agent:finish"(context) {
-                events.push(context.error ? `command-finish:error:${(context.error as Error).message}` : `command-finish:${context.result}`)
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review the request.",
+              call: ({ args }) => `review:${args}`,
+              hooks: {
+                "agent:input"(context) {
+                  events.push(`command-input:${context.input.prompt}`)
+                },
+                "agent:finish"(context) {
+                  events.push(context.error ? `command-finish:error:${(context.error as Error).message}` : `command-finish:${context.result}`)
+                },
               },
             },
           },
-        },
-      })],
-      driver: { run(context) {
+        }),
+      ],
+      driver: {
+        run(context) {
           events.push(`run:${context.prompt}`)
           if (context.prompt === "review:fail") throw new Error("boom")
           return `ok:${context.prompt}`
-        }, },
+        },
+      },
       hooks: {
         "agent:input"(context) {
           events.push(`agent-input:${context.input.prompt}`)
@@ -458,19 +531,21 @@ describe("agent message protocol", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const effects: unknown[] = []
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          review: {
-            description: "Review the request.",
-            call: ({ args }) => args,
-            hooks: {
-              async "agent:finish"(context) {
-                if (context.error) await context.message.reply("I couldn't start the review.")
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review the request.",
+              call: ({ args }) => args,
+              hooks: {
+                async "agent:finish"(context) {
+                  if (context.error) await context.message.reply("I couldn't start the review.")
+                },
               },
             },
           },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: defineChannel("github", {
           effects: {
@@ -481,17 +556,25 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: { run() {
+      driver: {
+        run() {
           throw new Error("failed")
-        }, },
+        },
+      },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { channelId: "github", runId: "run-1" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "/review please" })).rejects.toThrow("failed")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          run: { channelId: "github", runId: "run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        { prompt: "/review please" },
+      ),
+    ).rejects.toThrow("failed")
 
     expect(effects).toEqual([{ kind: "reply", payload: "I couldn't start the review." }])
   })
@@ -503,17 +586,20 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, { prompt: "secret prompt" })).resolves.toBe("ok")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        },
+        { prompt: "secret prompt" },
+      ),
+    ).resolves.toBe("ok")
 
-    expect(traceLog.entries().map(event => event.name)).toEqual([
-      "agent.invocation.start",
-      "agent.invocation.finish",
-    ])
+    expect(traceLog.entries().map((event) => event.name)).toEqual(["agent.invocation.start", "agent.invocation.finish"])
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "input.hasPrompt": true,
       "runtime.name": "unknown",
@@ -530,13 +616,15 @@ describe("agent message protocol", () => {
           finishEvents.push(event)
         },
       },
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           text: "ok",
           usageRecord: {
             raw: { prompt: "provider secret" },
             usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
           },
-        }) },
+        }),
+      },
     })
     const host = {
       memo: vi.fn(),
@@ -560,13 +648,8 @@ describe("agent message protocol", () => {
     })
     for (const event of finishEvents) {
       const traceLog = event.runtime.traceLog!
-      expect(traceLog.entries().map(entry => entry.name)).toEqual([
-        "agent.invocation.start",
-        "agent.invocation.finish",
-      ])
-      expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
-        { id: "run-default-trace", status: "completed" },
-      ])
+      expect(traceLog.entries().map((entry) => entry.name)).toEqual(["agent.invocation.start", "agent.invocation.finish"])
+      expect(deriveTraceRuns(traceLog.entries())).toMatchObject([{ id: "run-default-trace", status: "completed" }])
       expect(traceLog.entries().at(-1)?.attributes).toMatchObject({
         "result.kind": "object",
         "usage.record": {
@@ -587,17 +670,25 @@ describe("agent message protocol", () => {
       usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
     })
     const agent = defineAgent({
-      driver: { run: (context) => {
+      driver: {
+        run: (context) => {
           traceLog = context.traceLog
           return result
-        } },
+        },
+      },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toBe(result)
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toBe(result)
     expect(traceLog!.entries().at(-1)?.attributes).toMatchObject({
       "usage.record": {
         usage: { totalTokens: 10 },
@@ -609,13 +700,16 @@ describe("agent message protocol", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let traceLog: ReturnType<typeof createTraceEventLog> | undefined
     const agent = defineAgent({
-      capabilities: [{
-        id: "plain-output",
-        output(context) {
-          context.output.render(() => "rendered")
+      capabilities: [
+        {
+          id: "plain-output",
+          output(context) {
+            context.output.render(() => "rendered")
+          },
         },
-      }],
-      driver: { run(context) {
+      ],
+      driver: {
+        run(context) {
           traceLog = context.traceLog
           return {
             text: "provider output",
@@ -623,15 +717,22 @@ describe("agent message protocol", () => {
               usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
             },
           }
-        } },
+        },
+      },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-rendered-usage" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toBe("rendered")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          run: { runId: "run-rendered-usage" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toBe("rendered")
 
     expect(traceLog!.entries().at(-1)?.attributes).toMatchObject({
       "usage.record": {
@@ -652,36 +753,48 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-supplied-trace" },
-      runtime: "unknown",
-      trace,
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})
+    await runAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-supplied-trace" },
+        runtime: "unknown",
+        trace,
+        traceLog,
+        waitUntil: vi.fn(),
+      },
+      {},
+    )
 
     expect(finish.mock.calls[0]![0].runtime.trace).toBe(trace)
     expect(finish.mock.calls[0]![0].runtime.traceLog).toBe(traceLog)
     expect(onEntry).toHaveBeenCalledTimes(2)
-    expect(new Set(traceLog.entries().map(entry => entry.trace))).toEqual(new Set([trace]))
+    expect(new Set(traceLog.entries().map((entry) => entry.trace))).toEqual(new Set([trace]))
   })
 
   it("records driver and finish-hook failures in default invocation traces", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let driverTraceLog: ReturnType<typeof createTraceEventLog> | undefined
     const driverFailure = defineAgent({
-      driver: { run(context) {
+      driver: {
+        run(context) {
           driverTraceLog = context.traceLog
           throw new Error("driver failed")
-        } },
+        },
+      },
     })
 
-    await expect(runAgent(driverFailure, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).rejects.toThrow("driver failed")
+    await expect(
+      runAgent(
+        driverFailure,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("driver failed")
     expect(deriveTraceRuns(driverTraceLog!.entries())).toMatchObject([{ status: "failed" }])
 
     let finishTraceLog: ReturnType<typeof createTraceEventLog> | undefined
@@ -695,15 +808,18 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(finishFailure, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).rejects.toThrow("finish failed")
-    expect(finishTraceLog!.entries().map(entry => entry.name)).toEqual([
-      "agent.invocation.start",
-      "agent.invocation.error",
-    ])
+    await expect(
+      runAgent(
+        finishFailure,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("finish failed")
+    expect(finishTraceLog!.entries().map((entry) => entry.name)).toEqual(["agent.invocation.start", "agent.invocation.error"])
     expect(deriveTraceRuns(finishTraceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
 
@@ -719,17 +835,20 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})).rejects.toThrow("finish failed")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("finish failed")
 
-    expect(traceLog.entries().map(event => event.name)).toEqual([
-      "agent.invocation.start",
-      "agent.invocation.error",
-    ])
+    expect(traceLog.entries().map((event) => event.name)).toEqual(["agent.invocation.start", "agent.invocation.error"])
     expect(traceLog.entries()[1]!.attributes).toMatchObject({
       "error.message": "finish failed",
     })
@@ -742,12 +861,15 @@ describe("agent message protocol", () => {
         throw new Error("getter failed")
       },
     })
-    const throwingPrototypeError = new Proxy({}, {
-      getPrototypeOf() {
-        throw new Error("prototype failed")
+    const throwingPrototypeError = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error("prototype failed")
+        },
       },
-    })
-    const cases: { error: unknown, message: string }[] = [
+    )
+    const cases: { error: unknown; message: string }[] = [
       { error: undefined, message: "Unknown error." },
       { error: "", message: "Unknown error." },
       { error: "string failed", message: "string failed" },
@@ -755,27 +877,36 @@ describe("agent message protocol", () => {
       { error: { code: "E_OBJECT" }, message: "Unknown error." },
       { error: throwingGetterError, message: "Unknown error." },
       { error: throwingPrototypeError, message: "Unknown error." },
-      { error: Object.assign(new Error("error failed"), { name: "CustomError" }), message: "error failed" },
+      {
+        error: Object.assign(new Error("error failed"), { name: "CustomError" }),
+        message: "error failed",
+      },
     ]
 
     for (const { error, message } of cases) {
       const finish = vi.fn()
       const agentError = vi.fn()
       const agent = defineAgent({
-        driver: { run: () => {
+        driver: {
+          run: () => {
             throw error
-          }, },
+          },
+        },
         hooks: {
           "agent:error": agentError,
           "agent:finish": finish,
         },
       })
 
-      await runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {}).catch(() => {})
+      await runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ).catch(() => {})
 
       expect(finish).not.toHaveBeenCalled()
       const errorEvent = agentError.mock.calls[0]?.[0]
@@ -791,7 +922,7 @@ describe("agent message protocol", () => {
     const { defineChannel } = await import("../src/channels.ts")
     const failure = new Error("boom")
     const finish = vi.fn()
-    const agentError = vi.fn(event => event.reply(`failed:${event.errorMessage}`))
+    const agentError = vi.fn((event) => event.reply(`failed:${event.errorMessage}`))
     const observe = vi.fn()
     const reply = vi.fn()
     const agent = defineAgent({
@@ -801,10 +932,12 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: { run: (context) => {
+      driver: {
+        run: (context) => {
           if (context.prompt === "fail") throw failure
           return "ok"
-        }, },
+        },
+      },
       hooks: {
         "agent:error": agentError,
         "agent:finish": finish,
@@ -826,10 +959,12 @@ describe("agent message protocol", () => {
     expect(finish).toHaveBeenCalledOnce()
     expect(agentError).toHaveBeenCalledOnce()
     expect(agentError.mock.calls[0]![0].error).toBe(failure)
-    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
-      effect: { kind: "reply", payload: "failed:boom" },
-    }))
-    expect(observe.mock.calls.map(([event]) => event).filter(event => event.owner === "agent")).toEqual([
+    expect(reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        effect: { kind: "reply", payload: "failed:boom" },
+      }),
+    )
+    expect(observe.mock.calls.map(([event]) => event).filter((event) => event.owner === "agent")).toEqual([
       expect.objectContaining({ name: "agent:finish", outcome: "success", phase: "finish" }),
       expect.objectContaining({ name: "agent:error", outcome: "success", phase: "error" }),
     ])
@@ -838,11 +973,16 @@ describe("agent message protocol", () => {
   it("treats stream cancellation without reason as successful cleanup", async () => {
     const { withReadableStreamCleanup } = await import("../src/stream-output.ts")
     const outcomes: unknown[] = []
-    const stream = withReadableStreamCleanup(new ReadableStream({
-      start(controller) {
-        controller.enqueue({ type: "start" })
+    const stream = withReadableStreamCleanup(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "start" })
+        },
+      }),
+      async (outcome) => {
+        outcomes.push(outcome)
       },
-    }), async outcome => { outcomes.push(outcome) })
+    )
 
     await stream.cancel()
 
@@ -852,16 +992,24 @@ describe("agent message protocol", () => {
   it("awaits source cancellation before abort cleanup", async () => {
     const { withReadableStreamCleanup } = await import("../src/stream-output.ts")
     let resolveCancellation!: () => void
-    const cancellation = new Promise<void>((resolve) => { resolveCancellation = resolve })
+    const cancellation = new Promise<void>((resolve) => {
+      resolveCancellation = resolve
+    })
     const events: string[] = []
     const controller = new AbortController()
-    withReadableStreamCleanup(new ReadableStream({
-      async cancel() {
-        events.push("cancel")
-        await cancellation
-        events.push("cancelled")
+    withReadableStreamCleanup(
+      new ReadableStream({
+        async cancel() {
+          events.push("cancel")
+          await cancellation
+          events.push("cancelled")
+        },
+      }),
+      async () => {
+        events.push("cleanup")
       },
-    }), async () => { events.push("cleanup") }, { abortSignal: controller.signal })
+      { abortSignal: controller.signal },
+    )
 
     controller.abort(new DOMException("stop", "AbortError"))
     await vi.waitFor(() => expect(events).toEqual(["cancel"]))
@@ -890,9 +1038,11 @@ describe("agent message protocol", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: { run: () => {
+      driver: {
+        run: () => {
           throw new Error("run failed")
-      }, },
+        },
+      },
       hooks: {
         "agent:error": () => {
           throw new Error("error hook failed")
@@ -900,44 +1050,53 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})).rejects.toThrow("Agent run failed")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("Agent run failed")
 
-    expect(traceLog.entries().map(event => event.name)).toEqual([
-      "agent.invocation.start",
-      "agent.invocation.error",
-    ])
-    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
-      { status: "failed" },
-    ])
+    expect(traceLog.entries().map((event) => event.name)).toEqual(["agent.invocation.start", "agent.invocation.error"])
+    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("keeps custom Trace Events in the synthesized invocation trace", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: { run: async context => {
+      driver: {
+        run: async (context) => {
           await emitTraceEvent(context, {
             attributes: { "step.id": "custom-step" },
             name: "agent.custom.step",
             type: "run",
           })
           return "ok"
-        }, },
+        },
+      },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})).resolves.toBe("ok")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toBe("ok")
 
-    expect(new Set(traceLog.entries().map(event => event.trace?.id)).size).toBe(1)
+    expect(new Set(traceLog.entries().map((event) => event.trace?.id)).size).toBe(1)
     expect(deriveTraceRuns(traceLog.entries())).toHaveLength(1)
   })
 
@@ -953,16 +1112,20 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})).rejects.toThrow("setup failed")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("setup failed")
 
-    expect(traceLog.entries().map(event => event.name)).toEqual([
-      "agent.invocation.error",
-    ])
+    expect(traceLog.entries().map((event) => event.name)).toEqual(["agent.invocation.error"])
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "agent.invoker.kind": "anonymous",
       "error.message": "setup failed",
@@ -987,16 +1150,20 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})).rejects.toThrow("capability setup failed")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("capability setup failed")
 
-    expect(traceLog.entries().map(event => event.name)).toEqual([
-      "agent.invocation.error",
-    ])
+    expect(traceLog.entries().map((event) => event.name)).toEqual(["agent.invocation.error"])
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "agent.invoker.id": "tenant-1",
       "agent.invoker.kind": "tenant",
@@ -1009,24 +1176,27 @@ describe("agent message protocol", () => {
     const prepare = vi.fn()
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [{
-        id: "seen",
-        prepare({ actor, context, invoker }) {
-          prepare({
-            actor,
-            contextActor: context.get("actor"),
-            contextInvoker: context.get("invoker"),
-            invoker,
-          })
+      capabilities: [
+        {
+          id: "seen",
+          prepare({ actor, context, invoker }) {
+            prepare({
+              actor,
+              contextActor: context.get("actor"),
+              contextInvoker: context.get("invoker"),
+              invoker,
+            })
+          },
         },
-      }],
+      ],
       hooks: {
         "agent:finish": finish,
       },
       invoker: {
         resolve: () => ({ id: "tenant-1", kind: "tenant", meta: { tier: "pro" } }),
       },
-      driver: { run: ({ actor, context, invoker }) => ({
+      driver: {
+        run: ({ actor, context, invoker }) => ({
           raw: {
             actor,
             actorIsInvoker: actor === invoker,
@@ -1035,14 +1205,21 @@ describe("agent message protocol", () => {
             invoker,
           },
           text: actor.id,
-        }) },
+        }),
+      },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toEqual({
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toEqual({
       raw: {
         actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
         actorIsInvoker: true,
@@ -1058,36 +1235,51 @@ describe("agent message protocol", () => {
       contextInvoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
       invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
     })
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
-      invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
-    }))
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+        invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+      }),
+    )
   })
 
   it("emits stream milestone Trace Events without tracing text deltas", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: { run: () => (async function* () {
-          yield { text: "secret text", type: "text-delta" }
-          yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
-          yield { id: "tool-1", name: "search", output: { result: "secret" }, type: "tool-result" }
-          yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "secret text", type: "text-delta" }
+            yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
+            yield {
+              id: "tool-1",
+              name: "search",
+              output: { result: "secret" },
+              type: "tool-result",
+            }
+            yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-1" },
-      runtime: "unknown",
-      trace: { id: "request-1" },
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})
-    for await (const _event of stream as AsyncIterable<unknown>) {}
+    const stream = await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-1" },
+        runtime: "unknown",
+        trace: { id: "request-1" },
+        traceLog,
+        waitUntil: vi.fn(),
+      },
+      {},
+    )
+    for await (const _event of stream as AsyncIterable<unknown>) {
+    }
 
-    expect(traceLog.entries().map(event => event.name)).toEqual([
+    expect(traceLog.entries().map((event) => event.name)).toEqual([
       "agent.invocation.start",
       "agent.tool.start",
       "agent.tool.finish",
@@ -1095,9 +1287,9 @@ describe("agent message protocol", () => {
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
-    expect(new Set(traceLog.entries().map(event => event.attributes?.["agent.run.id"]))).toEqual(new Set(["run-1"]))
-    expect(new Set(traceLog.entries().map(event => event.trace?.id))).toEqual(new Set(["request-1"]))
-    expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
+    expect(new Set(traceLog.entries().map((event) => event.attributes?.["agent.run.id"]))).toEqual(new Set(["run-1"]))
+    expect(new Set(traceLog.entries().map((event) => event.trace?.id))).toEqual(new Set(["request-1"]))
+    expect(deriveTraceRuns(traceLog.entries()).map((run) => run.id)).toEqual(["run-1"])
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
   })
@@ -1107,20 +1299,31 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       hooks: { "agent:finish": finish },
-      driver: { run: () => (async function* () {
-          yield { text: "hello", type: "text-delta" }
-          yield { type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "hello", type: "text-delta" }
+            yield {
+              type: "usage",
+              usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } },
+            }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-streamed-usage" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {}) as AsyncIterable<unknown>
-    for await (const _event of stream) {}
+    const stream = (await runAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-streamed-usage" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      {},
+    )) as AsyncIterable<unknown>
+    for await (const _event of stream) {
+    }
 
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
       run: { runId: "run-streamed-usage" },
@@ -1138,36 +1341,38 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: { run: () => (async function* () {
-          yield { error: "stream failed", type: "error" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { error: "stream failed", type: "error" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {})
+    const stream = await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      },
+      {},
+    )
     const events = []
     for await (const event of stream as AsyncIterable<unknown>) {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { error: "stream failed", type: "error" },
-      { type: "finish" },
-    ])
-    expect(traceLog.entries().map(event => event.name)).toEqual([
+    expect(events).toEqual([{ error: "stream failed", type: "error" }, { type: "finish" }])
+    expect(traceLog.entries().map((event) => event.name)).toEqual([
       "agent.invocation.start",
       "agent.stream.error",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
-    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
-      { status: "failed" },
-    ])
+    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("does not delay async iterable errors for deferred titles", async () => {
@@ -1175,30 +1380,32 @@ describe("agent message protocol", () => {
     const generated = deferred<string>()
     const agent = defineAgent({
       capabilities: [title({ execute: () => generated.promise })],
-      driver: { run: () => (async function* () {
-          yield { error: "stream failed", type: "error" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { error: "stream failed", type: "error" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
     const events = []
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
     for await (const event of stream as AsyncIterable<unknown>) events.push(event)
 
-    expect(events).toEqual([
-      { error: "stream failed", type: "error" },
-      { type: "finish" },
-    ])
+    expect(events).toEqual([{ error: "stream failed", type: "error" }, { type: "finish" }])
   })
 
   it("adds safe AI SDK telemetry for traced model-backed agents", async () => {
-    const aiGlobal = globalThis as typeof globalThis & { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }
+    const aiGlobal = globalThis as typeof globalThis & {
+      AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[]
+    }
     const previousGlobalTelemetry = aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
     const globalIntegration = { onStart: vi.fn() }
     const agentSettings: Record<string, unknown>[] = []
     aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = [globalIntegration]
     vi.doMock("ai", () => ({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         settings: Record<string, unknown>
 
@@ -1208,7 +1415,9 @@ describe("agent message protocol", () => {
         }
 
         async generate() {
-          const telemetry = this.settings.telemetry as { integrations: Array<Record<string, (event: unknown) => Promise<void>>> }
+          const telemetry = this.settings.telemetry as {
+            integrations: Array<Record<string, (event: unknown) => Promise<void>>>
+          }
           const viteHubTelemetry = telemetry.integrations.at(-1)!
           await viteHubTelemetry.onToolExecutionStart?.({
             toolCall: { toolCallId: "call-1", toolName: "search" },
@@ -1230,36 +1439,46 @@ describe("agent message protocol", () => {
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const traceLog = createTraceEventLog()
-      const agent = defineAgent({       driver: {
-        model: {} as never
-      },
-})
+      const agent = defineAgent({
+        driver: {
+          model: {} as never,
+        },
+      })
 
-      await expect(runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        traceLog,
-        waitUntil: vi.fn(),
-      }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
+      await expect(
+        runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            runtime: "unknown",
+            traceLog,
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
 
-      const telemetry = agentSettings[0]!.telemetry as { integrations: unknown[], recordInputs: boolean, recordOutputs: boolean }
+      const telemetry = agentSettings[0]!.telemetry as {
+        integrations: unknown[]
+        recordInputs: boolean
+        recordOutputs: boolean
+      }
       expect(telemetry.integrations[0]).toBe(globalIntegration)
       expect(telemetry.recordInputs).toBe(false)
       expect(telemetry.recordOutputs).toBe(false)
-      expect(traceLog.entries().map(event => event.name)).toEqual([
+      expect(traceLog.entries().map((event) => event.name)).toEqual([
         "agent.invocation.start",
         "agent.tool.start",
         "agent.tool.error",
         "agent.invocation.finish",
       ])
-      expect(traceLog.entries().find(event => event.name === "agent.tool.error")?.attributes).toMatchObject({
+      expect(traceLog.entries().find((event) => event.name === "agent.tool.error")?.attributes).toMatchObject({
         "error.message": "lookup failed",
         "step.id": "call-1",
         "tool.id": "call-1",
         "tool.name": "search",
       })
-    }
-    finally {
+    } finally {
       if (previousGlobalTelemetry === undefined) delete aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
       else aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = previousGlobalTelemetry
       vi.doUnmock("ai")
@@ -1276,20 +1495,27 @@ describe("agent message protocol", () => {
       },
       text: "browser report",
     }))
-    const agent = defineAgent({     driver: {
-      run
-    },
-})
+    const agent = defineAgent({
+      driver: {
+        run,
+      },
+    })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "review-run" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {
-      context: { previewUrl: "https://preview.local" },
-      message: "Check the product card.",
-    })).resolves.toEqual({
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          run: { runId: "review-run" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {
+          context: { previewUrl: "https://preview.local" },
+          message: "Check the product card.",
+        },
+      ),
+    ).resolves.toEqual({
       raw: {
         context: expect.objectContaining({ previewUrl: "https://preview.local" }),
         message: "Check the product card.",
@@ -1302,7 +1528,8 @@ describe("agent message protocol", () => {
   it("registers subagent tools", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const browserAgent = defineAgent({
-      driver: { run: ({ input, invoker, messages, run }) => ({
+      driver: {
+        run: ({ input, invoker, messages, run }) => ({
           raw: {
             context: input.context,
             invokerId: invoker.id,
@@ -1310,7 +1537,8 @@ describe("agent message protocol", () => {
             runId: run?.runId,
           },
           text: "browser report",
-        }) },
+        }),
+      },
     })
     const reviewerAgent = defineAgent({
       capabilities: [
@@ -1323,27 +1551,35 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      driver: { async run({ tools }) {
+      driver: {
+        async run({ tools }) {
           const tool = tools?.run_browser
           if (!tool?.execute) throw new Error("Missing browser subagent tool.")
           return await tool.execute({
             context: { previewUrl: "https://preview.local" },
             message: "Check the product card.",
           })
-        } },
+        },
+      },
     })
 
-    await expect(runAgent(reviewerAgent, {
-      memo: vi.fn(),
-      run: { runId: "review-run" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {
-      context: {
-        invoker: { id: "github:onmax", kind: "github" },
-      },
-      message: "Review the PR.",
-    })).resolves.toEqual({
+    await expect(
+      runAgent(
+        reviewerAgent,
+        {
+          memo: vi.fn(),
+          run: { runId: "review-run" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {
+          context: {
+            invoker: { id: "github:onmax", kind: "github" },
+          },
+          message: "Review the PR.",
+        },
+      ),
+    ).resolves.toEqual({
       raw: {
         context: expect.objectContaining({ previewUrl: "https://preview.local" }),
         invokerId: "github:onmax",
@@ -1361,54 +1597,71 @@ describe("agent message protocol", () => {
     const summaryAgent = defineAgent({
       runtime: false,
       workspace: { name: workspaceName, mode: "write" },
-      driver: { async run({ workspace }) {
+      driver: {
+        async run({ workspace }) {
           await (workspace as WritableWorkspaceFacade).fs.writeFile("summary.md", "summary")
           return "summary written"
-        } },
-    })
-    const reviewerAgent = registerWorkspaceAgent(defineAgent({
-      runtime: false,
-      workspace: {
-        mode: "write",
-        store: { provider: "memory" },
+        },
       },
-      driver: { async run(context) {
-          const workspace = context.workspace as WritableWorkspaceFacade
-          await workspace.fs.writeFile("review.md", "review")
-          await runAgent(summaryAgent, context as never, { message: "write summary" })
-          return await workspace.fs.readFile("summary.md")
-        } },
-    }), { workspace: workspaceName })
+    })
+    const reviewerAgent = registerWorkspaceAgent(
+      defineAgent({
+        runtime: false,
+        workspace: {
+          mode: "write",
+          store: { provider: "memory" },
+        },
+        driver: {
+          async run(context) {
+            const workspace = context.workspace as WritableWorkspaceFacade
+            await workspace.fs.writeFile("review.md", "review")
+            await runAgent(summaryAgent, context as never, { message: "write summary" })
+            return await workspace.fs.readFile("summary.md")
+          },
+        },
+      }),
+      { workspace: workspaceName },
+    )
 
-    await expect(runAgent(reviewerAgent, {
-      agentIdentity: { name: "reviewer", workspace: workspaceName },
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { message: "review" })).resolves.toBe("summary")
+    await expect(
+      runAgent(
+        reviewerAgent,
+        {
+          agentIdentity: { name: "reviewer", workspace: workspaceName },
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        { message: "review" },
+      ),
+    ).resolves.toBe("summary")
   })
 
   it("rejects duplicate generated subagent tool names", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    expect(() => subagents({
-      agents: {
-        "code-review": {
-          agent: defineAgent({           driver: {
-            run: () => "ok"
+    expect(() =>
+      subagents({
+        agents: {
+          "code-review": {
+            agent: defineAgent({
+              driver: {
+                run: () => "ok",
+              },
+            }),
+            description: "Review code.",
           },
-}),
-          description: "Review code.",
-        },
-        code_review: {
-          agent: defineAgent({           driver: {
-            run: () => "ok"
+          code_review: {
+            agent: defineAgent({
+              driver: {
+                run: () => "ok",
+              },
+            }),
+            description: "Review code again.",
           },
-}),
-          description: "Review code again.",
         },
-      },
-    })).toThrow('Duplicate subagent tool name "run_code_review"')
+      }),
+    ).toThrow('Duplicate subagent tool name "run_code_review"')
   })
 
   it("runs subagent tools with the resolved parent runtime context", async () => {
@@ -1441,25 +1694,33 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      driver: { async run({ tools }) {
+      driver: {
+        async run({ tools }) {
           const tool = tools?.run_browser
           if (!tool?.execute) throw new Error("Missing browser subagent tool.")
           return await tool.execute({ message: "Check the product card." })
-        } },
+        },
+      },
     })
 
-    await expect(runAgent(reviewerAgent, {
-      memo: vi.fn(),
-      run: { runId: "review-run" },
-      runtime: "unknown",
-      runtimeConfig: { region: "iad" },
-      waitUntil: vi.fn(),
-    }, {
-      context: {
-        invoker: { id: "github:onmax", kind: "github" },
-      },
-      message: "Review the PR.",
-    })).resolves.toMatchObject({
+    await expect(
+      runAgent(
+        reviewerAgent,
+        {
+          memo: vi.fn(),
+          run: { runId: "review-run" },
+          runtime: "unknown",
+          runtimeConfig: { region: "iad" },
+          waitUntil: vi.fn(),
+        },
+        {
+          context: {
+            invoker: { id: "github:onmax", kind: "github" },
+          },
+          message: "Review the PR.",
+        },
+      ),
+    ).resolves.toMatchObject({
       raw: {
         raw: {
           invokerId: "github:onmax",
@@ -1476,7 +1737,7 @@ describe("agent message protocol", () => {
     const nativeOutput = { name: "object" }
     loadAiSdk.mockResolvedValue({
       isStepCount: () => () => false,
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       Output: { object: vi.fn(() => nativeOutput) },
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
@@ -1484,14 +1745,18 @@ describe("agent message protocol", () => {
         }
 
         async generate() {
-          return { text: "{\"title\":\"Weekly sync\"}" }
+          return { text: '{"title":"Weekly sync"}' }
         }
       },
     })
     const schema = {
       "~standard": {
         jsonSchema: {
-          input: () => ({ properties: { title: { type: "string" } }, required: ["title"], type: "object" }),
+          input: () => ({
+            properties: { title: { type: "string" } },
+            required: ["title"],
+            type: "object",
+          }),
           output: () => ({ type: "number" }),
         },
         validate: (value: unknown) => ({ value: value as { title: string } }),
@@ -1600,7 +1865,9 @@ describe("agent message protocol", () => {
 
   it("rejects unknown inline schedule option and entry keys", () => {
     expect(() => schedule({ schedules: ["0 9 * * *"], timeZone: "Europe/Copenhagen" } as never)).toThrow('schedule() does not support "timeZone"')
-    expect(() => schedule({ schedules: [{ cron: "0 9 * * *", timeZone: "Europe/Copenhagen" }] } as never)).toThrow('schedule({ schedules }) entry does not support "timeZone"')
+    expect(() => schedule({ schedules: [{ cron: "0 9 * * *", timeZone: "Europe/Copenhagen" }] } as never)).toThrow(
+      'schedule({ schedules }) entry does not support "timeZone"',
+    )
   })
 
   it("runs scheduled agents with schedule-owned input metadata and no synthetic messages", async () => {
@@ -1608,40 +1875,46 @@ describe("agent message protocol", () => {
     const seen: unknown[] = []
     const waitUntil = vi.fn()
     const agent = defineAgent({
-      driver: { run: context => {
+      driver: {
+        run: (context) => {
           context.waitUntil(Promise.resolve())
           seen.push({ input: context.input, messages: context.messages })
           return "ok"
-        } },
+        },
+      },
     })
 
-    await expect(runScheduledAgent(agent, {
-      attemptId: "attempt-1",
-      id: "srun_schedule_2026-05-23T09:00:00.000Z",
-      runId: "srun_schedule_2026-05-23T09:00:00.000Z",
-      scheduleId: "schedule-0-9",
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-      target: "support",
-      waitUntil,
-    })).resolves.toBe("ok")
+    await expect(
+      runScheduledAgent(agent, {
+        attemptId: "attempt-1",
+        id: "srun_schedule_2026-05-23T09:00:00.000Z",
+        runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+        scheduleId: "schedule-0-9",
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+        target: "support",
+        waitUntil,
+      }),
+    ).resolves.toBe("ok")
 
     expect(waitUntil).toHaveBeenCalledOnce()
 
-    expect(seen).toEqual([{
-      input: {
-        context: {
-          schedule: {
-            id: "srun_schedule_2026-05-23T09:00:00.000Z",
-            kind: "schedule",
-            runId: "srun_schedule_2026-05-23T09:00:00.000Z",
-            scheduleId: "schedule-0-9",
-            scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-            target: "support",
+    expect(seen).toEqual([
+      {
+        input: {
+          context: {
+            schedule: {
+              id: "srun_schedule_2026-05-23T09:00:00.000Z",
+              kind: "schedule",
+              runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+              scheduleId: "schedule-0-9",
+              scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+              target: "support",
+            },
           },
         },
+        messages: [],
       },
-      messages: [],
-    }])
+    ])
   })
 
   it("passes invocation input through scheduled Agent runs", async () => {
@@ -1649,7 +1922,8 @@ describe("agent message protocol", () => {
     const abortController = new AbortController()
     const seen: unknown[] = []
     const agent = defineAgent<any, { worktreePath: string }>({
-      driver: { run: context => {
+      driver: {
+        run: (context) => {
           seen.push({
             abortSignal: context.input.abortSignal,
             owner: context.context.get("owner"),
@@ -1658,111 +1932,137 @@ describe("agent message protocol", () => {
             schedule: context.context.get("schedule"),
           })
           return "ok"
-        } },
+        },
+      },
     })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
 
-    await expect(runScheduledAgent(agent, {
-      id: "srun-scheduled-review",
-      runId: "review-pr-646",
-      scheduleId: "scheduled-review",
-      scheduledAt,
-      target: "agent/reviewer",
-    }, {}, {
-      abortSignal: abortController.signal,
-      context: { owner: "vite-hub/vitehub" },
-      options: { worktreePath: "/tmp/vitehub-pr-646" },
-      prompt: "Review pull request 646.",
-    })).resolves.toBe("ok")
+    await expect(
+      runScheduledAgent(
+        agent,
+        {
+          id: "srun-scheduled-review",
+          runId: "review-pr-646",
+          scheduleId: "scheduled-review",
+          scheduledAt,
+          target: "agent/reviewer",
+        },
+        {},
+        {
+          abortSignal: abortController.signal,
+          context: { owner: "vite-hub/vitehub" },
+          options: { worktreePath: "/tmp/vitehub-pr-646" },
+          prompt: "Review pull request 646.",
+        },
+      ),
+    ).resolves.toBe("ok")
 
-    expect(seen).toEqual([{
-      abortSignal: abortController.signal,
-      owner: "vite-hub/vitehub",
-      options: { worktreePath: "/tmp/vitehub-pr-646" },
-      prompt: "Review pull request 646.",
-      schedule: {
-        id: "srun-scheduled-review",
-        kind: "schedule",
-        runId: "review-pr-646",
-        scheduleId: "scheduled-review",
-        scheduledAt,
-        target: "agent/reviewer",
+    expect(seen).toEqual([
+      {
+        abortSignal: abortController.signal,
+        owner: "vite-hub/vitehub",
+        options: { worktreePath: "/tmp/vitehub-pr-646" },
+        prompt: "Review pull request 646.",
+        schedule: {
+          id: "srun-scheduled-review",
+          kind: "schedule",
+          runId: "review-pr-646",
+          scheduleId: "scheduled-review",
+          scheduledAt,
+          target: "agent/reviewer",
+        },
       },
-    }])
+    ])
   })
 
   it("keeps durable scheduled Agent turn prompts authoritative", async () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
     const agent = defineAgent({
-      driver: { run: context => {
+      driver: {
+        run: (context) => {
           seen.push({
             input: context.input,
             messages: context.messages,
             prompt: context.prompt,
           })
           return "ok"
-        } },
+        },
+      },
     })
 
-    await expect(runScheduledAgent(agent, {
-      id: "srun-durable",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat" },
-        kind: "agent-turn",
+    await expect(
+      runScheduledAgent(
+        agent,
+        {
+          id: "srun-durable",
+          input: {
+            invoker: { id: "discord:user-1", kind: "chat" },
+            kind: "agent-turn",
+            prompt: "Persisted turn prompt.",
+          },
+          scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+        },
+        {},
+        {
+          message: "Caller message.",
+          messages: [createMessage({ role: "user", text: "Caller messages." })],
+          prompt: [createMessage({ role: "user", text: "Caller prompt messages." })],
+        },
+      ),
+    ).resolves.toBe("ok")
+
+    expect(seen).toEqual([
+      {
+        input: expect.not.objectContaining({
+          message: expect.anything(),
+          messages: expect.anything(),
+        }),
+        messages: [],
         prompt: "Persisted turn prompt.",
       },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    }, {}, {
-      message: "Caller message.",
-      messages: [createMessage({ role: "user", text: "Caller messages." })],
-      prompt: [createMessage({ role: "user", text: "Caller prompt messages." })],
-    })).resolves.toBe("ok")
-
-    expect(seen).toEqual([{
-      input: expect.not.objectContaining({
-        message: expect.anything(),
-        messages: expect.anything(),
-      }),
-      messages: [],
-      prompt: "Persisted turn prompt.",
-    }])
+    ])
   })
 
   it("uses the schedule id as run id when scheduled context omits provider run id", async () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
     const agent = defineAgent({
-      driver: { run: context => {
+      driver: {
+        run: (context) => {
           seen.push(context.input)
           return "ok"
-        } },
+        },
+      },
     })
 
-    await expect(runScheduledAgent(agent, {
-      id: "srun_schedule_2026-05-23T09:00:00.000Z",
-      scheduleId: "schedule-0-9",
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).resolves.toBe("ok")
+    await expect(
+      runScheduledAgent(agent, {
+        id: "srun_schedule_2026-05-23T09:00:00.000Z",
+        scheduleId: "schedule-0-9",
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      }),
+    ).resolves.toBe("ok")
 
-    expect(seen).toEqual([{
-      context: {
-        schedule: expect.objectContaining({
-          id: "srun_schedule_2026-05-23T09:00:00.000Z",
-          runId: "srun_schedule_2026-05-23T09:00:00.000Z",
-        }),
+    expect(seen).toEqual([
+      {
+        context: {
+          schedule: expect.objectContaining({
+            id: "srun_schedule_2026-05-23T09:00:00.000Z",
+            runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+          }),
+        },
       },
-    }])
+    ])
   })
 
   it("memoizes scheduled agent runtime values by key", async () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const create = vi.fn(() => ({ ok: true }))
     const agent = defineAgent({
-      driver: { run: context => [
-          context.memo("resource", create),
-          context.memo("resource", create),
-        ] },
+      driver: {
+        run: (context) => [context.memo("resource", create), context.memo("resource", create)],
+      },
     })
 
     const result = await runScheduledAgent(agent, {
@@ -1784,35 +2084,45 @@ describe("agent message protocol", () => {
     const waitUntil = vi.fn()
     const seen: unknown[] = []
     const agent = defineAgent({
-      driver: { run: context => {
+      driver: {
+        run: (context) => {
           seen.push({
             run: context.run,
             runtime: context.runtime,
             waitUntil: context.waitUntil,
           })
           return "ok"
-        } },
+        },
+      },
     })
 
-    await expect(runScheduledAgent(agent, {
-      attemptId: "attempt-1",
-      id: "srun_schedule_2026-05-23T09:00:00.000Z",
-      runId: "srun_schedule_2026-05-23T09:00:00.000Z",
-      scheduleId: "schedule-0-9",
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-      target: "support",
-    }, {
-      run: { origin: "cloudflare", runId: "host-run" },
-      runtime: "vite",
-      runtimeConfig: { region: "iad" },
-      waitUntil,
-    })).resolves.toBe("ok")
+    await expect(
+      runScheduledAgent(
+        agent,
+        {
+          attemptId: "attempt-1",
+          id: "srun_schedule_2026-05-23T09:00:00.000Z",
+          runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+          scheduleId: "schedule-0-9",
+          scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+          target: "support",
+        },
+        {
+          run: { origin: "cloudflare", runId: "host-run" },
+          runtime: "vite",
+          runtimeConfig: { region: "iad" },
+          waitUntil,
+        },
+      ),
+    ).resolves.toBe("ok")
 
-    expect(seen).toEqual([{
-      run: { origin: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
-      runtime: "vite",
-      waitUntil,
-    }])
+    expect(seen).toEqual([
+      {
+        run: { origin: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
+        runtime: "vite",
+        waitUntil,
+      },
+    ])
   })
 
   it("forwards host runtime capabilities through scheduled Agent targets", async () => {
@@ -1831,10 +2141,12 @@ describe("agent message protocol", () => {
     })
     const target = defineScheduledAgentTarget(agent, { capabilities: { kv: store } })
 
-    await expect(target.handler({
-      id: "srun-capabilities",
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).resolves.toBe("value:scheduled")
+    await expect(
+      target.handler({
+        id: "srun-capabilities",
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      }),
+    ).resolves.toBe("value:scheduled")
     expect(store.get).toHaveBeenCalledWith("scheduled")
   })
 
@@ -1844,7 +2156,10 @@ describe("agent message protocol", () => {
     const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
     const channelIdFromThreadId = vi.fn(() => "discord:channel")
     const postMessage = vi.fn(async () => undefined)
-    const resolveInvoker = vi.fn(({ defaultInvoker }) => ({ ...defaultInvoker, label: "Reauthorized Maxi" }))
+    const resolveInvoker = vi.fn(({ defaultInvoker }) => ({
+      ...defaultInvoker,
+      label: "Reauthorized Maxi",
+    }))
     const seen: unknown[] = []
     const agent = defineAgent({
       capabilities: [schedule({ allowSelfTarget: true, delivery: "origin", mode: "write" })],
@@ -1856,7 +2171,8 @@ describe("agent message protocol", () => {
           } as never,
         }),
       },
-      driver: { run: context => {
+      driver: {
+        run: (context) => {
           seen.push({
             invoker: context.invoker,
             prompt: context.prompt,
@@ -1864,60 +2180,73 @@ describe("agent message protocol", () => {
             schedule: context.context.get("schedule"),
           })
           return { text: "Scheduled reply" }
-        } },
+        },
+      },
       invoker: { resolve: resolveInvoker },
     })
     const target = defineScheduledAgentTarget(agent)
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
 
     expect(target.options).toEqual({ allowRuntimeSchedules: true })
-    await expect(target.handler({
-      id: "srun-daily",
-      input: {
-        delivery: { channelId: "discord", origin: "discord", threadId: "discord:channel:thread-7" },
-        invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      runId: "srun-daily",
-      scheduleId: "daily",
-      scheduledAt,
-      target: "agent/digest",
-    })).resolves.toMatchObject({ text: "Scheduled reply" })
-
-    expect(resolveInvoker).toHaveBeenCalledWith(expect.objectContaining({
-      defaultInvoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
-    }))
-    expect(seen).toEqual([{
-      invoker: { id: "discord:user-1", kind: "chat", label: "Reauthorized Maxi" },
-      prompt: "Prepare my daily report.",
-      run: {
-        channelId: "discord",
-        origin: "discord",
-        runId: "srun-daily",
-        threadId: "discord:channel:thread-7",
-      },
-      schedule: {
+    await expect(
+      target.handler({
         id: "srun-daily",
-        kind: "schedule",
+        input: {
+          delivery: {
+            channelId: "discord",
+            origin: "discord",
+            threadId: "discord:channel:thread-7",
+          },
+          invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
+          kind: "agent-turn",
+          prompt: "Prepare my daily report.",
+        },
         runId: "srun-daily",
         scheduleId: "daily",
         scheduledAt,
         target: "agent/digest",
+      }),
+    ).resolves.toMatchObject({ text: "Scheduled reply" })
+
+    expect(resolveInvoker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultInvoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
+      }),
+    )
+    expect(seen).toEqual([
+      {
+        invoker: { id: "discord:user-1", kind: "chat", label: "Reauthorized Maxi" },
+        prompt: "Prepare my daily report.",
+        run: {
+          channelId: "discord",
+          origin: "discord",
+          runId: "srun-daily",
+          threadId: "discord:channel:thread-7",
+        },
+        schedule: {
+          id: "srun-daily",
+          kind: "schedule",
+          runId: "srun-daily",
+          scheduleId: "daily",
+          scheduledAt,
+          target: "agent/digest",
+        },
       },
-    }])
+    ])
     expect(channelIdFromThreadId).toHaveBeenCalledWith("discord:channel:thread-7")
     expect(postMessage).toHaveBeenCalledWith("discord:channel", { markdown: "Scheduled reply" })
 
-    await expect(target.handler({
-      id: "srun-invalid",
-      input: {
-        invoker: { id: "discord:user-1", meta: { token: "must-not-persist" } },
-        kind: "agent-turn",
-        prompt: "Invalid payload.",
-      } as never,
-      scheduledAt,
-    })).rejects.toThrow("durable invoker")
+    await expect(
+      target.handler({
+        id: "srun-invalid",
+        input: {
+          invoker: { id: "discord:user-1", meta: { token: "must-not-persist" } },
+          kind: "agent-turn",
+          prompt: "Invalid payload.",
+        } as never,
+        scheduledAt,
+      }),
+    ).rejects.toThrow("durable invoker")
   })
 
   it("rejects a scheduled Agent turn when invoker reauthorization fails", async () => {
@@ -1934,15 +2263,17 @@ describe("agent message protocol", () => {
     })
     const target = defineScheduledAgentTarget(agent)
 
-    await expect(target.handler({
-      id: "srun-revoked",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).rejects.toThrow("Scheduled invoker was revoked")
+    await expect(
+      target.handler({
+        id: "srun-revoked",
+        input: {
+          invoker: { id: "discord:user-1", kind: "chat" },
+          kind: "agent-turn",
+          prompt: "Prepare my daily report.",
+        },
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      }),
+    ).rejects.toThrow("Scheduled invoker was revoked")
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -1959,15 +2290,17 @@ describe("agent message protocol", () => {
     })
     const target = defineScheduledAgentTarget(agent)
 
-    await expect(target.handler({
-      id: "srun-durable",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).resolves.toEqual({ id: "discord:user-1", kind: "chat", label: "Maxi" })
+    await expect(
+      target.handler({
+        id: "srun-durable",
+        input: {
+          invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
+          kind: "agent-turn",
+          prompt: "Prepare my daily report.",
+        },
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      }),
+    ).resolves.toEqual({ id: "discord:user-1", kind: "chat", label: "Maxi" })
     expect(inputHook).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledOnce()
   })
@@ -1987,83 +2320,153 @@ describe("agent message protocol", () => {
     })
     const target = defineScheduledAgentTarget(agent)
 
-    await expect(target.handler({
-      id: "srun-revoked",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).rejects.toThrow("matching invoker reauthorization")
+    await expect(
+      target.handler({
+        id: "srun-revoked",
+        input: {
+          invoker: { id: "discord:user-1", kind: "chat" },
+          kind: "agent-turn",
+          prompt: "Prepare my daily report.",
+        },
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      }),
+    ).rejects.toThrow("matching invoker reauthorization")
     expect(run).not.toHaveBeenCalled()
   })
 
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
-    expect(toAiSdkModelMessages([
-      createMessage({ id: "m1", role: "user", text: "hello" }),
-    ])).toEqual([
-      { content: "hello", role: "user" },
-    ])
+    expect(toAiSdkModelMessages([createMessage({ id: "m1", role: "user", text: "hello" })])).toEqual([{ content: "hello", role: "user" }])
   })
 
   it("preserves remote attachment parts without invoking provider callbacks", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
     const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
 
-    expect(toAiSdkModelMessages([
-      createMessage({
-        id: "m1",
-        parts: [
+    expect(
+      toAiSdkModelMessages([
+        createMessage({
+          id: "m1",
+          parts: [
+            { text: "inspect these", type: "text" },
+            {
+              fetchData,
+              mediaType: "image/png",
+              name: "photo.png",
+              type: "image",
+              url: "https://cdn.example.com/photo.png",
+            },
+            {
+              mediaType: "application/pdf",
+              name: "report.pdf",
+              type: "file",
+              url: "https://cdn.example.com/report.pdf",
+            },
+            {
+              mediaType: "application/octet-stream",
+              type: "file",
+              url: "http://internal.example.test/private",
+            },
+          ],
+          role: "user",
+        }),
+      ]),
+    ).toEqual([
+      {
+        content: [
           { text: "inspect these", type: "text" },
-          { fetchData, mediaType: "image/png", name: "photo.png", type: "image", url: "https://cdn.example.com/photo.png" },
-          { mediaType: "application/pdf", name: "report.pdf", type: "file", url: "https://cdn.example.com/report.pdf" },
-          { mediaType: "application/octet-stream", type: "file", url: "http://internal.example.test/private" },
+          {
+            image: new URL("https://cdn.example.com/photo.png"),
+            mediaType: "image/png",
+            type: "image",
+          },
+          {
+            data: new URL("https://cdn.example.com/report.pdf"),
+            filename: "report.pdf",
+            mediaType: "application/pdf",
+            type: "file",
+          },
         ],
         role: "user",
-      }),
-    ])).toEqual([{
-      content: [
-        { text: "inspect these", type: "text" },
-        { image: new URL("https://cdn.example.com/photo.png"), mediaType: "image/png", type: "image" },
-        { data: new URL("https://cdn.example.com/report.pdf"), filename: "report.pdf", mediaType: "application/pdf", type: "file" },
-      ],
-      role: "user",
-    }])
+      },
+    ])
     expect(fetchData).not.toHaveBeenCalled()
 
-    expect(() => toAiSdkModelMessages([
-      createMessage({
-        parts: [{ data: new Blob([new Uint8Array([1])], { type: "image/png" }), mediaType: "image/png", type: "image" }],
-        role: "user",
-      }),
-    ])).toThrow("cannot convert a Blob synchronously")
+    expect(() =>
+      toAiSdkModelMessages([
+        createMessage({
+          parts: [
+            {
+              data: new Blob([new Uint8Array([1])], { type: "image/png" }),
+              mediaType: "image/png",
+              type: "image",
+            },
+          ],
+          role: "user",
+        }),
+      ]),
+    ).toThrow("cannot convert a Blob synchronously")
 
-    expect(() => toAiSdkModelMessages([
-      createMessage({
-        parts: [{ fetchData, mediaType: "image/png", type: "image" }],
-        role: "user",
-      }),
-    ])).toThrow("cannot resolve attachment callbacks synchronously")
+    expect(() =>
+      toAiSdkModelMessages([
+        createMessage({
+          parts: [{ fetchData, mediaType: "image/png", type: "image" }],
+          role: "user",
+        }),
+      ]),
+    ).toThrow("cannot resolve attachment callbacks synchronously")
   })
 
   it("maps Web Chat file parts to typed attachment references", async () => {
     const { uiMessagesToAgentMessages } = await import("../src/chat-message-input.ts")
 
-    expect(uiMessagesToAgentMessages([{
-      id: "web-1",
-      parts: [
-        { filename: "photo.png", mediaType: "image/png", type: "file", url: "https://cdn.example.com/photo.png" },
-        { filename: "voice.ogg", mediaType: "audio/ogg", type: "file", url: "https://cdn.example.com/voice.ogg" },
-        { filename: "report.pdf", mediaType: "application/pdf", type: "file", url: "https://cdn.example.com/report.pdf" },
-      ],
-      role: "user",
-    }])[0]?.parts).toEqual([
-      { mediaType: "image/png", name: "photo.png", type: "image", url: "https://cdn.example.com/photo.png" },
-      { mediaType: "audio/ogg", name: "voice.ogg", type: "audio", url: "https://cdn.example.com/voice.ogg" },
-      { mediaType: "application/pdf", name: "report.pdf", type: "file", url: "https://cdn.example.com/report.pdf" },
+    expect(
+      uiMessagesToAgentMessages([
+        {
+          id: "web-1",
+          parts: [
+            {
+              filename: "photo.png",
+              mediaType: "image/png",
+              type: "file",
+              url: "https://cdn.example.com/photo.png",
+            },
+            {
+              filename: "voice.ogg",
+              mediaType: "audio/ogg",
+              type: "file",
+              url: "https://cdn.example.com/voice.ogg",
+            },
+            {
+              filename: "report.pdf",
+              mediaType: "application/pdf",
+              type: "file",
+              url: "https://cdn.example.com/report.pdf",
+            },
+          ],
+          role: "user",
+        },
+      ])[0]?.parts,
+    ).toEqual([
+      {
+        mediaType: "image/png",
+        name: "photo.png",
+        type: "image",
+        url: "https://cdn.example.com/photo.png",
+      },
+      {
+        mediaType: "audio/ogg",
+        name: "voice.ogg",
+        type: "audio",
+        url: "https://cdn.example.com/voice.ogg",
+      },
+      {
+        mediaType: "application/pdf",
+        name: "report.pdf",
+        type: "file",
+        url: "https://cdn.example.com/report.pdf",
+      },
     ])
   })
 
@@ -2087,9 +2490,9 @@ describe("agent message protocol", () => {
       },
     }
     const wrappedJsonSchema = { jsonSchema: rawJsonSchema }
-    const jsonSchema = vi.fn(schema => ({ jsonSchema: schema }))
+    const jsonSchema = vi.fn((schema) => ({ jsonSchema: schema }))
     loadAiSdk.mockResolvedValue({
-      isStepCount: vi.fn(count => ({ count })),
+      isStepCount: vi.fn((count) => ({ count })),
       jsonSchema,
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
@@ -2132,11 +2535,17 @@ describe("agent message protocol", () => {
       driver: { model: {} as never },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        { prompt: "hello" },
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
 
     const tools = agentSettings[0]!.tools as Record<string, { inputSchema: unknown }>
     expect(tools.rawJsonSchema!.inputSchema).toEqual({ jsonSchema: rawJsonSchema })
@@ -2155,8 +2564,8 @@ describe("agent message protocol", () => {
   it("resolves provider callbacks only at model invocation with byte limits", async () => {
     const generate = vi.fn(async (_input: unknown) => ({ finishReason: "stop", text: "ok" }))
     loadAiSdk.mockResolvedValue({
-      isStepCount: vi.fn(count => ({ count })),
-      jsonSchema: vi.fn(schema => schema),
+      isStepCount: vi.fn((count) => ({ count })),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         constructor(_settings: unknown) {}
 
@@ -2177,36 +2586,61 @@ describe("agent message protocol", () => {
     })
 
     expect(fetchData).not.toHaveBeenCalled()
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [
-        createMessage({
-          id: "historical-attachment",
-          parts: [{ fetchData: staleFetchData, mediaType: "application/pdf", type: "file" }],
-          role: "user",
-        }),
-        createMessage({
-          parts: [{ fetchData: ignoredAssistantFetchData, mediaType: "image/png", size: 3, type: "image" }],
-          role: "assistant",
-        }),
-        createMessage({
-          id: "current-attachment",
-          parts: [{ fetchData, mediaType: "image/png", size: 3, type: "image", url: "https://cdn.example.com/photo.png" }],
-          role: "user",
-        }),
-      ],
-      context: { channel: { message: { id: "current-attachment", text: "" } } },
-    })).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [
+            createMessage({
+              id: "historical-attachment",
+              parts: [{ fetchData: staleFetchData, mediaType: "application/pdf", type: "file" }],
+              role: "user",
+            }),
+            createMessage({
+              parts: [
+                {
+                  fetchData: ignoredAssistantFetchData,
+                  mediaType: "image/png",
+                  size: 3,
+                  type: "image",
+                },
+              ],
+              role: "assistant",
+            }),
+            createMessage({
+              id: "current-attachment",
+              parts: [
+                {
+                  fetchData,
+                  mediaType: "image/png",
+                  size: 3,
+                  type: "image",
+                  url: "https://cdn.example.com/photo.png",
+                },
+              ],
+              role: "user",
+            }),
+          ],
+          context: { channel: { message: { id: "current-attachment", text: "" } } },
+        },
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
     expect(fetchData).toHaveBeenCalledOnce()
     expect(staleFetchData).not.toHaveBeenCalled()
     expect(ignoredAssistantFetchData).not.toHaveBeenCalled()
-    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
-      messages: [{
-        content: [{ image: new Uint8Array([1, 2, 3]), mediaType: "image/png", type: "image" }],
-        role: "user",
-      }],
-    }))
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          {
+            content: [{ image: new Uint8Array([1, 2, 3]), mediaType: "image/png", type: "image" }],
+            role: "user",
+          },
+        ],
+      }),
+    )
 
-    const pngBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     const detectedImageFetch = vi.fn(async () => new Blob([pngBytes], { type: "application/octet-stream" }))
     const imageDetectionAgent = defineAgent({
       driver: {
@@ -2214,57 +2648,99 @@ describe("agent message protocol", () => {
         model: "attachment-model" as never,
       },
     })
-    await runAgent(imageDetectionAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ fetchData: detectedImageFetch, mediaType: "image/jpeg", type: "image" }],
-        role: "user",
-      })],
-    })
-    expect(generate).toHaveBeenLastCalledWith(expect.objectContaining({
-      messages: [{
-        content: [{ image: pngBytes.buffer, mediaType: "image/png", type: "image" }],
-        role: "user",
-      }],
-    }))
+    await runAgent(
+      imageDetectionAgent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ fetchData: detectedImageFetch, mediaType: "image/jpeg", type: "image" }],
+            role: "user",
+          }),
+        ],
+      },
+    )
+    expect(generate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        messages: [
+          {
+            content: [{ image: pngBytes.buffer, mediaType: "image/png", type: "image" }],
+            role: "user",
+          },
+        ],
+      }),
+    )
 
     const rawBase64Image = btoa(String.fromCharCode(...pngBytes))
-    await runAgent(imageDetectionAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ data: rawBase64Image, mediaType: "image/jpeg", type: "image" }],
-        role: "user",
-      })],
-    })
-    expect(generate).toHaveBeenLastCalledWith(expect.objectContaining({
-      messages: [{
-        content: [{ image: rawBase64Image, mediaType: "image/png", type: "image" }],
-        role: "user",
-      }],
-    }))
+    await runAgent(
+      imageDetectionAgent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ data: rawBase64Image, mediaType: "image/jpeg", type: "image" }],
+            role: "user",
+          }),
+        ],
+      },
+    )
+    expect(generate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        messages: [
+          {
+            content: [{ image: rawBase64Image, mediaType: "image/png", type: "image" }],
+            role: "user",
+          },
+        ],
+      }),
+    )
 
     const currentIdlessFetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const staleIdlessFetchData = vi.fn(async () => new Uint8Array([4, 5, 6]))
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      context: { channel: { message: { text: "" } } },
-      messages: [
-        createMessage({ parts: [{ fetchData: staleIdlessFetchData, mediaType: "application/pdf", type: "file" }], role: "user" }),
-        createMessage({ parts: [{ fetchData: currentIdlessFetchData, mediaType: "image/png", type: "image" }], role: "user" }),
-      ],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        context: { channel: { message: { text: "" } } },
+        messages: [
+          createMessage({
+            parts: [{ fetchData: staleIdlessFetchData, mediaType: "application/pdf", type: "file" }],
+            role: "user",
+          }),
+          createMessage({
+            parts: [{ fetchData: currentIdlessFetchData, mediaType: "image/png", type: "image" }],
+            role: "user",
+          }),
+        ],
+      },
+    )
     expect(staleIdlessFetchData).not.toHaveBeenCalled()
     expect(currentIdlessFetchData).toHaveBeenCalledOnce()
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      context: { channel: { message: { id: "current-text", text: "continue" } } },
-      messages: [
-        createMessage({
-          id: "historical-blob",
-          parts: [{ data: new Blob([new Uint8Array([1, 2, 3])]), mediaType: "application/pdf", type: "file" }],
-          role: "user",
-        }),
-        createMessage({ id: "current-text", role: "user", text: "continue" }),
-      ],
-    })
-    const historyCall = generate.mock.calls.at(-1)?.[0] as { messages?: Array<{ content?: Array<{ data?: unknown }> }> }
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        context: { channel: { message: { id: "current-text", text: "continue" } } },
+        messages: [
+          createMessage({
+            id: "historical-blob",
+            parts: [
+              {
+                data: new Blob([new Uint8Array([1, 2, 3])]),
+                mediaType: "application/pdf",
+                type: "file",
+              },
+            ],
+            role: "user",
+          }),
+          createMessage({ id: "current-text", role: "user", text: "continue" }),
+        ],
+      },
+    )
+    const historyCall = generate.mock.calls.at(-1)?.[0] as {
+      messages?: Array<{ content?: Array<{ data?: unknown }> }>
+    }
     expect(historyCall.messages?.[0]?.content?.[0]?.data).toBeInstanceOf(ArrayBuffer)
 
     const blobAgent = defineAgent({
@@ -2273,13 +2749,27 @@ describe("agent message protocol", () => {
         model: "attachment-model" as never,
       },
     })
-    await runAgent(blobAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ data: new Blob([new Uint8Array([1, 2, 3])]), mediaType: "application/pdf", type: "file" }],
-        role: "user",
-      })],
-    })
-    const blobCall = generate.mock.calls.at(-1)?.[0] as { messages?: Array<{ content?: Array<{ data?: unknown }> }> }
+    await runAgent(
+      blobAgent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [
+              {
+                data: new Blob([new Uint8Array([1, 2, 3])]),
+                mediaType: "application/pdf",
+                type: "file",
+              },
+            ],
+            role: "user",
+          }),
+        ],
+      },
+    )
+    const blobCall = generate.mock.calls.at(-1)?.[0] as {
+      messages?: Array<{ content?: Array<{ data?: unknown }> }>
+    }
     expect(blobCall.messages?.[0]?.content?.[0]?.data).toBeInstanceOf(ArrayBuffer)
 
     const oversizedFetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
@@ -2289,97 +2779,163 @@ describe("agent message protocol", () => {
         model: "attachment-model" as never,
       },
     })
-    await expect(runAgent(oversizedAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ fetchData: oversizedFetchData, mediaType: "application/pdf", size: 3, type: "file" }],
-        role: "user",
-      })],
-    })).rejects.toThrow("exceeds maxBytes")
+    await expect(
+      runAgent(
+        oversizedAgent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [
+            createMessage({
+              parts: [
+                {
+                  fetchData: oversizedFetchData,
+                  mediaType: "application/pdf",
+                  size: 3,
+                  type: "file",
+                },
+              ],
+              role: "user",
+            }),
+          ],
+        },
+      ),
+    ).rejects.toThrow("exceeds maxBytes")
     expect(oversizedFetchData).not.toHaveBeenCalled()
 
     const firstAggregateFetch = vi.fn(async () => new Uint8Array([1, 2]))
     const secondAggregateFetch = vi.fn(async () => new Uint8Array([3, 4]))
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [
-          { fetchData: firstAggregateFetch, mediaType: "application/pdf", size: 2, type: "file" },
-          { fetchData: secondAggregateFetch, mediaType: "application/pdf", size: 2, type: "file" },
-        ],
-        role: "user",
-      })],
-    })).rejects.toThrow("exceeds maxBytes")
+    await expect(
+      runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [
+            createMessage({
+              parts: [
+                {
+                  fetchData: firstAggregateFetch,
+                  mediaType: "application/pdf",
+                  size: 2,
+                  type: "file",
+                },
+                {
+                  fetchData: secondAggregateFetch,
+                  mediaType: "application/pdf",
+                  size: 2,
+                  type: "file",
+                },
+              ],
+              role: "user",
+            }),
+          ],
+        },
+      ),
+    ).rejects.toThrow("exceeds maxBytes")
     expect(firstAggregateFetch).toHaveBeenCalledOnce()
     expect(secondAggregateFetch).not.toHaveBeenCalled()
 
     const emptyFetchData = vi.fn(async () => "")
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ fetchData: emptyFetchData, mediaType: "application/pdf", type: "file" }],
-        role: "user",
-      })],
-    })).rejects.toThrow("did not return supported attachment data")
+    await expect(
+      runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [
+            createMessage({
+              parts: [{ fetchData: emptyFetchData, mediaType: "application/pdf", type: "file" }],
+              role: "user",
+            }),
+          ],
+        },
+      ),
+    ).rejects.toThrow("did not return supported attachment data")
   })
 
   it("preserves prefixed data parts during model conversion", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
-    expect(toAiSdkModelMessages([
-      createMessage({
-        id: "m1",
-        parts: [{ data: { city: "Seattle" }, type: "data-weather" }],
-        role: "user",
-      }),
-    ])).toEqual([
-      { content: "{\"city\":\"Seattle\"}", role: "user" },
-    ])
+    expect(
+      toAiSdkModelMessages([
+        createMessage({
+          id: "m1",
+          parts: [{ data: { city: "Seattle" }, type: "data-weather" }],
+          role: "user",
+        }),
+      ]),
+    ).toEqual([{ content: '{"city":"Seattle"}', role: "user" }])
 
-    expect(toAiSdkModelMessages([
-      createMessage({
-        id: "m2",
-        parts: [
-          { data: { text: "quoted reply" }, type: "data-chat-reply-text" },
-          { data: { title: "UI title" }, type: "data-title" },
+    expect(
+      toAiSdkModelMessages([
+        createMessage({
+          id: "m2",
+          parts: [
+            { data: { text: "quoted reply" }, type: "data-chat-reply-text" },
+            { data: { title: "UI title" }, type: "data-title" },
+            { text: "assistant response", type: "text" },
+          ],
+          role: "assistant",
+        }),
+      ]),
+    ).toEqual([
+      {
+        content: [
+          { text: '{"text":"quoted reply"}', type: "text" },
           { text: "assistant response", type: "text" },
         ],
         role: "assistant",
-      }),
-    ])).toEqual([{
-      content: [
-        { text: "{\"text\":\"quoted reply\"}", type: "text" },
-        { text: "assistant response", type: "text" },
-      ],
-      role: "assistant",
-    }])
+      },
+    ])
   })
 
   it("drops empty ViteHub messages before model conversion", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
-    expect(toAiSdkModelMessages([
-      createMessage({ id: "m1", role: "user", text: "" }),
-      createMessage({ id: "m2", parts: [], role: "assistant" }),
-      createMessage({ id: "m3", parts: [], role: "tool" }),
-      createMessage({ id: "m4", role: "user", text: "hello" }),
-    ])).toEqual([
-      { content: "hello", role: "user" },
-    ])
+    expect(
+      toAiSdkModelMessages([
+        createMessage({ id: "m1", role: "user", text: "" }),
+        createMessage({ id: "m2", parts: [], role: "assistant" }),
+        createMessage({ id: "m3", parts: [], role: "tool" }),
+        createMessage({ id: "m4", role: "user", text: "hello" }),
+      ]),
+    ).toEqual([{ content: "hello", role: "user" }])
   })
 
   it("preserves structured tool history for model messages", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
-    expect(toAiSdkModelMessages([
-      createMessage({
-        id: "m1",
-        parts: [
-          { id: "call-1", input: { query: "ok" }, name: "lookup", state: "running", type: "tool-call" },
-          { id: "call-1", name: "lookup", output: { ok: true }, state: "completed", type: "tool-result" },
-        ],
-        role: "tool",
-      }),
-    ])).toEqual([
+    expect(
+      toAiSdkModelMessages([
+        createMessage({
+          id: "m1",
+          parts: [
+            {
+              id: "call-1",
+              input: { query: "ok" },
+              name: "lookup",
+              state: "running",
+              type: "tool-call",
+            },
+            {
+              id: "call-1",
+              name: "lookup",
+              output: { ok: true },
+              state: "completed",
+              type: "tool-result",
+            },
+          ],
+          role: "tool",
+        }),
+      ]),
+    ).toEqual([
       {
-        content: [{ output: { type: "json", value: { ok: true } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        content: [
+          {
+            output: { type: "json", value: { ok: true } },
+            toolCallId: "call-1",
+            toolName: "lookup",
+            type: "tool-result",
+          },
+        ],
         role: "tool",
       },
     ])
@@ -2392,7 +2948,13 @@ describe("agent message protocol", () => {
       {
         id: "m1",
         parts: [
-          { id: "call-1", name: "lookup", output: { timestamp: new Date("2026-06-22T19:30:00.000Z") }, state: "completed", type: "tool-result" },
+          {
+            id: "call-1",
+            name: "lookup",
+            output: { timestamp: new Date("2026-06-22T19:30:00.000Z") },
+            state: "completed",
+            type: "tool-result",
+          },
         ],
         role: "tool",
       },
@@ -2400,7 +2962,14 @@ describe("agent message protocol", () => {
 
     expect(toAiSdkModelMessages(messages)).toEqual([
       {
-        content: [{ output: { type: "json", value: { timestamp: "2026-06-22T19:30:00.000Z" } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        content: [
+          {
+            output: { type: "json", value: { timestamp: "2026-06-22T19:30:00.000Z" } },
+            toolCallId: "call-1",
+            toolName: "lookup",
+            type: "tool-result",
+          },
+        ],
         role: "tool",
       },
     ])
@@ -2424,23 +2993,44 @@ describe("agent message protocol", () => {
   it("splits assistant tool result history into valid model messages", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
-    expect(toAiSdkModelMessages([
-      createMessage({
-        id: "m1",
-        parts: [
-          { id: "call-1", input: { query: "ok" }, name: "lookup", state: "running", type: "tool-call" },
-          { id: "call-1", name: "lookup", output: { ok: true }, state: "completed", type: "tool-result" },
-          { text: "done", type: "text" },
-        ],
-        role: "assistant",
-      }),
-    ])).toEqual([
+    expect(
+      toAiSdkModelMessages([
+        createMessage({
+          id: "m1",
+          parts: [
+            {
+              id: "call-1",
+              input: { query: "ok" },
+              name: "lookup",
+              state: "running",
+              type: "tool-call",
+            },
+            {
+              id: "call-1",
+              name: "lookup",
+              output: { ok: true },
+              state: "completed",
+              type: "tool-result",
+            },
+            { text: "done", type: "text" },
+          ],
+          role: "assistant",
+        }),
+      ]),
+    ).toEqual([
       {
         content: [{ input: { query: "ok" }, toolCallId: "call-1", toolName: "lookup", type: "tool-call" }],
         role: "assistant",
       },
       {
-        content: [{ output: { type: "json", value: { ok: true } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        content: [
+          {
+            output: { type: "json", value: { ok: true } },
+            toolCallId: "call-1",
+            toolName: "lookup",
+            type: "tool-result",
+          },
+        ],
         role: "tool",
       },
       {
@@ -2453,46 +3043,56 @@ describe("agent message protocol", () => {
   it("normalizes resolved adapter output into an agent run result", async () => {
     const { runAgent } = await import("../src/index.ts")
     const agent = {
-      generate: vi.fn(async () => ({ finishReason: "stop", text: "ok", usage: { inputTokens: 1 } })),
+      generate: vi.fn(async () => ({
+        finishReason: "stop",
+        text: "ok",
+        usage: { inputTokens: 1 },
+      })),
       stream: vi.fn(),
       tools: {},
       version: "agent-v1",
     }
 
-    await expect(runAgent(adapterDefinition(agent), {} as never, {
-      messages: [createMessage({ role: "user", text: "hello" })],
-    })).resolves.toMatchObject({
+    await expect(
+      runAgent(adapterDefinition(agent), {} as never, {
+        messages: [createMessage({ role: "user", text: "hello" })],
+      }),
+    ).resolves.toMatchObject({
       finishReason: "stop",
       text: "ok",
       usage: { inputTokens: 1 },
     })
-    expect(agent.generate).toHaveBeenCalledWith(expect.objectContaining({
-      messages: [expect.objectContaining({ role: "user" })],
-    }))
+    expect(agent.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [expect.objectContaining({ role: "user" })],
+      }),
+    )
   })
 
   it("resolves capability-owned triggers and runs them through the agent lifecycle", async () => {
     const { defineAgent, resolveAgentTriggers, runAgentTrigger } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [{
-        id: "custom",
-        triggers: {
-          ping: {
-            async invoke(_context, input: { prompt: string }) {
-              return {
-                input: { prompt: input.prompt },
-                metadata: { source: "test" },
-                run: { runId: "trigger-run" },
-              }
+      capabilities: [
+        {
+          id: "custom",
+          triggers: {
+            ping: {
+              async invoke(_context, input: { prompt: string }) {
+                return {
+                  input: { prompt: input.prompt },
+                  metadata: { source: "test" },
+                  run: { runId: "trigger-run" },
+                }
+              },
             },
           },
         },
-      }],
+      ],
       hooks: {
         "agent:finish": finish,
       },
-      driver: { run: context => `received ${context.prompt}` },
+      driver: { run: (context) => `received ${context.prompt}` },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2504,11 +3104,13 @@ describe("agent message protocol", () => {
       },
     })
     await expect(runAgentTrigger(agent, runtime, "custom.ping", { prompt: "hello" })).resolves.toBe("received hello")
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      invocation: expect.objectContaining({
-        run: { runId: "trigger-run" },
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invocation: expect.objectContaining({
+          run: { runId: "trigger-run" },
+        }),
       }),
-    }))
+    )
   })
 
   it("does not export entry() from capabilities", async () => {
@@ -2531,16 +3133,22 @@ describe("agent message protocol", () => {
                   context: { channelKind: context.channel.kind },
                   messages: [createMessage({ role: "user", text: input.text })],
                 },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
         }),
       },
-      driver: { run: (context) => {
+      driver: {
+        run: (context) => {
           const trigger = context.context.get<{ source?: string }>("agent.trigger")
           return `${trigger?.source}:${context.context.get("channelKind")}:${getMessageText(context.messages[0]!)}`
-        } },
+        },
+      },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2592,8 +3200,11 @@ describe("agent message protocol", () => {
           triggers: {
             message: {
               invoke(context) {
-                triggerCapabilities.push(context.agentCapabilities.map(capability => capability.id))
-                return { input: {}, run: { channelId: context.trigger.channelId, runId: "portal-run" } }
+                triggerCapabilities.push(context.agentCapabilities.map((capability) => capability.id))
+                return {
+                  input: {},
+                  run: { channelId: context.trigger.channelId, runId: "portal-run" },
+                }
               },
             },
           },
@@ -2603,8 +3214,11 @@ describe("agent message protocol", () => {
           triggers: {
             message: {
               invoke(context) {
-                triggerCapabilities.push(context.agentCapabilities.map(capability => capability.id))
-                return { input: {}, run: { channelId: context.trigger.channelId, runId: "teams-run" } }
+                triggerCapabilities.push(context.agentCapabilities.map((capability) => capability.id))
+                return {
+                  input: {},
+                  run: { channelId: context.trigger.channelId, runId: "teams-run" },
+                }
               },
             },
           },
@@ -2632,7 +3246,11 @@ describe("agent message protocol", () => {
     const order: string[] = []
     const effect = vi.fn((context) => {
       order.push(`effect:${context.effect.kind}:${context.effect.intent}`)
-      expect(context.trigger).toMatchObject({ channelId: "portal", id: "portal.message", name: "message" })
+      expect(context.trigger).toMatchObject({
+        channelId: "portal",
+        id: "portal.message",
+        name: "message",
+      })
       expect(context.run).toMatchObject({ channelId: "portal", runId: "portal-run" })
     })
     const agent = defineAgent({
@@ -2650,18 +3268,24 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
         }),
       },
-      driver: { run: () => {
+      driver: {
+        run: () => {
           order.push("run")
           return "ok"
-        } },
+        },
+      },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2695,7 +3319,7 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 delivery: {
                   finishEffects: defineFinishEffect((context, event) => {
                     const reviewContext = context.context.get<{ number: number }>("review.context")
@@ -2703,20 +3327,28 @@ describe("agent message protocol", () => {
                     expect(context.event).toBe(event)
                     expect(context.output).toBe("ok")
                     expect(context.result?.text).toBe("ok")
-                    return context.reply(`result:${context.text}:${(context.extensions.get("marker") as { value?: string } | undefined)?.value}:${reviewContext?.number}`)
+                    return context.reply(
+                      `result:${context.text}:${(context.extensions.get("marker") as { value?: string } | undefined)?.value}:${reviewContext?.number}`,
+                    )
                   }),
                 },
                 input: { context: { "review.context": { number: 42 } }, prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
         }),
       },
-      driver: { run: () => {
+      driver: {
+        run: () => {
           order.push("run")
           return "ok"
-        } },
+        },
+      },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
@@ -2733,7 +3365,7 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "feedback",
           prepare(context) {
-            context.delivery.finishEffect(context => context.reply("capability"))
+            context.delivery.finishEffect((context) => context.reply("capability"))
           },
         }),
       ],
@@ -2756,28 +3388,25 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
       hooks: {
         "agent:finish"(event) {
-          return [
-            event.reply("hook"),
-            event.reaction("done"),
-            event.status("completed"),
-          ]
+          return [event.reply("hook"), event.reaction("done"), event.status("completed")]
         },
       },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { channelId: "portal", runId: "portal-run" },
-      runtime: "unknown" as const,
-      waitUntil: vi.fn(),
-    }, {})).resolves.toBe("ok")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          run: { channelId: "portal", runId: "portal-run" },
+          runtime: "unknown" as const,
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toBe("ok")
 
-    expect(order).toEqual([
-      "reply:capability",
-      "reply:hook",
-      "reaction:done",
-      "status:completed",
-    ])
+    expect(order).toEqual(["reply:capability", "reply:hook", "reaction:done", "status:completed"])
   })
 
   it("carries result artifacts through custom finish replies", async () => {
@@ -2796,12 +3425,16 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 delivery: {
-                  finishEffects: context => context.reply("![Preview](artifacts/preview.png)"),
+                  finishEffects: (context) => context.reply("![Preview](artifacts/preview.png)"),
                 },
                 input: { prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
@@ -2812,22 +3445,28 @@ describe("agent message protocol", () => {
 
     await runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})
 
-    expect(effect).toHaveBeenCalledWith(expect.objectContaining({
-      effect: expect.objectContaining({ artifacts: [artifact] }),
-    }))
+    expect(effect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        effect: expect.objectContaining({ artifacts: [artifact] }),
+      }),
+    )
   })
 
   it("lets finish delivery effects publish Workspace artifacts", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel, publishWorkspaceArtifacts } = await import("../src/channels.ts")
     const content = new Uint8Array([1, 2, 3])
-    const publish = vi.fn(async () => ({ url: "https://assets.example/review/screenshots/result.png" }))
+    const publish = vi.fn(async () => ({
+      url: "https://assets.example/review/screenshots/result.png",
+    }))
     const effect = vi.fn((context) => {
       expect(context.effect).toMatchObject({
-        artifacts: [{
-          path: "screenshots/result.png",
-          url: "https://assets.example/review/screenshots/result.png",
-        }],
+        artifacts: [
+          {
+            path: "screenshots/result.png",
+            url: "https://assets.example/review/screenshots/result.png",
+          },
+        ],
         kind: "reply",
         payload: "done",
       })
@@ -2839,41 +3478,55 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 delivery: {
-                  finishEffects: async context => ({
-                    artifacts: await publishWorkspaceArtifacts(context, [{
-                      mediaType: "image/png",
-                      path: "screenshots/result.png",
-                      placement: "inline",
-                    }], {
-                      prefix: "review",
-                      publish,
-                    }),
+                  finishEffects: async (context) => ({
+                    artifacts: await publishWorkspaceArtifacts(
+                      context,
+                      [
+                        {
+                          mediaType: "image/png",
+                          path: "screenshots/result.png",
+                          placement: "inline",
+                        },
+                      ],
+                      {
+                        prefix: "review",
+                        publish,
+                      },
+                    ),
                     kind: "reply",
                     payload: "done",
                   }),
                 },
                 input: { prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
         }),
       },
-      driver: { run: async ({ workspace }) => {
+      driver: {
+        run: async ({ workspace }) => {
           await (workspace as WritableWorkspaceFacade).fs.writeFile("screenshots/result.png", content, { mediaType: "image/png" })
           return "ok"
-        } },
+        },
+      },
       workspace: { mode: "write", store: { provider: "memory" } },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
-    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
-      content,
-      mediaType: "image/png",
-      pathname: "review/screenshots/result.png",
-    }))
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content,
+        mediaType: "image/png",
+        pathname: "review/screenshots/result.png",
+      }),
+    )
     expect(effect).toHaveBeenCalledOnce()
   })
 
@@ -2889,7 +3542,7 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "feedback",
           prepare(context) {
-            context.delivery.finishEffect(context => context.reply(`done:${context.output}`))
+            context.delivery.finishEffect((context) => context.reply(`done:${context.output}`))
           },
         }),
       ],
@@ -2899,9 +3552,13 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
@@ -2918,8 +3575,8 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const delivered = vi.fn()
-    const finishEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply(context.result!.text!)
-    finishEffect.active = context => context.result?.text === "deliver me"
+    const finishEffect: AgentChannelDeliveryFinishEffectCallback = (context) => context.reply(context.result!.text!)
+    finishEffect.active = (context) => context.result?.text === "deliver me"
 
     const agent = defineAgent({
       capabilities: [
@@ -2943,12 +3600,18 @@ describe("agent message protocol", () => {
       driver: { run: () => ({ text: "deliver me" }) },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { channelId: "portal", runId: "portal-run" },
-      runtime: "unknown" as const,
-      waitUntil: vi.fn(),
-    }, {})).resolves.toEqual({ text: "deliver me" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          run: { channelId: "portal", runId: "portal-run" },
+          runtime: "unknown" as const,
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toEqual({ text: "deliver me" })
     expect(delivered).toHaveBeenCalledWith("deliver me")
   })
 
@@ -2967,9 +3630,14 @@ describe("agent message protocol", () => {
           } as never,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -2992,8 +3660,8 @@ describe("agent message protocol", () => {
       releaseDriver = resolve
     })
     const order: string[] = []
-    const resultDependentEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply(context.result!.text!)
-    resultDependentEffect.active = context => {
+    const resultDependentEffect: AgentChannelDeliveryFinishEffectCallback = (context) => context.reply(context.result!.text!)
+    resultDependentEffect.active = (context) => {
       if (!context.result) throw new Error("finish effect evaluated before the driver result")
       return false
     }
@@ -3027,10 +3695,15 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 delivery: { effects: [{ kind: "title", payload: { title: "Provisional title" } }] },
                 input: { messages: [createMessage({ role: "system", text: "Audio attachment" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3046,24 +3719,35 @@ describe("agent message protocol", () => {
       },
     })
 
-    const invocation = runAgentTrigger(agent, {
-      memo: vi.fn(),
-      runtime: "unknown" as const,
-      waitUntil: task => waitUntilTasks.push(task),
-    }, "portal.message", {}).finally(() => {
+    const invocation = runAgentTrigger(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        waitUntil: (task) => waitUntilTasks.push(task),
+      },
+      "portal.message",
+      {},
+    ).finally(() => {
       invocationSettled = true
     })
 
     await vi.waitFor(() => {
-      expect(titleEffect).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        effect: { kind: "title", payload: { title: "Provisional title" } },
-      }))
+      expect(titleEffect).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          effect: { kind: "title", payload: { title: "Provisional title" } },
+        }),
+      )
     })
     await vi.waitFor(() => {
       expect(driverStarted).toBe(true)
-      expect(titleEffect).toHaveBeenNthCalledWith(2, expect.objectContaining({
-        effect: { kind: "title", payload: { title: "Title: Transcribed request" } },
-      }))
+      expect(titleEffect).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          effect: { kind: "title", payload: { title: "Title: Transcribed request" } },
+        }),
+      )
     })
     expect(invocationSettled).toBe(false)
     expect(order.slice(0, 2)).toEqual(["title", "driver"])
@@ -3080,33 +3764,28 @@ describe("agent message protocol", () => {
     const { delivered } = await failedTitleInvocation({ execute })
 
     expect(execute).toHaveBeenCalledOnce()
-    expect(delivered).toEqual([
-      "Useful existing title",
-      "ERROR: Useful existing title",
-    ])
+    expect(delivered).toEqual(["Useful existing title", "ERROR: Useful existing title"])
   })
 
   it("retries the ordinary title before marking a failed message Channel", async () => {
-    const deliver = vi.fn()
-      .mockRejectedValueOnce(new Error("temporary title failure"))
-      .mockResolvedValue(undefined)
+    const deliver = vi.fn().mockRejectedValueOnce(new Error("temporary title failure")).mockResolvedValue(undefined)
     const { delivered, titleEffect } = await failedTitleInvocation({
       deliver,
       execute: () => "Useful existing title",
     })
 
     expect(titleEffect).toHaveBeenCalledTimes(3)
-    expect(delivered).toEqual([
-      "Useful existing title",
-      "ERROR: Useful existing title",
-    ])
+    expect(delivered).toEqual(["Useful existing title", "ERROR: Useful existing title"])
   })
 
   it.each([
     ["ERROR: ERROR: Existing title", 80, "ERROR: Existing title"],
     ["Quarterly billing reconciliation", 20, "ERROR: Quarterly bil"],
   ])("keeps failed title prefixes idempotent within maxLength", async (generatedTitle, maxLength, expectedTitle) => {
-    const { delivered } = await failedTitleInvocation({ execute: () => generatedTitle, maxLength })
+    const { delivered } = await failedTitleInvocation({
+      execute: () => generatedTitle,
+      maxLength,
+    })
 
     expect(delivered.at(-1)).toBe(expectedTitle)
     expect(delivered.at(-1)?.length).toBeLessThanOrEqual(maxLength)
@@ -3114,7 +3793,9 @@ describe("agent message protocol", () => {
   })
 
   it("uses the configured fallback when failed title generation produced no title", async () => {
-    const execute = vi.fn(() => { throw new Error("title failed") })
+    const execute = vi.fn(() => {
+      throw new Error("title failed")
+    })
     const { delivered } = await failedTitleInvocation({ execute, fallback: "Untitled" })
 
     expect(execute).toHaveBeenCalledOnce()
@@ -3141,9 +3822,7 @@ describe("agent message protocol", () => {
       releaseDriver = resolve
     })
     const titleEffect = vi.fn()
-    const retryingTitleEffect = vi.fn()
-      .mockRejectedValueOnce(new Error("temporary title failure"))
-      .mockResolvedValue(undefined)
+    const retryingTitleEffect = vi.fn().mockRejectedValueOnce(new Error("temporary title failure")).mockResolvedValue(undefined)
     const execute = vi.fn(() => "Prepared title")
     const waitUntilTasks: Promise<unknown>[] = []
     const agent = defineAgent({
@@ -3156,9 +3835,14 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3172,11 +3856,16 @@ describe("agent message protocol", () => {
       },
     })
 
-    const invocation = runAgentTrigger(agent, {
-      memo: vi.fn(),
-      runtime: "unknown" as const,
-      waitUntil: task => waitUntilTasks.push(task),
-    }, "portal.message", {})
+    const invocation = runAgentTrigger(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        waitUntil: (task) => waitUntilTasks.push(task),
+      },
+      "portal.message",
+      {},
+    )
 
     await vi.waitFor(() => {
       expect(titleEffect).toHaveBeenCalledOnce()
@@ -3205,9 +3894,14 @@ describe("agent message protocol", () => {
           } as never,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "slack-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "slack-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3232,9 +3926,14 @@ describe("agent message protocol", () => {
           adapter,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "plain message" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3269,9 +3968,14 @@ describe("agent message protocol", () => {
           adapter,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3291,7 +3995,10 @@ describe("agent message protocol", () => {
     const adapter = vi.fn(() => {
       throw new Error("adapter should not resolve")
     })
-    const titleEffect = (() => ({ kind: "title", payload: { title: "Inactive title" } })) as AgentChannelDeliveryFinishEffectCallback
+    const titleEffect = (() => ({
+      kind: "title",
+      payload: { title: "Inactive title" },
+    })) as AgentChannelDeliveryFinishEffectCallback
     titleEffect.active = () => false
     titleEffect.kind = "title"
     const agent = defineAgent({
@@ -3308,9 +4015,14 @@ describe("agent message protocol", () => {
           adapter,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "plain message" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3337,9 +4049,14 @@ describe("agent message protocol", () => {
           } as never,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3367,9 +4084,14 @@ describe("agent message protocol", () => {
           } as never,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3391,9 +4113,12 @@ describe("agent message protocol", () => {
     const { defineChannel } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const failure = new Error("failed")
-    const run = vi.fn()
+    const run = vi
+      .fn()
       .mockReturnValueOnce("ok")
-      .mockImplementationOnce(() => { throw failure })
+      .mockImplementationOnce(() => {
+        throw failure
+      })
     const agentError = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute })],
@@ -3405,9 +4130,14 @@ describe("agent message protocol", () => {
           } as never,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3427,7 +4157,9 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, runtime, "portal.message", {})).rejects.toBe(failure)
     expect(execute).toHaveBeenCalledOnce()
     expect(agentError).toHaveBeenCalledOnce()
-    expect(agentError.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Prepared title" })
+    expect(agentError.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "Prepared title",
+    })
   })
 
   it("delivers titles through custom message Channel title effects", async () => {
@@ -3448,9 +4180,14 @@ describe("agent message protocol", () => {
           },
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3461,9 +4198,11 @@ describe("agent message protocol", () => {
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(execute).toHaveBeenCalledOnce()
-    expect(titleEffect).toHaveBeenCalledWith(expect.objectContaining({
-      effect: { kind: "title", payload: { title: "Prepared title" } },
-    }))
+    expect(titleEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        effect: { kind: "title", payload: { title: "Prepared title" } },
+      }),
+    )
   })
 
   it("delivers titles through raw custom Channel title effects", async () => {
@@ -3481,9 +4220,14 @@ describe("agent message protocol", () => {
           messages: {},
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3494,9 +4238,11 @@ describe("agent message protocol", () => {
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(execute).toHaveBeenCalledOnce()
-    expect(titleEffect).toHaveBeenCalledWith(expect.objectContaining({
-      effect: { kind: "title", payload: { title: "Prepared title" } },
-    }))
+    expect(titleEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        effect: { kind: "title", payload: { title: "Prepared title" } },
+      }),
+    )
   })
 
   it("evaluates known-kind finish delivery active predicates after finish extensions resolve", async () => {
@@ -3504,7 +4250,7 @@ describe("agent message protocol", () => {
     const { defineChannel } = await import("../src/channels.ts")
     const delivered = vi.fn()
     const finishEffect = ((finish) => finish.reply("Extension enabled")) as AgentChannelDeliveryFinishEffectCallback
-    finishEffect.active = finish => finish.extensions.get("extension-gated-delivery", "enabled") === true
+    finishEffect.active = (finish) => finish.extensions.get("extension-gated-delivery", "enabled") === true
     finishEffect.kind = "reply"
     const agent = defineAgent({
       capabilities: [
@@ -3523,9 +4269,14 @@ describe("agent message protocol", () => {
           },
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { messages: [createMessage({ role: "user", text: "deliver reply" })] },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                  threadId: "thread-1",
+                },
               }),
             },
           },
@@ -3556,9 +4307,13 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
@@ -3572,15 +4327,17 @@ describe("agent message protocol", () => {
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
     await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
-    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
-      metadata: expect.objectContaining({
-        "channel.effect.kind": "reaction",
-        "channel.effect.supported": false,
+    expect(observe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          "channel.effect.kind": "reaction",
+          "channel.effect.supported": false,
+        }),
+        name: "channel:delivery-effect",
+        outcome: "success",
+        owner: "channel",
       }),
-      name: "channel:delivery-effect",
-      outcome: "success",
-      owner: "channel",
-    }))
+    )
   })
 
   it("does not fail invocations when delivery effects or hook observers fail", async () => {
@@ -3611,7 +4368,7 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { prompt: "hello" },
                 run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId },
               }),
@@ -3630,18 +4387,19 @@ describe("agent message protocol", () => {
 
     try {
       await expect(runAgentTrigger(agent, runtime, `${channelId}.message`, {})).resolves.toBe("ok")
-      expect(error).toHaveBeenCalledWith(JSON.stringify({
-        scope: "vitehub.channel.delivery",
-        event: "outbound.failed",
-        channelId: channelId.slice(0, 256),
-        effect: effect.slice(0, 256),
-        intent: intent.slice(0, 256),
-        runId: runId.slice(0, 256),
-        error: "reaction failed",
-      }))
+      expect(error).toHaveBeenCalledWith(
+        JSON.stringify({
+          scope: "vitehub.channel.delivery",
+          event: "outbound.failed",
+          channelId: channelId.slice(0, 256),
+          effect: effect.slice(0, 256),
+          intent: intent.slice(0, 256),
+          runId: runId.slice(0, 256),
+          error: "reaction failed",
+        }),
+      )
       expect(warn).toHaveBeenCalled()
-    }
-    finally {
+    } finally {
       error.mockRestore()
       warn.mockRestore()
     }
@@ -3670,9 +4428,13 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             message: {
-              invoke: context => ({
+              invoke: (context) => ({
                 input: { prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: {
+                  channelId: context.trigger.channelId,
+                  origin: context.channel.kind,
+                  runId: "portal-run",
+                },
               }),
             },
           },
@@ -3707,7 +4469,7 @@ describe("agent message protocol", () => {
           messages: false,
           triggers: {
             webhook: {
-              invoke: (_context, input: { body: string, deliveryId: string }) => ({
+              invoke: (_context, input: { body: string; deliveryId: string }) => ({
                 input: { prompt: input.body },
                 run: { origin: "github", runId: input.deliveryId },
               }),
@@ -3718,7 +4480,14 @@ describe("agent message protocol", () => {
       resolve: vi.fn(),
     }
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
@@ -3729,21 +4498,30 @@ describe("agent message protocol", () => {
   it("exposes Capability Trigger metadata", async () => {
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = {
-      capabilities: [{
-        id: "custom",
-        triggers: {
-          ping: {
-            invoke: (_context: unknown, input: { body: string, deliveryId: string }) => ({
-              input: { prompt: input.body },
-              run: { origin: "custom", runId: input.deliveryId },
-            }),
+      capabilities: [
+        {
+          id: "custom",
+          triggers: {
+            ping: {
+              invoke: (_context: unknown, input: { body: string; deliveryId: string }) => ({
+                input: { prompt: input.body },
+                run: { origin: "custom", runId: input.deliveryId },
+              }),
+            },
           },
         },
-      }],
+      ],
       resolve: vi.fn(),
     }
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "custom.ping": {
         capabilityId: "custom",
         source: "capability",
@@ -3773,22 +4551,32 @@ describe("agent message protocol", () => {
       resolve: vi.fn(),
     }
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "chat.message": {
-        webhooks: [{
-          id: "telegram",
-          method: "POST",
-          path: "/api/webhooks/telegram",
-          provider: "telegram",
-          secretHeader: "x-telegram-bot-api-secret-token",
-          secretToken: "secret-token",
-        }, {
-          id: "slack",
-          method: "POST",
-          path: "/api/webhooks/slack",
-          provider: "slack",
-          secretHeader: "x-slack-signature",
-        }],
+        webhooks: [
+          {
+            id: "telegram",
+            method: "POST",
+            path: "/api/webhooks/telegram",
+            provider: "telegram",
+            secretHeader: "x-telegram-bot-api-secret-token",
+            secretToken: "secret-token",
+          },
+          {
+            id: "slack",
+            method: "POST",
+            path: "/api/webhooks/slack",
+            provider: "slack",
+            secretHeader: "x-slack-signature",
+          },
+        ],
       },
     })
   })
@@ -3796,21 +4584,25 @@ describe("agent message protocol", () => {
   it("rejects legacy chat platform adapters", async () => {
     const { chat } = await import("../src/capabilities.ts")
 
-    expect(() => chat({
-      platforms: {
-        telegram: () => ({}) as never,
-      },
-    } as never)).toThrow("chat({ platforms }) was removed")
+    expect(() =>
+      chat({
+        platforms: {
+          telegram: () => ({}) as never,
+        },
+      } as never),
+    ).toThrow("chat({ platforms }) was removed")
   })
 
   it("rejects legacy chat webhook registrations", async () => {
     const { chat } = await import("../src/capabilities.ts")
 
-    expect(() => chat({
-      webhooks: {
-        telegram: { path: "/api/webhooks/telegram" },
-      },
-    } as never)).toThrow("chat({ webhooks }) was removed")
+    expect(() =>
+      chat({
+        webhooks: {
+          telegram: { path: "/api/webhooks/telegram" },
+        },
+      } as never),
+    ).toThrow("chat({ webhooks }) was removed")
   })
 
   it("creates chat triggers from message-shaped channels", async () => {
@@ -3848,15 +4640,24 @@ describe("agent message protocol", () => {
       },
     })
     expect(agent.chat?.platforms).toEqual({ support: adapter })
-    expect(agent.capabilities?.some(capability => capability.id === "chat")).toBe(true)
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    expect(agent.capabilities?.some((capability) => capability.id === "chat")).toBe(true)
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "chat.message": {
-        webhooks: [{
-          id: "support",
-          method: "POST",
-          path: "/api/teams/support",
-          provider: "teams",
-        }],
+        webhooks: [
+          {
+            id: "support",
+            method: "POST",
+            path: "/api/teams/support",
+            provider: "teams",
+          },
+        ],
       },
     })
   })
@@ -3880,16 +4681,25 @@ describe("agent message protocol", () => {
     })
 
     expect(agent.chat?.platforms).toEqual({ telegram: adapter })
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "chat.message": {
-        webhooks: [{
-          id: "telegram",
-          method: "POST",
-          path: "/api/telegram/support",
-          provider: "telegram",
-          secretHeader: "x-telegram-bot-api-secret-token",
-          secretToken: "secret-token",
-        }],
+        webhooks: [
+          {
+            id: "telegram",
+            method: "POST",
+            path: "/api/telegram/support",
+            provider: "telegram",
+            secretHeader: "x-telegram-bot-api-secret-token",
+            secretToken: "secret-token",
+          },
+        ],
       },
     })
   })
@@ -3913,20 +4723,29 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
-        webhooks: [{
-          channelId: "github",
-          id: "github",
-          method: "POST",
-          path: "/api/github/webhook",
-          provider: "github",
-          secretHeader: "x-hub-signature-256",
-          secretToken: "secret-token",
-          signature: "github-sha256",
-        }],
+        webhooks: [
+          {
+            channelId: "github",
+            id: "github",
+            method: "POST",
+            path: "/api/github/webhook",
+            provider: "github",
+            secretHeader: "x-hub-signature-256",
+            secretToken: "secret-token",
+            signature: "github-sha256",
+          },
+        ],
       },
     })
   })
@@ -3946,20 +4765,29 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
-        webhooks: [{
-          channelId: "github",
-          id: "github",
-          method: "POST",
-          path: "/api/github/webhook",
-          provider: "github",
-          secretHeader: "x-hub-signature-256",
-          secretToken: "secret-token",
-          signature: "github-sha256",
-        }],
+        webhooks: [
+          {
+            channelId: "github",
+            id: "github",
+            method: "POST",
+            path: "/api/github/webhook",
+            provider: "github",
+            secretHeader: "x-hub-signature-256",
+            secretToken: "secret-token",
+            signature: "github-sha256",
+          },
+        ],
       },
     })
   })
@@ -3977,7 +4805,14 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
@@ -3994,7 +4829,10 @@ describe("agent message protocol", () => {
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const href = String(url)
       if (href.endsWith("/app/installations/123/access_tokens")) {
-        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+        return Response.json({
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+          token: "installation-token",
+        })
       }
       if (href.endsWith("/pulls/42")) {
         return Response.json({
@@ -4004,23 +4842,27 @@ describe("agent message protocol", () => {
         })
       }
       if (href.endsWith("/issues/42/comments?per_page=100")) {
-        return Response.json([{
-          author_association: "MEMBER",
-          body: "/review please",
-          html_url: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
-          id: 99,
-          user: { id: 1, login: "onmax", type: "User" },
-        }])
+        return Response.json([
+          {
+            author_association: "MEMBER",
+            body: "/review please",
+            html_url: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
+            id: 99,
+            user: { id: 1, login: "onmax", type: "User" },
+          },
+        ])
       }
       if (href.endsWith("/pulls/42/files?per_page=100")) {
-        return Response.json([{
-          additions: 12,
-          changes: 15,
-          deletions: 3,
-          filename: "packages/agent/src/channels.ts",
-          patch: "not included in context",
-          status: "modified",
-        }])
+        return Response.json([
+          {
+            additions: 12,
+            changes: 15,
+            deletions: 3,
+            filename: "packages/agent/src/channels.ts",
+            patch: "not included in context",
+            status: "modified",
+          },
+        ])
       }
       if (href.endsWith("/issues/comments/99/reactions") && init?.method === "POST") {
         return Response.json({ id: 777 }, { status: 201 })
@@ -4060,62 +4902,81 @@ describe("agent message protocol", () => {
       },
     }
     const agent = defineAgent({
-      capabilities: [defineCapability({
-        id: "review-feedback",
-        prepare(context) {
-          context.delivery.effect({ intent: "completed", kind: "status", metadata: { description: "Review completed." } })
-        },
-      }), inputCommands({
-        commands: {
-          review: {
-            description: "Review a pull request.",
-            call({ input }) {
-              const command = input.context?.github as Record<string, unknown> | undefined
-              const pullRequest = input.context?.pullRequest as Record<string, unknown> | undefined
-              if (!command || !pullRequest) throw new Error("Missing GitHub pull request context.")
-              expect(command.actor).toMatchObject({ association: "MEMBER" })
-              expect(pullRequest).toMatchObject({
-                pullRequest: {
-                  base: { ref: "main", sha: "base123" },
-                  body: "PR body",
-                  comments: [expect.objectContaining({ body: "/review please", user: { id: 1, login: "onmax", type: "User" } })],
-                  files: [expect.objectContaining({ additions: 12, deletions: 3, filename: "packages/agent/src/channels.ts", status: "modified" })],
-                  head: { ref: "feature", sha: "abc123" },
-                  htmlUrl: "https://github.test/vite-hub/vitehub/pull/42",
-                  labels: ["agent"],
-                  number: 42,
-                  source: {
-                    mount: "portal",
-                    ref: "refs/pull/42/head",
-                    repo: "vite-hub/vitehub",
+      capabilities: [
+        defineCapability({
+          id: "review-feedback",
+          prepare(context) {
+            context.delivery.effect({
+              intent: "completed",
+              kind: "status",
+              metadata: { description: "Review completed." },
+            })
+          },
+        }),
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review a pull request.",
+              call({ input }) {
+                const command = input.context?.github as Record<string, unknown> | undefined
+                const pullRequest = input.context?.pullRequest as Record<string, unknown> | undefined
+                if (!command || !pullRequest) throw new Error("Missing GitHub pull request context.")
+                expect(command.actor).toMatchObject({ association: "MEMBER" })
+                expect(pullRequest).toMatchObject({
+                  pullRequest: {
+                    base: { ref: "main", sha: "base123" },
+                    body: "PR body",
+                    comments: [
+                      expect.objectContaining({
+                        body: "/review please",
+                        user: { id: 1, login: "onmax", type: "User" },
+                      }),
+                    ],
+                    files: [
+                      expect.objectContaining({
+                        additions: 12,
+                        deletions: 3,
+                        filename: "packages/agent/src/channels.ts",
+                        status: "modified",
+                      }),
+                    ],
+                    head: { ref: "feature", sha: "abc123" },
+                    htmlUrl: "https://github.test/vite-hub/vitehub/pull/42",
+                    labels: ["agent"],
+                    number: 42,
+                    source: {
+                      mount: "portal",
+                      ref: "refs/pull/42/head",
+                      repo: "vite-hub/vitehub",
+                    },
+                    title: "Improve review commands",
                   },
-                  title: "Improve review commands",
-                },
-                run: {
-                  messageId: "99",
-                  origin: "github-review",
-                  runId: "delivery-1",
-                  threadId: "https://github.test/vite-hub/vitehub/pull/42",
-                },
-                trigger: {
-                  comment: {
-                    body: "/review please",
-                    htmlUrl: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
+                  run: {
+                    messageId: "99",
+                    origin: "github-review",
+                    runId: "delivery-1",
+                    threadId: "https://github.test/vite-hub/vitehub/pull/42",
                   },
-                  event: "issue_comment",
-                  sender: { login: "onmax" },
+                  trigger: {
+                    comment: {
+                      body: "/review please",
+                      htmlUrl: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
+                    },
+                    event: "issue_comment",
+                    sender: { login: "onmax" },
+                  },
+                })
+              },
+              hooks: {
+                async "agent:input"(context) {
+                  await context.message.react("eyes", { transient: true })
+                  await context.message.reply("Review queued.")
                 },
-              })
-            },
-            hooks: {
-              async "agent:input"(context) {
-                await context.message.react("eyes", { transient: true })
-                await context.message.reply("Review queued.")
               },
             },
           },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: github({
           app: {
@@ -4131,13 +4992,15 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      driver: { run: (context) => {
+      driver: {
+        run: (context) => {
           expect(context.prompt).toBe("")
           return {
             text: "Review completed.",
             totalUsage: { inputTokens: 10, outputTokens: 5 },
           }
-        } },
+        },
+      },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toMatchObject({
@@ -4147,7 +5010,9 @@ describe("agent message protocol", () => {
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/app/installations/123/access_tokens",
       expect.objectContaining({
-        headers: expect.objectContaining({ authorization: expect.stringMatching(/^Bearer [^.]+\.[^.]+\.[^.]+$/) }),
+        headers: expect.objectContaining({
+          authorization: expect.stringMatching(/^Bearer [^.]+\.[^.]+\.[^.]+$/),
+        }),
         method: "POST",
       }),
     )
@@ -4204,7 +5069,10 @@ describe("agent message protocol", () => {
     const fetcher = vi.fn(async (url: string | URL) => {
       const href = String(url)
       if (href.endsWith("/app/installations/123/access_tokens")) {
-        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+        return Response.json({
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+          token: "installation-token",
+        })
       }
       if (href.endsWith("/pulls/42")) {
         return Response.json({
@@ -4228,16 +5096,18 @@ describe("agent message protocol", () => {
       throw new Error(`Unexpected GitHub API call: ${href}`)
     })
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          review: {
-            description: "Review a pull request.",
-            call({ input }) {
-              pullRequestContext = input.context?.pullRequest
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review a pull request.",
+              call({ input }) {
+                pullRequestContext = input.context?.pullRequest
+              },
             },
           },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: github({
           app: {
@@ -4259,18 +5129,20 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
-      github: { event: "issue_comment", installationId: 123 },
-      payload: {
-        action: "created",
-        comment: { body: "/review", id: 99, user: { login: "mona" } },
-        issue: {
-          number: 42,
-          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+    await expect(
+      runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+        github: { event: "issue_comment", installationId: 123 },
+        payload: {
+          action: "created",
+          comment: { body: "/review", id: 99, user: { login: "mona" } },
+          issue: {
+            number: 42,
+            pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+          },
+          repository: { full_name: "acme/app" },
         },
-        repository: { full_name: "acme/app" },
-      },
-    })).resolves.toBe("ok")
+      }),
+    ).resolves.toBe("ok")
 
     expect(pullRequestContext).toMatchObject({
       pullRequest: {
@@ -4292,17 +5164,27 @@ describe("agent message protocol", () => {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     let pullRequestContext: unknown
-    const commentsPageOne = Array.from({ length: 100 }, (_, index) => ({ body: `comment ${index}`, id: index + 1 }))
-    const filesPageOne = Array.from({ length: 100 }, (_, index) => ({ filename: `src/${index}.ts` }))
+    const commentsPageOne = Array.from({ length: 100 }, (_, index) => ({
+      body: `comment ${index}`,
+      id: index + 1,
+    }))
+    const filesPageOne = Array.from({ length: 100 }, (_, index) => ({
+      filename: `src/${index}.ts`,
+    }))
     const fetcher = vi.fn(async (url: string | URL) => {
       const href = String(url)
       if (href.endsWith("/app/installations/123/access_tokens")) {
-        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+        return Response.json({
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+          token: "installation-token",
+        })
       }
       if (href.endsWith("/pulls/42")) return Response.json({})
       if (href.endsWith("/issues/42/comments?per_page=100")) {
         return Response.json(commentsPageOne, {
-          headers: { link: `<https://api.github.test/repos/acme/app/issues/42/comments?per_page=100&page=2>; rel="next"` },
+          headers: {
+            link: `<https://api.github.test/repos/acme/app/issues/42/comments?per_page=100&page=2>; rel="next"`,
+          },
         })
       }
       if (href.endsWith("/issues/42/comments?per_page=100&page=2")) {
@@ -4310,7 +5192,9 @@ describe("agent message protocol", () => {
       }
       if (href.endsWith("/pulls/42/files?per_page=100")) {
         return Response.json(filesPageOne, {
-          headers: { link: `<https://api.github.test/repos/acme/app/pulls/42/files?per_page=100&page=2>; rel="next"` },
+          headers: {
+            link: `<https://api.github.test/repos/acme/app/pulls/42/files?per_page=100&page=2>; rel="next"`,
+          },
         })
       }
       if (href.endsWith("/pulls/42/files?per_page=100&page=2")) {
@@ -4319,16 +5203,18 @@ describe("agent message protocol", () => {
       throw new Error(`Unexpected GitHub API call: ${href}`)
     })
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          review: {
-            description: "Review a pull request.",
-            call({ input }) {
-              pullRequestContext = input.context?.pullRequest
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review a pull request.",
+              call({ input }) {
+                pullRequestContext = input.context?.pullRequest
+              },
             },
           },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: github({
           app: {
@@ -4349,18 +5235,20 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
-      github: { event: "issue_comment", installationId: 123 },
-      payload: {
-        action: "created",
-        comment: { body: "/review", id: 99, user: { login: "mona" } },
-        issue: {
-          number: 42,
-          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+    await expect(
+      runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+        github: { event: "issue_comment", installationId: 123 },
+        payload: {
+          action: "created",
+          comment: { body: "/review", id: 99, user: { login: "mona" } },
+          issue: {
+            number: 42,
+            pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+          },
+          repository: { full_name: "acme/app" },
         },
-        repository: { full_name: "acme/app" },
-      },
-    })).resolves.toBe("ok")
+      }),
+    ).resolves.toBe("ok")
 
     expect(pullRequestContext).toMatchObject({
       pullRequest: {
@@ -4384,7 +5272,10 @@ describe("agent message protocol", () => {
     const fetcher = vi.fn(async (url: string | URL) => {
       const href = String(url)
       if (href.endsWith("/app/installations/321/access_tokens")) {
-        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+        return Response.json({
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+          token: "installation-token",
+        })
       }
       if (href.endsWith("/pulls/42")) return Response.json({ message: "forbidden" }, { status: 403 })
       if (href.endsWith("/issues/42/comments?per_page=100") || href.endsWith("/pulls/42/files?per_page=100")) {
@@ -4393,16 +5284,18 @@ describe("agent message protocol", () => {
       throw new Error(`Unexpected GitHub API call: ${href}`)
     })
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          review: {
-            description: "Review a pull request.",
-            call({ input }) {
-              pullRequestContext = input.context?.pullRequest
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review a pull request.",
+              call({ input }) {
+                pullRequestContext = input.context?.pullRequest
+              },
             },
           },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: github({
           app: {
@@ -4418,19 +5311,21 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
-      github: { event: "issue_comment", installationId: 321 },
-      payload: {
-        action: "created",
-        comment: { body: "/review", id: 99, user: { login: "mona" } },
-        issue: {
-          body: "fallback body",
-          number: 42,
-          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+    await expect(
+      runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+        github: { event: "issue_comment", installationId: 321 },
+        payload: {
+          action: "created",
+          comment: { body: "/review", id: 99, user: { login: "mona" } },
+          issue: {
+            body: "fallback body",
+            number: 42,
+            pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+          },
+          repository: { full_name: "acme/app" },
         },
-        repository: { full_name: "acme/app" },
-      },
-    })).resolves.toBe("ok")
+      }),
+    ).resolves.toBe("ok")
 
     expect(pullRequestContext).toMatchObject({
       pullRequest: {
@@ -4454,14 +5349,16 @@ describe("agent message protocol", () => {
     })
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          review: {
-            description: "Review a pull request.",
-            run: commandRun,
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review a pull request.",
+              run: commandRun,
+            },
           },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: github({
           app: { webhookSecret: false },
@@ -4469,7 +5366,7 @@ describe("agent message protocol", () => {
         }),
       },
       driver: {
-        run
+        run,
       },
     })
     const input = {
@@ -4498,7 +5395,11 @@ describe("agent message protocol", () => {
 
     expect(response).toBeInstanceOf(Response)
     expect((response as Response).status).toBe(200)
-    await expect((response as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "unauthorized" })
+    await expect((response as Response).json()).resolves.toEqual({
+      accepted: false,
+      ok: true,
+      reason: "unauthorized",
+    })
     expect(commandRun).toHaveBeenCalledOnce()
     expect(run).not.toHaveBeenCalled()
   })
@@ -4510,14 +5411,16 @@ describe("agent message protocol", () => {
     const summaryRun = vi.fn(() => "unexpected")
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          summary: {
-            description: "Summarize a pull request.",
-            run: summaryRun,
+      capabilities: [
+        inputCommands({
+          commands: {
+            summary: {
+              description: "Summarize a pull request.",
+              run: summaryRun,
+            },
           },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: github({
           app: { webhookSecret: false },
@@ -4525,7 +5428,7 @@ describe("agent message protocol", () => {
         }),
       },
       driver: {
-        run
+        run,
       },
     })
 
@@ -4551,7 +5454,11 @@ describe("agent message protocol", () => {
     })
 
     expect(response).toBeInstanceOf(Response)
-    await expect((response as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
+    await expect((response as Response).json()).resolves.toEqual({
+      accepted: false,
+      ok: true,
+      reason: "not_command",
+    })
     expect(summaryRun).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -4562,25 +5469,27 @@ describe("agent message protocol", () => {
     const { github } = await import("../src/channels.ts")
     const calls: string[] = []
     const agent = defineAgent({
-      capabilities: [inputCommands({
-        commands: {
-          review: {
-            channels: ["github"],
-            description: "Review a pull request.",
-            call: ({ args }) => {
-              calls.push(`review:${args}`)
-              return args
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              channels: ["github"],
+              description: "Review a pull request.",
+              call: ({ args }) => {
+                calls.push(`review:${args}`)
+                return args
+              },
+            },
+            summary: {
+              description: "Summarize a pull request.",
+              call: ({ args }) => {
+                calls.push(`summary:${args}`)
+                return args
+              },
             },
           },
-          summary: {
-            description: "Summarize a pull request.",
-            call: ({ args }) => {
-              calls.push(`summary:${args}`)
-              return args
-            },
-          },
-        },
-      })],
+        }),
+      ],
       channels: {
         github: github({
           app: { webhookSecret: false },
@@ -4591,7 +5500,7 @@ describe("agent message protocol", () => {
           pullRequest: { workspace: false },
         }),
       },
-      driver: { run: context => `ran:${context.prompt}` },
+      driver: { run: (context) => `ran:${context.prompt}` },
     })
     const delivery = (body: string, id: number) => ({
       github: { deliveryId: `delivery-${id}`, event: "issue_comment" },
@@ -4617,7 +5526,11 @@ describe("agent message protocol", () => {
 
     const filtered = await runAgentTrigger(agent, runtime, "triage.webhook", delivery("/review please", 201))
     expect(filtered).toBeInstanceOf(Response)
-    await expect((filtered as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
+    await expect((filtered as Response).json()).resolves.toEqual({
+      accepted: false,
+      ok: true,
+      reason: "not_command",
+    })
 
     await expect(runAgentTrigger(agent, runtime, "triage.webhook", delivery("/summary please", 202))).resolves.toBe("ran:please")
     await expect(runAgentTrigger(agent, runtime, "github.webhook", delivery("/review please", 203))).resolves.toBe("ran:please")
@@ -4636,7 +5549,14 @@ describe("agent message protocol", () => {
       workspace: {},
     })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "chat.message": {
         capabilityId: "chat",
       },
@@ -4651,26 +5571,33 @@ describe("agent message protocol", () => {
       channels: {
         support: http({
           adapter: () => ({}) as never,
-          webhooks: [
-            { path: "/api/support/primary" },
-            { path: "/api/support/fallback" },
-          ],
+          webhooks: [{ path: "/api/support/primary" }, { path: "/api/support/fallback" }],
         }),
       },
       driver: { run: () => "ok" },
     })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "chat.message": {
-        webhooks: [{
-          id: "support-1",
-          path: "/api/support/primary",
-          provider: "http",
-        }, {
-          id: "support-2",
-          path: "/api/support/fallback",
-          provider: "http",
-        }],
+        webhooks: [
+          {
+            id: "support-1",
+            path: "/api/support/primary",
+            provider: "http",
+          },
+          {
+            id: "support-2",
+            path: "/api/support/fallback",
+            provider: "http",
+          },
+        ],
       },
     })
   })
@@ -4689,7 +5616,14 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "chat.message": {
         webhooks: undefined,
       },
@@ -4706,14 +5640,16 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
 
-    expect(() => defineAgent({
-      channels: {
-        support: http({
-          webhooks: { path: "/api/support/chat" },
-        }),
-      },
-      driver: { run: () => "ok" },
-    })).toThrow("[vitehub] Channel webhooks require an adapter-backed Channel.")
+    expect(() =>
+      defineAgent({
+        channels: {
+          support: http({
+            webhooks: { path: "/api/support/chat" },
+          }),
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrow("[vitehub] Channel webhooks require an adapter-backed Channel.")
   })
 
   it("rejects legacy message history settings", async () => {
@@ -4721,75 +5657,87 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
 
-    expect(() => chat({
-      history: { maxMessages: 20, source: "thread" },
-    })).toThrow("messages.history was replaced by messages.triggerHistory")
-
-    expect(() => defineAgent({
-      channels: {
-        web: webChat(),
-      },
-      messages: {
+    expect(() =>
+      chat({
         history: { maxMessages: 20, source: "thread" },
-      },
-      driver: { run: () => "ok" },
-    })).toThrow("messages.history was replaced by messages.triggerHistory")
+      }),
+    ).toThrow("messages.history was replaced by messages.triggerHistory")
+
+    expect(() =>
+      defineAgent({
+        channels: {
+          web: webChat(),
+        },
+        messages: {
+          history: { maxMessages: 20, source: "thread" },
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrow("messages.history was replaced by messages.triggerHistory")
   })
 
   it("rejects streaming and commentary with manual message delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
-    const error = "messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary"
+    const error = 'messages.delivery "manual" cannot be combined with messages.stream or messages.commentary'
 
-    expect(() => defineAgent({
-      channels: {
-        telegram: telegram({ adapter: () => ({}) as never }),
-      },
-      driver: { run: () => "ok" },
-      messages: {
-        delivery: "manual",
-        stream: true,
-      },
-    })).toThrow(error)
+    expect(() =>
+      defineAgent({
+        channels: {
+          telegram: telegram({ adapter: () => ({}) as never }),
+        },
+        driver: { run: () => "ok" },
+        messages: {
+          delivery: "manual",
+          stream: true,
+        },
+      }),
+    ).toThrow(error)
 
-    expect(() => defineAgent({
-      channels: {
-        telegram: telegram({
-          adapter: () => ({}) as never,
-          messages: {
-            commentary: "hidden",
-            delivery: "manual",
-          },
-        }),
-      },
-      driver: { run: () => "ok" },
-    })).toThrow(error)
+    expect(() =>
+      defineAgent({
+        channels: {
+          telegram: telegram({
+            adapter: () => ({}) as never,
+            messages: {
+              commentary: "hidden",
+              delivery: "manual",
+            },
+          }),
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrow(error)
   })
 
   it("rejects overlap-policy concurrency with durable message delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     for (const concurrency of ["drop", "queue", "reject", "serial", "tenant-policy"] as const) {
-      expect(() => defineAgent({
+      expect(() =>
+        defineAgent({
+          channels: { telegram: telegram({ adapter: () => ({}) as never }) },
+          driver: { run: () => "ok" },
+          messages: {
+            concurrency,
+            delivery: "manual",
+            durable: true,
+          },
+        }),
+      ).toThrow(`messages.durable cannot be combined with concurrency: ${JSON.stringify(concurrency)}`)
+    }
+
+    expect(() =>
+      defineAgent({
         channels: { telegram: telegram({ adapter: () => ({}) as never }) },
         driver: { run: () => "ok" },
         messages: {
-          concurrency,
+          concurrency: "steer",
           delivery: "manual",
           durable: true,
         },
-      })).toThrow(`messages.durable cannot be combined with concurrency: ${JSON.stringify(concurrency)}`)
-    }
-
-    expect(() => defineAgent({
-      channels: { telegram: telegram({ adapter: () => ({}) as never }) },
-      driver: { run: () => "ok" },
-      messages: {
-        concurrency: "steer",
-        delivery: "manual",
-        durable: true,
-      },
-    })).not.toThrow()
+      }),
+    ).not.toThrow()
   })
 
   it("rejects invalid message timeouts", async () => {
@@ -4798,13 +5746,15 @@ describe("agent message protocol", () => {
     const error = "messages.timeout must be a positive finite number"
 
     for (const timeout of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
-      expect(() => defineAgent({
-        channels: {
-          telegram: telegram({ adapter: () => ({}) as never }),
-        },
-        driver: { run: () => "ok" },
-        messages: { timeout },
-      })).toThrow(error)
+      expect(() =>
+        defineAgent({
+          channels: {
+            telegram: telegram({ adapter: () => ({}) as never }),
+          },
+          driver: { run: () => "ok" },
+          messages: { timeout },
+        }),
+      ).toThrow(error)
     }
   })
 
@@ -4820,7 +5770,14 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(
+      resolveAgentTriggers(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
       "chat.message": {
         webhooks: expect.arrayContaining([
           expect.objectContaining({ channelId: "sales", id: "sales", provider: "teams" }),
@@ -4851,7 +5808,7 @@ describe("agent message protocol", () => {
     expect(first.channels?.existing).toBe(existing)
     expect(first.channels?.portal).not.toBe(second.channels?.portal)
     expect(first.workspace).toMatchObject(workspace)
-    expect(Object.values(first.channels || {}).every(channel => typeof channel === "object")).toBe(true)
+    expect(Object.values(first.channels || {}).every((channel) => typeof channel === "object")).toBe(true)
   })
 
   it("normalizes built-in Channel settings under their canonical names", async () => {
@@ -4875,7 +5832,7 @@ describe("agent message protocol", () => {
   it("applies model call defaults alongside flat driver retries", async () => {
     const agentSettings: Record<string, unknown>[] = []
     loadAiSdk.mockResolvedValue({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -4889,9 +5846,12 @@ describe("agent message protocol", () => {
     })
     const { setModelCallSettings } = await import("../src/internal/model-call-settings.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const model = setModelCallSettings({}, {
-      providerOptions: { gateway: { models: ["fallback/model"] } },
-    })
+    const model = setModelCallSettings(
+      {},
+      {
+        providerOptions: { gateway: { models: ["fallback/model"] } },
+      },
+    )
     const agent = defineAgent({
       driver: {
         execution: {
@@ -4902,11 +5862,17 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
     expect(agentSettings[0]).toMatchObject({
       maxRetries: 0,
       providerOptions: {
@@ -4921,7 +5887,7 @@ describe("agent message protocol", () => {
   it("lets usage() request OpenRouter usage metadata", async () => {
     const agentSettings: Record<string, unknown>[] = []
     loadAiSdk.mockResolvedValue({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -4951,11 +5917,15 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})
+    await runAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      {},
+    )
 
     expect(agentSettings[0]).toMatchObject({
       providerOptions: {
@@ -4973,19 +5943,23 @@ describe("agent message protocol", () => {
 
   it("rejects raw Channel settings under unknown names", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    expect(() => defineAgent({
-      channels: { support: { messages: false } as never },
-      driver: { run: () => "ok" },
-    })).toThrow('Channel "support" must be an Agent Channel definition or use a built-in Channel name')
+    expect(() =>
+      defineAgent({
+        channels: { support: { messages: false } as never },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrow('Channel "support" must be an Agent Channel definition or use a built-in Channel name')
   })
 
   it("rejects invalid Channel factory results with the Channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    expect(() => defineAgent({
-      channels: { broken: (() => undefined) as never },
-      driver: { run: () => "ok" },
-    })).toThrowError(new TypeError('[vitehub] Channel factory "broken" must return an Agent Channel definition.'))
+    expect(() =>
+      defineAgent({
+        channels: { broken: (() => undefined) as never },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrowError(new TypeError('[vitehub] Channel factory "broken" must return an Agent Channel definition.'))
   })
 
   it("enables equivalent generated routes for shorthand and explicit Web Chat Channels", async () => {
@@ -4994,72 +5968,98 @@ describe("agent message protocol", () => {
     const { createChannelChatRouteHandler, hasChannelChatRoute } = await import("../src/server/internal.ts")
     const shorthandRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
     const explicitRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
-    const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify({
-        messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
-      }),
-      method: "POST",
-    })
+    const request = () =>
+      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+        }),
+        method: "POST",
+      })
 
     const shorthand = defineAgent({ channels: { portal: webChat }, driver: { run: shorthandRun } })
     const explicit = defineAgent({ channels: { portal: webChat() }, driver: { run: explicitRun } })
-    const routeDisabled = defineAgent({ channels: { portal: webChat({ route: false }) }, driver: { run: () => "ok" } })
-    const shorthandResponse = await createChannelChatRouteHandler(shorthand as never)(request(), { agentName: "support" })
-    const explicitResponse = await createChannelChatRouteHandler(explicit as never)(request(), { agentName: "support" })
+    const routeDisabled = defineAgent({
+      channels: { portal: webChat({ route: false }) },
+      driver: { run: () => "ok" },
+    })
+    const shorthandResponse = await createChannelChatRouteHandler(shorthand as never)(request(), {
+      agentName: "support",
+    })
+    const explicitResponse = await createChannelChatRouteHandler(explicit as never)(request(), {
+      agentName: "support",
+    })
 
     expect(shorthandResponse.status).toBe(200)
     expect(explicitResponse.status).toBe(200)
-    expect(shorthandRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "web-chat" }) }))
-    expect(explicitRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "web-chat" }) }))
+    expect(shorthandRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        run: expect.objectContaining({ channelId: "portal", origin: "web-chat" }),
+      }),
+    )
+    expect(explicitRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        run: expect.objectContaining({ channelId: "portal", origin: "web-chat" }),
+      }),
+    )
     expect(hasChannelChatRoute(explicit as never)).toBe(true)
     expect(hasChannelChatRoute(routeDisabled as never)).toBe(false)
 
-    expect(() => createChannelChatRouteHandler(defineAgent({
-      channels: { first: webChat, second: webChat },
-      driver: { run: () => "ok" },
-    }) as never)).toThrow("multiple route-enabled Channels")
+    expect(() =>
+      createChannelChatRouteHandler(
+        defineAgent({
+          channels: { first: webChat, second: webChat },
+          driver: { run: () => "ok" },
+        }) as never,
+      ),
+    ).toThrow("multiple route-enabled Channels")
   })
 
   it("accepts channel-local stream delivery across multiple message-shaped channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams, telegram } = await import("../src/channels.ts")
 
-    expect(() => defineAgent({
-      channels: {
-        teams: teams({ adapter: () => ({}) as never, messages: { stream: false } }),
-        telegram: telegram({ adapter: () => ({}) as never, messages: { stream: true } }),
-      },
-      driver: { run: () => "ok" },
-    })).not.toThrow()
+    expect(() =>
+      defineAgent({
+        channels: {
+          teams: teams({ adapter: () => ({}) as never, messages: { stream: false } }),
+          telegram: telegram({ adapter: () => ({}) as never, messages: { stream: true } }),
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).not.toThrow()
   })
 
   it("accepts channel-local commentary delivery across multiple message-shaped channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams, telegram } = await import("../src/channels.ts")
 
-    expect(() => defineAgent({
-      channels: {
-        teams: teams({ adapter: () => ({}) as never, messages: { commentary: "hidden" } }),
-        telegram: telegram({ adapter: () => ({}) as never, messages: { commentary: "message" } }),
-      },
-      driver: { run: () => "ok" },
-    })).not.toThrow()
+    expect(() =>
+      defineAgent({
+        channels: {
+          teams: teams({ adapter: () => ({}) as never, messages: { commentary: "hidden" } }),
+          telegram: telegram({ adapter: () => ({}) as never, messages: { commentary: "message" } }),
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).not.toThrow()
   })
 
   it("accepts channel-local message filters across multiple message-shaped channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram, webChat } = await import("../src/channels.ts")
 
-    expect(() => defineAgent({
-      channels: {
-        telegram: telegram({
-          adapter: () => ({}) as never,
-          messages: { filter: () => false },
-        }),
-        web: webChat(),
-      },
-      driver: { run: () => "ok" },
-    })).not.toThrow()
+    expect(() =>
+      defineAgent({
+        channels: {
+          telegram: telegram({
+            adapter: () => ({}) as never,
+            messages: { filter: () => false },
+          }),
+          web: webChat(),
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).not.toThrow()
   })
 
   it("applies channel-local message settings for one message-shaped channel", async () => {
@@ -5088,29 +6088,33 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams, webChat } = await import("../src/channels.ts")
 
-    expect(() => defineAgent({
-      channels: {
-        teams: teams({ adapter: () => ({}) as never }),
-        web: webChat({ messages: { triggerHistory: "none" } }),
-      },
-      driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options other than commentary, filter, or stream are only supported when an Agent defines one message-shaped Channel")
+    expect(() =>
+      defineAgent({
+        channels: {
+          teams: teams({ adapter: () => ({}) as never }),
+          web: webChat({ messages: { triggerHistory: "none" } }),
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrow("Channel-local messages options other than commentary, filter, or stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams, webChat } = await import("../src/channels.ts")
 
-    expect(() => defineAgent({
-      channels: {
-        teams: teams({
-          adapter: () => ({}) as never,
-          identity: () => "team:user",
-        }),
-        web: webChat(),
-      },
-      driver: { run: () => "ok" },
-    })).toThrow("Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel")
+    expect(() =>
+      defineAgent({
+        channels: {
+          teams: teams({
+            adapter: () => ({}) as never,
+            identity: () => "team:user",
+          }),
+          web: webChat(),
+        },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrow("Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects mixing channels with the legacy chat capability", async () => {
@@ -5118,11 +6122,13 @@ describe("agent message protocol", () => {
     const { chat } = await import("../src/capabilities.ts")
     const { webChat } = await import("../src/channels.ts")
 
-    expect(() => defineAgent({
-      capabilities: [chat()],
-      channels: { web: webChat() },
-      driver: { run: () => "ok" },
-    })).toThrow("defineAgent({ channels }) cannot be combined with the chat() capability")
+    expect(() =>
+      defineAgent({
+        capabilities: [chat()],
+        channels: { web: webChat() },
+        driver: { run: () => "ok" },
+      }),
+    ).toThrow("defineAgent({ channels }) cannot be combined with the chat() capability")
   })
 
   it("runs agent finish hooks for custom object results after extensions are resolved", async () => {
@@ -5150,22 +6156,30 @@ describe("agent message protocol", () => {
     })
     const input = { prompt: "hello" }
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-1" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, input)).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          run: { runId: "run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        input,
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
 
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      input,
-      invocation: expect.objectContaining({
-        durationMs: expect.any(Number),
-        run: { runId: "run-1" },
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input,
+        invocation: expect.objectContaining({
+          durationMs: expect.any(Number),
+          run: { runId: "run-1" },
+        }),
+        result: { text: "ok" },
+        runtime: expect.objectContaining({ runtime: "unknown" }),
       }),
-      result: { text: "ok" },
-      runtime: expect.objectContaining({ runtime: "unknown" }),
-    }))
+    )
     const event = finish.mock.calls[0]![0]
     expect(event.extensions.get("first")).toBe("ok:first")
     expect(event.extensions.get("second")).toEqual({ value: "second-value" })
@@ -5180,20 +6194,28 @@ describe("agent message protocol", () => {
       throw new Error("extension should not run")
     })
     const agent = defineAgent({
-      capabilities: [{
-        id: "unused",
-        output(context) {
-          context.finish.provide(extension)
+      capabilities: [
+        {
+          id: "unused",
+          output(context) {
+            context.finish.provide(extension)
+          },
         },
-      }],
+      ],
       driver: { run: () => ({ text: "ok" }) },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
     expect(extension).not.toHaveBeenCalled()
   })
 
@@ -5207,13 +6229,19 @@ describe("agent message protocol", () => {
       driver: { run: () => ({ text: "ok" }) },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {
-      messages: [createMessage({ role: "user", text: "Name this chat" })],
-    })).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {
+          messages: [createMessage({ role: "user", text: "Name this chat" })],
+        },
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -5222,12 +6250,15 @@ describe("agent message protocol", () => {
     const { defineWorkspace, useWorkspace } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const workspaceName = `inactive-finish-auto-commit-${Math.random().toString(36).slice(2)}`
-    const inactiveFinishEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply("unused")
+    const inactiveFinishEffect: AgentChannelDeliveryFinishEffectCallback = (context) => context.reply("unused")
     inactiveFinishEffect.active = () => false
-    registerWorkspace(workspaceName, defineWorkspace({
-      commit: true,
-      store: { provider: "memory" },
-    }))
+    registerWorkspace(
+      workspaceName,
+      defineWorkspace({
+        commit: true,
+        store: { provider: "memory" },
+      }),
+    )
     const agent = defineAgent({
       capabilities: [
         defineCapability({
@@ -5237,23 +6268,33 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      driver: { async run({ workspace }) {
+      driver: {
+        async run({ workspace }) {
           await (workspace as WritableWorkspaceFacade).fs.writeFile("notes.md", "committed")
           return { text: "ok" }
-        } },
+        },
+      },
       workspace: {
         mode: "write",
         name: workspaceName,
       },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
 
-    await expect(useWorkspace(workspaceName, { mode: "write" }).diff()).resolves.toMatchObject({ entries: [] })
+    await expect(useWorkspace(workspaceName, { mode: "write" }).diff()).resolves.toMatchObject({
+      entries: [],
+    })
   })
 
   it("does not rerun finish lifecycle when a finish hook fails", async () => {
@@ -5264,30 +6305,38 @@ describe("agent message protocol", () => {
       throw finishError
     })
     const agent = defineAgent({
-      capabilities: [{
-        id: "finish-extension",
-        output(context) {
-          context.finish.provide(extension)
+      capabilities: [
+        {
+          id: "finish-extension",
+          output(context) {
+            context.finish.provide(extension)
+          },
         },
-      }],
+      ],
       hooks: {
         "agent:finish": finish,
       },
       driver: { run: () => ({ text: "ok" }) },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).rejects.toThrow("finish failed")
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("finish failed")
     expect(extension).toHaveBeenCalledTimes(1)
     expect(finish).toHaveBeenCalledTimes(1)
   })
 
   it("runs agent finish hooks for model-backed object results", async () => {
     vi.doMock("ai", () => ({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -5303,38 +6352,56 @@ describe("agent message protocol", () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const finish = vi.fn()
       const agent = defineAgent({
-        capabilities: [{
-        id: "finish-metadata",
-        output(context) {
-          context.output.render(result => ({ ...result as Record<string, unknown>, finishMetadata: { id: "rendered-1" } }))
-          context.finish.provide((event: { result?: unknown }) => (event.result as { finishMetadata?: unknown }).finishMetadata)
-        },
-      }],
+        capabilities: [
+          {
+            id: "finish-metadata",
+            output(context) {
+              context.output.render((result) => ({
+                ...(result as Record<string, unknown>),
+                finishMetadata: { id: "rendered-1" },
+              }))
+              context.finish.provide((event: { result?: unknown }) => (event.result as { finishMetadata?: unknown }).finishMetadata)
+            },
+          },
+        ],
         hooks: {
           "agent:finish": finish,
         },
         driver: { model: {} as never },
       })
 
-      await expect(runAgent(agent, {
-        memo: vi.fn(),
-        run: { runId: "run-model-1" },
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
+      await expect(
+        runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            run: { runId: "run-model-1" },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
 
-      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-        extensions: expect.objectContaining({
-          get: expect.any(Function),
+      expect(finish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          extensions: expect.objectContaining({
+            get: expect.any(Function),
+          }),
+          invocation: expect.objectContaining({
+            run: { runId: "run-model-1" },
+          }),
+          result: expect.objectContaining({
+            finishMetadata: { id: "rendered-1" },
+            finishReason: "stop",
+            text: "ok",
+          }),
         }),
-        invocation: expect.objectContaining({
-          run: { runId: "run-model-1" },
-        }),
-        result: expect.objectContaining({ finishMetadata: { id: "rendered-1" }, finishReason: "stop", text: "ok" }),
-      }))
-      expect(finish.mock.calls[0]![0].extensions.get("finish-metadata")).toEqual({ id: "rendered-1" })
-    }
-    finally {
+      )
+      expect(finish.mock.calls[0]![0].extensions.get("finish-metadata")).toEqual({
+        id: "rendered-1",
+      })
+    } finally {
       vi.doUnmock("ai")
     }
   })
@@ -5401,7 +6468,7 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "legacy-render",
           output(context) {
-            context.output.render(result => `${result}:rendered`)
+            context.output.render((result) => `${result}:rendered`)
           },
         }),
       ],
@@ -5413,7 +6480,7 @@ describe("agent message protocol", () => {
 
   it("runs stream finish hooks with rendered model-backed object results", async () => {
     vi.doMock("ai", () => ({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -5429,38 +6496,49 @@ describe("agent message protocol", () => {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
       const finish = vi.fn()
       const agent = defineAgent({
-        capabilities: [{
-          id: "usage",
-          output(context) {
-            context.output.render(result => ({ ...result as Record<string, unknown>, usageRecord: { id: "usage-1" } }))
+        capabilities: [
+          {
+            id: "usage",
+            output(context) {
+              context.output.render((result) => ({
+                ...(result as Record<string, unknown>),
+                usageRecord: { id: "usage-1" },
+              }))
+            },
           },
-        }],
+        ],
         hooks: {
           "agent:finish": finish,
         },
         driver: { model: {} as never },
       })
 
-      const stream = await streamAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {})
+      const stream = await streamAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      )
 
-      for await (const _event of stream as AsyncIterable<unknown>) {}
+      for await (const _event of stream as AsyncIterable<unknown>) {
+      }
 
-      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-        result: expect.objectContaining({ usageRecord: { id: "usage-1" } }),
-      }))
-    }
-    finally {
+      expect(finish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          result: expect.objectContaining({ usageRecord: { id: "usage-1" } }),
+        }),
+      )
+    } finally {
       vi.doUnmock("ai")
     }
   })
 
   it("runs stream finish hooks with accumulated model-backed text", async () => {
     vi.doMock("ai", () => ({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         async generate() {
           return { text: "unused" }
@@ -5488,26 +6566,32 @@ describe("agent message protocol", () => {
         driver: { model: {} as never },
       })
 
-      const stream = await streamAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {})
+      const stream = await streamAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      )
 
-      for await (const _event of stream as AsyncIterable<unknown>) {}
+      for await (const _event of stream as AsyncIterable<unknown>) {
+      }
 
-      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-        result: expect.objectContaining({ text: "streamed review" }),
-      }))
-    }
-    finally {
+      expect(finish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          result: expect.objectContaining({ text: "streamed review" }),
+        }),
+      )
+    } finally {
       vi.doUnmock("ai")
     }
   })
 
   it("finalizes model-backed results before finish hooks", async () => {
     vi.doMock("ai", () => ({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         async generate() {
           return {
@@ -5530,8 +6614,8 @@ describe("agent message protocol", () => {
           defineCapability({
             id: "model-output",
             output(context) {
-              context.output.final(result => ({
-                ...result as Record<string, unknown>,
+              context.output.final((result) => ({
+                ...(result as Record<string, unknown>),
                 text: `${(result as { text?: string }).text}:final`,
               }))
             },
@@ -5543,11 +6627,17 @@ describe("agent message protocol", () => {
         driver: { model: {} as never },
       })
 
-      await expect(runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {})).resolves.toMatchObject({
+      await expect(
+        runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toMatchObject({
         text: "ok:final",
         usageRecord: {
           usage: {
@@ -5567,8 +6657,7 @@ describe("agent message protocol", () => {
           totalTokens: 6,
         },
       })
-    }
-    finally {
+    } finally {
       vi.doUnmock("ai")
     }
   })
@@ -5581,14 +6670,20 @@ describe("agent message protocol", () => {
       },
     }
     const agent = defineAgent({
-      driver: { run: () => ({ text: "ok", usage }), },
+      driver: { run: () => ({ text: "ok", usage }) },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
   })
 
   it("does not make error-only hooks consume successful usage", async () => {
@@ -5601,15 +6696,21 @@ describe("agent message protocol", () => {
       },
     }
     const agent = defineAgent({
-      driver: { run: () => ({ text: "ok", usage }), },
+      driver: { run: () => ({ text: "ok", usage }) },
       hooks: { "agent:error": agentError },
     })
 
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toMatchObject({ text: "ok" })
+    await expect(
+      runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {},
+      ),
+    ).resolves.toMatchObject({ text: "ok" })
     expect(agentError).not.toHaveBeenCalled()
   })
 
@@ -5623,11 +6724,11 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "delivery-output",
           output(context) {
-            context.output.final(result => ({
-              ...result as Record<string, unknown>,
+            context.output.final((result) => ({
+              ...(result as Record<string, unknown>),
               text: `${(result as { text?: string }).text}:final`,
             }))
-            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+            context.delivery.finishEffect((context) => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -5641,7 +6742,8 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           fullStream: (async function* () {
             yield { text: "raw ", type: "text-delta" }
             yield { text: "review", type: "text-delta" }
@@ -5653,18 +6755,23 @@ describe("agent message protocol", () => {
               type: "finish",
             }
           })(),
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: {
-        channelId: "review",
-        runId: "run-1",
+    const stream = await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: {
+          channelId: "review",
+          runId: "run-1",
+        },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
       },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})
+      {},
+    )
 
     const events: unknown[] = []
     for await (const event of stream as AsyncIterable<unknown>) {
@@ -5699,11 +6806,11 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "bare-stream-output",
           output(context) {
-            context.output.final(result => ({
-              ...result as Record<string, unknown>,
+            context.output.final((result) => ({
+              ...(result as Record<string, unknown>),
               text: `${(result as { text?: string }).text}:final`,
             }))
-            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+            context.delivery.finishEffect((context) => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -5717,33 +6824,36 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: { run: () => (async function* () {
-          yield { text: "bare ", type: "text-delta" }
-          yield { text: "stream", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "bare ", type: "text-delta" }
+            yield { text: "stream", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: {
-        channelId: "review",
-        runId: "run-1",
+    const stream = await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: {
+          channelId: "review",
+          runId: "run-1",
+        },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
       },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})
+      {},
+    )
 
     const events: unknown[] = []
     for await (const event of stream as AsyncIterable<unknown>) {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { text: "bare ", type: "text-delta" },
-      { text: "stream", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toEqual([{ text: "bare ", type: "text-delta" }, { text: "stream", type: "text-delta" }, { type: "finish" }])
     expect(delivered).toHaveBeenCalledWith("bare stream:final")
   })
 
@@ -5760,11 +6870,11 @@ describe("agent message protocol", () => {
             context.output.final((result) => {
               const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord
               return {
-                ...result as Record<string, unknown>,
+                ...(result as Record<string, unknown>),
                 text: `${(result as { text?: string }).text}:${usage?.usage?.totalTokens}`,
               }
             })
-            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+            context.delivery.finishEffect((context) => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -5778,34 +6888,42 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: { run: () => (async function* () {
-          yield { text: "bare ", type: "text-delta" }
-          yield { text: "review", type: "text-delta" }
-          yield {
-            type: "usage",
-            usageRecord: {
-              usage: {
-                inputTokens: 3,
-                outputTokens: 4,
-                totalTokens: 7,
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "bare ", type: "text-delta" }
+            yield { text: "review", type: "text-delta" }
+            yield {
+              type: "usage",
+              usageRecord: {
+                usage: {
+                  inputTokens: 3,
+                  outputTokens: 4,
+                  totalTokens: 7,
+                },
               },
-            },
-          }
-          yield { type: "finish" }
-        })() },
+            }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: {
-        channelId: "review",
-        runId: "run-1",
+    const stream = await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: {
+          channelId: "review",
+          runId: "run-1",
+        },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
       },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})
+      {},
+    )
 
-    for await (const _event of stream as AsyncIterable<unknown>) {}
+    for await (const _event of stream as AsyncIterable<unknown>) {
+    }
 
     expect(delivered).toHaveBeenCalledWith("bare review:7")
   })
@@ -5818,8 +6936,8 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "run-stream-output",
           output(context) {
-            context.output.final(result => ({
-              ...result as Record<string, unknown>,
+            context.output.final((result) => ({
+              ...(result as Record<string, unknown>),
               text: `${(result as { text?: string }).text}:final`,
             }))
           },
@@ -5828,22 +6946,28 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      driver: { run: () => (async function* () {
-          yield { text: "run ", type: "text-delta" }
-          yield { text: "stream", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "run ", type: "text-delta" }
+            yield { text: "stream", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
     const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
     expect(finish).not.toHaveBeenCalled()
-    for await (const _event of stream as AsyncIterable<unknown>) {}
+    for await (const _event of stream as AsyncIterable<unknown>) {
+    }
 
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({
-        text: "run stream:final",
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          text: "run stream:final",
+        }),
       }),
-    }))
+    )
   })
 
   it("exposes explicit stream usage events to final output renderers", async () => {
@@ -5859,11 +6983,11 @@ describe("agent message protocol", () => {
             context.output.final((result) => {
               const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord
               return {
-                ...result as Record<string, unknown>,
+                ...(result as Record<string, unknown>),
                 text: `${(result as { text?: string }).text}:${usage?.usage?.totalTokens}`,
               }
             })
-            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+            context.delivery.finishEffect((context) => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -5877,7 +7001,8 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           fullStream: (async function* () {
             yield { text: "raw ", type: "text-delta" }
             yield { text: "review", type: "text-delta" }
@@ -5893,18 +7018,23 @@ describe("agent message protocol", () => {
             }
             yield { type: "finish" }
           })(),
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: {
-        channelId: "review",
-        runId: "run-1",
+    const stream = await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: {
+          channelId: "review",
+          runId: "run-1",
+        },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
       },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})
+      {},
+    )
 
     const events: unknown[] = []
     for await (const event of stream as AsyncIterable<unknown>) {
@@ -5947,22 +7077,29 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:error": agentError,
       },
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           fullStream: (async function* () {
             yield { text: "ok", type: "text-delta" }
             yield { type: "finish" }
           })(),
-        }) },
+        }),
+      },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
 
-    await expect((async () => {
-      for await (const _event of stream as AsyncIterable<unknown>) {}
-    })()).rejects.toThrow("final failed")
-    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
-      error: finalError,
-    }))
+    await expect(
+      (async () => {
+        for await (const _event of stream as AsyncIterable<unknown>) {
+        }
+      })(),
+    ).rejects.toThrow("final failed")
+    expect(agentError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: finalError,
+      }),
+    )
   })
 
   it("runs final output renderers before ui-message-stream finish delivery effects", async () => {
@@ -5976,14 +7113,14 @@ describe("agent message protocol", () => {
           id: "delivery-ui-output",
           output(context) {
             context.output.final((result) => {
-              const usage = (result as { usage?: { inputTokens?: number, outputTokens?: number } }).usage
+              const usage = (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage
               const total = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
               return {
-                ...result as Record<string, unknown>,
+                ...(result as Record<string, unknown>),
                 text: `${(result as { text?: string }).text}:${total}`,
               }
             })
-            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+            context.delivery.finishEffect((context) => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -5997,7 +7134,8 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
@@ -6012,18 +7150,24 @@ describe("agent message protocol", () => {
             inputTokens: 1,
             outputTokens: 2,
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: {
-        channelId: "review",
-        runId: "run-1",
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: {
+          channelId: "review",
+          runId: "run-1",
+        },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
       },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      {},
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
     while (true) {
       const { done } = await reader.read()
@@ -6047,11 +7191,11 @@ describe("agent message protocol", () => {
             context.output.final((result) => {
               const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord?.usage
               return {
-                ...result as Record<string, unknown>,
+                ...(result as Record<string, unknown>),
                 text: `${(result as { text?: string }).text}:${usage?.totalTokens}`,
               }
             })
-            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+            context.delivery.finishEffect((context) => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -6068,7 +7212,8 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
@@ -6085,18 +7230,24 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: {
-        channelId: "review",
-        runId: "run-1",
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: {
+          channelId: "review",
+          runId: "run-1",
+        },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
       },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      {},
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
     while (true) {
       const { done } = await reader.read()
@@ -6127,11 +7278,11 @@ describe("agent message protocol", () => {
             context.output.final((result) => {
               const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord?.usage
               return {
-                ...result as Record<string, unknown>,
+                ...(result as Record<string, unknown>),
                 text: `${(result as { text?: string }).text}:${usage?.totalTokens}`,
               }
             })
-            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+            context.delivery.finishEffect((context) => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -6148,32 +7299,40 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      driver: { run: () => (async function* () {
-          yield { delta: "event ", type: "text-delta" }
-          yield { delta: "usage", type: "text-delta" }
-          yield {
-            type: "usage",
-            usageRecord: {
-              usage: {
-                inputTokens: 8,
-                outputTokens: 5,
-                totalTokens: 13,
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { delta: "event ", type: "text-delta" }
+            yield { delta: "usage", type: "text-delta" }
+            yield {
+              type: "usage",
+              usageRecord: {
+                usage: {
+                  inputTokens: 8,
+                  outputTokens: 5,
+                  totalTokens: 13,
+                },
               },
-            },
-          }
-          yield { type: "finish" }
-        })() },
+            }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: {
-        channelId: "review",
-        runId: "run-1",
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: {
+          channelId: "review",
+          runId: "run-1",
+        },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
       },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      {},
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
     while (true) {
       const { done } = await reader.read()
@@ -6195,17 +7354,23 @@ describe("agent message protocol", () => {
     const order: string[] = []
     const agent = defineAgent({
       hooks: {
-        "agent:finish": () => { order.push("finish") },
+        "agent:finish": () => {
+          order.push("finish")
+        },
       },
-      driver: { run: () => (async function* () {
-          yield "hello"
-          order.push("stream:done")
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield "hello"
+            order.push("stream:done")
+          })(),
+      },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
     expect(order).toEqual([])
-    for await (const _event of stream as AsyncIterable<unknown>) {}
+    for await (const _event of stream as AsyncIterable<unknown>) {
+    }
 
     expect(order).toEqual(["stream:done", "finish"])
   })
@@ -6213,12 +7378,14 @@ describe("agent message protocol", () => {
   it("streams custom run fullStream results", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           fullStream: (async function* () {
             yield { text: "ok", type: "text-delta" }
             yield { type: "finish" }
           })(),
-        }) },
+        }),
+      },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
@@ -6227,10 +7394,7 @@ describe("agent message protocol", () => {
     for await (const event of stream as AsyncIterable<unknown>) {
       events.push(event)
     }
-    expect(events).toEqual([
-      { text: "ok", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toEqual([{ text: "ok", type: "text-delta" }, { type: "finish" }])
   })
 
   it("runs Agent Error Hooks when async stream output renderer setup fails", async () => {
@@ -6238,26 +7402,33 @@ describe("agent message protocol", () => {
     const agentError = vi.fn()
     const renderError = new Error("render failed")
     const agent = defineAgent({
-      capabilities: [{
-        id: "broken-renderer",
-        output(context) {
-          context.output.render(() => {
-            throw renderError
-          })
+      capabilities: [
+        {
+          id: "broken-renderer",
+          output(context) {
+            context.output.render(() => {
+              throw renderError
+            })
+          },
         },
-      }],
+      ],
       hooks: {
         "agent:error": agentError,
       },
-      driver: { run: () => (async function* () {
-          yield "hello"
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield "hello"
+          })(),
+      },
     })
 
     await expect(streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("render failed")
-    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
-      error: renderError,
-    }))
+    expect(agentError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: renderError,
+      }),
+    )
   })
 
   it("emits title data for the first user message in streams", async () => {
@@ -6265,28 +7436,37 @@ describe("agent message protocol", () => {
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
       capabilities: [title({ execute })],
-      driver: { run: () => (async function* () {
-          yield { text: "hello", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "hello", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [
-        createMessage({ id: "assistant-1", role: "assistant", text: "Earlier reply" }),
-        createMessage({ id: "user-1", role: "user", text: "First user request" }),
-        createMessage({ id: "user-2", role: "user", text: "Latest user request" }),
-      ],
-    })
+    const stream = await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({ id: "assistant-1", role: "assistant", text: "Earlier reply" }),
+          createMessage({ id: "user-1", role: "user", text: "First user request" }),
+          createMessage({ id: "user-2", role: "user", text: "Latest user request" }),
+        ],
+      },
+    )
     const events = []
     for await (const event of stream as AsyncIterable<unknown>) {
       events.push(event)
     }
 
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.objectContaining({ id: "user-1" }),
-      text: "First user request",
-    }))
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({ id: "user-1" }),
+        text: "First user request",
+      }),
+    )
     expect(events).toContainEqual({
       data: { title: "Title: First user request", type: "title" },
       type: "data",
@@ -6305,19 +7485,29 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )
 
     expect(execute).toHaveBeenCalledOnce()
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      source: "response",
-      text: "A rainy street in Bangkok",
-    }))
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: A rainy street in Bangkok" })
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "response",
+        text: "A rainy street in Bangkok",
+      }),
+    )
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "response: A rainy street in Bangkok",
+    })
   })
 
   it("generates a title from a Response when user input has no text", async () => {
@@ -6330,20 +7520,30 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as Response
+    const response = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as Response
 
     await expect(response.text()).resolves.toBe("A rainy street in Bangkok")
     expect(execute).toHaveBeenCalledOnce()
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      source: "response",
-      text: "A rainy street in Bangkok",
-    }))
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: A rainy street in Bangkok" })
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "response",
+        text: "A rainy street in Bangkok",
+      }),
+    )
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "response: A rainy street in Bangkok",
+    })
   })
 
   it("does not generate a fallback title from a binary Response", async () => {
@@ -6359,12 +7559,18 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as Response
+    const response = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as Response
 
     await expect(response.arrayBuffer()).resolves.toHaveProperty("byteLength", 3)
     expect(execute).not.toHaveBeenCalled()
@@ -6377,18 +7583,25 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({ execute })],
       driver: {
-        run: () => new Response('data: {"type":"text-delta","text":"hello"}\n\ndata: [DONE]\n\n', {
-          headers: { "content-type": "text/event-stream" },
-        }),
+        run: () =>
+          new Response('data: {"type":"text-delta","text":"hello"}\n\ndata: [DONE]\n\n', {
+            headers: { "content-type": "text/event-stream" },
+          }),
       },
     })
 
-    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as Response
+    const response = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as Response
 
     await response.text()
     expect(execute).not.toHaveBeenCalled()
@@ -6408,12 +7621,18 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    })
+    const result = await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )
 
     expect(result).toBeInstanceOf(StreamResult)
     expect(finish).toHaveBeenCalledOnce()
@@ -6429,12 +7648,18 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "audio/ogg", type: "audio", url: "https://example.com/voice.ogg" }],
-        role: "user",
-      })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "audio/ogg", type: "audio", url: "https://example.com/voice.ogg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )
 
     expect(execute).not.toHaveBeenCalled()
     expect(finish.mock.calls[0]![0].extensions.get("title")).toBeUndefined()
@@ -6446,20 +7671,29 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute })],
-      driver: { run: () => (async function* () {
-          yield "Quarterly "
-          yield { text: "roadmap", type: "text" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield "Quarterly "
+            yield { text: "roadmap", type: "text" }
+            yield { type: "finish" }
+          })(),
+      },
       hooks: { "agent:finish": finish },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "audio/ogg", type: "audio", url: "https://example.com/voice.ogg" }],
-        role: "user",
-      })],
-    }) as AsyncIterable<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "audio/ogg", type: "audio", url: "https://example.com/voice.ogg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as AsyncIterable<unknown>
     const iterator = stream[Symbol.asyncIterator]()
 
     await expect(iterator.next()).resolves.toEqual({
@@ -6471,17 +7705,22 @@ describe("agent message protocol", () => {
     const rest = []
     for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<unknown>) rest.push(event)
 
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      source: "response",
-      text: "Quarterly roadmap",
-    }))
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "response",
+        text: "Quarterly roadmap",
+      }),
+    )
     expect(rest).toContainEqual({
       data: { title: "response: Quarterly roadmap", type: "title" },
       type: "data",
     })
-    expect(rest.findIndex(event => (event as { type?: unknown }).type === "data"))
-      .toBeLessThan(rest.findIndex(event => (event as { type?: unknown }).type === "finish"))
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: Quarterly roadmap" })
+    expect(rest.findIndex((event) => (event as { type?: unknown }).type === "data")).toBeLessThan(
+      rest.findIndex((event) => (event as { type?: unknown }).type === "finish"),
+    )
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "response: Quarterly roadmap",
+    })
   })
 
   it("generates fallback titles after an event stream uses its text stream fallback", async () => {
@@ -6489,23 +7728,31 @@ describe("agent message protocol", () => {
     const execute = vi.fn(({ source, text }) => `${source}: ${text}`)
     const agent = defineAgent({
       capabilities: [title({ execute })],
-      driver: { run: () => ({
-        stream: (async function* () {})(),
-        textStream: new ReadableStream<string>({
-          start(controller) {
-            controller.enqueue("Fallback reply")
-            controller.close()
-          },
+      driver: {
+        run: () => ({
+          stream: (async function* () {})(),
+          textStream: new ReadableStream<string>({
+            start(controller) {
+              controller.enqueue("Fallback reply")
+              controller.close()
+            },
+          }),
         }),
-      }) },
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as AsyncIterable<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as AsyncIterable<unknown>
     const events = []
     for await (const event of stream) events.push(event)
 
@@ -6539,17 +7786,27 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as AsyncIterable<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as AsyncIterable<unknown>
     const events = []
     for await (const event of stream) events.push(event)
 
     expect(textStream).not.toHaveBeenCalled()
-    expect(events).toContainEqual({ data: { title: "Title: Primary reply", type: "title" }, id: undefined, type: "data" })
+    expect(events).toContainEqual({
+      data: { title: "Title: Primary reply", type: "title" },
+      id: undefined,
+      type: "data",
+    })
     expect(events.at(-1)).toEqual({ type: "finish" })
   })
 
@@ -6573,12 +7830,18 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as AsyncIterable<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as AsyncIterable<unknown>
     const events = []
     for await (const event of stream) events.push(event)
 
@@ -6591,26 +7854,37 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute: ({ source, text }) => `${source}: ${text}` })],
-      driver: { run: () => ({
-        stream: (async function* () {
-          yield { text: "Deferred reply", type: "text-delta" }
-          yield { type: "finish" }
-        })(),
-      }) },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { text: "Deferred reply", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+        }),
+      },
       hooks: { "agent:finish": finish },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as { stream: AsyncIterable<unknown> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as { stream: AsyncIterable<unknown> }
 
     expect(finish).not.toHaveBeenCalled()
-    for await (const _event of result.stream) {}
+    for await (const _event of result.stream) {
+    }
 
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: Deferred reply" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "response: Deferred reply",
+    })
     expect(finish.mock.calls[0]![0].result.text).toBe("Deferred reply")
   })
 
@@ -6620,22 +7894,29 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ channelDelivery: "once-per-thread", execute })],
-      driver: { run: () => (async function* () {
-          yield { text: "hello", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "hello", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
       hooks: { "agent:finish": finish },
     })
 
     for (const id of ["user-1", "user-2"]) {
-      const stream = await streamAgent(agent, {
-        memo: vi.fn(),
-        run: { runId: id, threadId: "thread-1" },
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {
-        messages: [createMessage({ id, role: "user", text: id })],
-      })
+      const stream = await streamAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          run: { runId: id, threadId: "thread-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {
+          messages: [createMessage({ id, role: "user", text: id })],
+        },
+      )
       const events = []
       for await (const event of stream as AsyncIterable<unknown>) events.push(event)
       expect(events).toContainEqual({
@@ -6644,10 +7925,7 @@ describe("agent message protocol", () => {
       })
     }
     expect(execute).toHaveBeenCalledTimes(2)
-    expect(finish.mock.calls.map(([event]) => event.extensions.get("title"))).toEqual([
-      { title: "Title: user-1" },
-      { title: "Title: user-2" },
-    ])
+    expect(finish.mock.calls.map(([event]) => event.extensions.get("title"))).toEqual([{ title: "Title: user-1" }, { title: "Title: user-2" }])
   })
 
   it("streams agent output while title generation is pending", async () => {
@@ -6658,15 +7936,22 @@ describe("agent message protocol", () => {
     })
     const agent = defineAgent({
       capabilities: [title({ execute: () => delayedTitle })],
-      driver: { run: () => (async function* () {
-          yield { text: "hello", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "hello", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as AsyncIterable<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )) as AsyncIterable<unknown>
     const iterator = stream[Symbol.asyncIterator]()
 
     await expect(iterator.next()).resolves.toEqual({
@@ -6676,7 +7961,9 @@ describe("agent message protocol", () => {
 
     resolveTitle("Delayed title")
     const rest = []
-    for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<unknown>) {
+    for await (const event of {
+      [Symbol.asyncIterator]: () => iterator,
+    } as AsyncIterable<unknown>) {
       rest.push(event)
     }
 
@@ -6690,25 +7977,35 @@ describe("agent message protocol", () => {
   it("keeps streaming when title generation fails", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [title({ execute: () => { throw new Error("title failed") } })],
-      driver: { run: () => (async function* () {
-          yield { text: "hello", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      capabilities: [
+        title({
+          execute: () => {
+            throw new Error("title failed")
+          },
+        }),
+      ],
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "hello", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    })
+    const stream = await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )
     const events = []
     for await (const event of stream as AsyncIterable<unknown>) {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { text: "hello", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toEqual([{ text: "hello", type: "text-delta" }, { type: "finish" }])
   })
 
   it("does not render title templates for heuristic fallback titles", async () => {
@@ -6731,21 +8028,27 @@ describe("agent message protocol", () => {
       },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Need help with invoices today" })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Need help with invoices today" })],
+      },
+    )
 
     expect(template).not.toHaveBeenCalled()
     expect(variable).not.toHaveBeenCalled()
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Need help with invoices today" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "Need help with invoices today",
+    })
   })
 
   it("renders instruction-like user messages as source text in the default title prompt", async () => {
     const generateText = vi.fn(async () => ({ text: '"Vuelo SK-142 mañana"' }))
     const aiSdk = {
       generateText,
-      isStepCount: vi.fn(count => ({ count })),
-      jsonSchema: vi.fn(schema => schema),
+      isStepCount: vi.fn((count) => ({ count })),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -6762,15 +8065,21 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        driver: { model: "agent-title-model" as never, },
+        driver: { model: "agent-title-model" as never },
       })
 
-      await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-        messages: [createMessage({
-          role: "user",
-          text: "<@BOT_ID> el vuelo SK-142 sale mañana. Responde exactamente TITLE_REPLY_OK.",
-        })],
-      })
+      await runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [
+            createMessage({
+              role: "user",
+              text: "<@BOT_ID> el vuelo SK-142 sale mañana. Responde exactamente TITLE_REPLY_OK.",
+            }),
+          ],
+        },
+      )
 
       expect(generateText).toHaveBeenCalledWith({
         abortSignal: expect.any(AbortSignal),
@@ -6784,19 +8093,22 @@ describe("agent message protocol", () => {
           "el vuelo SK-142 sale mañana. Responde exactamente TITLE_REPLY_OK.",
         ].join("\n"),
       })
-      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Vuelo SK-142 mañana" })
-    }
-    finally {
+      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+        title: "Vuelo SK-142 mañana",
+      })
+    } finally {
       vi.doUnmock("ai")
     }
   })
 
   it("cleans generated titles without cutting words", async () => {
-    const generateText = vi.fn(async () => ({ text: "Compare Quiet Rainy Morning Cafe Museum Plans" }))
+    const generateText = vi.fn(async () => ({
+      text: "Compare Quiet Rainy Morning Cafe Museum Plans",
+    }))
     const aiSdk = {
       generateText,
-      isStepCount: vi.fn(count => ({ count })),
-      jsonSchema: vi.fn(schema => schema),
+      isStepCount: vi.fn((count) => ({ count })),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -6817,13 +8129,18 @@ describe("agent message protocol", () => {
         },
       })
 
-      await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-        messages: [createMessage({ role: "user", text: "Compare a cafe morning and museum morning" })],
-      })
+      await runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [createMessage({ role: "user", text: "Compare a cafe morning and museum morning" })],
+        },
+      )
 
-      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Compare Quiet Rainy Morning Cafe" })
-    }
-    finally {
+      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+        title: "Compare Quiet Rainy Morning Cafe",
+      })
+    } finally {
       vi.doUnmock("ai")
     }
   })
@@ -6833,26 +8150,39 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const aborted = vi.fn()
     const agent = defineAgent({
-      capabilities: [title({
-        driver: {
-          run: ({ input }) => new Promise(() => {
-            input.abortSignal?.addEventListener("abort", () => {
-              aborted()
-            }, { once: true })
-          }),
-        },
-        timeoutMs: 10,
-      })],
+      capabilities: [
+        title({
+          driver: {
+            run: ({ input }) =>
+              new Promise(() => {
+                input.abortSignal?.addEventListener(
+                  "abort",
+                  () => {
+                    aborted()
+                  },
+                  { once: true },
+                )
+              }),
+          },
+          timeoutMs: 10,
+        }),
+      ],
       driver: { run: () => ({ text: "ok" }) },
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+      },
+    )
 
     expect(aborted).toHaveBeenCalledOnce()
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "Explain critical overstock",
+    })
   })
 
   it("cancels title model resolution when generation exceeds its timeout", async () => {
@@ -6860,22 +8190,31 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const aborted = vi.fn()
     const agent = defineAgent({
-      capabilities: [title({
-        model: ({ abortSignal }) => new Promise(() => {
-          abortSignal?.addEventListener("abort", aborted, { once: true })
+      capabilities: [
+        title({
+          model: ({ abortSignal }) =>
+            new Promise(() => {
+              abortSignal?.addEventListener("abort", aborted, { once: true })
+            }),
+          timeoutMs: 10,
         }),
-        timeoutMs: 10,
-      })],
+      ],
       driver: { run: () => ({ text: "ok" }) },
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+      },
+    )
 
     expect(aborted).toHaveBeenCalledOnce()
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "Explain critical overstock",
+    })
   })
 
   it("falls back when a title condition exceeds its timeout", async () => {
@@ -6883,20 +8222,27 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const aborted = vi.fn()
     const agent = defineAgent({
-      capabilities: [title({
-        execute: () => "unreachable",
-        timeoutMs: 10,
-        when: ({ input }) => new Promise(() => {
-          input.abortSignal?.addEventListener("abort", aborted, { once: true })
+      capabilities: [
+        title({
+          execute: () => "unreachable",
+          timeoutMs: 10,
+          when: ({ input }) =>
+            new Promise(() => {
+              input.abortSignal?.addEventListener("abort", aborted, { once: true })
+            }),
         }),
-      })],
+      ],
       driver: { run: () => ({ text: "ok" }) },
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+      },
+    )
 
     expect(aborted).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("title")).toBeUndefined()
@@ -6907,23 +8253,32 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const aborted = vi.fn()
     const agent = defineAgent({
-      capabilities: [title({
-        driver: { run: () => "unreachable" },
-        template: ({ input }) => new Promise(() => {
-          input.abortSignal?.addEventListener("abort", aborted, { once: true })
+      capabilities: [
+        title({
+          driver: { run: () => "unreachable" },
+          template: ({ input }) =>
+            new Promise(() => {
+              input.abortSignal?.addEventListener("abort", aborted, { once: true })
+            }),
+          timeoutMs: 10,
         }),
-        timeoutMs: 10,
-      })],
+      ],
       driver: { run: () => ({ text: "ok" }) },
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+      },
+    )
 
     expect(aborted).toHaveBeenCalledOnce()
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "Explain critical overstock",
+    })
   })
 
   it("generates titles from stream-result title drivers", async () => {
@@ -6949,16 +8304,20 @@ describe("agent message protocol", () => {
       },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Need a sidebar title" })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Need a sidebar title" })],
+      },
+    )
 
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Streamed title" })
   })
 
   it("renders custom title templates and skips unmatched triggers", async () => {
     const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
-    vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))
+    vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn((schema) => schema) }))
 
     try {
       const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
@@ -7012,16 +8371,17 @@ describe("agent message protocol", () => {
         model: expect.objectContaining({ modelId: "title-model" }),
         prompt: "portal.message support: Need help with forecast",
       })
-      expect(finish.mock.calls[1]![0].extensions.get("title")).toEqual({ title: "Portal Forecast Help" })
-    }
-    finally {
+      expect(finish.mock.calls[1]![0].extensions.get("title")).toEqual({
+        title: "Portal Forecast Help",
+      })
+    } finally {
       vi.doUnmock("ai")
     }
   })
 
   it("emits title data for adapter text streams", async () => {
     vi.doMock("ai", () => ({
-      jsonSchema: vi.fn(schema => schema),
+      jsonSchema: vi.fn((schema) => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -7044,18 +8404,24 @@ describe("agent message protocol", () => {
         driver: { model: {} as never },
       })
 
-      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-        messages: [createMessage({ role: "user", text: "First user request" })],
-      })
+      const stream = await streamAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [createMessage({ role: "user", text: "First user request" })],
+        },
+      )
       const events = []
       for await (const event of stream as AsyncIterable<unknown>) {
         events.push(event)
       }
 
-      expect(events).toContainEqual({ data: { title: "Adapter title", type: "title" }, type: "data" })
+      expect(events).toContainEqual({
+        data: { title: "Adapter title", type: "title" },
+        type: "data",
+      })
       expect(events).toContainEqual({ text: "hello", type: "text-delta" })
-    }
-    finally {
+    } finally {
       vi.doUnmock("ai")
     }
   })
@@ -7081,15 +8447,22 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as StreamResult
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )) as StreamResult
     const events = []
     for await (const event of result.fullStream as AsyncIterable<unknown>) {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Preserved title", type: "title" }, type: "data" })
+    expect(events).toContainEqual({
+      data: { title: "Preserved title", type: "title" },
+      type: "data",
+    })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.metadata).toEqual({ id: "stream-result-1" })
@@ -7129,12 +8502,18 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as StreamResult
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as StreamResult
     const events = []
     expect(result.fullStream).toBeInstanceOf(ReadableStream)
     expect(result.fullStream.pipeThrough).toEqual(expect.any(Function))
@@ -7143,7 +8522,10 @@ describe("agent message protocol", () => {
 
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.toTextStreamResponse).toEqual(expect.any(Function))
-    expect(events).toContainEqual({ data: { title: "Title: Image description", type: "title" }, type: "data" })
+    expect(events).toContainEqual({
+      data: { title: "Title: Image description", type: "title" },
+      type: "data",
+    })
     expect(events).toContainEqual({ data: "full-only", type: "data" })
     expect(finish).toHaveBeenCalledOnce()
   })
@@ -7153,28 +8535,39 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
-      driver: { run: () => ({
-        stream: (async function* () {
-          yield { type: "finish" }
-        })(),
-        textStream: (async function* () {
-          yield "Text fallback"
-        })(),
-      }) },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          textStream: (async function* () {
+            yield "Text fallback"
+          })(),
+        }),
+      },
       hooks: { "agent:finish": finish },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as { textStream: AsyncIterable<string> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as { textStream: AsyncIterable<string> }
     expect(finish).not.toHaveBeenCalled()
-    for await (const _text of result.textStream) {}
+    for await (const _text of result.textStream) {
+    }
 
     expect(finish).toHaveBeenCalledOnce()
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Text fallback" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "Title: Text fallback",
+    })
   })
 
   it("keeps attachment-only derived text streams lazy until consumption", async () => {
@@ -7199,48 +8592,68 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as StreamResult
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as StreamResult
 
     expect(textStream).not.toHaveBeenCalled()
     const events = []
     for await (const event of result.stream) events.push(event)
 
     expect(textStream).not.toHaveBeenCalled()
-    expect(events).toContainEqual({ data: { title: "Title: Primary reply", type: "title" }, type: "data" })
+    expect(events).toContainEqual({
+      data: { title: "Title: Primary reply", type: "title" },
+      type: "data",
+    })
   })
 
   it("titles attachment-only full streams from the text fallback", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
-      driver: { run: () => ({
-        fullStream: (async function* () {
-          yield { type: "finish" }
-        })(),
-        stream: (async function* () {
-          yield { type: "finish" }
-        })(),
-        textStream: (async function* () {
-          yield "Text fallback"
-        })(),
-      }) },
+      driver: {
+        run: () => ({
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          stream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          textStream: (async function* () {
+            yield "Text fallback"
+          })(),
+        }),
+      },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as { fullStream: AsyncIterable<unknown> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as { fullStream: AsyncIterable<unknown> }
     const events = []
     for await (const event of result.fullStream) events.push(event)
 
-    expect(events).toContainEqual({ data: { title: "Title: Text fallback", type: "title" }, type: "data" })
+    expect(events).toContainEqual({
+      data: { title: "Title: Text fallback", type: "title" },
+      type: "data",
+    })
   })
 
   it("keeps hidden phased text out of attachment-only response titles", async () => {
@@ -7248,25 +8661,33 @@ describe("agent message protocol", () => {
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
       capabilities: [title({ execute })],
-      driver: { run: () => ({
-        fullStream: (async function* () {
-          yield { id: "reasoning-1", phase: "reasoning", type: "text-start" }
-          yield { delta: "Private reasoning.", id: "reasoning-1", type: "text-delta" }
-          yield { id: "reasoning-1", type: "text-end" }
-          yield { id: "final-1", phase: "final", type: "text-start" }
-          yield { delta: "Public answer.", id: "final-1", type: "text-delta" }
-          yield { id: "final-1", type: "text-end" }
-          yield { type: "finish" }
-        })(),
-      }) },
+      driver: {
+        run: () => ({
+          fullStream: (async function* () {
+            yield { id: "reasoning-1", phase: "reasoning", type: "text-start" }
+            yield { delta: "Private reasoning.", id: "reasoning-1", type: "text-delta" }
+            yield { id: "reasoning-1", type: "text-end" }
+            yield { id: "final-1", phase: "final", type: "text-start" }
+            yield { delta: "Public answer.", id: "final-1", type: "text-delta" }
+            yield { id: "final-1", type: "text-end" }
+            yield { type: "finish" }
+          })(),
+        }),
+      },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as { fullStream: AsyncIterable<unknown> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as { fullStream: AsyncIterable<unknown> }
     for await (const _event of result.fullStream) {
       // Consume the response so deferred title generation completes.
     }
@@ -7280,21 +8701,29 @@ describe("agent message protocol", () => {
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
       capabilities: [title({ execute })],
-      driver: { run: () => ({
-        fullStream: (async function* () {
-          yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
-          yield { phase: "final", text: "Public answer.", type: "text-delta" }
-          yield { type: "finish" }
-        })(),
-      }) },
+      driver: {
+        run: () => ({
+          fullStream: (async function* () {
+            yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
+            yield { phase: "final", text: "Public answer.", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+        }),
+      },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as { fullStream: AsyncIterable<unknown> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as { fullStream: AsyncIterable<unknown> }
     for await (const _event of result.fullStream) {
       // Consume the response so deferred title generation completes.
     }
@@ -7322,9 +8751,13 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as StreamResult
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )) as StreamResult
     const stream = result.textStream
     const events = []
     for await (const event of stream) {
@@ -7334,7 +8767,10 @@ describe("agent message protocol", () => {
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.stream).toBeInstanceOf(ReadableStream)
     expect(stream).toBeInstanceOf(ReadableStream)
-    expect(events).toContainEqual({ data: { title: "Readable title", type: "title" }, type: "data" })
+    expect(events).toContainEqual({
+      data: { title: "Readable title", type: "title" },
+      type: "data",
+    })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
   })
 
@@ -7347,9 +8783,13 @@ describe("agent message protocol", () => {
       driver: { run: () => ({ stream: source }) },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as { stream: ReadableStream<unknown> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )) as { stream: ReadableStream<unknown> }
 
     expect(source.locked).toBe(false)
     expect(pull).not.toHaveBeenCalled()
@@ -7379,15 +8819,24 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const events = []
     for await (const event of stream) {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Native UI title", type: "title" }, id: "title", type: "data-title" })
+    expect(events).toContainEqual({
+      data: { title: "Native UI title", type: "title" },
+      id: "title",
+      type: "data-title",
+    })
     expect(events).toContainEqual({ delta: "hello", id: "text-1", type: "text-delta" })
   })
 
@@ -7396,7 +8845,8 @@ describe("agent message protocol", () => {
     const generated = deferred<string>()
     const agent = defineAgent({
       capabilities: [title({ execute: () => generated.promise, maxLength: 48 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
@@ -7404,22 +8854,25 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock for CD Europe" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock for CD Europe" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
 
     await expect(reader.read()).resolves.toEqual({
       done: false,
       value: { messageId: "message-1", type: "start" },
     })
-    await expect(Promise.race([
-      reader.read(),
-      new Promise(resolve => setTimeout(() => resolve("timeout"), 20)),
-    ])).resolves.toEqual({
+    await expect(Promise.race([reader.read(), new Promise((resolve) => setTimeout(() => resolve("timeout"), 20))])).resolves.toEqual({
       done: false,
       value: {
         data: { title: "Explain critical overstock for CD Europe", type: "title" },
@@ -7445,17 +8898,25 @@ describe("agent message protocol", () => {
     const generated = deferred<string>()
     const agent = defineAgent({
       capabilities: [title({ execute: () => generated.promise })],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ messageId: "message-1", type: "start" })
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({ messageId: "message-1", type: "start" })
+              },
+            }),
+        }),
+      },
     })
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
 
     await reader.read()
@@ -7489,14 +8950,17 @@ describe("agent message protocol", () => {
         }),
         title({ channelDelivery: "once-per-thread", execute }),
       ],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ messageId: "message-1", type: "start" })
-              controller.close()
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({ messageId: "message-1", type: "start" })
+                controller.close()
+              },
+            }),
+        }),
+      },
     })
     const messages = [
       createMessage({ role: "user", text: "Explain critical overstock" }),
@@ -7506,23 +8970,25 @@ describe("agent message protocol", () => {
       }),
       createMessage({ role: "user", text: "Existing thread title" }),
     ]
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-2", threadId: "thread-1" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {
-      messages,
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    const events: Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }> = []
-    for await (const event of stream) events.push(event as typeof events[number])
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-2", threadId: "thread-1" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      {
+        messages,
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
+    const events: Array<{ data?: unknown; id?: unknown; transient?: unknown; type?: unknown }> = []
+    for await (const event of stream) events.push(event as (typeof events)[number])
 
     expect(events).not.toContainEqual(expect.objectContaining({ type: "data-title" }))
     const { createAgentChatData } = await import("../src/messages.ts")
-    expect(createAgentChatData([
-      ...messages.flatMap(message => message.parts),
-      ...events,
-    ]).get("title", "title")).toBe("Critical Overstock")
+    expect(createAgentChatData([...messages.flatMap((message) => message.parts), ...events]).get("title", "title")).toBe("Critical Overstock")
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -7531,18 +8997,26 @@ describe("agent message protocol", () => {
     const generated = deferred<string>()
     const agent = defineAgent({
       capabilities: [title({ execute: () => generated.promise })],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ errorText: "provider failed", type: "error" })
-              controller.close()
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({ errorText: "provider failed", type: "error" })
+                controller.close()
+              },
+            }),
+        }),
+      },
     })
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
 
     await expect(reader.read()).resolves.toMatchObject({
@@ -7560,24 +9034,40 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [title({ execute: () => "Recovered title" })],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ messageId: "assistant-1", type: "start" })
-              controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
-              controller.enqueue({ id: "text-1", type: "text-start" })
-              controller.enqueue({ delta: "Recovered response", id: "text-1", type: "text-delta" })
-              controller.enqueue({ id: "text-1", type: "text-end" })
-              controller.enqueue({ finishReason: "stop", type: "finish" })
-              controller.close()
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({ messageId: "assistant-1", type: "start" })
+                controller.enqueue({
+                  errorText: "temporary failure",
+                  recoverable: true,
+                  type: "error",
+                })
+                controller.enqueue({ id: "text-1", type: "text-start" })
+                controller.enqueue({
+                  delta: "Recovered response",
+                  id: "text-1",
+                  type: "text-delta",
+                })
+                controller.enqueue({ id: "text-1", type: "text-end" })
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            }),
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const messages = []
     for await (const message of readUIMessageStream({ stream: stream as ReadableStream<never> })) messages.push(message)
 
@@ -7615,30 +9105,43 @@ describe("agent message protocol", () => {
       }
     }
     const agent = defineAgent({
-      capabilities: [defineCapability({
-        id: "ui-extension",
-        output(context) {
-          context.output.render((result) => {
-            const hybrid = result as HybridResult
-            const toUIMessageStream = hybrid.toUIMessageStream.bind(hybrid)
-            hybrid.toUIMessageStream = () => toUIMessageStream().pipeThrough(new TransformStream({
-              transform(chunk, controller) {
-                controller.enqueue(chunk)
-                if ((chunk as { type?: string }).type === "start") {
-                  controller.enqueue({ data: { value: "decorated" }, type: "data-extension" })
-                }
-              },
-            }))
-            return hybrid
-          })
-        },
-      })],
+      capabilities: [
+        defineCapability({
+          id: "ui-extension",
+          output(context) {
+            context.output.render((result) => {
+              const hybrid = result as HybridResult
+              const toUIMessageStream = hybrid.toUIMessageStream.bind(hybrid)
+              hybrid.toUIMessageStream = () =>
+                toUIMessageStream().pipeThrough(
+                  new TransformStream({
+                    transform(chunk, controller) {
+                      controller.enqueue(chunk)
+                      if ((chunk as { type?: string }).type === "start") {
+                        controller.enqueue({
+                          data: { value: "decorated" },
+                          type: "data-extension",
+                        })
+                      }
+                    },
+                  }),
+                )
+              return hybrid
+            })
+          },
+        }),
+      ],
       driver: { run: () => new HybridResult() },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain inventory" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain inventory" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const events = []
     for await (const event of stream) events.push(event)
 
@@ -7672,19 +9175,28 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const events = []
     for await (const event of stream) events.push(event)
 
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      source: "response",
-      text: "Image description",
-    }))
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "response",
+        text: "Image description",
+      }),
+    )
     expect(events).toContainEqual({
       data: { title: "response: Image description", type: "title" },
       id: "title",
@@ -7702,7 +9214,10 @@ describe("agent message protocol", () => {
         return new ReadableStream<unknown>({
           start(controller) {
             controller.enqueue({ delta: "Image description", id: "text-1", type: "text-delta" })
-            controller.enqueue({ type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } })
+            controller.enqueue({
+              type: "usage",
+              usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } },
+            })
             controller.enqueue({ finishReason: "stop", type: "finish" })
             controller.close()
           },
@@ -7715,25 +9230,38 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }) as StreamResult
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+    )) as StreamResult
     expect(finish).not.toHaveBeenCalled()
-    for await (const _event of result.toUIMessageStream()) {}
+    for await (const _event of result.toUIMessageStream()) {
+    }
 
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.metadata).toBe("preserved")
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      extensions: expect.objectContaining({ get: expect.any(Function) }),
-      invocation: expect.objectContaining({
-        usage: expect.objectContaining({ usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } }),
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extensions: expect.objectContaining({ get: expect.any(Function) }),
+        invocation: expect.objectContaining({
+          usage: expect.objectContaining({
+            usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+          }),
+        }),
+        text: "Image description",
       }),
-      text: "Image description",
-    }))
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Image description" })
+    )
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
+      title: "Title: Image description",
+    })
   })
 
   it("cancels readable stream results while a source read is pending", async () => {
@@ -7748,19 +9276,26 @@ describe("agent message protocol", () => {
       return new Promise<void>(() => {})
     })
     class StreamResult {
-      stream = new ReadableStream<unknown>({
-        cancel,
-        pull,
-      }, { highWaterMark: 0 })
+      stream = new ReadableStream<unknown>(
+        {
+          cancel,
+          pull,
+        },
+        { highWaterMark: 0 },
+      )
     }
     const agent = defineAgent({
       capabilities: [title({ execute: () => new Promise<string>(() => {}) })],
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as StreamResult
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )) as StreamResult
     expect(pull).not.toHaveBeenCalled()
     const reader = result.stream.getReader()
     const read = reader.read()
@@ -7791,19 +9326,30 @@ describe("agent message protocol", () => {
       })
     }
     const agent = defineAgent({
-      capabilities: [title({ execute: () => {
-        titleStarted()
-        return pendingTitle
-      } })],
+      capabilities: [
+        title({
+          execute: () => {
+            titleStarted()
+            return pendingTitle
+          },
+        }),
+      ],
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const result = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = result.getReader()
     const consumption = (async () => {
       while (!(await reader.read()).done) {}
@@ -7830,12 +9376,15 @@ describe("agent message protocol", () => {
         },
       })
 
-      fallback = new ReadableStream<string>({
-        pull() {
-          fallbackPullStarted()
-          return new Promise<void>(() => {})
+      fallback = new ReadableStream<string>(
+        {
+          pull() {
+            fallbackPullStarted()
+            return new Promise<void>(() => {})
+          },
         },
-      }, { highWaterMark: 0 })
+        { highWaterMark: 0 },
+      )
 
       get textStream() {
         return this.fallback
@@ -7846,19 +9395,26 @@ describe("agent message protocol", () => {
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
-        role: "user",
-      })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const result = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+            role: "user",
+          }),
+        ],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = result.getReader()
     const read = reader.read()
     await fallbackStarted
 
     const cancellation = await Promise.race([
       reader.cancel("client disconnected").then(() => "cancelled"),
-      new Promise(resolve => setTimeout(() => resolve("timeout"), 50)),
+      new Promise((resolve) => setTimeout(() => resolve("timeout"), 50)),
     ])
     await expect(read).resolves.toEqual(expect.objectContaining({ done: false }))
     expect(cancellation).toBe("cancelled")
@@ -7885,15 +9441,22 @@ describe("agent message protocol", () => {
       driver: { run: () => new TextStreamResult() },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as TextStreamResult & { stream?: AsyncIterable<unknown> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )) as TextStreamResult & { stream?: AsyncIterable<unknown> }
     const events = []
     for await (const event of result.stream as AsyncIterable<unknown>) {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Metadata title", type: "title" }, type: "data" })
+    expect(events).toContainEqual({
+      data: { title: "Metadata title", type: "title" },
+      type: "data",
+    })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(TextStreamResult)
     expect(result.metadata).toEqual({ usage: "kept" })
@@ -7926,9 +9489,13 @@ describe("agent message protocol", () => {
       driver: { run: () => nativeResult },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as TextStreamResult & { stream?: AsyncIterable<unknown> }
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      },
+    )) as TextStreamResult & { stream?: AsyncIterable<unknown> }
 
     expect(result).toBe(nativeResult)
     expect(result.metadata).toBe(nativeResult.metadata)
@@ -7941,7 +9508,8 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [title({ execute: () => "Sidebar title" })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return createUIMessageStream({
               execute({ writer }) {
@@ -7953,12 +9521,18 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain availability" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain availability" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
@@ -7975,11 +9549,15 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Checking the current product costs.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 0 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               async start(controller) {
-                controller.enqueue({ delta: "Comparing /private/costs with credential sk-secret", type: "reasoning-delta" })
+                controller.enqueue({
+                  delta: "Comparing /private/costs with credential sk-secret",
+                  type: "reasoning-delta",
+                })
                 controller.enqueue({
                   errorText: "An error occurred.",
                   input: { argv: ["costs"] },
@@ -7988,29 +9566,43 @@ describe("agent message protocol", () => {
                   toolName: "tool_portal_api",
                   type: "tool-input-error",
                 })
-                await new Promise(resolve => setTimeout(resolve, 20))
-                controller.enqueue({ output: { internal: true }, toolCallId: "tool-1", type: "tool-output-available" })
+                await new Promise((resolve) => setTimeout(resolve, 20))
+                controller.enqueue({
+                  output: { internal: true },
+                  toolCallId: "tool-1",
+                  type: "tool-output-available",
+                })
                 controller.enqueue({ delta: "answer", id: "text-1", type: "text-delta" })
                 controller.enqueue({ finishReason: "stop", type: "finish" })
                 controller.close()
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({
-        role: "user",
-        text: "What was the original request?",
-      }), createMessage({
-        role: "assistant",
-        text: "The original answer.",
-      }), createMessage({
-        role: "user",
-        text: "How is this SKU cost calculated?\n<context>{\"cubeToken\":\"secret\"}</context>",
-      })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [
+          createMessage({
+            role: "user",
+            text: "What was the original request?",
+          }),
+          createMessage({
+            role: "assistant",
+            text: "The original answer.",
+          }),
+          createMessage({
+            role: "user",
+            text: 'How is this SKU cost calculated?\n<context>{"cubeToken":"secret"}</context>',
+          }),
+        ],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
 
@@ -8023,11 +9615,13 @@ describe("agent message protocol", () => {
       transient: true,
       type: "data-progress-summary",
     })
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      activeTools: ["portal api"],
-      reasoning: "Active",
-      userText: "How is this SKU cost calculated?",
-    }))
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeTools: ["portal api"],
+        reasoning: "Active",
+        userText: "How is this SKU cost calculated?",
+      }),
+    )
   })
 
   it("does not start interval progress for a terminal-only stream", async () => {
@@ -8035,20 +9629,29 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Unused progress")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ finishReason: "stop", type: "finish" })
-              controller.close()
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            }),
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
-      output: "ui-message-stream",
-    }) as ReadableStream<unknown>
-    for await (const _chunk of stream) {}
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {},
+      {
+        output: "ui-message-stream",
+      },
+    )) as ReadableStream<unknown>
+    for await (const _chunk of stream) {
+    }
 
     expect(execute).not.toHaveBeenCalled()
   })
@@ -8058,21 +9661,30 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Unused progress")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 0 })],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ errorText: "provider failed", type: "error" })
-              controller.close()
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({ errorText: "provider failed", type: "error" })
+                controller.close()
+              },
+            }),
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
-      output: "ui-message-stream",
-    }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {},
+      {
+        output: "ui-message-stream",
+      },
+    )) as ReadableStream<unknown>
     await expect(async () => {
-      for await (const _chunk of stream) {}
+      for await (const _chunk of stream) {
+      }
     }).rejects.toThrow("provider failed")
 
     expect(execute).not.toHaveBeenCalled()
@@ -8087,7 +9699,8 @@ describe("agent message protocol", () => {
       const execute = vi.fn(() => generations[execute.mock.calls.length - 1]!.promise)
       const agent = defineAgent({
         capabilities: [progressSummary({ execute, intervalMs: 10_000 })],
-        driver: { run: () => ({
+        driver: {
+          run: () => ({
             toUIMessageStream() {
               return new ReadableStream({
                 start(controller) {
@@ -8095,11 +9708,17 @@ describe("agent message protocol", () => {
                 },
               })
             },
-          }) },
+          }),
+        },
       })
-      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-        messages: [createMessage({ role: "user", text: "Check inventory" })],
-      }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const stream = (await streamAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          messages: [createMessage({ role: "user", text: "Check inventory" })],
+        },
+        { output: "ui-message-stream" },
+      )) as ReadableStream<unknown>
       const reader = stream.getReader()
 
       sourceController.enqueue({ messageId: "message-1", type: "start" })
@@ -8136,13 +9755,14 @@ describe("agent message protocol", () => {
       }
 
       for (const revision of [1, 3]) {
-        expect(remaining).not.toContainEqual(expect.objectContaining({
-          data: expect.objectContaining({ revision }),
-          type: "data-progress-summary",
-        }))
+        expect(remaining).not.toContainEqual(
+          expect.objectContaining({
+            data: expect.objectContaining({ revision }),
+            type: "data-progress-summary",
+          }),
+        )
       }
-    }
-    finally {
+    } finally {
       vi.useRealTimers()
     }
   })
@@ -8159,10 +9779,14 @@ describe("agent message protocol", () => {
       const execute = vi.fn((input) => {
         const call = execute.mock.calls.length
         const generation = new Promise<string>((_resolve, reject) => {
-          input.input.abortSignal?.addEventListener("abort", () => {
-            aborted.push(call)
-            reject(new DOMException("Progress generation aborted.", "AbortError"))
-          }, { once: true })
+          input.input.abortSignal?.addEventListener(
+            "abort",
+            () => {
+              aborted.push(call)
+              reject(new DOMException("Progress generation aborted.", "AbortError"))
+            },
+            { once: true },
+          )
         })
         generations.push(generation)
         return generation
@@ -8170,7 +9794,8 @@ describe("agent message protocol", () => {
       const traceLog = createTraceEventLog()
       const agent = defineAgent({
         capabilities: [progressSummary({ execute, intervalMs: 10_000 })],
-        driver: { run: () => ({
+        driver: {
+          run: () => ({
             toUIMessageStream() {
               return new ReadableStream({
                 start(controller) {
@@ -8178,12 +9803,18 @@ describe("agent message protocol", () => {
                 },
               })
             },
-          }) },
+          }),
+        },
       })
-      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
-        abortSignal: primaryAbort.signal,
-        messages: [createMessage({ role: "user", text: "Check inventory" })],
-      }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const stream = (await streamAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() },
+        {
+          abortSignal: primaryAbort.signal,
+          messages: [createMessage({ role: "user", text: "Check inventory" })],
+        },
+        { output: "ui-message-stream" },
+      )) as ReadableStream<unknown>
       const reader = stream.getReader()
 
       sourceController.enqueue({ messageId: "message-1", type: "start" })
@@ -8199,8 +9830,7 @@ describe("agent message protocol", () => {
       expect(aborted).toEqual([1, 2, 3])
       expect(warning).not.toHaveBeenCalled()
       expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({ name: "agent.progress-summary.error" }))
-    }
-    finally {
+    } finally {
       warning.mockRestore()
       vi.useRealTimers()
     }
@@ -8211,7 +9841,8 @@ describe("agent message protocol", () => {
     const agentError = vi.fn()
     const finish = vi.fn()
     const agent = defineAgent({
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
@@ -8221,16 +9852,22 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
       hooks: {
         "agent:error": agentError,
         "agent:finish": finish,
       },
     })
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      prompt: "hello",
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    await new Promise(resolve => setTimeout(resolve, 0))
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        prompt: "hello",
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
+    await new Promise((resolve) => setTimeout(resolve, 0))
     const reader = stream.getReader()
 
     await expect(reader.read()).resolves.toEqual({
@@ -8247,15 +9884,23 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Checking inventory.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 1 })],
-      driver: { run: async () => {
-        await new Promise(resolve => setTimeout(resolve, 10))
-        return { text: "Inventory checked." }
-      } },
+      driver: {
+        run: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          return { text: "Inventory checked." }
+        },
+      },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      prompt: "Check inventory",
-    })).resolves.toEqual({ text: "Inventory checked." })
+    await expect(
+      runAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          prompt: "Check inventory",
+        },
+      ),
+    ).resolves.toEqual({ text: "Inventory checked." })
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -8267,9 +9912,15 @@ describe("agent message protocol", () => {
       driver: { run: () => "Inventory checked." },
     })
 
-    await expect(streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      prompt: "Check inventory",
-    })).resolves.toBe("Inventory checked.")
+    await expect(
+      streamAgent(
+        agent,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        {
+          prompt: "Check inventory",
+        },
+      ),
+    ).resolves.toBe("Inventory checked.")
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -8284,14 +9935,20 @@ describe("agent message protocol", () => {
           input: () => new Response("handled"),
         }),
       ],
-      driver: { run: () => {
-        throw new Error("primary Driver should not run")
-      } },
+      driver: {
+        run: () => {
+          throw new Error("primary Driver should not run")
+        },
+      },
     })
 
-    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      prompt: "Check inventory",
-    }) as Response
+    const response = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        prompt: "Check inventory",
+      },
+    )) as Response
     await expect(response.text()).resolves.toBe("handled")
     expect(execute).not.toHaveBeenCalled()
   })
@@ -8299,11 +9956,11 @@ describe("agent message protocol", () => {
   it("emits an initial progress summary before revising it for later activity", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let sourceController!: ReadableStreamDefaultController<unknown>
-    const execute = vi.fn((input: { activeTools: string[] }) =>
-      input.activeTools.length ? "Checking inventory." : "Preparing your request.")
+    const execute = vi.fn((input: { activeTools: string[] }) => (input.activeTools.length ? "Checking inventory." : "Preparing your request."))
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 0 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
@@ -8311,12 +9968,18 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
 
     sourceController.enqueue({ messageId: "message-1", type: "start" })
@@ -8337,7 +10000,11 @@ describe("agent message protocol", () => {
       },
     })
 
-    sourceController.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+    sourceController.enqueue({
+      id: "tool-1",
+      toolName: "inventory_search",
+      type: "tool-input-start",
+    })
     await expect(reader.read()).resolves.toEqual({
       done: false,
       value: { id: "tool-1", toolName: "inventory_search", type: "tool-input-start" },
@@ -8368,18 +10035,30 @@ describe("agent message protocol", () => {
     const execute = vi.fn((_input: { activeTools: string[] }) => "Checking inventory.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
+              },
+            }),
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
 
     await reader.read()
@@ -8393,22 +10072,31 @@ describe("agent message protocol", () => {
     const generatedTitle = deferred<string>()
     const execute = vi.fn((_input: { activeTools: string[] }) => "Checking inventory.")
     const agent = defineAgent({
-      capabilities: [
-        title({ execute: () => generatedTitle.promise }),
-        progressSummary({ execute, intervalMs: 60_000 }),
-      ],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            start(controller) {
-              controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
-            },
-          }),
-        }) },
+      capabilities: [title({ execute: () => generatedTitle.promise }), progressSummary({ execute, intervalMs: 60_000 })],
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
+              },
+            }),
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
 
     await reader.read()
@@ -8422,22 +10110,39 @@ describe("agent message protocol", () => {
     const execute = vi.fn((_input: { activeTools: string[] }) => "Checking inventory.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 0 })],
-      driver: { run: () => ({
-          toUIMessageStream: () => new ReadableStream({
-            async start(controller) {
-              controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
-              controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
-              await new Promise(resolve => setTimeout(resolve, 10))
-              controller.close()
-            },
-          }),
-        }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () =>
+            new ReadableStream({
+              async start(controller) {
+                controller.enqueue({
+                  errorText: "temporary failure",
+                  recoverable: true,
+                  type: "error",
+                })
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
+                await new Promise((resolve) => setTimeout(resolve, 10))
+                controller.close()
+              },
+            }),
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    for await (const _event of stream) {}
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
+    for await (const _event of stream) {
+    }
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ activeTools: ["inventory search"] }))
   })
@@ -8448,7 +10153,8 @@ describe("agent message protocol", () => {
     let sourceController!: ReadableStreamDefaultController<unknown>
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
@@ -8456,12 +10162,18 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
 
     expect(execute).not.toHaveBeenCalled()
@@ -8493,34 +10205,48 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Checking inventory.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 0 })],
-      driver: { run: () => {
-        const source = new ReadableStream({
-          start(controller) {
-            controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
-            controller.enqueue({ finishReason: "stop", type: "finish" })
-            controller.close()
-          },
-        })
-        return Object.defineProperties({}, {
-          fullStream: {
-            configurable: false,
-            value: source,
-          },
-          stream: {
-            configurable: false,
-            value: source,
-          },
-          toUIMessageStream: {
-            configurable: false,
-            value: () => source,
-          },
-        })
-      } },
+      driver: {
+        run: () => {
+          const source = new ReadableStream({
+            start(controller) {
+              controller.enqueue({
+                id: "tool-1",
+                toolName: "inventory_search",
+                type: "tool-input-start",
+              })
+              controller.enqueue({ finishReason: "stop", type: "finish" })
+              controller.close()
+            },
+          })
+          return Object.defineProperties(
+            {},
+            {
+              fullStream: {
+                configurable: false,
+                value: source,
+              },
+              stream: {
+                configurable: false,
+                value: source,
+              },
+              toUIMessageStream: {
+                configurable: false,
+                value: () => source,
+              },
+            },
+          )
+        },
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      prompt: "Check inventory.",
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        prompt: "Check inventory.",
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
 
@@ -8533,21 +10259,28 @@ describe("agent message protocol", () => {
       transient: true,
       type: "data-progress-summary",
     })
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      userText: "Check inventory.",
-    }))
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userText: "Check inventory.",
+      }),
+    )
   })
 
   it("preserves progress summaries in UI message response helpers", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute: () => "Checking inventory.", intervalMs: 0 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               async start(controller) {
-                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
-                await new Promise(resolve => setTimeout(resolve, 20))
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
+                await new Promise((resolve) => setTimeout(resolve, 20))
                 controller.enqueue({ finishReason: "stop", type: "finish" })
                 controller.close()
               },
@@ -8556,56 +10289,81 @@ describe("agent message protocol", () => {
           toUIMessageStreamResponse() {
             return new Response("unwrapped")
           },
-        }) },
+        }),
+      },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    })
+    const result = await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+    )
     const response = toAgentFetchResponse(result, true)
 
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
-    await expect(response.text()).resolves.toContain("\"type\":\"data-progress-summary\"")
+    await expect(response.text()).resolves.toContain('"type":"data-progress-summary"')
   })
 
   it("aborts in-flight progress generation when the primary stream finishes", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const aborted = vi.fn()
     const agent = defineAgent({
-      capabilities: [progressSummary({
-        execute: input => new Promise((resolve) => {
-          setTimeout(() => resolve("Stale progress."), 10)
-          input.input.abortSignal?.addEventListener("abort", () => {
-            aborted()
-            resolve("")
-          }, { once: true })
+      capabilities: [
+        progressSummary({
+          execute: (input) =>
+            new Promise((resolve) => {
+              setTimeout(() => resolve("Stale progress."), 10)
+              input.input.abortSignal?.addEventListener(
+                "abort",
+                () => {
+                  aborted()
+                  resolve("")
+                },
+                { once: true },
+              )
+            }),
+          intervalMs: 0,
         }),
-        intervalMs: 0,
-      })],
-      driver: { run: () => ({
+      ],
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               async start(controller) {
-                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
                 controller.enqueue({ finishReason: "stop", type: "finish" })
-                await new Promise(resolve => setTimeout(resolve, 20))
+                await new Promise((resolve) => setTimeout(resolve, 20))
                 controller.close()
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
 
     expect(aborted).toHaveBeenCalledOnce()
-    expect(chunks).not.toContainEqual(expect.objectContaining({
-      type: "data-progress-summary",
-    }))
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({
+        type: "data-progress-summary",
+      }),
+    )
   })
 
   it("cleans up scheduled progress generation when the client cancels", async () => {
@@ -8613,24 +10371,35 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Checking inventory.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 20 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
-                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const reader = stream.getReader()
     await reader.read()
     await reader.cancel()
-    await new Promise(resolve => setTimeout(resolve, 30))
+    await new Promise((resolve) => setTimeout(resolve, 30))
 
     expect(execute).toHaveBeenCalledOnce()
   })
@@ -8640,25 +10409,39 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Checking inventory.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 20 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               start(controller) {
-                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
                 controller.error(new Error("stream failed"))
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    await expect((async () => {
-      for await (const _chunk of stream) {}
-    })()).rejects.toThrow("stream failed")
-    await new Promise(resolve => setTimeout(resolve, 30))
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Check inventory." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
+    await expect(
+      (async () => {
+        for await (const _chunk of stream) {
+        }
+      })(),
+    ).rejects.toThrow("stream failed")
+    await new Promise((resolve) => setTimeout(resolve, 30))
 
     expect(execute).not.toHaveBeenCalled()
   })
@@ -8669,39 +10452,51 @@ describe("agent message protocol", () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       const agent = defineAgent({
-        capabilities: [progressSummary({
-          driver: { run: () => (async function* () {
-              yield { error: new Error("secret progress failure"), type: "error" }
-            })() },
-          intervalMs: 0,
-        })],
-        driver: { run: () => ({
+        capabilities: [
+          progressSummary({
+            driver: {
+              run: () =>
+                (async function* () {
+                  yield { error: new Error("secret progress failure"), type: "error" }
+                })(),
+            },
+            intervalMs: 0,
+          }),
+        ],
+        driver: {
+          run: () => ({
             toUIMessageStream() {
               return new ReadableStream({
                 async start(controller) {
                   controller.enqueue({ messageId: "message-1", type: "start" })
-                  await new Promise(resolve => setTimeout(resolve, 20))
+                  await new Promise((resolve) => setTimeout(resolve, 20))
                   controller.enqueue({ finishReason: "stop", type: "finish" })
                   controller.close()
                 },
               })
             },
-          }) },
+          }),
+        },
       })
-      const stream = await streamAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        traceLog,
-        waitUntil: vi.fn(),
-      }, { prompt: "Check inventory" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-      for await (const _chunk of stream) {}
+      const stream = (await streamAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        },
+        { prompt: "Check inventory" },
+        { output: "ui-message-stream" },
+      )) as ReadableStream<unknown>
+      for await (const _chunk of stream) {
+      }
 
       expect(warning).toHaveBeenCalledWith("[vitehub] progressSummary() generation failed.")
       expect(JSON.stringify(warning.mock.calls)).not.toContain("secret progress failure")
-      await vi.waitFor(() => expect(traceLog.entries().some(event => event.name === "agent.progress-summary.error")).toBe(true))
-      expect(JSON.stringify(traceLog.entries().find(event => event.name === "agent.progress-summary.error"))).not.toContain("secret progress failure")
-    }
-    finally {
+      await vi.waitFor(() => expect(traceLog.entries().some((event) => event.name === "agent.progress-summary.error")).toBe(true))
+      expect(JSON.stringify(traceLog.entries().find((event) => event.name === "agent.progress-summary.error"))).not.toContain("secret progress failure")
+    } finally {
       warning.mockRestore()
     }
   })
@@ -8711,7 +10506,8 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Working through the request.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 0 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               async start(controller) {
@@ -8722,22 +10518,31 @@ describe("agent message protocol", () => {
                   phase: "reasoning",
                   type: "text-delta",
                 })
-                await new Promise(resolve => setTimeout(resolve, 20))
+                await new Promise((resolve) => setTimeout(resolve, 20))
                 controller.close()
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Investigate the issue." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    for await (const _chunk of stream) {}
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Investigate the issue." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
+    for await (const _chunk of stream) {
+    }
 
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      reasoning: "Active",
-    }))
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasoning: "Active",
+      }),
+    )
   })
 
   it("clears reasoning presence before later tool activity", async () => {
@@ -8745,43 +10550,60 @@ describe("agent message protocol", () => {
     const execute = vi.fn((_input: unknown) => "Working through the request.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 0 })],
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
               async start(controller) {
                 controller.enqueue({ id: "reasoning-1", type: "reasoning-delta" })
-                await new Promise(resolve => setTimeout(resolve, 10))
+                await new Promise((resolve) => setTimeout(resolve, 10))
                 controller.enqueue({ id: "reasoning-1", type: "reasoning-end" })
-                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
-                await new Promise(resolve => setTimeout(resolve, 10))
+                controller.enqueue({
+                  id: "tool-1",
+                  toolName: "inventory_search",
+                  type: "tool-input-start",
+                })
+                await new Promise((resolve) => setTimeout(resolve, 10))
                 controller.close()
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Investigate the issue." })],
-    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    for await (const _chunk of stream) {}
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Investigate the issue." })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
+    for await (const _chunk of stream) {
+    }
 
     expect(execute).toHaveBeenCalledTimes(2)
-    expect(execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      activeTools: [],
-      reasoning: "Active",
-    }))
-    expect(execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
-      activeTools: ["inventory search"],
-      reasoning: undefined,
-    }))
+    expect(execute.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        activeTools: [],
+        reasoning: "Active",
+      }),
+    )
+    expect(execute.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        activeTools: ["inventory search"],
+        reasoning: undefined,
+      }),
+    )
   })
 
   it("does not read text getters when streaming native UI message results", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           get text() {
             throw new Error("text getter should not be read")
           },
@@ -8796,20 +10618,24 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain availability" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain availability" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts).toEqual([
-      { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
-    ])
+    expect(messages.at(-1)?.parts).toEqual([{ providerMetadata: undefined, state: "done", text: "answer", type: "text" }])
   })
 
   it("projects reasoning and tool details per UI message stream invocation", async () => {
@@ -8820,13 +10646,23 @@ describe("agent message protocol", () => {
       { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" },
       { id: "reasoning-1", type: "reasoning-end" },
       { id: "reasoning-2", type: "text-start" },
-      { delta: "private phased reasoning", id: "reasoning-2", phase: "reasoning", type: "text-delta" },
+      {
+        delta: "private phased reasoning",
+        id: "reasoning-2",
+        phase: "reasoning",
+        type: "text-delta",
+      },
       { delta: "private phased suffix", id: "reasoning-2", type: "text-delta" },
       { id: "reasoning-2", type: "text-end" },
       { id: "text-1", type: "text-start" },
       { delta: "public answer", id: "text-1", type: "text-delta" },
       { id: "text-1", type: "text-end" },
-      { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" },
+      {
+        input: { query: "users" },
+        toolCallId: "tool-1",
+        toolName: "search",
+        type: "tool-input-available",
+      },
       { output: "42", toolCallId: "tool-1", type: "tool-output-available" },
       { finishReason: "stop", type: "finish" },
     ]
@@ -8853,7 +10689,12 @@ describe("agent message protocol", () => {
     })
     const defaultAgent = defineAgent({ driver })
     const collect = async (target: typeof agent, prompt: string) => {
-      const stream = await streamAgent(target, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const stream = (await streamAgent(
+        target,
+        { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+        { prompt },
+        { output: "ui-message-stream" },
+      )) as ReadableStream<unknown>
       const projected = []
       for await (const chunk of stream) projected.push(chunk)
       return projected
@@ -8866,16 +10707,9 @@ describe("agent message protocol", () => {
 
     expect(omitted).toEqual(chunks)
     expect(visible).toEqual(chunks)
-    expect(hiddenReasoning).toEqual(chunks.filter(chunk =>
-      !chunk.type.startsWith("reasoning-")
-      && chunk.id !== "reasoning-2",
-    ))
-    expect(hiddenTools).toEqual(chunks.filter(chunk => !chunk.type.startsWith("tool-")))
-    expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual([
-      "visible",
-      "hide-reasoning",
-      "hide-tools",
-    ])
+    expect(hiddenReasoning).toEqual(chunks.filter((chunk) => !chunk.type.startsWith("reasoning-") && chunk.id !== "reasoning-2"))
+    expect(hiddenTools).toEqual(chunks.filter((chunk) => !chunk.type.startsWith("tool-")))
+    expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual(["visible", "hide-reasoning", "hide-tools"])
   })
 
   it("tracks phased reasoning IDs before converting async iterable UI output", async () => {
@@ -8894,9 +10728,14 @@ describe("agent message protocol", () => {
       uiMessageStream: { reasoning: "hidden" },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
-      output: "ui-message-stream",
-    }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {},
+      {
+        output: "ui-message-stream",
+      },
+    )) as ReadableStream<unknown>
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
     expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("private") }))
@@ -8940,31 +10779,41 @@ describe("agent message protocol", () => {
         }),
       ],
       driver: {
-        run: () => createAgentUIMessageStreamResponse({
-          headers: { "content-length": "999", "x-agent": "custom" },
-          status: 201,
-          statusText: "Created",
-          stream: new ReadableStream({
-            start(controller) {
-              controller.enqueue({ id: "reasoning-1", type: "reasoning-start" })
-              controller.enqueue({ delta: "private", id: "reasoning-1", type: "reasoning-delta" })
-              controller.enqueue({ id: "reasoning-1", type: "reasoning-end" })
-              controller.enqueue({ id: "text-1", type: "text-start" })
-              controller.enqueue({ delta: "public", id: "text-1", type: "text-delta" })
-              controller.enqueue({ id: "text-1", type: "text-end" })
-              controller.enqueue({ finishReason: "stop", type: "finish" })
-              controller.close()
-            },
+        run: () =>
+          createAgentUIMessageStreamResponse({
+            headers: { "content-length": "999", "x-agent": "custom" },
+            status: 201,
+            statusText: "Created",
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue({ id: "reasoning-1", type: "reasoning-start" })
+                controller.enqueue({
+                  delta: "private",
+                  id: "reasoning-1",
+                  type: "reasoning-delta",
+                })
+                controller.enqueue({ id: "reasoning-1", type: "reasoning-end" })
+                controller.enqueue({ id: "text-1", type: "text-start" })
+                controller.enqueue({ delta: "public", id: "text-1", type: "text-delta" })
+                controller.enqueue({ id: "text-1", type: "text-end" })
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            }),
           }),
-        }),
       },
       hooks: { "agent:finish": finish },
       uiMessageStream: { reasoning: "hidden" },
     })
 
-    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
-      output: "ui-message-stream",
-    }) as Response
+    const response = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {},
+      {
+        output: "ui-message-stream",
+      },
+    )) as Response
     expect(response.status).toBe(201)
     expect(response.statusText).toBe("Created")
     expect(response.headers.get("x-agent")).toBe("custom")
@@ -8983,7 +10832,8 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           toUIMessageStream() {
             return createUIMessageStream({
               execute({ writer }) {
@@ -9022,40 +10872,56 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() },
+      {},
+      { output: "ui-message-stream" },
+    )) as ReadableStream<unknown>
     const chunks: unknown[] = []
     for await (const chunk of stream) chunks.push(chunk)
 
-    expect(chunks).toContainEqual(expect.objectContaining({
-      input: { argv: ["purchase-orders", "--json"] },
-      toolCallId: "cli-1",
-      toolName: "portal-api",
-      type: "tool-input-available",
-    }))
-    expect(chunks).not.toContainEqual(expect.objectContaining({
-      toolCallId: "cli-1",
-      type: "tool-input-error",
-    }))
-    expect(chunks).toContainEqual(expect.objectContaining({
-      input: { argv: ["list"], extra: true, json: "true" },
-      toolCallId: "cli-invalid",
-      type: "tool-input-error",
-    }))
-    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
-      attributes: expect.objectContaining({
-        "tool.hasInput": true,
-        "tool.id": "cli-1",
-        "tool.name": "portal-api",
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        input: { argv: ["purchase-orders", "--json"] },
+        toolCallId: "cli-1",
+        toolName: "portal-api",
+        type: "tool-input-available",
       }),
-      name: "agent.tool.start",
-    }))
-    expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({
-      attributes: expect.objectContaining({ "tool.id": "cli-invalid" }),
-      name: "agent.tool.start",
-    }))
+    )
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({
+        toolCallId: "cli-1",
+        type: "tool-input-error",
+      }),
+    )
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        input: { argv: ["list"], extra: true, json: "true" },
+        toolCallId: "cli-invalid",
+        type: "tool-input-error",
+      }),
+    )
+    expect(traceLog.entries()).toContainEqual(
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.hasInput": true,
+          "tool.id": "cli-1",
+          "tool.name": "portal-api",
+        }),
+        name: "agent.tool.start",
+      }),
+    )
+    expect(traceLog.entries()).not.toContainEqual(
+      expect.objectContaining({
+        attributes: expect.objectContaining({ "tool.id": "cli-invalid" }),
+        name: "agent.tool.start",
+      }),
+    )
   })
 
   it("traces fullStream results when UI message streams are requested", async () => {
@@ -9063,9 +10929,15 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: { run: () => ({
+      driver: {
+        run: () => ({
           fullStream: (async function* () {
-            yield { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-call" }
+            yield {
+              input: { query: "users" },
+              toolCallId: "tool-1",
+              toolName: "search",
+              type: "tool-call",
+            }
             yield { output: "42", toolCallId: "tool-1", toolName: "search", type: "tool-result" }
             yield { finishReason: "stop", type: "finish" }
           })(),
@@ -9076,43 +10948,56 @@ describe("agent message protocol", () => {
                 writer.write({ type: "text-start", id: "text-1" })
                 writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
                 writer.write({ type: "text-end", id: "text-1" })
-                writer.write({ input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" })
+                writer.write({
+                  input: { query: "users" },
+                  toolCallId: "tool-1",
+                  toolName: "search",
+                  type: "tool-input-available",
+                })
                 writer.write({ output: "42", toolCallId: "tool-1", type: "tool-output-available" })
                 writer.write({ type: "finish", finishReason: "stop" })
               },
             })
           },
-        }) },
+        }),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-1" },
-      runtime: "unknown",
-      trace: { id: "request-1" },
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {
-      messages: [createMessage({ role: "user", text: "Explain availability" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-1" },
+        runtime: "unknown",
+        trace: { id: "request-1" },
+        traceLog,
+        waitUntil: vi.fn(),
+      },
+      {
+        messages: [createMessage({ role: "user", text: "Explain availability" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({
-      text: "native answer",
-      type: "text",
-    }))
-    expect(messages.at(-1)?.parts.some(part => part.type === "tool-search")).toBe(true)
-    expect(traceLog.entries().map(event => event.name)).toEqual([
+    expect(messages.at(-1)?.parts).toContainEqual(
+      expect.objectContaining({
+        text: "native answer",
+        type: "text",
+      }),
+    )
+    expect(messages.at(-1)?.parts.some((part) => part.type === "tool-search")).toBe(true)
+    expect(traceLog.entries().map((event) => event.name)).toEqual([
       "agent.invocation.start",
       "agent.tool.start",
       "agent.tool.finish",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
-    expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
+    expect(deriveTraceRuns(traceLog.entries()).map((run) => run.id)).toEqual(["run-1"])
   })
 
   it("preserves native UI message result metadata for traced finish renderers", async () => {
@@ -9168,21 +11053,23 @@ describe("agent message protocol", () => {
       },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
-    for await (const _message of readUIMessageStream({ stream })) {}
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      },
+      {},
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
+    for await (const _message of readUIMessageStream({ stream })) {
+    }
 
     expect(finalRenderer).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].result).toBe(nativeResult)
-    expect(traceLog.entries().map(event => event.name)).toEqual([
-      "agent.invocation.start",
-      "agent.stream.finish",
-      "agent.invocation.finish",
-    ])
+    expect(traceLog.entries().map((event) => event.name)).toEqual(["agent.invocation.start", "agent.stream.finish", "agent.invocation.finish"])
   })
 
   it("traces native UI results with non-configurable own UI stream methods", async () => {
@@ -9207,27 +11094,30 @@ describe("agent message protocol", () => {
       driver: { run: () => nativeResult },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      },
+      {},
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
     }
 
     expect(Object.getOwnPropertyDescriptor(nativeResult, "toUIMessageStream")?.configurable).toBe(false)
-    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({
-      text: "native answer",
-      type: "text",
-    }))
-    expect(traceLog.entries().map(event => event.name)).toEqual([
-      "agent.invocation.start",
-      "agent.stream.finish",
-      "agent.invocation.finish",
-    ])
+    expect(messages.at(-1)?.parts).toContainEqual(
+      expect.objectContaining({
+        text: "native answer",
+        type: "text",
+      }),
+    )
+    expect(traceLog.entries().map((event) => event.name)).toEqual(["agent.invocation.start", "agent.stream.finish", "agent.invocation.finish"])
   })
 
   it("traces direct async iterable results when UI message streams are requested", async () => {
@@ -9235,23 +11125,32 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: { run: () => (async function* () {
-          yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
-          yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
+            yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-1" },
-      runtime: "unknown",
-      traceLog,
-      waitUntil: vi.fn(),
-    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
-    for await (const _message of readUIMessageStream({ stream })) {}
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-1" },
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      },
+      {},
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
+    for await (const _message of readUIMessageStream({ stream })) {
+    }
 
-    expect(traceLog.entries().map(event => event.name)).toEqual([
+    expect(traceLog.entries().map((event) => event.name)).toEqual([
       "agent.invocation.start",
       "agent.tool.start",
       "agent.tool.finish",
@@ -9267,59 +11166,62 @@ describe("agent message protocol", () => {
     let releaseBlockedPull: (() => void) | undefined
     let traceLog: ReturnType<typeof createTraceEventLog> | undefined
     const agent = defineAgent({
-      driver: { run: (context) => {
-        traceLog = context.traceLog
-        return {
-          fullStream: (async function* () {
-            yield { type: "finish" }
-          })(),
-          toUIMessageStream() {
-            return new ReadableStream({
-              pull(controller) {
-                pulls += 1
-                if (pulls === 1) {
-                  controller.enqueue({ type: "start", messageId: "assistant-1" })
-                  return
-                }
-                return new Promise<void>((resolve) => {
-                  releaseBlockedPull = resolve
-                })
-              },
-              cancel(reason) {
-                cancelReason = reason
-                releaseBlockedPull?.()
-              },
-            })
-          },
-        }
-      } },
+      driver: {
+        run: (context) => {
+          traceLog = context.traceLog
+          return {
+            fullStream: (async function* () {
+              yield { type: "finish" }
+            })(),
+            toUIMessageStream() {
+              return new ReadableStream({
+                pull(controller) {
+                  pulls += 1
+                  if (pulls === 1) {
+                    controller.enqueue({ type: "start", messageId: "assistant-1" })
+                    return
+                  }
+                  return new Promise<void>((resolve) => {
+                    releaseBlockedPull = resolve
+                  })
+                },
+                cancel(reason) {
+                  cancelReason = reason
+                  releaseBlockedPull?.()
+                },
+              })
+            },
+          }
+        },
+      },
     })
 
-    const stream = await streamAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-1" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {
-      messages: [createMessage({ role: "user", text: "Explain availability" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      {
+        memo: vi.fn(),
+        run: { runId: "run-1" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      {
+        messages: [createMessage({ role: "user", text: "Explain availability" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     await Promise.resolve()
     await Promise.resolve()
 
     expect(pulls).toBeLessThanOrEqual(2)
     const cancelResult = await Promise.race([
       stream.cancel("client disconnected").then(() => "cancelled"),
-      new Promise(resolve => setTimeout(() => resolve("timeout"), 50)),
+      new Promise((resolve) => setTimeout(() => resolve("timeout"), 50)),
     ])
     releaseBlockedPull?.()
 
     expect(cancelResult).toBe("cancelled")
     expect(cancelReason).toBe("client disconnected")
-    expect(traceLog!.entries().map(event => event.name)).toEqual([
-      "agent.invocation.start",
-      "agent.stream.finish",
-      "agent.invocation.error",
-    ])
+    expect(traceLog!.entries().map((event) => event.name)).toEqual(["agent.invocation.start", "agent.stream.finish", "agent.invocation.error"])
     expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
 
@@ -9328,46 +11230,65 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [title({ execute: () => "Async title" })],
-      driver: { run: () => (async function* () {
-          yield { text: "answer", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { text: "answer", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain availability" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain availability" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts.filter(part => part.type === "data-title")).toEqual([
-      { data: { title: "Async title", type: "title" }, type: "data-title" },
-    ])
-    expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-title", "text"])
+    expect(messages.at(-1)?.parts.filter((part) => part.type === "data-title")).toEqual([{ data: { title: "Async title", type: "title" }, type: "data-title" }])
+    expect(
+      messages
+        .at(-1)
+        ?.parts.map((part) => part.type)
+        .sort(),
+    ).toEqual(["data-title", "text"])
   })
 
   it("preserves data part ids when async event streams become UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      driver: { run: () => (async function* () {
-          yield { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" }
-          yield { text: "answer", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" }
+            yield { text: "answer", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Weather?" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Weather?" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts.filter(part => part.type === "data-weather")).toEqual([
+    expect(messages.at(-1)?.parts.filter((part) => part.type === "data-weather")).toEqual([
       { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" },
     ])
   })
@@ -9376,22 +11297,30 @@ describe("agent message protocol", () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      driver: { run: () => (async function* () {
-          yield { data: { progress: 50 }, transient: true, type: "data-progress" }
-          yield { text: "answer", type: "text-delta" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { data: { progress: 50 }, transient: true, type: "data-progress" }
+            yield { text: "answer", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Status?" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Status?" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts.filter(part => part.type === "data-progress")).toEqual([])
+    expect(messages.at(-1)?.parts.filter((part) => part.type === "data-progress")).toEqual([])
     expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({ text: "answer", type: "text" }))
   })
 
@@ -9402,18 +11331,24 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({ execute: () => "Run title" })],
       hooks: { "agent:finish": finish },
-      driver: { run: (context) => {
-        traceLog = context.traceLog
-        return (async function* () {
-          yield { text: "answer", type: "text-delta" }
-          yield { type: "finish" }
-        })()
-      } },
+      driver: {
+        run: (context) => {
+          traceLog = context.traceLog
+          return (async function* () {
+            yield { text: "answer", type: "text-delta" }
+            yield { type: "finish" }
+          })()
+        },
+      },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain availability" })],
-    }) as AsyncIterable<unknown>
+    const result = (await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain availability" })],
+      },
+    )) as AsyncIterable<unknown>
     const events = []
     for await (const event of result) {
       events.push(event)
@@ -9436,9 +11371,13 @@ describe("agent message protocol", () => {
       driver: { run: () => ({ text: "ok" }) },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Explain invoices" })],
-    })
+    await runAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "Explain invoices" })],
+      },
+    )
 
     const event = finish.mock.calls[0]![0]
     expect(event.extensions.get("title")).toEqual({ title: "Title: Explain invoices" })
@@ -9455,7 +11394,7 @@ describe("agent message protocol", () => {
       driver: { run: () => new Response("ok") },
     })
 
-    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
+    const response = (await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})) as Response
     expect(finish).not.toHaveBeenCalled()
     await expect(response.text()).resolves.toBe("ok")
     expect(finish).toHaveBeenCalledTimes(1)
@@ -9469,18 +11408,25 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:error": agentError,
       },
-      driver: { run: () => new Response(new ReadableStream({
-          pull() {
-            throw error
-          },
-        })) },
+      driver: {
+        run: () =>
+          new Response(
+            new ReadableStream({
+              pull() {
+                throw error
+              },
+            }),
+          ),
+      },
     })
 
-    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
+    const response = (await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})) as Response
     await expect(response.text()).rejects.toThrow("upstream failed")
-    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
-      error,
-    }))
+    expect(agentError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error,
+      }),
+    )
     expect(agentError.mock.calls[0]![0]).not.toHaveProperty("result")
     expect(deriveTraceRuns(agentError.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
@@ -9492,14 +11438,19 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      driver: { run: () => new Response(new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode("partial"))
-          },
-        })) },
+      driver: {
+        run: () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("partial"))
+              },
+            }),
+          ),
+      },
     })
 
-    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
+    const response = (await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})) as Response
     await response.body?.cancel()
     expect(finish).toHaveBeenCalledTimes(1)
     expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "completed" }])
@@ -9518,27 +11469,32 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow()
-    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
-      error: expect.any(TypeError),
-    }))
+    expect(agentError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.any(TypeError),
+      }),
+    )
     expect(agentError.mock.calls[0]![0]).not.toHaveProperty("result")
   })
 
   it("preserves generated Response payload and metadata while tracing completion", async () => {
     const { runAgent } = await import("../src/index.ts")
-    const response = Response.json({ ok: true }, {
-      headers: { "x-agent": "generated" },
-      status: 202,
-      statusText: "Accepted",
-    })
+    const response = Response.json(
+      { ok: true },
+      {
+        headers: { "x-agent": "generated" },
+        status: 202,
+        statusText: "Accepted",
+      },
+    )
     const agent = {
       generate: vi.fn(async () => response),
       name: "response-agent",
     }
 
-    const result = await runAgent(adapterDefinition(agent), {} as never, {
+    const result = (await runAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
-    }) as Response
+    })) as Response
 
     expect(result).not.toBe(response)
     expect(result.status).toBe(response.status)
@@ -9561,9 +11517,9 @@ describe("agent message protocol", () => {
       stream: vi.fn(async () => response),
     }
 
-    const result = await streamAgent(adapterDefinition(agent), {} as never, {
+    const result = (await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
-    }) as Response
+    })) as Response
 
     expect(result).not.toBe(response)
     expect(result.status).toBe(response.status)
@@ -9595,11 +11551,7 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { text: "hel", type: "text-delta" },
-      { text: "lo", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toEqual([{ text: "hel", type: "text-delta" }, { text: "lo", type: "text-delta" }, { type: "finish" }])
   })
 
   it("converts generate-only text results into ViteHub stream events", async () => {
@@ -9638,39 +11590,59 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { text: "generated string", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toEqual([{ text: "generated string", type: "text-delta" }, { type: "finish" }])
   })
 
   it("selects chat history from the current idle-timeout session", async () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [chat({
-        sessions: { idleTimeoutMs: 30 * 60 * 1000, strategy: "idle-timeout" },
-        triggerHistory: { maxMessages: 10, source: "thread" },
-      })],
+      capabilities: [
+        chat({
+          sessions: { idleTimeoutMs: 30 * 60 * 1000, strategy: "idle-timeout" },
+          triggerHistory: { maxMessages: 10, source: "thread" },
+        }),
+      ],
       driver: { run: () => "ok" },
     })
 
-    const invocation = await resolveAgentTriggerInvocation(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, "chat.message", {
-      messages: [
-        { createdAt: "2026-05-28T10:00:00.000Z", parts: [{ text: "old topic", type: "text" }], role: "user" },
-        { createdAt: "2026-05-28T10:00:10.000Z", parts: [{ text: "old answer", type: "text" }], role: "assistant" },
-        { createdAt: "2026-05-28T11:00:00.000Z", parts: [{ text: "new topic", type: "text" }], role: "user" },
-      ],
-    })
+    const invocation = await resolveAgentTriggerInvocation(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      "chat.message",
+      {
+        messages: [
+          {
+            createdAt: "2026-05-28T10:00:00.000Z",
+            parts: [{ text: "old topic", type: "text" }],
+            role: "user",
+          },
+          {
+            createdAt: "2026-05-28T10:00:10.000Z",
+            parts: [{ text: "old answer", type: "text" }],
+            role: "assistant",
+          },
+          {
+            createdAt: "2026-05-28T11:00:00.000Z",
+            parts: [{ text: "new topic", type: "text" }],
+            role: "user",
+          },
+        ],
+      },
+    )
 
     if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
-    expect(invocation.input.messages?.map(message => message.parts
-      .filter((part): part is { text: string, type: "text" } => part.type === "text")
-      .map(part => part.text)
-      .join(""))).toEqual(["new topic"])
+    expect(
+      invocation.input.messages?.map((message) =>
+        message.parts
+          .filter((part): part is { text: string; type: "text" } => part.type === "text")
+          .map((part) => part.text)
+          .join(""),
+      ),
+    ).toEqual(["new topic"])
   })
 
   it("defaults zero-argument chat options and preserves completed UI tool calls", async () => {
@@ -9680,27 +11652,42 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    const invocation = await resolveAgentTriggerInvocation(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, "chat.message", {
-      messages: [{
-        parts: [{
-          input: { query: "users" },
-          output: "42",
-          state: "output-available",
-          toolCallId: "tool-1",
-          toolName: "search",
-          type: "dynamic-tool",
-        }],
-        role: "assistant",
-      }],
-    })
+    const invocation = await resolveAgentTriggerInvocation(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      "chat.message",
+      {
+        messages: [
+          {
+            parts: [
+              {
+                input: { query: "users" },
+                output: "42",
+                state: "output-available",
+                toolCallId: "tool-1",
+                toolName: "search",
+                type: "dynamic-tool",
+              },
+            ],
+            role: "assistant",
+          },
+        ],
+      },
+    )
 
     if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.input.messages?.[0]?.parts).toEqual([
-      { id: "tool-1", input: { query: "users" }, name: "search", state: "proposed", type: "tool-call" },
+      {
+        id: "tool-1",
+        input: { query: "users" },
+        name: "search",
+        state: "proposed",
+        type: "tool-call",
+      },
       { id: "tool-1", name: "search", output: "42", state: "completed", type: "tool-result" },
     ])
   })
@@ -9712,13 +11699,18 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    const invocation = await resolveAgentTriggerInvocation(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, "chat.message", {
-      messages: [createMessage({ role: "user", text: "hello" })],
-    })
+    const invocation = await resolveAgentTriggerInvocation(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      "chat.message",
+      {
+        messages: [createMessage({ role: "user", text: "hello" })],
+      },
+    )
 
     if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.metadata).toBeUndefined()
@@ -9731,13 +11723,18 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    const invocation = await resolveAgentTriggerInvocation(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, "chat.message", {
-      messages: [createMessage({ role: "user", text: "hello" })],
-    })
+    const invocation = await resolveAgentTriggerInvocation(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      "chat.message",
+      {
+        messages: [createMessage({ role: "user", text: "hello" })],
+      },
+    )
 
     if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.metadata).toEqual({ thinkingFallback: null })
@@ -9750,13 +11747,18 @@ describe("agent message protocol", () => {
       driver: { run: () => "ok" },
     })
 
-    const invocation = await resolveAgentTriggerInvocation(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, "chat.message", {
-      messages: [createMessage({ role: "user", text: "hello" })],
-    })
+    const invocation = await resolveAgentTriggerInvocation(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      "chat.message",
+      {
+        messages: [createMessage({ role: "user", text: "hello" })],
+      },
+    )
 
     if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.metadata).toEqual({ thinkingFallback: null })
@@ -9766,24 +11768,32 @@ describe("agent message protocol", () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      driver: { run: () => (async function* () {
-          yield { data: { title: "Async title" }, type: "data-title" }
-          yield { text: "hello", type: "text-delta" }
-          yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
-          yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
-          yield { type: "finish" }
-        })() },
+      driver: {
+        run: () =>
+          (async function* () {
+            yield { data: { title: "Async title" }, type: "data-title" }
+            yield { text: "hello", type: "text-delta" }
+            yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
+            yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
+            yield { type: "finish" }
+          })(),
+      },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "hello" })],
-    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = (await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      {
+        messages: [createMessage({ role: "user", text: "hello" })],
+      },
+      { output: "ui-message-stream" },
+    )) as ReadableStream<never>
     const messages = []
     for await (const message of readUIMessageStream({ stream })) {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-title", "text", "tool-search"])
+    expect(messages.at(-1)?.parts.map((part) => part.type)).toEqual(["data-title", "text", "tool-search"])
     expect(messages.at(-1)?.parts[0]).toEqual({
       data: { title: "Async title" },
       type: "data-title",
@@ -9793,35 +11803,54 @@ describe("agent message protocol", () => {
   it("selects chat history from the requested manual session", async () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [chat({
-        sessions: true,
-        triggerHistory: { maxMessages: 10, source: "thread" },
-      })],
+      capabilities: [
+        chat({
+          sessions: true,
+          triggerHistory: { maxMessages: 10, source: "thread" },
+        }),
+      ],
       driver: { run: () => "ok" },
     })
 
-    const invocation = await resolveAgentTriggerInvocation(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, "chat.message", {
-      messages: [
-        { metadata: { sessionId: "a" }, parts: [{ text: "session a", type: "text" }], role: "user" },
-        { metadata: { sessionId: "b" }, parts: [{ text: "session b", type: "text" }], role: "user" },
-      ],
-      session: { id: "b" },
-      user: { id: "user_1" },
-    })
+    const invocation = await resolveAgentTriggerInvocation(
+      agent,
+      {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      },
+      "chat.message",
+      {
+        messages: [
+          {
+            metadata: { sessionId: "a" },
+            parts: [{ text: "session a", type: "text" }],
+            role: "user",
+          },
+          {
+            metadata: { sessionId: "b" },
+            parts: [{ text: "session b", type: "text" }],
+            role: "user",
+          },
+        ],
+        session: { id: "b" },
+        user: { id: "user_1" },
+      },
+    )
 
     if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.input.context?.chat).toMatchObject({
       session: { id: "b" },
       user: { id: "user_1" },
     })
-    expect(invocation.input.messages?.map(message => message.parts
-      .filter((part): part is { text: string, type: "text" } => part.type === "text")
-      .map(part => part.text)
-      .join(""))).toEqual(["session b"])
+    expect(
+      invocation.input.messages?.map((message) =>
+        message.parts
+          .filter((part): part is { text: string; type: "text" } => part.type === "text")
+          .map((part) => part.text)
+          .join(""),
+      ),
+    ).toEqual(["session b"])
   })
 
   it("preserves falsy streamed tool inputs and outputs", async () => {
@@ -9830,7 +11859,12 @@ describe("agent message protocol", () => {
       generate: vi.fn(),
       stream: vi.fn(async () => ({
         fullStream: (async function* () {
-          yield { input: false, toolCallId: "call-1", toolName: "confirm", type: "tool-input-available" }
+          yield {
+            input: false,
+            toolCallId: "call-1",
+            toolName: "confirm",
+            type: "tool-input-available",
+          }
           yield { output: 0, toolCallId: "call-1", type: "tool-output-available" }
         })(),
       })),
@@ -9859,7 +11893,12 @@ describe("agent message protocol", () => {
       generate: vi.fn(),
       stream: vi.fn(async () => ({
         fullStream: (async function* () {
-          yield { input: { query: "stock" }, toolCallId: "call-1", toolName: "search", type: "tool-input-available" }
+          yield {
+            input: { query: "stock" },
+            toolCallId: "call-1",
+            toolName: "search",
+            type: "tool-input-available",
+          }
           yield { errorText: "lookup failed", toolCallId: "call-1", type: "tool-output-error" }
         })(),
       })),
@@ -9877,7 +11916,13 @@ describe("agent message protocol", () => {
 
     expect(events).toEqual([
       { id: "call-1", input: { query: "stock" }, name: "search", type: "tool-call" },
-      { error: "lookup failed", id: "call-1", name: "search", output: undefined, type: "tool-result" },
+      {
+        error: "lookup failed",
+        id: "call-1",
+        name: "search",
+        output: undefined,
+        type: "tool-result",
+      },
       { type: "finish" },
     ])
   })
@@ -9933,15 +11978,17 @@ describe("agent message protocol", () => {
 
     const agent = defineAgent({
       driver: { model: {} as never },
-      capabilities: [{
-        id: "inspect",
-        tools: context => ({
-          inspect: {
-            name: "inspect",
-            execute: async () => context.capabilities?.sandbox,
-          },
-        }),
-      }],
+      capabilities: [
+        {
+          id: "inspect",
+          tools: (context) => ({
+            inspect: {
+              name: "inspect",
+              execute: async () => context.capabilities?.sandbox,
+            },
+          }),
+        },
+      ],
     })
 
     const resolved = await agent.resolve({
@@ -9959,17 +12006,23 @@ describe("agent message protocol", () => {
 
     const agent = defineAgent({
       driver: { model: {} as never },
-      capabilities: [{
-        id: "lookup-tools",
-        tools: {
-          lookup: {
-            execute: (_input: unknown) => ({ timestamp: new Date("2026-06-22T19:30:00.000Z") }),
-            name: "lookup",
+      capabilities: [
+        {
+          id: "lookup-tools",
+          tools: {
+            lookup: {
+              execute: (_input: unknown) => ({ timestamp: new Date("2026-06-22T19:30:00.000Z") }),
+              name: "lookup",
+            },
           },
         },
-      }],
+      ],
     })
-    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+    const resolved = (await agent.resolve({
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
     await expect(resolved.tools.lookup!.execute({})).resolves.toEqual({
       timestamp: "2026-06-22T19:30:00.000Z",
@@ -9980,7 +12033,7 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
 
     const agent = defineAgent({
-      driver: { model: {} as never, },
+      driver: { model: {} as never },
       capabilities: [
         defineCapability({
           cli: {
@@ -10001,7 +12054,13 @@ describe("agent message protocol", () => {
         }),
       ],
     })
-    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools?: Record<string, { execute?: (input: unknown) => Promise<unknown> }> }
+    const resolved = (await agent.resolve({
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })) as unknown as {
+      tools?: Record<string, { execute?: (input: unknown) => Promise<unknown> }>
+    }
 
     expect(Object.keys(resolved.tools || {})).toEqual(["lookup"])
     expect(resolved.tools?.inventory).toBeUndefined()
@@ -10041,13 +12100,13 @@ describe("agent message protocol", () => {
       driver: { model: {} as never },
     })
 
-    const resolved = await reviewerAgent.resolve({
+    const resolved = (await reviewerAgent.resolve({
       agentIdentity: { name: "reviewer" },
       memo: vi.fn(),
       runtime: "unknown",
       runtimeConfig: { region: "iad" },
       waitUntil: vi.fn(),
-    }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+    })) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
     await expect(resolved.tools.run_browser!.execute({ message: "Check the product card." })).resolves.toMatchObject({
       raw: {
@@ -10065,22 +12124,24 @@ describe("agent message protocol", () => {
     const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     setWorkflowRuntimeConfig({ provider: "vercel" })
     const reviewerAgent = defineAgent({
-      capabilities: [subagents({
-        agents: {
-          browser: {
-            agent: defineAgent({ driver: { run: () => "browser report" } }),
-            description: "Collect browser evidence.",
+      capabilities: [
+        subagents({
+          agents: {
+            browser: {
+              agent: defineAgent({ driver: { run: () => "browser report" } }),
+              description: "Collect browser evidence.",
+            },
           },
-        },
-      })],
+        }),
+      ],
       driver: { model: {} as never },
     })
-    const resolved = await reviewerAgent.resolve({
+    const resolved = (await reviewerAgent.resolve({
       agentIdentity: { name: "reviewer" },
       memo: vi.fn(),
       runtime: "vercel",
       waitUntil: vi.fn(),
-    }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+    })) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
     await expect(resolved.tools.run_browser!.execute({ message: "Check the product card." })).resolves.toBe("browser report")
   })
@@ -10091,20 +12152,26 @@ describe("agent message protocol", () => {
 
     const agent = defineAgent({
       driver: { model: {} as never },
-      capabilities: [{
-        id: "refund-tools",
-        tools: {
-          refund: {
-            execute,
-            name: "refund",
-            policy: "deny",
+      capabilities: [
+        {
+          id: "refund-tools",
+          tools: {
+            refund: {
+              execute,
+              name: "refund",
+              policy: "deny",
+            },
           },
         },
-      }],
+      ],
     })
-    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+    const resolved = (await agent.resolve({
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
-    await expect(resolved.tools.refund!.execute({ amount: 100 })).rejects.toThrow("Capability \"refund\" was denied")
+    await expect(resolved.tools.refund!.execute({ amount: 100 })).rejects.toThrow('Capability "refund" was denied')
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -10114,17 +12181,23 @@ describe("agent message protocol", () => {
 
     const agent = defineAgent({
       driver: { model: {} as never },
-      capabilities: [{
-        id: "refund-tools",
-        tools: {
-          refund: {
-            execute,
-            name: "refund",
+      capabilities: [
+        {
+          id: "refund-tools",
+          tools: {
+            refund: {
+              execute,
+              name: "refund",
+            },
           },
         },
-      }],
+      ],
     })
-    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+    const resolved = (await agent.resolve({
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
     await expect(resolved.tools.refund!.execute({ amount: 100 })).resolves.toBe("refunded")
     expect(execute).toHaveBeenCalledWith({ amount: 100 })
@@ -10136,18 +12209,24 @@ describe("agent message protocol", () => {
 
     const agent = defineAgent({
       driver: { model: {} as never },
-      capabilities: [{
-        id: "refund-tools",
-        tools: {
-          refund: {
-            execute,
-            name: "refund",
-            policy: "require-approval",
+      capabilities: [
+        {
+          id: "refund-tools",
+          tools: {
+            refund: {
+              execute,
+              name: "refund",
+              policy: "require-approval",
+            },
           },
         },
-      }],
+      ],
     })
-    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+    const resolved = (await agent.resolve({
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
     await expect(resolved.tools.refund!.execute({ amount: 100 })).rejects.toMatchObject({
       cause: {
@@ -10168,32 +12247,42 @@ describe("agent message protocol", () => {
 
     expect(sandbox({ commands: ["node"] }).tools).toEqual(expect.any(Function))
 
-    expect(() => defineAgent({
-      capabilities: [{ id: "custom" }, { id: "custom" }],
-      driver: { model: {} as never },
-    })).toThrow("Duplicate capability id")
+    expect(() =>
+      defineAgent({
+        capabilities: [{ id: "custom" }, { id: "custom" }],
+        driver: { model: {} as never },
+      }),
+    ).toThrow("Duplicate capability id")
 
-    expect(() => defineAgent({
-      capabilities: [{} as never],
-      driver: { model: {} as never },
-    })).toThrow("require a non-empty string id")
+    expect(() =>
+      defineAgent({
+        capabilities: [{} as never],
+        driver: { model: {} as never },
+      }),
+    ).toThrow("require a non-empty string id")
 
-    expect(() => defineAgent({
-      capabilities: [sandbox({ commands: ["pnpm test"] })],
-      driver: { model: {} as never },
-      workspace: {},
-    })).toThrow("executable names only")
+    expect(() =>
+      defineAgent({
+        capabilities: [sandbox({ commands: ["pnpm test"] })],
+        driver: { model: {} as never },
+        workspace: {},
+      }),
+    ).toThrow("executable names only")
 
-    expect(() => defineAgent({
-      capabilities: [workspaceShell()],
-      driver: { model: {} as never },
-    })).toThrow("requires an explicit workspace")
+    expect(() =>
+      defineAgent({
+        capabilities: [workspaceShell()],
+        driver: { model: {} as never },
+      }),
+    ).toThrow("requires an explicit workspace")
 
-    expect(() => defineAgent({
-      capabilities: [workspaceShell({ mode: "write" })],
-      driver: { model: {} as never },
-      workspace: { mode: "read" },
-    })).toThrow("requires workspace.mode")
+    expect(() =>
+      defineAgent({
+        capabilities: [workspaceShell({ mode: "write" })],
+        driver: { model: {} as never },
+        workspace: { mode: "read" },
+      }),
+    ).toThrow("requires workspace.mode")
   })
 
   it("fails when a primitive capability has no backing primitive", async () => {
@@ -10220,7 +12309,8 @@ describe("agent message protocol", () => {
       const agent = defineAgent({
         capabilities: [chat()],
         runtime: workflow("support-agent"),
-        driver: { run: () => ({
+        driver: {
+          run: () => ({
             toUIMessageStream() {
               return createUIMessageStream({
                 execute({ writer }) {
@@ -10232,24 +12322,29 @@ describe("agent message protocol", () => {
                 },
               })
             },
-          }) },
+          }),
+        },
       })
 
-      const stream = await streamAgentTrigger(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, "chat.message", {
-        messages: [createMessage({ role: "user", text: "Say pong only." })],
-      }, { output: "ui-message-stream" }) as ReadableStream<never>
+      const stream = (await streamAgentTrigger(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        "chat.message",
+        {
+          messages: [createMessage({ role: "user", text: "Say pong only." })],
+        },
+        { output: "ui-message-stream" },
+      )) as ReadableStream<never>
       const messages = []
       for await (const message of readUIMessageStream({ stream })) {
         messages.push(message)
       }
 
-      expect(messages.at(-1)?.parts).toEqual([
-        { providerMetadata: undefined, state: "done", text: "pong", type: "text" },
-      ])
+      expect(messages.at(-1)?.parts).toEqual([{ providerMetadata: undefined, state: "done", text: "pong", type: "text" }])
     })
 
     it("queues discovered agent runs as Workflow Runs by default", async () => {
@@ -10262,16 +12357,20 @@ describe("agent message protocol", () => {
 
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const agent = defineAgent({
-        driver: { run: context => `received ${context.prompt}` },
+        driver: { run: (context) => `received ${context.prompt}` },
         invocations,
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "support-agent" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        trace: { id: "source-trace" },
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "support-agent" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          trace: { id: "source-trace" },
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       expect(run).toMatchObject({
         provider: "vercel",
@@ -10283,9 +12382,11 @@ describe("agent message protocol", () => {
         result: "received hello",
         status: "completed",
       })
-      await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "completed" })
+      await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({
+        status: "completed",
+      })
       const record = await invocations.getByRunId(run.id, "support-agent")
-      expect(record?.observations.every(observation => observation.trace?.id === record.traceId)).toBe(true)
+      expect(record?.observations.every((observation) => observation.trace?.id === record.traceId)).toBe(true)
     })
 
     it("leaves Vercel pre-worker failures to Workflow inspection", async () => {
@@ -10300,20 +12401,27 @@ describe("agent message protocol", () => {
       })
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
-        "broken-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
+        "broken-agent": async () => ({
+          handler: async () => {
+            throw new Error("worker startup failed")
+          },
+        }),
       })
       try {
-        const run = await runAgent(agent, {
-          agentIdentity: { name: "broken-agent" },
-          memo: vi.fn(),
-          runtime: "vercel",
-          waitUntil: promise => waitUntilTasks.push(promise),
-        }, {}) as { id: string }
+        const run = (await runAgent(
+          agent,
+          {
+            agentIdentity: { name: "broken-agent" },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {},
+        )) as { id: string }
 
         await Promise.all(waitUntilTasks)
         await expect(invocations.getByRunId(run.id, "broken-agent")).resolves.toBeUndefined()
-      }
-      finally {
+      } finally {
         setWorkflowRuntimeRegistry(undefined)
       }
     })
@@ -10325,34 +12433,43 @@ describe("agent message protocol", () => {
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const failure = new Error("provider start failed")
       setAgentWorkflowRuntimeLoaders({
-        state: async () => ({
-          getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
-          getWorkflowRuntimeRegistry: () => undefined,
-          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
-        }) as never,
-        workflow: async () => ({
-          createWorkflow: () => ({
-            run: async () => { throw failure },
-          }),
-        }) as never,
+        state: async () =>
+          ({
+            getInlineWorkflowDefinitions: () => new Map(),
+            getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+            getWorkflowRuntimeRegistry: () => undefined,
+            runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+          }) as never,
+        workflow: async () =>
+          ({
+            createWorkflow: () => ({
+              run: async () => {
+                throw failure
+              },
+            }),
+          }) as never,
       })
       try {
-        await expect(runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          runtime: workflow("start-failure-agent"),
-        }), {
-          memo: vi.fn(),
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {})).rejects.toBe(failure)
+        await expect(
+          runAgent(
+            defineAgent({
+              driver: { run: () => "unreachable" },
+              invocations,
+              runtime: workflow("start-failure-agent"),
+            }),
+            {
+              memo: vi.fn(),
+              runtime: "unknown",
+              waitUntil: vi.fn(),
+            },
+            {},
+          ),
+        ).rejects.toBe(failure)
 
         await expect(invocations.list()).resolves.toMatchObject({
           invocations: [{ error: { message: failure.message }, status: "failed" }],
         })
-      }
-      finally {
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -10372,40 +12489,49 @@ describe("agent message protocol", () => {
         details: { acknowledgement: "unknown", operation: "run", provider: "openworkflow" },
       })
       setAgentWorkflowRuntimeLoaders({
-        state: async () => ({
-          getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
-          getWorkflowRuntimeRegistry: () => undefined,
-          registerInlineWorkflowDefinition: vi.fn(),
-          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
-        }) as never,
-        workflow: async () => ({
-          createWorkflow: () => ({
-            run: async (_payload: unknown, options: { id?: string }) => {
-              providerRunId = options.id || ""
-              throw failure
-            },
-          }),
-        }) as never,
+        state: async () =>
+          ({
+            getInlineWorkflowDefinitions: () => new Map(),
+            getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+            getWorkflowRuntimeRegistry: () => undefined,
+            registerInlineWorkflowDefinition: vi.fn(),
+            runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+          }) as never,
+        workflow: async () =>
+          ({
+            createWorkflow: () => ({
+              run: async (_payload: unknown, options: { id?: string }) => {
+                providerRunId = options.id || ""
+                throw failure
+              },
+            }),
+          }) as never,
       })
       try {
-        await expect(runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          runtime: workflow("ambiguous-start-agent"),
-        }), {
-          memo: vi.fn(),
-          run: { runId: "accepted/workflow" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {})).rejects.toBe(failure)
+        await expect(
+          runAgent(
+            defineAgent({
+              driver: { run: () => "unreachable" },
+              invocations,
+              runtime: workflow("ambiguous-start-agent"),
+            }),
+            {
+              memo: vi.fn(),
+              run: { runId: "accepted/workflow" },
+              runtime: "unknown",
+              waitUntil: vi.fn(),
+            },
+            {},
+          ),
+        ).rejects.toBe(failure)
 
         expect(providerRunId).toBe("accepted/workflow")
-        await expect(invocations.getByRunId("accepted/workflow")).resolves.toMatchObject({ status: "pending" })
+        await expect(invocations.getByRunId("accepted/workflow")).resolves.toMatchObject({
+          status: "pending",
+        })
         const record = await invocations.getByRunId("accepted/workflow")
-        expect(record && await store.claim(record.id, "accepted-worker", 30_000)).toBe(true)
-      }
-      finally {
+        expect(record && (await store.claim(record.id, "accepted-worker", 30_000))).toBe(true)
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -10418,37 +12544,54 @@ describe("agent message protocol", () => {
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-      const defer = vi.fn(async (_payload: unknown, _options?: unknown) => ({ id: "recovery", provider: "cloudflare" as const, status: "queued" as const }))
+      const defer = vi.fn(async (_payload: unknown, _options?: unknown) => ({
+        id: "recovery",
+        provider: "cloudflare" as const,
+        status: "queued" as const,
+      }))
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
         details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
       })
       setAgentWorkflowRuntimeLoaders({
-        state: async () => ({
-          getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
-          getWorkflowRuntimeRegistry: () => undefined,
-          registerInlineWorkflowDefinition: vi.fn(),
-          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
-        }) as never,
-        workflow: async () => ({
-          createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
-            ? { defer }
-            : { run: async () => { throw failure } },
-        }) as never,
+        state: async () =>
+          ({
+            getInlineWorkflowDefinitions: () => new Map(),
+            getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+            getWorkflowRuntimeRegistry: () => undefined,
+            registerInlineWorkflowDefinition: vi.fn(),
+            runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+          }) as never,
+        workflow: async () =>
+          ({
+            createWorkflow: (name: string) =>
+              name.startsWith("vitehub-agent-invocation-recovery-")
+                ? { defer }
+                : {
+                    run: async () => {
+                      throw failure
+                    },
+                  },
+          }) as never,
       })
       try {
-        await expect(runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          name: "ambiguous-cloudflare-agent",
-          runtime: workflow("ambiguous-cloudflare-agent"),
-        }), {
-          memo: vi.fn(),
-          run: { runId: "accepted/workflow" },
-          runtime: "cloudflare-agents",
-          waitUntil: vi.fn(),
-        }, {})).rejects.toBe(failure)
+        await expect(
+          runAgent(
+            defineAgent({
+              driver: { run: () => "unreachable" },
+              invocations,
+              name: "ambiguous-cloudflare-agent",
+              runtime: workflow("ambiguous-cloudflare-agent"),
+            }),
+            {
+              memo: vi.fn(),
+              run: { runId: "accepted/workflow" },
+              runtime: "cloudflare-agents",
+              waitUntil: vi.fn(),
+            },
+            {},
+          ),
+        ).rejects.toBe(failure)
 
         expect(defer).toHaveBeenCalledOnce()
         expect(defer.mock.calls[0]?.[0]).toMatchObject({
@@ -10461,33 +12604,44 @@ describe("agent message protocol", () => {
         await expect(invocations.getByRunId("accepted/workflow", "ambiguous-cloudflare-agent")).resolves.toMatchObject({ status: "pending" })
 
         defer.mockRejectedValue(new Error("recovery unavailable"))
-        await expect(runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          name: "ambiguous-cloudflare-agent",
-          runtime: workflow("ambiguous-cloudflare-agent"),
-        }), {
-          memo: vi.fn(),
-          run: { runId: "orphaned/workflow" },
-          runtime: "cloudflare-agents",
-          waitUntil: vi.fn(),
-        }, {})).rejects.toBe(failure)
+        await expect(
+          runAgent(
+            defineAgent({
+              driver: { run: () => "unreachable" },
+              invocations,
+              name: "ambiguous-cloudflare-agent",
+              runtime: workflow("ambiguous-cloudflare-agent"),
+            }),
+            {
+              memo: vi.fn(),
+              run: { runId: "orphaned/workflow" },
+              runtime: "cloudflare-agents",
+              waitUntil: vi.fn(),
+            },
+            {},
+          ),
+        ).rejects.toBe(failure)
         expect(defer).toHaveBeenCalledTimes(4)
         await expect(invocations.getByRunId("orphaned/workflow", "ambiguous-cloudflare-agent")).resolves.toBeUndefined()
 
-        await expect(runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          name: "unobserved-cloudflare-agent",
-          runtime: workflow("unobserved-cloudflare-agent"),
-        }), {
-          memo: vi.fn(),
-          run: { runId: "unobserved/workflow" },
-          runtime: "cloudflare-agents",
-          waitUntil: vi.fn(),
-        }, {})).rejects.toBe(failure)
+        await expect(
+          runAgent(
+            defineAgent({
+              driver: { run: () => "unreachable" },
+              name: "unobserved-cloudflare-agent",
+              runtime: workflow("unobserved-cloudflare-agent"),
+            }),
+            {
+              memo: vi.fn(),
+              run: { runId: "unobserved/workflow" },
+              runtime: "cloudflare-agents",
+              waitUntil: vi.fn(),
+            },
+            {},
+          ),
+        ).rejects.toBe(failure)
         expect(defer).toHaveBeenCalledTimes(4)
-      }
-      finally {
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -10505,35 +12659,46 @@ describe("agent message protocol", () => {
         details: { operation: "create", provider: "cloudflare", status: 403 },
       })
       setAgentWorkflowRuntimeLoaders({
-        state: async () => ({
-          getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
-          getWorkflowRuntimeRegistry: () => undefined,
-          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
-        }) as never,
-        workflow: async () => ({
-          createWorkflow: () => ({ run: async () => { throw failure } }),
-        }) as never,
+        state: async () =>
+          ({
+            getInlineWorkflowDefinitions: () => new Map(),
+            getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+            getWorkflowRuntimeRegistry: () => undefined,
+            runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+          }) as never,
+        workflow: async () =>
+          ({
+            createWorkflow: () => ({
+              run: async () => {
+                throw failure
+              },
+            }),
+          }) as never,
       })
       try {
-        await expect(runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          name: "rejected-start-agent",
-          runtime: workflow("rejected-start-agent"),
-        }), {
-          memo: vi.fn(),
-          run: { runId: "rejected/start" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {})).rejects.toBe(failure)
+        await expect(
+          runAgent(
+            defineAgent({
+              driver: { run: () => "unreachable" },
+              invocations,
+              name: "rejected-start-agent",
+              runtime: workflow("rejected-start-agent"),
+            }),
+            {
+              memo: vi.fn(),
+              run: { runId: "rejected/start" },
+              runtime: "unknown",
+              waitUntil: vi.fn(),
+            },
+            {},
+          ),
+        ).rejects.toBe(failure)
 
         await expect(invocations.getByRunId("rejected/start", "rejected-start-agent")).resolves.toMatchObject({
           error: { message: failure.message },
           status: "failed",
         })
-      }
-      finally {
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -10548,42 +12713,47 @@ describe("agent message protocol", () => {
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       let providerRunId = ""
       setAgentWorkflowRuntimeLoaders({
-        state: async () => ({
-          getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
-          getWorkflowRuntimeRegistry: () => undefined,
-          registerInlineWorkflowDefinition: vi.fn(),
-          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
-        }) as never,
-        workflow: async () => ({
-          createWorkflow: () => ({
-            defer: async () => ({ id: "recovery", provider: "cloudflare", status: "queued" }),
-            run: async (_payload: unknown, options: { id?: string }) => {
-              providerRunId = options.id || ""
-              return { id: providerRunId, status: "queued" }
-            },
-          }),
-        }) as never,
+        state: async () =>
+          ({
+            getInlineWorkflowDefinitions: () => new Map(),
+            getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+            getWorkflowRuntimeRegistry: () => undefined,
+            registerInlineWorkflowDefinition: vi.fn(),
+            runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+          }) as never,
+        workflow: async () =>
+          ({
+            createWorkflow: () => ({
+              defer: async () => ({ id: "recovery", provider: "cloudflare", status: "queued" }),
+              run: async (_payload: unknown, options: { id?: string }) => {
+                providerRunId = options.id || ""
+                return { id: providerRunId, status: "queued" }
+              },
+            }),
+          }) as never,
       })
       try {
         const sourceRunId = "source/run/id"
-        await runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          name: "portable-id-agent",
-          runtime: workflow("portable-id-agent"),
-        }), {
-          memo: vi.fn(),
-          run: { runId: sourceRunId },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {})
+        await runAgent(
+          defineAgent({
+            driver: { run: () => "unreachable" },
+            invocations,
+            name: "portable-id-agent",
+            runtime: workflow("portable-id-agent"),
+          }),
+          {
+            memo: vi.fn(),
+            run: { runId: sourceRunId },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          {},
+        )
 
         expect(providerRunId).toMatch(/^vitehub-invalid-/)
         await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "pending" })
         await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
-      }
-      finally {
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -10599,16 +12769,22 @@ describe("agent message protocol", () => {
       const failure = new Error("fresh provider start failed")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       setAgentWorkflowRuntimeLoaders({
-        state: async () => ({
-          getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
-          getWorkflowRuntimeRegistry: () => undefined,
-          registerInlineWorkflowDefinition: vi.fn(),
-          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
-        }) as never,
-        workflow: async () => ({
-          createWorkflow: () => ({ run: async () => { throw failure } }),
-        }) as never,
+        state: async () =>
+          ({
+            getInlineWorkflowDefinitions: () => new Map(),
+            getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+            getWorkflowRuntimeRegistry: () => undefined,
+            registerInlineWorkflowDefinition: vi.fn(),
+            runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+          }) as never,
+        workflow: async () =>
+          ({
+            createWorkflow: () => ({
+              run: async () => {
+                throw failure
+              },
+            }),
+          }) as never,
       })
       try {
         const agent = defineAgent({
@@ -10617,25 +12793,36 @@ describe("agent message protocol", () => {
           name: "fresh-start-failure-agent",
           runtime: workflow("fresh-start-failure-agent"),
         })
-        const parent = await bindAgentInvocations(invocations, {
-          memo: vi.fn(),
-          run: { runId: "parent-run" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, { agentName: agent.name })
+        const parent = await bindAgentInvocations(
+          invocations,
+          {
+            memo: vi.fn(),
+            run: { runId: "parent-run" },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          { agentName: agent.name },
+        )
         if (!parent) throw new Error("Expected the parent invocation journal to be configured.")
         await parent.running()
 
-        await expect(startAgentInvocation(agent, {
-          memo: vi.fn(),
-          run: { runId: "parent-run" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {})).rejects.toBe(failure)
+        await expect(
+          startAgentInvocation(
+            agent,
+            {
+              memo: vi.fn(),
+              run: { runId: "parent-run" },
+              runtime: "unknown",
+              waitUntil: vi.fn(),
+            },
+            {},
+          ),
+        ).rejects.toBe(failure)
 
-        await expect(invocations.getByRunId("parent-run", agent.name)).resolves.toMatchObject({ status: "running" })
-      }
-      finally {
+        await expect(invocations.getByRunId("parent-run", agent.name)).resolves.toMatchObject({
+          status: "running",
+        })
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -10655,20 +12842,27 @@ describe("agent message protocol", () => {
       })
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
-        "broken-controlled-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
+        "broken-controlled-agent": async () => ({
+          handler: async () => {
+            throw new Error("worker startup failed")
+          },
+        }),
       })
       try {
-        const controller = await startAgentInvocation(agent, {
-          agentIdentity: { name: "broken-controlled-agent" },
-          memo: vi.fn(),
-          runtime: "vercel",
-          waitUntil: promise => waitUntilTasks.push(promise),
-        }, {})
+        const controller = await startAgentInvocation(
+          agent,
+          {
+            agentIdentity: { name: "broken-controlled-agent" },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {},
+        )
 
         await Promise.all(waitUntilTasks)
         await expect(invocations.getByRunId(controller.id, "broken-controlled-agent")).resolves.toBeUndefined()
-      }
-      finally {
+      } finally {
         setWorkflowRuntimeRegistry(undefined)
       }
     })
@@ -10684,76 +12878,100 @@ describe("agent message protocol", () => {
       let recoveryAttempts = 0
       let recoveryAvailable = true
       setAgentWorkflowRuntimeLoaders({
-        state: async () => ({
-          getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
-          getWorkflowRuntimeRegistry: () => undefined,
-          registerInlineWorkflowDefinition: vi.fn(),
-          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
-        }) as never,
-        workflow: async () => ({
-          createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
-            ? {
-                defer: async (payload: unknown) => {
-                  recoveryAttempts++
-                  if (!recoveryAvailable || recoveryAttempts < 3) throw new Error("recovery provider unavailable")
-                  deferredRecovery = payload
-                  return { id: "recovery", provider: "openworkflow", status: "queued" }
-                },
-              }
-            : {
-                name,
-                run: async () => ({ id: `${name}-${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }),
-              },
-        }) as never,
+        state: async () =>
+          ({
+            getInlineWorkflowDefinitions: () => new Map(),
+            getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+            getWorkflowRuntimeRegistry: () => undefined,
+            registerInlineWorkflowDefinition: vi.fn(),
+            runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+          }) as never,
+        workflow: async () =>
+          ({
+            createWorkflow: (name: string) =>
+              name.startsWith("vitehub-agent-invocation-recovery-")
+                ? {
+                    defer: async (payload: unknown) => {
+                      recoveryAttempts++
+                      if (!recoveryAvailable || recoveryAttempts < 3) throw new Error("recovery provider unavailable")
+                      deferredRecovery = payload
+                      return { id: "recovery", provider: "openworkflow", status: "queued" }
+                    },
+                  }
+                : {
+                    name,
+                    run: async () => ({
+                      id: `${name}-${initialStatus}-before-worker`,
+                      provider: "openworkflow",
+                      status: initialStatus,
+                    }),
+                  },
+          }) as never,
       })
       try {
-        const run = await runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          runtime: workflow("non-queued-agent"),
-        }), {
-          memo: vi.fn(),
-          runtime: "unknown",
-          waitUntil: promise => waitUntilTasks.push(promise),
-        }, {}) as { id: string, status: string }
+        const run = (await runAgent(
+          defineAgent({
+            driver: { run: () => "unreachable" },
+            invocations,
+            runtime: workflow("non-queued-agent"),
+          }),
+          {
+            memo: vi.fn(),
+            runtime: "unknown",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {},
+        )) as { id: string; status: string }
 
         expect(run.status).not.toBe("queued")
         await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "pending" })
         await Promise.all(waitUntilTasks)
         expect(recoveryAttempts).toBe(3)
         expect(deferredRecovery).toMatchObject({
-          invocationRecovery: { runId: run.id, sourceRunId: run.id, workflowName: "non-queued-agent" },
+          invocationRecovery: {
+            runId: run.id,
+            sourceRunId: run.id,
+            workflowName: "non-queued-agent",
+          },
         })
 
         recoveryAvailable = false
-        const unrecoveredRun = await runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          runtime: workflow("unrecovered-agent"),
-        }), {
-          memo: vi.fn(),
-          runtime: "unknown",
-          waitUntil: promise => waitUntilTasks.push(promise),
-        }, {}) as { id: string }
+        const unrecoveredRun = (await runAgent(
+          defineAgent({
+            driver: { run: () => "unreachable" },
+            invocations,
+            runtime: workflow("unrecovered-agent"),
+          }),
+          {
+            memo: vi.fn(),
+            runtime: "unknown",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {},
+        )) as { id: string }
         expect(recoveryAttempts).toBe(6)
         await expect(invocations.getByRunId(unrecoveredRun.id)).resolves.toBeUndefined()
 
         initialStatus = "failed"
-        const terminalRun = await runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          runtime: workflow("terminal-agent"),
-        }), {
-          memo: vi.fn(),
-          runtime: "unknown",
-          waitUntil: promise => waitUntilTasks.push(promise),
-        }, {}) as { id: string, status: string }
+        const terminalRun = (await runAgent(
+          defineAgent({
+            driver: { run: () => "unreachable" },
+            invocations,
+            runtime: workflow("terminal-agent"),
+          }),
+          {
+            memo: vi.fn(),
+            runtime: "unknown",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {},
+        )) as { id: string; status: string }
         await Promise.all(waitUntilTasks)
         expect(terminalRun.status).toBe("failed")
-        await expect(invocations.getByRunId(terminalRun.id)).resolves.toMatchObject({ status: "failed" })
-      }
-      finally {
+        await expect(invocations.getByRunId(terminalRun.id)).resolves.toMatchObject({
+          status: "failed",
+        })
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -10769,17 +12987,21 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: context => Boolean(context.input.abortSignal) },
+        driver: { run: (context) => Boolean(context.input.abortSignal) },
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "support-agent-abort-signal" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {
-        abortSignal: new AbortController().signal,
-        prompt: "hello",
-      }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "support-agent-abort-signal" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {
+          abortSignal: new AbortController().signal,
+          prompt: "hello",
+        },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent-abort-signal", run.id)).resolves.toMatchObject({
@@ -10798,30 +13020,35 @@ describe("agent message protocol", () => {
         statusCode: 503,
       })
       const fallback = vi.fn(({ toolResults }) => {
-        expect(toolResults).toEqual([expect.objectContaining({
-          input: { calories: 240 },
-          output: { id: "meal-1" },
-          toolName: "save_meal",
-        })])
+        expect(toolResults).toEqual([
+          expect.objectContaining({
+            input: { calories: 240 },
+            output: { id: "meal-1" },
+            toolName: "save_meal",
+          }),
+        ])
         return "The meal was saved, but I could not finish the reply."
       })
       const agent = defineAgent({
-        capabilities: [defineCapability({
-          id: "meals",
-          mode: "write",
-          tools: {
-            save_meal: {
-              execute: () => ({ id: "meal-1" }),
-              name: "save_meal",
+        capabilities: [
+          defineCapability({
+            id: "meals",
+            mode: "write",
+            tools: {
+              save_meal: {
+                execute: () => ({ id: "meal-1" }),
+                name: "save_meal",
+              },
             },
-          },
-        })],
+          }),
+        ],
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
           }),
         },
         driver: {
@@ -10833,20 +13060,26 @@ describe("agent message protocol", () => {
         messages: { errorFallbackText: fallback },
       })
 
-      expect(agent.capabilities?.map(capability => capability.id)).toContain("chat")
+      expect(agent.capabilities?.map((capability) => capability.id)).toContain("chat")
 
-      await expect(runAgentWorkflowDefinition(agent, {
-        id: "run-after-write",
-        name: "calories",
-        payload: {
-          input: {
-            context: { channel: { message: { text: "I ate skyr" } } },
-            prompt: "I ate skyr",
+      await expect(
+        runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "run-after-write",
+            name: "calories",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "I ate skyr" } } },
+                prompt: "I ate skyr",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            },
+            provider: "cloudflare",
           },
-          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
-        },
-        provider: "cloudflare",
-      }, runAgentInline)).rejects.toBe(failure)
+          runAgentInline,
+        ),
+      ).rejects.toBe(failure)
 
       expect(fallback).toHaveBeenCalledOnce()
       expect(postMessage).toHaveBeenCalledWith("telegram:123", {
@@ -10860,46 +13093,74 @@ describe("agent message protocol", () => {
       const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
       const postMessage = vi.fn(async () => undefined)
       const fallback = vi.fn(({ toolResults }) => {
-        expect(toolResults).toEqual([{
-          output: { id: "meal-1" },
-          toolCallId: "save-1",
-          toolName: "save_meal",
-        }])
+        expect(toolResults).toEqual([
+          {
+            output: { id: "meal-1" },
+            toolCallId: "save-1",
+            toolName: "save_meal",
+          },
+        ])
         return "The streamed write completed before the failure."
       })
       const agent = defineAgent({
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
           }),
         },
-        driver: { run: () => (async function* () {
-          yield { output: { id: "meal-1" }, toolCallId: "save-1", toolName: "save_meal", type: "tool-result" }
-          yield { output: { id: "meal-1" }, toolCallId: "save-1", toolName: "save_meal", type: "tool-result" }
-          throw new Error("stream failed")
-        })() },
+        driver: {
+          run: () =>
+            (async function* () {
+              yield {
+                output: { id: "meal-1" },
+                toolCallId: "save-1",
+                toolName: "save_meal",
+                type: "tool-result",
+              }
+              yield {
+                output: { id: "meal-1" },
+                toolCallId: "save-1",
+                toolName: "save_meal",
+                type: "tool-result",
+              }
+              throw new Error("stream failed")
+            })(),
+        },
         messages: { errorFallbackText: fallback },
       })
 
-      const stream = await streamAgent(agent, {
-        [agentWorkflowExecutionContextKey]: true,
-        memo: vi.fn(),
-        run: { channelId: "telegram", origin: "telegram", runId: "streamed-write-failure", threadId: "telegram:123" },
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {
-        context: { channel: { message: { text: "Save this meal" } } },
-        prompt: "Save this meal",
-      }) as AsyncIterable<unknown>
+      const stream = (await streamAgent(
+        agent,
+        {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: {
+            channelId: "telegram",
+            origin: "telegram",
+            runId: "streamed-write-failure",
+            threadId: "telegram:123",
+          },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {
+          context: { channel: { message: { text: "Save this meal" } } },
+          prompt: "Save this meal",
+        },
+      )) as AsyncIterable<unknown>
       await expect(async () => {
-        for await (const _event of stream) {}
+        for await (const _event of stream) {
+        }
       }).rejects.toThrow("stream failed")
 
       expect(fallback).toHaveBeenCalledOnce()
-      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "The streamed write completed before the failure." })
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", {
+        markdown: "The streamed write completed before the failure.",
+      })
     })
 
     it("delivers UI-message stream tool results to durable failure fallbacks without duplicates", async () => {
@@ -10913,56 +13174,87 @@ describe("agent message protocol", () => {
         return "The UI streamed write completed before the failure."
       })
       const agent = defineAgent({
-        capabilities: [defineCapability({
-          id: "meals",
-          mode: "write",
-          tools: {
-            save_meal: {
-              execute: () => ({ id: "meal-1" }),
-              name: "save_meal",
+        capabilities: [
+          defineCapability({
+            id: "meals",
+            mode: "write",
+            tools: {
+              save_meal: {
+                execute: () => ({ id: "meal-1" }),
+                name: "save_meal",
+              },
             },
-          },
-        })],
+          }),
+        ],
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
           }),
         },
-        driver: { run: ({ tools }) => (async function* () {
-          await tools!.save_meal!.execute!({ calories: 240 }, { toolCallId: "save-1" })
-          yield { id: "save-1", name: "save_meal", output: { id: "meal-1" }, type: "tool-result" }
-          yield { id: "save-1", name: "save_meal", output: { id: "meal-1" }, type: "tool-result" }
-          throw new Error("UI stream failed")
-        })() },
+        driver: {
+          run: ({ tools }) =>
+            (async function* () {
+              await tools!.save_meal!.execute!({ calories: 240 }, { toolCallId: "save-1" })
+              yield {
+                id: "save-1",
+                name: "save_meal",
+                output: { id: "meal-1" },
+                type: "tool-result",
+              }
+              yield {
+                id: "save-1",
+                name: "save_meal",
+                output: { id: "meal-1" },
+                type: "tool-result",
+              }
+              throw new Error("UI stream failed")
+            })(),
+        },
         messages: { errorFallbackText: fallback },
         uiMessageStream: { tools: "hidden" },
       })
 
-      const stream = await streamAgent(agent, {
-        [agentWorkflowExecutionContextKey]: true,
-        memo: vi.fn(),
-        run: { channelId: "telegram", origin: "telegram", runId: "ui-streamed-write-failure", threadId: "telegram:123" },
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {
-        context: { channel: { message: { text: "Save this meal" } } },
-        prompt: "Save this meal",
-      }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const stream = (await streamAgent(
+        agent,
+        {
+          [agentWorkflowExecutionContextKey]: true,
+          memo: vi.fn(),
+          run: {
+            channelId: "telegram",
+            origin: "telegram",
+            runId: "ui-streamed-write-failure",
+            threadId: "telegram:123",
+          },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        },
+        {
+          context: { channel: { message: { text: "Save this meal" } } },
+          prompt: "Save this meal",
+        },
+        { output: "ui-message-stream" },
+      )) as ReadableStream<unknown>
       await expect(async () => {
-        for await (const _event of stream) {}
+        for await (const _event of stream) {
+        }
       }).rejects.toThrow("UI stream failed")
 
       expect(fallback).toHaveBeenCalledOnce()
-      expect(fallbackToolResults).toEqual([{
-        input: { calories: 240 },
-        output: { id: "meal-1" },
-        toolCallId: "save-1",
-        toolName: "save_meal",
-      }])
-      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "The UI streamed write completed before the failure." })
+      expect(fallbackToolResults).toEqual([
+        {
+          input: { calories: 240 },
+          output: { id: "meal-1" },
+          toolCallId: "save-1",
+          toolName: "save_meal",
+        },
+      ])
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", {
+        markdown: "The UI streamed write completed before the failure.",
+      })
     })
 
     it("bounds durable prepared fallback delivery", async () => {
@@ -10976,28 +13268,37 @@ describe("agent message protocol", () => {
         const agent = defineAgent({
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage,
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage,
+                }) as never,
             }),
           },
-          driver: { run: async () => { throw failure } },
+          driver: {
+            run: async () => {
+              throw failure
+            },
+          },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "stalled-prepared-fallback",
-          name: "failure",
-          payload: {
-            input: {
-              context: { channel: { message: { text: "Hello" } } },
-              prompt: "Hello",
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "stalled-prepared-fallback",
+            name: "failure",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
             },
-            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            provider: "cloudflare",
           },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error)
+          runAgentInline,
+        ).catch((error) => error)
 
         await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
         await vi.advanceTimersByTimeAsync(10)
@@ -11005,10 +13306,13 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error.errors).toContainEqual(
+          expect.objectContaining({
+            message: "Durable chat error fallback delivery timed out after 10ms.",
+          }),
+        )
         expect(error).toMatchObject({ isRetryable: false })
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11022,35 +13326,47 @@ describe("agent message protocol", () => {
         const failure = new Error("provider failed")
         const postMessage = vi.fn(async () => undefined)
         let releaseErrorHook!: () => void
-        const errorHook = vi.fn((event: { input: { abortSignal?: AbortSignal }, reply: (message: string) => AgentChannelDeliveryFinishEffectResult }) => new Promise<AgentChannelDeliveryFinishEffectResult>((resolve) => {
-          releaseErrorHook = () => resolve(event.reply("Too late."))
-        }))
+        const errorHook = vi.fn(
+          (event: { input: { abortSignal?: AbortSignal }; reply: (message: string) => AgentChannelDeliveryFinishEffectResult }) =>
+            new Promise<AgentChannelDeliveryFinishEffectResult>((resolve) => {
+              releaseErrorHook = () => resolve(event.reply("Too late."))
+            }),
+        )
         const agent = defineAgent({
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage,
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage,
+                }) as never,
             }),
           },
-          driver: { run: async () => { throw failure } },
+          driver: {
+            run: async () => {
+              throw failure
+            },
+          },
           hooks: { "agent:error": errorHook },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "stalled-error-hook",
-          name: "failure",
-          payload: {
-            input: {
-              context: { channel: { message: { text: "Hello" } } },
-              prompt: "Hello",
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "stalled-error-hook",
+            name: "failure",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
             },
-            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            provider: "cloudflare",
           },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error)
+          runAgentInline,
+        ).catch((error) => error)
 
         await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
         await vi.waitFor(() => expect(errorHook).toHaveBeenCalledOnce())
@@ -11059,17 +13375,18 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors).toContainEqual(expect.objectContaining({
-          isRetryable: false,
-          message: "Durable chat error fallback delivery timed out after 10ms.",
-        }))
+        expect(error.errors).toContainEqual(
+          expect.objectContaining({
+            isRetryable: false,
+            message: "Durable chat error fallback delivery timed out after 10ms.",
+          }),
+        )
         expect(error).toMatchObject({ isRetryable: false })
         expect(errorHook.mock.calls[0]?.[0].input.abortSignal).toMatchObject({ aborted: true })
         releaseErrorHook()
         await vi.runAllTimersAsync()
         expect(postMessage).toHaveBeenCalledOnce()
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11084,40 +13401,54 @@ describe("agent message protocol", () => {
         const postMessage = vi.fn(async () => undefined)
         const setThreadTitle = vi.fn(() => new Promise(() => undefined))
         const agent = defineAgent({
-          capabilities: [defineCapability({
-            id: "thread-title",
-            prepare(context) {
-              const effect = defineFinishEffect(() => ({ kind: "title", payload: { title: "Prepared title" } }))
-              effect.kind = "title"
-              context.delivery.finishEffect(effect)
-            },
-          })],
+          capabilities: [
+            defineCapability({
+              id: "thread-title",
+              prepare(context) {
+                const effect = defineFinishEffect(() => ({
+                  kind: "title",
+                  payload: { title: "Prepared title" },
+                }))
+                effect.kind = "title"
+                context.delivery.finishEffect(effect)
+              },
+            }),
+          ],
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage,
-                setThreadTitle,
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage,
+                  setThreadTitle,
+                }) as never,
             }),
           },
-          driver: { run: async () => { throw failure } },
+          driver: {
+            run: async () => {
+              throw failure
+            },
+          },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "stalled-title-before-fallback",
-          name: "failure",
-          payload: {
-            input: {
-              context: { channel: { message: { text: "Hello" } } },
-              messages: [createMessage({ role: "user", text: "Hello" })],
-              prompt: "Hello",
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "stalled-title-before-fallback",
+            name: "failure",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                messages: [createMessage({ role: "user", text: "Hello" })],
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
             },
-            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            provider: "cloudflare",
           },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error)
+          runAgentInline,
+        ).catch((error) => error)
 
         await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
         expect(setThreadTitle).toHaveBeenCalledOnce()
@@ -11126,10 +13457,13 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error.errors).toContainEqual(
+          expect.objectContaining({
+            message: "Durable chat error fallback delivery timed out after 10ms.",
+          }),
+        )
         expect(error).toMatchObject({ isRetryable: false })
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11143,34 +13477,47 @@ describe("agent message protocol", () => {
         const failure = new Error("provider failed")
         const adapter = vi.fn(() => new Promise(() => undefined) as never)
         const agent = defineAgent({
-          capabilities: [defineCapability({
-            id: "thread-title",
-            prepare(context) {
-              const effect = defineFinishEffect(() => ({ kind: "title", payload: { title: "Prepared title" } }))
-              effect.kind = "title"
-              context.delivery.finishEffect(effect)
-            },
-          })],
+          capabilities: [
+            defineCapability({
+              id: "thread-title",
+              prepare(context) {
+                const effect = defineFinishEffect(() => ({
+                  kind: "title",
+                  payload: { title: "Prepared title" },
+                }))
+                effect.kind = "title"
+                context.delivery.finishEffect(effect)
+              },
+            }),
+          ],
           channels: {
             telegram: telegram({ adapter }),
           },
-          driver: { run: async () => { throw failure } },
+          driver: {
+            run: async () => {
+              throw failure
+            },
+          },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "stalled-title-adapter-resolution",
-          name: "failure",
-          payload: {
-            input: {
-              context: { channel: { message: { text: "Hello" } } },
-              messages: [createMessage({ role: "user", text: "Hello" })],
-              prompt: "Hello",
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "stalled-title-adapter-resolution",
+            name: "failure",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                messages: [createMessage({ role: "user", text: "Hello" })],
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
             },
-            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            provider: "cloudflare",
           },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error)
+          runAgentInline,
+        ).catch((error) => error)
 
         await vi.waitFor(() => expect(adapter).toHaveBeenCalledOnce())
         await vi.advanceTimersByTimeAsync(10)
@@ -11178,10 +13525,13 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error.errors).toContainEqual(
+          expect.objectContaining({
+            message: "Durable chat error fallback delivery timed out after 10ms.",
+          }),
+        )
         expect(error).toMatchObject({ isRetryable: false })
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11195,33 +13545,44 @@ describe("agent message protocol", () => {
         const failure = new Error("provider failed")
         const postMessage = vi.fn(async () => undefined)
         const agent = defineAgent({
-          capabilities: [defineCapability({
-            id: "stalled-finish-extension",
-            prepare(context) {
-              context.finish.provide(() => new Promise(() => undefined))
-            },
-          })],
+          capabilities: [
+            defineCapability({
+              id: "stalled-finish-extension",
+              prepare(context) {
+                context.finish.provide(() => new Promise(() => undefined))
+              },
+            }),
+          ],
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage,
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage,
+                }) as never,
             }),
           },
-          driver: { run: async () => { throw failure } },
+          driver: {
+            run: async () => {
+              throw failure
+            },
+          },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "stalled-finish-extension",
-          name: "failure",
-          payload: {
-            input: { context: { channel: { message: { text: "Hello" } } }, prompt: "Hello" },
-            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "stalled-finish-extension",
+            name: "failure",
+            payload: {
+              input: { context: { channel: { message: { text: "Hello" } } }, prompt: "Hello" },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            },
+            provider: "cloudflare",
           },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error)
+          runAgentInline,
+        ).catch((error) => error)
 
         await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
         await vi.advanceTimersByTimeAsync(10)
@@ -11229,10 +13590,13 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors).toContainEqual(expect.objectContaining({ message: "Durable chat error fallback delivery timed out after 10ms." }))
+        expect(error.errors).toContainEqual(
+          expect.objectContaining({
+            message: "Durable chat error fallback delivery timed out after 10ms.",
+          }),
+        )
         expect(error).toMatchObject({ isRetryable: false })
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11246,38 +13610,52 @@ describe("agent message protocol", () => {
         const failure = new Error("provider failed")
         const settled = vi.fn()
         let releaseExtension!: () => void
-        const finishExtension = vi.fn(() => new Promise<{ ready: true }>((resolve) => {
-          releaseExtension = () => resolve({ ready: true })
-        }))
+        const finishExtension = vi.fn(
+          () =>
+            new Promise<{ ready: true }>((resolve) => {
+              releaseExtension = () => resolve({ ready: true })
+            }),
+        )
         const agent = defineAgent({
-          capabilities: [defineCapability({
-            id: "slow-finish-extension",
-            prepare(context) {
-              context.finish.provide(finishExtension)
-            },
-          })],
+          capabilities: [
+            defineCapability({
+              id: "slow-finish-extension",
+              prepare(context) {
+                context.finish.provide(finishExtension)
+              },
+            }),
+          ],
           channels: { telegram: telegram({ adapter: vi.fn() as never }) },
-          driver: { run: async () => { throw failure } },
+          driver: {
+            run: async () => {
+              throw failure
+            },
+          },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "non-channel-workflow",
-          name: "failure",
-          payload: { input: { prompt: "scheduled work" }, run: { origin: "schedule" } },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error).then((error) => {
-          settled()
-          return error
-        })
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "non-channel-workflow",
+            name: "failure",
+            payload: { input: { prompt: "scheduled work" }, run: { origin: "schedule" } },
+            provider: "cloudflare",
+          },
+          runAgentInline,
+        )
+          .catch((error) => error)
+          .then((error) => {
+            settled()
+            return error
+          })
 
         await vi.waitFor(() => expect(finishExtension).toHaveBeenCalledOnce())
         await vi.advanceTimersByTimeAsync(10)
         expect(settled).not.toHaveBeenCalled()
         releaseExtension()
         expect(await result).toBe(failure)
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11290,42 +13668,56 @@ describe("agent message protocol", () => {
         const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
         const failure = new Error("provider failed")
         let releaseExtension!: () => void
-        const finishExtension = vi.fn(() => new Promise<{ ready: true }>((resolve) => {
-          releaseExtension = () => resolve({ ready: true })
-        }))
+        const finishExtension = vi.fn(
+          () =>
+            new Promise<{ ready: true }>((resolve) => {
+              releaseExtension = () => resolve({ ready: true })
+            }),
+        )
         const settled = vi.fn()
         const agent = defineAgent({
-          capabilities: [defineCapability({
-            id: "slow-finish-extension",
-            prepare(context) {
-              context.finish.provide(finishExtension)
-            },
-          })],
+          capabilities: [
+            defineCapability({
+              id: "slow-finish-extension",
+              prepare(context) {
+                context.finish.provide(finishExtension)
+              },
+            }),
+          ],
           channels: { telegram: telegram({ adapter: vi.fn() as never }) },
-          driver: { run: async () => { throw failure } },
+          driver: {
+            run: async () => {
+              throw failure
+            },
+          },
           messages: { errorFallbackText: null, timeout: 10 },
         })
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "disabled-error-fallback",
-          name: "failure",
-          payload: {
-            input: { context: { channel: { message: { text: "Hello" } } }, prompt: "Hello" },
-            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "disabled-error-fallback",
+            name: "failure",
+            payload: {
+              input: { context: { channel: { message: { text: "Hello" } } }, prompt: "Hello" },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            },
+            provider: "cloudflare",
           },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error).then((error) => {
-          settled()
-          return error
-        })
+          runAgentInline,
+        )
+          .catch((error) => error)
+          .then((error) => {
+            settled()
+            return error
+          })
 
         await vi.waitFor(() => expect(finishExtension).toHaveBeenCalledOnce())
         await vi.advanceTimersByTimeAsync(10)
         expect(settled).not.toHaveBeenCalled()
         releaseExtension()
         expect(await result).toBe(failure)
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11337,13 +13729,16 @@ describe("agent message protocol", () => {
       const postMessage = vi.fn(async () => undefined)
       const failure = new Error("Capability setup failed")
       const agent = defineAgent({
-        capabilities: async () => { throw failure },
+        capabilities: async () => {
+          throw failure
+        },
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
           }),
         },
         driver: { run: async () => ({ text: "unreachable" }) },
@@ -11355,18 +13750,24 @@ describe("agent message protocol", () => {
         },
       })
 
-      await expect(runAgentWorkflowDefinition(agent, {
-        id: "run-before-capabilities",
-        name: "setup",
-        payload: {
-          input: {
-            context: { channel: { message: { text: "Hello" } } },
-            prompt: "Hello",
+      await expect(
+        runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "run-before-capabilities",
+            name: "setup",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            },
+            provider: "cloudflare",
           },
-          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
-        },
-        provider: "cloudflare",
-      }, runAgentInline)).rejects.toBe(failure)
+          runAgentInline,
+        ),
+      ).rejects.toBe(failure)
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
       expect(postMessage).toHaveBeenCalledOnce()
@@ -11378,18 +13779,26 @@ describe("agent message protocol", () => {
       const failure = new Error("Scheduled Capability setup failed")
       const fallback = vi.fn(() => "Please try again.")
       const agent = defineAgent({
-        capabilities: async () => { throw failure },
+        capabilities: async () => {
+          throw failure
+        },
         driver: { run: async () => ({ text: "unreachable" }) },
         messages: { errorFallbackText: fallback },
       })
 
-      await expect(runAgent(agent, {
-        [agentWorkflowExecutionContextKey]: true,
-        memo: vi.fn(),
-        run: { origin: "schedule", runId: "scheduled-setup-failure" },
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, { prompt: "Run the scheduled task" })).rejects.toBe(failure)
+      await expect(
+        runAgent(
+          agent,
+          {
+            [agentWorkflowExecutionContextKey]: true,
+            memo: vi.fn(),
+            run: { origin: "schedule", runId: "scheduled-setup-failure" },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          { prompt: "Run the scheduled task" },
+        ),
+      ).rejects.toBe(failure)
 
       expect(fallback).not.toHaveBeenCalled()
     })
@@ -11402,38 +13811,52 @@ describe("agent message protocol", () => {
         const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
         const failure = new Error("Capability setup failed")
         const agent = defineAgent({
-          capabilities: async () => { throw failure },
+          capabilities: async () => {
+            throw failure
+          },
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage: () => new Promise(() => undefined),
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage: () => new Promise(() => undefined),
+                }) as never,
             }),
           },
           driver: { run: async () => ({ text: "unreachable" }) },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
 
-        const result = runAgent(agent, {
-          [agentWorkflowExecutionContextKey]: true,
-          memo: vi.fn(),
-          run: { channelId: "telegram", origin: "telegram", runId: "stalled-setup-fallback", threadId: "telegram:123" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {
-          context: { channel: { message: { text: "Hello" } } },
-          prompt: "Hello",
-        }).catch(error => error)
+        const result = runAgent(
+          agent,
+          {
+            [agentWorkflowExecutionContextKey]: true,
+            memo: vi.fn(),
+            run: {
+              channelId: "telegram",
+              origin: "telegram",
+              runId: "stalled-setup-fallback",
+              threadId: "telegram:123",
+            },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+        ).catch((error) => error)
 
         await vi.advanceTimersByTimeAsync(10)
         const error = await result
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
-      }
-      finally {
+        expect(error.errors[1]).toMatchObject({
+          isRetryable: false,
+          message: "Durable chat error fallback delivery timed out after 10ms.",
+        })
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11447,35 +13870,47 @@ describe("agent message protocol", () => {
         const failure = new Error("Capability setup failed")
         const postMessage = vi.fn(() => new Promise(() => undefined))
         const agent = defineAgent({
-          capabilities: async () => { throw failure },
+          capabilities: async () => {
+            throw failure
+          },
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage,
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage,
+                }) as never,
             }),
           },
           driver: { run: async () => ({ text: "unreachable" }) },
           messages: {
             errorFallbackText: async () => {
-              await new Promise(resolve => setTimeout(resolve, 8))
+              await new Promise((resolve) => setTimeout(resolve, 8))
               return "Please try again."
             },
             timeout: 10,
           },
         })
 
-        const result = runAgent(agent, {
-          [agentWorkflowExecutionContextKey]: true,
-          memo: vi.fn(),
-          run: { channelId: "telegram", origin: "telegram", runId: "shared-setup-deadline", threadId: "telegram:123" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {
-          context: { channel: { message: { text: "Hello" } } },
-          prompt: "Hello",
-        }).catch(error => error)
+        const result = runAgent(
+          agent,
+          {
+            [agentWorkflowExecutionContextKey]: true,
+            memo: vi.fn(),
+            run: {
+              channelId: "telegram",
+              origin: "telegram",
+              runId: "shared-setup-deadline",
+              threadId: "telegram:123",
+            },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+        ).catch((error) => error)
 
         await vi.advanceTimersByTimeAsync(8)
         await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
@@ -11484,9 +13919,11 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors).toContain(failure)
-        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
-      }
-      finally {
+        expect(error.errors[1]).toMatchObject({
+          isRetryable: false,
+          message: "Durable chat error fallback delivery timed out after 10ms.",
+        })
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11500,43 +13937,54 @@ describe("agent message protocol", () => {
         const failure = new Error("Capability setup failed")
         const postMessage = vi.fn(async () => undefined)
         const agent = defineAgent({
-          capabilities: async () => { throw failure },
+          capabilities: async () => {
+            throw failure
+          },
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage,
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage,
+                }) as never,
             }),
           },
           driver: { run: async () => ({ text: "unreachable" }) },
           messages: {
             errorFallbackText: async () => {
-              await new Promise(resolve => setTimeout(resolve, 12))
+              await new Promise((resolve) => setTimeout(resolve, 12))
               return "Too late."
             },
             timeout: 10,
           },
         })
 
-        const result = runAgent(agent, {
-          [agentWorkflowExecutionContextKey]: true,
-          memo: vi.fn(),
-          run: { channelId: "telegram", origin: "telegram", runId: "late-setup-fallback", threadId: "telegram:123" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, {
-          context: { channel: { message: { text: "Hello" } } },
-          prompt: "Hello",
-        }).catch(error => error)
+        const result = runAgent(
+          agent,
+          {
+            [agentWorkflowExecutionContextKey]: true,
+            memo: vi.fn(),
+            run: {
+              channelId: "telegram",
+              origin: "telegram",
+              runId: "late-setup-fallback",
+              threadId: "telegram:123",
+            },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          {
+            context: { channel: { message: { text: "Hello" } } },
+            prompt: "Hello",
+          },
+        ).catch((error) => error)
 
         await vi.advanceTimersByTimeAsync(10)
         const error = await result
         expect(error).toBeInstanceOf(AggregateError)
         await vi.advanceTimersByTimeAsync(2)
         expect(postMessage).not.toHaveBeenCalled()
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11548,13 +13996,16 @@ describe("agent message protocol", () => {
       const postMessage = vi.fn(async () => undefined)
       const failure = new Error("Capacity-limited Capability setup failed")
       const agent = defineAgent({
-        capabilities: async () => { throw failure },
+        capabilities: async () => {
+          throw failure
+        },
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
           }),
         },
         driver: {
@@ -11564,18 +14015,24 @@ describe("agent message protocol", () => {
         messages: { errorFallbackText: "Please try again." },
       })
 
-      await expect(runAgentWorkflowDefinition(agent, {
-        id: "capacity-setup-failure",
-        name: "setup",
-        payload: {
-          input: {
-            context: { channel: { message: { text: "Hello" } } },
-            prompt: "Hello",
+      await expect(
+        runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "capacity-setup-failure",
+            name: "setup",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            },
+            provider: "cloudflare",
           },
-          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
-        },
-        provider: "cloudflare",
-      }, runAgentInline)).rejects.toBe(failure)
+          runAgentInline,
+        ),
+      ).rejects.toBe(failure)
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Please try again." })
       expect(postMessage).toHaveBeenCalledOnce()
@@ -11588,7 +14045,9 @@ describe("agent message protocol", () => {
         const { telegram } = await import("../src/channels.ts")
         const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
         let releaseDriver!: () => void
-        const driverGate = new Promise<void>((resolve) => { releaseDriver = resolve })
+        const driverGate = new Promise<void>((resolve) => {
+          releaseDriver = resolve
+        })
         const postMessage = vi.fn(() => new Promise(() => undefined))
         const driverRun = vi.fn(async () => {
           await driverGate
@@ -11597,10 +14056,11 @@ describe("agent message protocol", () => {
         const agent = defineAgent({
           channels: {
             telegram: telegram({
-              adapter: () => ({
-                channelIdFromThreadId: () => "telegram:123",
-                postMessage,
-              }) as never,
+              adapter: () =>
+                ({
+                  channelIdFromThreadId: () => "telegram:123",
+                  postMessage,
+                }) as never,
             }),
           },
           driver: {
@@ -11609,26 +14069,34 @@ describe("agent message protocol", () => {
           },
           messages: { errorFallbackText: "Please try again.", timeout: 10 },
         })
-        const first = runAgent(agent, {
-          memo: vi.fn(),
-          run: { origin: "test", runId: "capacity-holder" },
-          runtime: "unknown",
-          waitUntil: vi.fn(),
-        }, { prompt: "Hold capacity" })
+        const first = runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            run: { origin: "test", runId: "capacity-holder" },
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          { prompt: "Hold capacity" },
+        )
         await vi.waitFor(() => expect(driverRun).toHaveBeenCalledOnce())
 
-        const result = runAgentWorkflowDefinition(agent, {
-          id: "capacity-timeout-fallback",
-          name: "capacity",
-          payload: {
-            input: {
-              context: { channel: { message: { text: "Hello" } } },
-              prompt: "Hello",
+        const result = runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "capacity-timeout-fallback",
+            name: "capacity",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
             },
-            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            provider: "cloudflare",
           },
-          provider: "cloudflare",
-        }, runAgentInline).catch(error => error)
+          runAgentInline,
+        ).catch((error) => error)
 
         await vi.advanceTimersByTimeAsync(1)
         await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
@@ -11637,12 +14105,14 @@ describe("agent message protocol", () => {
         expect(error).toBeInstanceOf(AggregateError)
         if (!(error instanceof AggregateError)) throw error
         expect(error.errors[0]).toMatchObject({ code: "AGENT_CAPACITY_QUEUE_TIMEOUT" })
-        expect(error.errors[1]).toMatchObject({ isRetryable: false, message: "Durable chat error fallback delivery timed out after 10ms." })
+        expect(error.errors[1]).toMatchObject({
+          isRetryable: false,
+          message: "Durable chat error fallback delivery timed out after 10ms.",
+        })
 
         releaseDriver()
         await first
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
@@ -11655,34 +14125,49 @@ describe("agent message protocol", () => {
       const providerFailure = new Error("provider failed")
       const cleanupFailure = new Error("Capability cleanup failed")
       const agent = defineAgent({
-        capabilities: [defineCapability({
-          close: async () => { throw cleanupFailure },
-          id: "cleanup-failure",
-        })],
+        capabilities: [
+          defineCapability({
+            close: async () => {
+              throw cleanupFailure
+            },
+            id: "cleanup-failure",
+          }),
+        ],
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
           }),
         },
-        driver: { run: async () => { throw providerFailure } },
+        driver: {
+          run: async () => {
+            throw providerFailure
+          },
+        },
         messages: { errorFallbackText: "The request failed." },
       })
 
-      await expect(runAgentWorkflowDefinition(agent, {
-        id: "cleanup-failure",
-        name: "cleanup",
-        payload: {
-          input: {
-            context: { channel: { message: { text: "Hello" } } },
-            prompt: "Hello",
+      await expect(
+        runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "cleanup-failure",
+            name: "cleanup",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            },
+            provider: "cloudflare",
           },
-          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
-        },
-        provider: "cloudflare",
-      }, runAgentInline)).rejects.toBeInstanceOf(AggregateError)
+          runAgentInline,
+        ),
+      ).rejects.toBeInstanceOf(AggregateError)
 
       expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "The request failed." })
       expect(postMessage).toHaveBeenCalledOnce()
@@ -11696,16 +14181,21 @@ describe("agent message protocol", () => {
       const errorHook = vi.fn(async () => undefined)
       const cleanupFailure = new Error("Capability cleanup failed")
       const agent = defineAgent({
-        capabilities: [defineCapability({
-          close: async () => { throw cleanupFailure },
-          id: "cleanup-only-failure",
-        })],
+        capabilities: [
+          defineCapability({
+            close: async () => {
+              throw cleanupFailure
+            },
+            id: "cleanup-only-failure",
+          }),
+        ],
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage,
+              }) as never,
           }),
         },
         driver: { run: async () => ({ text: "completed before cleanup" }) },
@@ -11713,20 +14203,28 @@ describe("agent message protocol", () => {
         messages: { errorFallbackText: "Cleanup failed after completion." },
       })
 
-      await expect(runAgentWorkflowDefinition(agent, {
-        id: "cleanup-only-failure",
-        name: "cleanup",
-        payload: {
-          input: {
-            context: { channel: { message: { text: "Hello" } } },
-            prompt: "Hello",
+      await expect(
+        runAgentWorkflowDefinition(
+          agent,
+          {
+            id: "cleanup-only-failure",
+            name: "cleanup",
+            payload: {
+              input: {
+                context: { channel: { message: { text: "Hello" } } },
+                prompt: "Hello",
+              },
+              run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+            },
+            provider: "cloudflare",
           },
-          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
-        },
-        provider: "cloudflare",
-      }, runAgentInline)).rejects.toBe(cleanupFailure)
+          runAgentInline,
+        ),
+      ).rejects.toBe(cleanupFailure)
 
-      expect(postMessage).toHaveBeenCalledWith("telegram:123", { markdown: "Cleanup failed after completion." })
+      expect(postMessage).toHaveBeenCalledWith("telegram:123", {
+        markdown: "Cleanup failed after completion.",
+      })
       expect(postMessage).toHaveBeenCalledOnce()
       expect(errorHook).not.toHaveBeenCalled()
     })
@@ -11739,35 +14237,52 @@ describe("agent message protocol", () => {
       const cleanupFailure = new Error("Capability cleanup failed")
       const hookFailure = new Error("Agent error hook failed")
       const agent = defineAgent({
-        capabilities: [defineCapability({
-          close: async () => { throw cleanupFailure },
-          id: "combined-failures",
-        })],
+        capabilities: [
+          defineCapability({
+            close: async () => {
+              throw cleanupFailure
+            },
+            id: "combined-failures",
+          }),
+        ],
         channels: {
           telegram: telegram({
-            adapter: () => ({
-              channelIdFromThreadId: () => "telegram:123",
-              postMessage: async () => undefined,
-            }) as never,
+            adapter: () =>
+              ({
+                channelIdFromThreadId: () => "telegram:123",
+                postMessage: async () => undefined,
+              }) as never,
           }),
         },
-        driver: { run: async () => { throw providerFailure } },
-        hooks: { "agent:error": async () => { throw hookFailure } },
+        driver: {
+          run: async () => {
+            throw providerFailure
+          },
+        },
+        hooks: {
+          "agent:error": async () => {
+            throw hookFailure
+          },
+        },
         messages: { errorFallbackText: "The request failed." },
       })
 
-      const failure = await runAgentWorkflowDefinition(agent, {
-        id: "combined-failures",
-        name: "cleanup",
-        payload: {
-          input: {
-            context: { channel: { message: { text: "Hello" } } },
-            prompt: "Hello",
+      const failure = await runAgentWorkflowDefinition(
+        agent,
+        {
+          id: "combined-failures",
+          name: "cleanup",
+          payload: {
+            input: {
+              context: { channel: { message: { text: "Hello" } } },
+              prompt: "Hello",
+            },
+            run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
           },
-          run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+          provider: "cloudflare",
         },
-        provider: "cloudflare",
-      }, runAgentInline).catch(error => error)
+        runAgentInline,
+      ).catch((error) => error)
       const errors = (function flatten(error: unknown): unknown[] {
         return error instanceof AggregateError ? error.errors.flatMap(flatten) : [error]
       })(failure)
@@ -11778,17 +14293,20 @@ describe("agent message protocol", () => {
     it("bounds durable error fallback callbacks", async () => {
       vi.useFakeTimers()
       const { resolveDurableChatErrorFallbackText } = await import("../src/chat-trigger.ts")
-      const resolution = resolveDurableChatErrorFallbackText({
-        errorFallbackText: () => new Promise(() => undefined),
-        timeout: 10,
-      }, {
-        error: new Error("provider failed"),
-        history: [],
-        message: { text: "hello" },
-        publicError: { code: "INTERNAL", error: "Internal error" },
-        thread: { post: async () => undefined },
-        toolResults: [],
-      })
+      const resolution = resolveDurableChatErrorFallbackText(
+        {
+          errorFallbackText: () => new Promise(() => undefined),
+          timeout: 10,
+        },
+        {
+          error: new Error("provider failed"),
+          history: [],
+          message: { text: "hello" },
+          publicError: { code: "INTERNAL", error: "Internal error" },
+          thread: { post: async () => undefined },
+          toolResults: [],
+        },
+      )
 
       await vi.advanceTimersByTimeAsync(10)
       await expect(resolution).resolves.toBe("Sorry, I couldn't process that message.")
@@ -11799,56 +14317,80 @@ describe("agent message protocol", () => {
       vi.useFakeTimers()
       try {
         const { resolveDurableChatErrorFallbackIntents } = await import("../src/chat-trigger.ts")
-        const resolution = resolveDurableChatErrorFallbackIntents({
-          errorFallbackText: async ({ thread }) => {
-            await new Promise(resolve => setTimeout(resolve, 20))
-            await thread.post("late fallback")
+        const resolution = resolveDurableChatErrorFallbackIntents(
+          {
+            errorFallbackText: async ({ thread }) => {
+              await new Promise((resolve) => setTimeout(resolve, 20))
+              await thread.post("late fallback")
+            },
+            timeout: 10,
           },
-          timeout: 10,
-        }, {
-          error: new Error("provider failed"),
-          history: [],
-          message: { text: "hello" },
-          publicError: { code: "INTERNAL", error: "Internal error" },
-          toolResults: [],
-        })
+          {
+            error: new Error("provider failed"),
+            history: [],
+            message: { text: "hello" },
+            publicError: { code: "INTERNAL", error: "Internal error" },
+            toolResults: [],
+          },
+        )
 
         await vi.advanceTimersByTimeAsync(10)
         const intents = await resolution
         expect(intents).toHaveLength(1)
         await vi.advanceTimersByTimeAsync(20)
         expect(intents).toHaveLength(1)
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
       }
     })
 
     it.each([
-      Object.assign(new Error("invalid provider request"), { name: "AI_APICallError", statusCode: 400 }),
+      Object.assign(new Error("invalid provider request"), {
+        name: "AI_APICallError",
+        statusCode: 400,
+      }),
       new ViteHubError("AGENT_OUTPUT_SCHEMA_INVALID", "output failed schema validation"),
     ])("marks permanent Agent Workflow failures as non-retryable", async (failure) => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
 
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "terminal-agent-failure",
-        name: "agent",
-        payload: {},
-        provider: "cloudflare",
-      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "terminal-agent-failure",
+            name: "agent",
+            payload: {},
+            provider: "cloudflare",
+          },
+          async () => {
+            throw failure
+          },
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("preserves permanent failure classification through finish failures", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      const providerFailure = Object.assign(new Error("invalid provider request"), { name: "AI_APICallError", statusCode: 400 })
+      const providerFailure = Object.assign(new Error("invalid provider request"), {
+        name: "AI_APICallError",
+        statusCode: 400,
+      })
       const failure = new AggregateError([providerFailure, new Error("fallback delivery failed")])
 
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "terminal-aggregate-failure",
-        name: "agent",
-        payload: {},
-        provider: "cloudflare",
-      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "terminal-aggregate-failure",
+            name: "agent",
+            payload: {},
+            provider: "cloudflare",
+          },
+          async () => {
+            throw failure
+          },
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("leaves transient provider failures retryable at safe inner seams", async () => {
@@ -11858,12 +14400,20 @@ describe("agent message protocol", () => {
         statusCode: 503,
       })
 
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "transient-agent-failure",
-        name: "agent",
-        payload: {},
-        provider: "cloudflare",
-      }, async () => { throw failure })).rejects.toBe(failure)
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "transient-agent-failure",
+            name: "agent",
+            payload: {},
+            provider: "cloudflare",
+          },
+          async () => {
+            throw failure
+          },
+        ),
+      ).rejects.toBe(failure)
       expect(failure).not.toHaveProperty("isRetryable")
     })
 
@@ -11877,12 +14427,20 @@ describe("agent message protocol", () => {
         name: "AI_RetryError",
       })
 
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "exhausted-transient-provider-failure",
-        name: "agent",
-        payload: {},
-        provider: "cloudflare",
-      }, async () => { throw failure })).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "exhausted-transient-provider-failure",
+            name: "agent",
+            payload: {},
+            provider: "cloudflare",
+          },
+          async () => {
+            throw failure
+          },
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("normalizes noncloneable Agent results before Workflow completion", async () => {
@@ -11893,19 +14451,25 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: () => ({
-          provider: { request: () => "raw" },
-          text: "portable text",
-          usageRecord: { raw: { inspect: () => "provider usage" }, usage: { inputTokens: 3 } },
-          warnings: [{ inspect: () => "provider warning", message: "portable warning" }],
-        }) },
+        driver: {
+          run: () => ({
+            provider: { request: () => "raw" },
+            text: "portable text",
+            usageRecord: { raw: { inspect: () => "provider usage" }, usage: { inputTokens: 3 } },
+            warnings: [{ inspect: () => "provider warning", message: "portable warning" }],
+          }),
+        },
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "portable-result" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "portable-result" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       const completed = await getWorkflowRun("portable-result", run.id)
@@ -11942,27 +14506,47 @@ describe("agent message protocol", () => {
       })
 
       expect(Object.keys(result)).toContain("initialResponseMessages")
-      ;(result as unknown as Record<string, unknown>).initialResponseMessages = [{
-        content: [{ data: new URL("https://example.com/attachment.png"), mediaType: "image/png", type: "file" }],
-        role: "assistant",
-      }]
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "ai-sdk-result",
-        name: "ai-sdk-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => result)).resolves.toMatchObject({
+      ;(result as unknown as Record<string, unknown>).initialResponseMessages = [
+        {
+          content: [
+            {
+              data: new URL("https://example.com/attachment.png"),
+              mediaType: "image/png",
+              type: "file",
+            },
+          ],
+          role: "assistant",
+        },
+      ]
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "ai-sdk-result",
+            name: "ai-sdk-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => result,
+        ),
+      ).resolves.toMatchObject({
         finishReason: "stop",
         text: "portable text",
         usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
         warnings: [],
       })
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "ai-sdk-result",
-        name: "ai-sdk-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => result)).resolves.not.toHaveProperty("raw.initialResponseMessages")
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "ai-sdk-result",
+            name: "ai-sdk-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => result,
+        ),
+      ).resolves.not.toHaveProperty("raw.initialResponseMessages")
     })
 
     it("keeps deferred journal recovery off Workflow completion", async () => {
@@ -11970,16 +14554,20 @@ describe("agent message protocol", () => {
       const { registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()
       let completed = false
-      const result = runAgentWorkflowDefinition({} as never, {
-        id: "source-run",
-        name: "source-run",
-        payload: { run: { origin: "portal", runId: "source-run" } },
-        provider: "vercel",
-      }, async (_agent, context) => {
-        expect(context.run?.origin).toBe("portal")
-        registerAgentInvocationRecovery(context, recovery.promise)
-        return "done"
-      }).then((value) => {
+      const result = runAgentWorkflowDefinition(
+        {} as never,
+        {
+          id: "source-run",
+          name: "source-run",
+          payload: { run: { origin: "portal", runId: "source-run" } },
+          provider: "vercel",
+        },
+        async (_agent, context) => {
+          expect(context.run?.origin).toBe("portal")
+          registerAgentInvocationRecovery(context, recovery.promise)
+          return "done"
+        },
+      ).then((value) => {
         completed = true
         return value
       })
@@ -11999,7 +14587,7 @@ describe("agent message protocol", () => {
         id: "target-run",
         metadata: new Error("worker startup failed"),
         provider: "cloudflare" as const,
-        status: getWorkflowRun.mock.calls.length > 61 ? "failed" as const : "running" as const,
+        status: getWorkflowRun.mock.calls.length > 61 ? ("failed" as const) : ("running" as const),
       }))
       const sleep = vi.fn(async () => {})
       const runInline = vi.fn()
@@ -12008,24 +14596,28 @@ describe("agent message protocol", () => {
         workflow: async () => ({ getWorkflowRun }) as never,
       })
       try {
-        await runAgentWorkflowDefinition(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          name: "broken-agent",
-        }), {
-          id: "recovery-run",
-          name: "broken-agent",
-          payload: {
-            invocationRecovery: {
-              agentName: "broken-agent",
-              runId: "target-run",
-              sourceRunId: "source-run",
-              workflowName: "broken-agent",
+        await runAgentWorkflowDefinition(
+          defineAgent({
+            driver: { run: () => "unreachable" },
+            invocations,
+            name: "broken-agent",
+          }),
+          {
+            id: "recovery-run",
+            name: "broken-agent",
+            payload: {
+              invocationRecovery: {
+                agentName: "broken-agent",
+                runId: "target-run",
+                sourceRunId: "source-run",
+                workflowName: "broken-agent",
+              },
             },
+            provider: "cloudflare",
+            step: { sleep },
           },
-          provider: "cloudflare",
-          step: { sleep },
-        }, runInline)
+          runInline,
+        )
 
         expect(runInline).not.toHaveBeenCalled()
         expect(sleep).toHaveBeenCalledTimes(61)
@@ -12034,8 +14626,7 @@ describe("agent message protocol", () => {
           error: { message: "worker startup failed" },
           status: "failed",
         })
-      }
-      finally {
+      } finally {
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
@@ -12065,37 +14656,47 @@ describe("agent message protocol", () => {
       })
       setAgentWorkflowRuntimeLoaders({
         state: () => import("@vite-hub/workflow/runtime/state"),
-        workflow: async () => ({ getWorkflowRun: async () => ({
-          id: "target-run",
-          provider: "cloudflare" as const,
-          status: "completed" as const,
-        }) }) as never,
+        workflow: async () =>
+          ({
+            getWorkflowRun: async () => ({
+              id: "target-run",
+              provider: "cloudflare" as const,
+              status: "completed" as const,
+            }),
+          }) as never,
       })
       try {
         let completed = false
-        const recovery = runAgentWorkflowDefinition(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          name: "recovering-agent",
-        }), {
-          id: "recovery-run",
-          name: "recovering-agent",
-          payload: { invocationRecovery: {
-            agentName: "recovering-agent",
-            runId: "target-run",
-            sourceRunId: "source-run",
-            workflowName: "recovering-agent",
-          } },
-          provider: "cloudflare",
-        }, vi.fn()).then(() => { completed = true })
+        const recovery = runAgentWorkflowDefinition(
+          defineAgent({
+            driver: { run: () => "unreachable" },
+            invocations,
+            name: "recovering-agent",
+          }),
+          {
+            id: "recovery-run",
+            name: "recovering-agent",
+            payload: {
+              invocationRecovery: {
+                agentName: "recovering-agent",
+                runId: "target-run",
+                sourceRunId: "source-run",
+                workflowName: "recovering-agent",
+              },
+            },
+            provider: "cloudflare",
+          },
+          vi.fn(),
+        ).then(() => {
+          completed = true
+        })
 
         await vi.waitFor(() => expect(rejectTerminalUpdate).toBe(false))
         expect(completed).toBe(false)
         await vi.advanceTimersByTimeAsync(1_000)
         await recovery
         await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "completed" })
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
@@ -12126,29 +14727,38 @@ describe("agent message protocol", () => {
       })
       setAgentWorkflowRuntimeLoaders({
         state: () => import("@vite-hub/workflow/runtime/state"),
-        workflow: async () => ({ getWorkflowRun: async () => ({
-          id: "target-run",
-          provider: "cloudflare" as const,
-          status: "completed" as const,
-        }) }) as never,
+        workflow: async () =>
+          ({
+            getWorkflowRun: async () => ({
+              id: "target-run",
+              provider: "cloudflare" as const,
+              status: "completed" as const,
+            }),
+          }) as never,
       })
       try {
-        const recovery = runAgentWorkflowDefinition(defineAgent({
-          driver: { run: () => "unreachable" },
-          invocations,
-          name: "recovering-agent",
-        }), {
-          id: "recovery-run",
-          name: "recovering-agent",
-          payload: { invocationRecovery: {
-            agentName: "recovering-agent",
-            runId: "target-run",
-            sourceRunId: "source-run",
-            workflowName: "recovering-agent",
-          } },
-          provider: "cloudflare",
-          step: { sleep: async () => await retryNextPoll.promise },
-        }, vi.fn())
+        const recovery = runAgentWorkflowDefinition(
+          defineAgent({
+            driver: { run: () => "unreachable" },
+            invocations,
+            name: "recovering-agent",
+          }),
+          {
+            id: "recovery-run",
+            name: "recovering-agent",
+            payload: {
+              invocationRecovery: {
+                agentName: "recovering-agent",
+                runId: "target-run",
+                sourceRunId: "source-run",
+                workflowName: "recovering-agent",
+              },
+            },
+            provider: "cloudflare",
+            step: { sleep: async () => await retryNextPoll.promise },
+          },
+          vi.fn(),
+        )
 
         await vi.waitFor(async () => {
           await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "pending" })
@@ -12160,8 +14770,7 @@ describe("agent message protocol", () => {
         retryNextPoll.resolve()
         await recovery
         await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "completed" })
-      }
-      finally {
+      } finally {
         vi.useRealTimers()
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
@@ -12176,15 +14785,21 @@ describe("agent message protocol", () => {
       const recovery = deferred<void>()
       const failure = new Error("driver failed")
       let completed = false
-      const result = runAgentWorkflowDefinition({} as never, {
-        id: "failed-source-run",
-        name: "failed-source-run",
-        payload: { run: { origin: "portal", runId: "failed-source-run" } },
-        provider: "vercel",
-      }, async (_agent, context) => {
-        registerAgentInvocationRecovery(context, recovery.promise)
-        throw failure
-      }).finally(() => { completed = true })
+      const result = runAgentWorkflowDefinition(
+        {} as never,
+        {
+          id: "failed-source-run",
+          name: "failed-source-run",
+          payload: { run: { origin: "portal", runId: "failed-source-run" } },
+          provider: "vercel",
+        },
+        async (_agent, context) => {
+          registerAgentInvocationRecovery(context, recovery.promise)
+          throw failure
+        },
+      ).finally(() => {
+        completed = true
+      })
 
       await expect(result).rejects.toBe(failure)
       expect(completed).toBe(true)
@@ -12196,15 +14811,19 @@ describe("agent message protocol", () => {
       const background = deferred<void>()
 
       let completed = false
-      const result = runAgentWorkflowDefinition({} as never, {
-        id: "background-source-run",
-        name: "background-source-run",
-        payload: {},
-        provider: "vercel",
-      }, async (_agent, context) => {
-        context.waitUntil(background.promise)
-        return "done"
-      }).then((value) => {
+      const result = runAgentWorkflowDefinition(
+        {} as never,
+        {
+          id: "background-source-run",
+          name: "background-source-run",
+          payload: {},
+          provider: "vercel",
+        },
+        async (_agent, context) => {
+          context.waitUntil(background.promise)
+          return "done"
+        },
+      ).then((value) => {
         completed = true
         return value
       })
@@ -12237,19 +14856,25 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: () => ({
-          bytes: new Uint8Array([1, 2]),
-          count: 1n,
-          metadata: new Map([["provider", "custom"]]),
-          score: 1,
-        }) },
+        driver: {
+          run: () => ({
+            bytes: new Uint8Array([1, 2]),
+            count: 1n,
+            metadata: new Map([["provider", "custom"]]),
+            score: 1,
+          }),
+        },
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "json-portable-result" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "json-portable-result" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("json-portable-result", run.id)).resolves.toMatchObject({
@@ -12265,25 +14890,37 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({ driver: { run: () => ({ createdAt: new Date(0) }) } })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "typed-json-result" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "typed-json-result" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("typed-json-result", run.id)).resolves.toMatchObject({ status: "failed" })
+      await expect(getWorkflowRun("typed-json-result", run.id)).resolves.toMatchObject({
+        status: "failed",
+      })
     })
 
     it("rejects Agent result envelopes with no portable fields", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "unsupported-result",
-        name: "unsupported-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => ({ raw: new Map() }))).rejects.toMatchObject({
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "unsupported-result",
+            name: "unsupported-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => ({ raw: new Map() }),
+        ),
+      ).rejects.toMatchObject({
         isRetryable: false,
         message: "Agent Workflow results must contain only JSON-compatible values.",
       })
@@ -12291,42 +14928,60 @@ describe("agent message protocol", () => {
 
     it("rejects lossy custom outputs that share Agent result keys", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "custom-result",
-        name: "custom-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => ({ samples: new Uint8Array([1, 2]), text: "portable text" }))).rejects.toMatchObject({
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "custom-result",
+            name: "custom-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => ({ samples: new Uint8Array([1, 2]), text: "portable text" }),
+        ),
+      ).rejects.toMatchObject({
         isRetryable: false,
       })
     })
 
     it("rejects custom outputs that collide with AI SDK implementation keys", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "custom-ai-sdk-key",
-        name: "custom-ai-sdk-key",
-        payload: {},
-        provider: "vercel",
-      }, async () => ({
-        _output: new Map([["secret", 1]]),
-        initialResponseMessages: [],
-        steps: [],
-        text: "portable text",
-        totalUsage: {},
-      }))).rejects.toMatchObject({
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "custom-ai-sdk-key",
+            name: "custom-ai-sdk-key",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => ({
+            _output: new Map([["secret", 1]]),
+            initialResponseMessages: [],
+            steps: [],
+            text: "portable text",
+            totalUsage: {},
+          }),
+        ),
+      ).rejects.toMatchObject({
         isRetryable: false,
       })
     })
 
     it("rejects lossy custom outputs containing only Agent result keys", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "custom-result-keys",
-        name: "custom-result-keys",
-        payload: {},
-        provider: "vercel",
-      }, async () => ({ raw: new Uint8Array([1]), text: "portable text" }))).rejects.toMatchObject({
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "custom-result-keys",
+            name: "custom-result-keys",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => ({ raw: new Uint8Array([1]), text: "portable text" }),
+        ),
+      ).rejects.toMatchObject({
         isRetryable: false,
       })
     })
@@ -12337,34 +14992,57 @@ describe("agent message protocol", () => {
         samples = new Uint8Array([1, 2])
         text = "portable text"
       }
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "custom-result-instance",
-        name: "custom-result-instance",
-        payload: {},
-        provider: "vercel",
-      }, async () => new CustomResult())).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "custom-result-instance",
+            name: "custom-result-instance",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => new CustomResult(),
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("marks result property access failures as non-retryable", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      const result = Object.defineProperty({}, "value", { enumerable: true, get: () => { throw new Error("getter failed") } })
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "throwing-result",
-        name: "throwing-result",
-        payload: {},
-        provider: "cloudflare",
-      }, async () => result)).rejects.toMatchObject({ isRetryable: false })
+      const result = Object.defineProperty({}, "value", {
+        enumerable: true,
+        get: () => {
+          throw new Error("getter failed")
+        },
+      })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "throwing-result",
+            name: "throwing-result",
+            payload: {},
+            provider: "cloudflare",
+          },
+          async () => result,
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("preserves repeated references in JSON-compatible outputs", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const shared = { score: 1 }
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "repeated-result",
-        name: "repeated-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => ({ first: shared, second: shared }))).resolves.toEqual({
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "repeated-result",
+            name: "repeated-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => ({ first: shared, second: shared }),
+        ),
+      ).resolves.toEqual({
         first: { score: 1 },
         second: { score: 1 },
       })
@@ -12375,60 +15053,71 @@ describe("agent message protocol", () => {
       const result = Object.defineProperty({ score: 1 }, "toJSON", {
         value: () => ({ score: 2 }),
       })
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "custom-json-result",
-        name: "custom-json-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => result)).resolves.toEqual({ score: 1 })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "custom-json-result",
+            name: "custom-json-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => result,
+        ),
+      ).resolves.toEqual({ score: 1 })
     })
 
     it("does not replace a completed Workflow result with a steer settlement failure", async () => {
-      const {
-        agentChannelDeliveryWorkflowContextKey,
-        setAgentChannelDeliveryWorkflowOwnershipResolver,
-        setAgentChannelDeliveryWorkflowResolver,
-      } = await import("../src/internal/channel-delivery.ts")
+      const { agentChannelDeliveryWorkflowContextKey, setAgentChannelDeliveryWorkflowOwnershipResolver, setAgentChannelDeliveryWorkflowResolver } =
+        await import("../src/internal/channel-delivery.ts")
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const settlement = vi.fn(async () => {
         throw new Error("successor handoff failed")
       })
-      setAgentChannelDeliveryWorkflowResolver(async () => ({
-        claimed: true,
-        delivery: {},
-        duplicate: false,
-        event: async (input: unknown) => input,
-      }) as never)
-      setAgentChannelDeliveryWorkflowOwnershipResolver(async () => settlement)
+      setAgentChannelDeliveryWorkflowResolver(
+        async () =>
+          ({
+            claimed: true,
+            delivery: {},
+            duplicate: false,
+            event: async (input: unknown) => input,
+          }) as never,
+      )
+      setAgentChannelDeliveryWorkflowOwnershipResolver(async () => ({ settle: settlement }))
 
       try {
-        await expect(runAgentWorkflowDefinition({} as never, {
-          id: "completed-before-settlement",
-          name: "completed-before-settlement",
-          payload: {
-            input: {
-              context: {
-                [agentChannelDeliveryWorkflowContextKey]: {
-                  channelId: "telegram",
-                  deliveryId: "delivery-1",
-                  provider: "telegram",
-                  state: "chat",
-                  steer: {
-                    claimId: "claim-1",
-                    lock: { expiresAt: Date.now() + 60_000, threadId: "scope", token: "owner" },
-                    pendingQueue: "scope:queue:pending",
-                    queue: "scope:queue",
-                    ttlMs: 60_000,
+        await expect(
+          runAgentWorkflowDefinition(
+            {} as never,
+            {
+              id: "completed-before-settlement",
+              name: "completed-before-settlement",
+              payload: {
+                input: {
+                  context: {
+                    [agentChannelDeliveryWorkflowContextKey]: {
+                      channelId: "telegram",
+                      deliveryId: "delivery-1",
+                      provider: "telegram",
+                      state: "chat",
+                      steer: {
+                        claimId: "claim-1",
+                        lock: { expiresAt: Date.now() + 60_000, threadId: "scope", token: "owner" },
+                        pendingQueue: "scope:queue:pending",
+                        queue: "scope:queue",
+                        ttlMs: 60_000,
+                      },
+                    },
                   },
                 },
               },
+              provider: "vercel",
             },
-          },
-          provider: "vercel",
-        }, async () => "completed")).resolves.toBe("completed")
+            async () => "completed",
+          ),
+        ).resolves.toBe("completed")
         expect(settlement).toHaveBeenCalledWith("completed")
-      }
-      finally {
+      } finally {
         const { installAgentChannelDeliveryWorkflowResolver } = await import("../src/server/routes.ts")
         installAgentChannelDeliveryWorkflowResolver()
       }
@@ -12436,30 +15125,46 @@ describe("agent message protocol", () => {
 
     it("rejects undefined array entries that JSON would change", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "undefined-result",
-        name: "undefined-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "undefined-result",
+            name: "undefined-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => [undefined],
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it.each(["success", "failure"] as const)("retains Workflow background work through %s", async (outcome) => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       let release!: () => void
-      const pending = new Promise<void>(resolve => { release = resolve })
-      let settled = false
-      const workflow = runAgentWorkflowDefinition({} as never, {
-        id: `background-${outcome}`,
-        name: `background-${outcome}`,
-        payload: {},
-        provider: "vercel",
-      }, async (_agent, context) => {
-        context.waitUntil(pending)
-        if (outcome === "failure") throw new Error("Agent failed")
-        return "ok"
+      const pending = new Promise<void>((resolve) => {
+        release = resolve
       })
-      void workflow.finally(() => { settled = true }).catch(() => {})
+      let settled = false
+      const workflow = runAgentWorkflowDefinition(
+        {} as never,
+        {
+          id: `background-${outcome}`,
+          name: `background-${outcome}`,
+          payload: {},
+          provider: "vercel",
+        },
+        async (_agent, context) => {
+          context.waitUntil(pending)
+          if (outcome === "failure") throw new Error("Agent failed")
+          return "ok"
+        },
+      )
+      void workflow
+        .finally(() => {
+          settled = true
+        })
+        .catch(() => {})
 
       await Promise.resolve()
       await Promise.resolve()
@@ -12473,24 +15178,36 @@ describe("agent message protocol", () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       let releaseFirst!: () => void
       let releaseSecond!: () => void
-      const second = new Promise<void>(resolve => { releaseSecond = resolve })
-      let runtimeContext!: { waitUntil: (task: Promise<unknown>) => void }
-      const first = new Promise<void>(resolve => { releaseFirst = resolve }).then(() => runtimeContext.waitUntil(second))
-      let markRegistered!: () => void
-      const registered = new Promise<void>(resolve => { markRegistered = resolve })
-      let settled = false
-      const workflow = runAgentWorkflowDefinition({} as never, {
-        id: "nested-background",
-        name: "nested-background",
-        payload: {},
-        provider: "vercel",
-      }, async (_agent, context) => {
-        runtimeContext = context
-        context.waitUntil(first)
-        markRegistered()
-        return "ok"
+      const second = new Promise<void>((resolve) => {
+        releaseSecond = resolve
       })
-      void workflow.finally(() => { settled = true })
+      let runtimeContext!: { waitUntil: (task: Promise<unknown>) => void }
+      const first = new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      }).then(() => runtimeContext.waitUntil(second))
+      let markRegistered!: () => void
+      const registered = new Promise<void>((resolve) => {
+        markRegistered = resolve
+      })
+      let settled = false
+      const workflow = runAgentWorkflowDefinition(
+        {} as never,
+        {
+          id: "nested-background",
+          name: "nested-background",
+          payload: {},
+          provider: "vercel",
+        },
+        async (_agent, context) => {
+          runtimeContext = context
+          context.waitUntil(first)
+          markRegistered()
+          return "ok"
+        },
+      )
+      void workflow.finally(() => {
+        settled = true
+      })
 
       await registered
       releaseFirst()
@@ -12506,32 +15223,41 @@ describe("agent message protocol", () => {
       let rejectTask!: (error: Error) => void
       let releaseRun!: () => void
       let markRegistered!: () => void
-      const task = new Promise<void>((_resolve, reject) => { rejectTask = reject })
-      const run = new Promise<void>(resolve => { releaseRun = resolve })
-      const registered = new Promise<void>(resolve => { markRegistered = resolve })
+      const task = new Promise<void>((_resolve, reject) => {
+        rejectTask = reject
+      })
+      const run = new Promise<void>((resolve) => {
+        releaseRun = resolve
+      })
+      const registered = new Promise<void>((resolve) => {
+        markRegistered = resolve
+      })
       const unhandled = vi.fn()
       process.on("unhandledRejection", unhandled)
 
       try {
-        const workflow = runAgentWorkflowDefinition({} as never, {
-          id: "background-rejection",
-          name: "background-rejection",
-          payload: {},
-          provider: "vercel",
-        }, async (_agent, context) => {
-          context.waitUntil(task)
-          markRegistered()
-          await run
-          return "ok"
-        })
+        const workflow = runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "background-rejection",
+            name: "background-rejection",
+            payload: {},
+            provider: "vercel",
+          },
+          async (_agent, context) => {
+            context.waitUntil(task)
+            markRegistered()
+            await run
+            return "ok"
+          },
+        )
         await registered
         rejectTask(new Error("background failed"))
-        await new Promise(resolve => setImmediate(resolve))
+        await new Promise((resolve) => setImmediate(resolve))
         expect(unhandled).not.toHaveBeenCalled()
         releaseRun()
         await expect(workflow).resolves.toBe("ok")
-      }
-      finally {
+      } finally {
         process.off("unhandledRejection", unhandled)
       }
     })
@@ -12540,32 +15266,50 @@ describe("agent message protocol", () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const result = Array(1) as unknown[] & { note?: string }
       result.note = "not an array entry"
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "sparse-result",
-        name: "sparse-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => result)).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "sparse-result",
+            name: "sparse-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => result,
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("rejects negative zero that JSON would change", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "negative-zero-result",
-        name: "negative-zero-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => -0)).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "negative-zero-result",
+            name: "negative-zero-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => -0,
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("rejects custom output instances with non-JSON prototypes", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-      await expect(runAgentWorkflowDefinition({} as never, {
-        id: "prototype-result",
-        name: "prototype-result",
-        payload: {},
-        provider: "vercel",
-      }, async () => /portable/)).rejects.toMatchObject({ isRetryable: false })
+      await expect(
+        runAgentWorkflowDefinition(
+          {} as never,
+          {
+            id: "prototype-result",
+            name: "prototype-result",
+            payload: {},
+            provider: "vercel",
+          },
+          async () => /portable/,
+        ),
+      ).rejects.toMatchObject({ isRetryable: false })
     })
 
     it("serializes Response results before Workflow completion", async () => {
@@ -12576,23 +15320,30 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: () => new Response("portable response", {
-          headers: [
-            ["content-type", "Text/Plain"],
-            ["set-cookie", "first=one"],
-            ["set-cookie", "second=two"],
-            ["x-agent", "portable"],
-          ],
-          status: 202,
-          statusText: "Accepted",
-        }) },
+        driver: {
+          run: () =>
+            new Response("portable response", {
+              headers: [
+                ["content-type", "Text/Plain"],
+                ["set-cookie", "first=one"],
+                ["set-cookie", "second=two"],
+                ["x-agent", "portable"],
+              ],
+              status: 202,
+              statusText: "Accepted",
+            }),
+        },
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "portable-response" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "portable-response" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("portable-response", run.id)).resolves.toMatchObject({
@@ -12622,16 +15373,23 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: () => new Response(new Uint8Array([0xff, 0x00, 0x80]), {
-          headers: { "content-type": "image/png" },
-        }) },
+        driver: {
+          run: () =>
+            new Response(new Uint8Array([0xff, 0x00, 0x80]), {
+              headers: { "content-type": "image/png" },
+            }),
+        },
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "portable-binary-response" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "portable-binary-response" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       const completed = await getWorkflowRun("portable-binary-response", run.id)
@@ -12655,21 +15413,29 @@ describe("agent message protocol", () => {
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = defineAgent({ driver: { run: context => ({
-        method: context.request?.method,
-        tenant: context.request?.headers.get("x-tenant"),
-        url: context.request?.url,
-      }) } })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "request-url" },
-        memo: vi.fn(),
-        request: new Request("https://calories.example/messages?source=telegram", {
-          headers: { "x-tenant": "acme" },
-          method: "POST",
-        }),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const agent = defineAgent({
+        driver: {
+          run: (context) => ({
+            method: context.request?.method,
+            tenant: context.request?.headers.get("x-tenant"),
+            url: context.request?.url,
+          }),
+        },
+      })
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "request-url" },
+          memo: vi.fn(),
+          request: new Request("https://calories.example/messages?source=telegram", {
+            headers: { "x-tenant": "acme" },
+            method: "POST",
+          }),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("request-url", run.id)).resolves.toMatchObject({
@@ -12690,25 +15456,41 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: context => context.messages[0]?.parts },
+        driver: { run: (context) => context.messages[0]?.parts },
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "portable-attachments" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {
-        message: {
-          id: "message-1",
-          parts: [
-            { fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" },
-            { data: new Blob([new Uint8Array([4, 5, 6])]), mediaType: "audio/mpeg", type: "audio" },
-            { data: new Uint8Array([7, 8, 9]).buffer, mediaType: "application/pdf", type: "file" },
-            { data: new Uint8Array([10, 11, 12]), mediaType: "text/plain", type: "file" },
-          ],
-          role: "user",
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "portable-attachments" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
         },
-      }) as { id: string }
+        {
+          message: {
+            id: "message-1",
+            parts: [
+              {
+                fetchData: () => new Uint8Array([1, 2, 3]),
+                mediaType: "image/jpeg",
+                type: "image",
+              },
+              {
+                data: new Blob([new Uint8Array([4, 5, 6])]),
+                mediaType: "audio/mpeg",
+                type: "audio",
+              },
+              {
+                data: new Uint8Array([7, 8, 9]).buffer,
+                mediaType: "application/pdf",
+                type: "file",
+              },
+              { data: new Uint8Array([10, 11, 12]), mediaType: "text/plain", type: "file" },
+            ],
+            role: "user",
+          },
+        },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("portable-attachments", run.id)).resolves.toMatchObject({
@@ -12727,14 +15509,20 @@ describe("agent message protocol", () => {
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       setWorkflowRuntimeConfig({ provider: "vercel" })
       const agent = defineAgent({ driver: { run: () => "unused" } })
-      await expect(runAgent(agent, {
-        agentIdentity: { name: "portable-message-parts" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, {
-        message: { parts: [{ data: 1n, type: "data" }], role: "user" } as never,
-      })).rejects.toThrow("Agent Workflow inputs must contain only JSON-compatible values.")
+      await expect(
+        runAgent(
+          agent,
+          {
+            agentIdentity: { name: "portable-message-parts" },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          {
+            message: { parts: [{ data: 1n, type: "data" }], role: "user" } as never,
+          },
+        ),
+      ).rejects.toThrow("Agent Workflow inputs must contain only JSON-compatible values.")
     })
 
     it("preserves __proto__ as an own Workflow input property", async () => {
@@ -12763,21 +15551,27 @@ describe("agent message protocol", () => {
       try {
         const agent = defineAgent({
           capabilities: [blob(), db()],
-          driver: { run: async ({ tools }) => ({
-            blobs: await tools!.blob_read!.execute!({ operation: "list", prefix: "workflow/" }),
-            schema: await tools!.db_schema!.execute!({}),
-          }) },
+          driver: {
+            run: async ({ tools }) => ({
+              blobs: await tools!.blob_read!.execute!({ operation: "list", prefix: "workflow/" }),
+              schema: await tools!.db_schema!.execute!({}),
+            }),
+          },
         })
-        const run = await runAgent(agent, {
-          agentIdentity: { name: "portable-storage" },
-          capabilities: { blob: blobPrimitive, db: databasePrimitive },
-          memo: vi.fn(),
-          runtime: "vercel",
-          waitUntil: promise => waitUntilTasks.push(promise),
-        }, {
-          context: { [requireAgentWorkflowContextKey]: true },
-          prompt: "inspect storage",
-        }) as { id: string }
+        const run = (await runAgent(
+          agent,
+          {
+            agentIdentity: { name: "portable-storage" },
+            capabilities: { blob: blobPrimitive, db: databasePrimitive },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {
+            context: { [requireAgentWorkflowContextKey]: true },
+            prompt: "inspect storage",
+          },
+        )) as { id: string }
 
         await Promise.all(waitUntilTasks)
         await expect(getWorkflowRun("portable-storage", run.id)).resolves.toMatchObject({
@@ -12787,10 +15581,14 @@ describe("agent message protocol", () => {
           },
           status: "completed",
         })
-        expect(blobList).toHaveBeenCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "workflow/" })
+        expect(blobList).toHaveBeenCalledWith({
+          cursor: undefined,
+          folded: undefined,
+          limit: 25,
+          prefix: "workflow/",
+        })
         expect(dbSchema).toHaveBeenCalledOnce()
-      }
-      finally {
+      } finally {
         vi.doUnmock("@vite-hub/blob")
         vi.doUnmock("@vite-hub/database/drizzle")
       }
@@ -12809,14 +15607,20 @@ describe("agent message protocol", () => {
       const run = vi.fn(() => "inline")
       const agent = defineAgent({ driver: { run } })
 
-      await expect(runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, {
-        context: { [requireAgentWorkflowContextKey]: true },
-        prompt: "hello",
-      })).rejects.toThrow("requires this Agent invocation to start a Workflow")
+      await expect(
+        runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            runtime: "unknown",
+            waitUntil: vi.fn(),
+          },
+          {
+            context: { [requireAgentWorkflowContextKey]: true },
+            prompt: "hello",
+          },
+        ),
+      ).rejects.toThrow("requires this Agent invocation to start a Workflow")
       expect(run).not.toHaveBeenCalled()
     })
 
@@ -12826,12 +15630,17 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      const published: Array<{ runId: string, event: { type: string } }> = []
+      const published: Array<{ runId: string; event: { type: string } }> = []
       let innerRunId: string | undefined
       const store = {
         append(runId: string, event: { type: string }) {
           published.push({ event, runId })
-          return { ...event, cursor: String(published.length), runId, timestamp: new Date(0).toISOString() }
+          return {
+            ...event,
+            cursor: String(published.length),
+            runId,
+            timestamp: new Date(0).toISOString(),
+          }
         },
         read: () => [],
         subscribe: () => (async function* () {})(),
@@ -12842,24 +15651,32 @@ describe("agent message protocol", () => {
         return store
       })
       const agent = defineAgent({
-        capabilities: [defineCapability({
-          id: "transcribe",
-          async input(context) {
-            await context.runEvents?.publish({ type: "transcribe" })
-          },
-        })],
-        driver: { run: context => context.runEvents?.publish({ type: "summarize" }).then(() => "done") },
+        capabilities: [
+          defineCapability({
+            id: "transcribe",
+            async input(context) {
+              await context.runEvents?.publish({ type: "transcribe" })
+            },
+          }),
+        ],
+        driver: {
+          run: (context) => context.runEvents?.publish({ type: "summarize" }).then(() => "done"),
+        },
         runEvents: defineAgentRunEvents({ store: resolveStore }),
         runtime: workflow("summary-run-events"),
       })
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const run = await runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        runtimeConfig: { region: "iad" },
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "vercel",
+          runtimeConfig: { region: "iad" },
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("summary-run-events", run.id)).resolves.toMatchObject({
@@ -12877,26 +15694,38 @@ describe("agent message protocol", () => {
     it("keeps programmatic agent runs inline without a discovered identity", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({
-        driver: { run: context => `received ${context.prompt}` },
+        driver: { run: (context) => `received ${context.prompt}` },
       })
 
-      await expect(runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, { prompt: "hello" })).resolves.toBe("received hello")
+      await expect(
+        runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          { prompt: "hello" },
+        ),
+      ).resolves.toBe("received hello")
     })
 
     it("keeps discovered Agent runs inline without an active Workflow runtime", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({ driver: { run: () => "inline" } })
 
-      await expect(runAgent(agent, {
-        agentIdentity: { name: "support" },
-        memo: vi.fn(),
-        runtime: "vite",
-        waitUntil: vi.fn(),
-      }, {})).resolves.toBe("inline")
+      await expect(
+        runAgent(
+          agent,
+          {
+            agentIdentity: { name: "support" },
+            memo: vi.fn(),
+            runtime: "vite",
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toBe("inline")
     })
 
     it("keeps discovered Agent runs inline when Workflows are disabled", async () => {
@@ -12904,12 +15733,18 @@ describe("agent message protocol", () => {
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       setWorkflowRuntimeConfig(false)
 
-      await expect(runAgent(defineAgent({ driver: { run: () => "inline" } }), {
-        agentIdentity: { name: "disabled-workflow" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, {})).resolves.toBe("inline")
+      await expect(
+        runAgent(
+          defineAgent({ driver: { run: () => "inline" } }),
+          {
+            agentIdentity: { name: "disabled-workflow" },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toBe("inline")
     })
 
     it("reuses a discovered Workflow registry entry for default Agent runs", async () => {
@@ -12919,18 +15754,26 @@ describe("agent message protocol", () => {
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
-        support: async () => ({ handler: async context => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
+        support: async () => ({
+          handler: async (context) => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}`,
+        }),
       })
 
-      const run = await runAgent(defineAgent({ driver: { run: () => "inline" } }), {
-        agentIdentity: { name: "support" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        defineAgent({ driver: { run: () => "inline" } }),
+        {
+          agentIdentity: { name: "support" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("support", run.id)).resolves.toMatchObject({ result: "registry:hello" })
+      await expect(getWorkflowRun("support", run.id)).resolves.toMatchObject({
+        result: "registry:hello",
+      })
     })
 
     it("does not reuse discovered registry entries for explicit Agent workflows", async () => {
@@ -12942,14 +15785,20 @@ describe("agent message protocol", () => {
         "explicit-registry-collision": async () => ({ handler: async () => "registry" }),
       })
 
-      await expect(runAgent(defineAgent({
-        runtime: workflow("explicit-registry-collision"),
-        driver: { run: () => "explicit-agent" },
-      }), {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {})).rejects.toThrow('Duplicate workflow name "explicit-registry-collision"')
+      await expect(
+        runAgent(
+          defineAgent({
+            runtime: workflow("explicit-registry-collision"),
+            driver: { run: () => "explicit-agent" },
+          }),
+          {
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {},
+        ),
+      ).rejects.toThrow('Duplicate workflow name "explicit-registry-collision"')
     })
 
     it("reuses a discovered Workflow registry entry for named discovered Agent runs", async () => {
@@ -12960,20 +15809,24 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
         "named-discovered": async () => ({
-          handler: async context => ({ marker: "registry", payload: context.payload }),
+          handler: async (context) => ({ marker: "registry", payload: context.payload }),
         }),
       })
 
-      const run = await runAgent(defineAgent({
-        runtime: workflow("named-discovered"),
-        driver: { run: () => "inline" },
-      }), {
-        agentIdentity: { name: "support" },
-        capabilities: { blob: false },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      const run = (await runAgent(
+        defineAgent({
+          runtime: workflow("named-discovered"),
+          driver: { run: () => "inline" },
+        }),
+        {
+          agentIdentity: { name: "support" },
+          capabilities: { blob: false },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("named-discovered", run.id)).resolves.toMatchObject({
@@ -12989,27 +15842,44 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      const agent = defineAgent({ runtime: workflow("cache-boundary"), driver: { run: () => "inline" } })
+      const agent = defineAgent({
+        runtime: workflow("cache-boundary"),
+        driver: { run: () => "inline" },
+      })
       setWorkflowRuntimeConfig({ provider: "vercel" })
-      setWorkflowRuntimeRegistry({ "cache-boundary": async () => ({ handler: async () => "registry" }) })
+      setWorkflowRuntimeRegistry({
+        "cache-boundary": async () => ({ handler: async () => "registry" }),
+      })
 
-      const discoveredRun = await runAgent(agent, {
-        agentIdentity: { name: "support" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      const discoveredRun = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "support" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )) as { id: string }
       await Promise.all(waitUntilTasks.splice(0))
-      await expect(getWorkflowRun("cache-boundary", discoveredRun.id)).resolves.toMatchObject({ result: "registry" })
+      await expect(getWorkflowRun("cache-boundary", discoveredRun.id)).resolves.toMatchObject({
+        result: "registry",
+      })
 
       setWorkflowRuntimeRegistry(undefined)
-      const directRun = await runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      const directRun = (await runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )) as { id: string }
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("cache-boundary", directRun.id)).resolves.toMatchObject({ result: "inline" })
+      await expect(getWorkflowRun("cache-boundary", directRun.id)).resolves.toMatchObject({
+        result: "inline",
+      })
     })
 
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {
@@ -13017,15 +15887,21 @@ describe("agent message protocol", () => {
       const child = defineAgent({ driver: { run: () => "child" } })
       const parent = defineAgent({
         runtime: false,
-        driver: { run: context => runAgent(child, context, {}) },
+        driver: { run: (context) => runAgent(child, context, {}) },
       })
 
-      await expect(runAgent(parent, {
-        agentIdentity: { name: "parent" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, {})).resolves.toBe("child")
+      await expect(
+        runAgent(
+          parent,
+          {
+            agentIdentity: { name: "parent" },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toBe("child")
     })
 
     it("does not persist discovered identity ownership on caller contexts", async () => {
@@ -13048,28 +15924,42 @@ describe("agent message protocol", () => {
       const child = defineAgent({ driver: { run: () => "child" } })
       const parent = defineAgent({
         runtime: false,
-        driver: { run: context => runAgent(child, { ...context, agentIdentity: { ...context.agentIdentity! } }, {}) },
+        driver: {
+          run: (context) => runAgent(child, { ...context, agentIdentity: { ...context.agentIdentity! } }, {}),
+        },
       })
 
-      await expect(runAgent(parent, {
-        agentIdentity: { name: "copied-parent" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, {})).resolves.toBe("child")
+      await expect(
+        runAgent(
+          parent,
+          {
+            agentIdentity: { name: "copied-parent" },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toBe("child")
     })
 
     it("keeps discovered Agents inline for custom host capabilities", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({ driver: { run: () => "custom" } })
 
-      await expect(runAgent(agent, {
-        agentIdentity: { name: "custom" },
-        capabilities: { custom: {} },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, {})).resolves.toBe("custom")
+      await expect(
+        runAgent(
+          agent,
+          {
+            agentIdentity: { name: "custom" },
+            capabilities: { custom: {} },
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          {},
+        ),
+      ).resolves.toBe("custom")
     })
 
     it("keeps discovered Agents with host capabilities inline", async () => {
@@ -13078,13 +15968,17 @@ describe("agent message protocol", () => {
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const run = await runAgent(defineAgent({ driver: { run: context => Object.keys(context.capabilities || {}) } }), {
-        agentIdentity: { name: "generated-capabilities" },
-        capabilities: { schedule: {} },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {})
+      const run = await runAgent(
+        defineAgent({ driver: { run: (context) => Object.keys(context.capabilities || {}) } }),
+        {
+          agentIdentity: { name: "generated-capabilities" },
+          capabilities: { schedule: {} },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )
 
       expect(run).toEqual(["schedule"])
       expect(waitUntilTasks).toHaveLength(0)
@@ -13097,32 +15991,44 @@ describe("agent message protocol", () => {
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const run = await runAgent(defineAgent({
-        name: "configured-name",
-        driver: { run: context => `received ${context.prompt}` },
-      }), {
-        agentIdentity: { name: "discovered-name" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        defineAgent({
+          name: "configured-name",
+          driver: { run: (context) => `received ${context.prompt}` },
+        }),
+        {
+          agentIdentity: { name: "discovered-name" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      expect(await getWorkflowRun("discovered-name", run.id)).toMatchObject({ status: "completed" })
+      expect(await getWorkflowRun("discovered-name", run.id)).toMatchObject({
+        status: "completed",
+      })
     })
 
     it("runs direct agent calls inline when runtime is false", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({
-        driver: { run: context => `received ${context.prompt}` },
+        driver: { run: (context) => `received ${context.prompt}` },
         runtime: false,
       })
 
-      await expect(runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, { prompt: "hello" })).resolves.toBe("received hello")
+      await expect(
+        runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          { prompt: "hello" },
+        ),
+      ).resolves.toBe("received hello")
     })
 
     it("uses discovered Agent identity for unnamed workflow runtime bindings", async () => {
@@ -13134,15 +16040,19 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         runtime: workflow(),
-        driver: { run: context => `received ${context.prompt}` },
+        driver: { run: (context) => `received ${context.prompt}` },
       })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "browser" },
-        capabilities: { custom: {} },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          agentIdentity: { name: "browser" },
+          capabilities: { custom: {} },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("browser", run.id)).resolves.toMatchObject({
@@ -13161,24 +16071,35 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         runtime: workflow(),
-        driver: { run: context => context.agentIdentity },
+        driver: { run: (context) => context.agentIdentity },
         workspace: {},
       })
       const originalRuntime = agent.runtime
       const docsIdentity = { name: "identity-docs-agent", workspace: "identity-docs-workspace" }
-      const supportIdentity = { name: "identity-support-agent", workspace: "identity-support-workspace" }
-      const docsRun = await runAgent(agent, {
-        agentIdentity: docsIdentity,
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "docs" }) as { id: string }
-      const supportRun = await runAgent(agent, {
-        agentIdentity: supportIdentity,
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "support" }) as { id: string }
+      const supportIdentity = {
+        name: "identity-support-agent",
+        workspace: "identity-support-workspace",
+      }
+      const docsRun = (await runAgent(
+        agent,
+        {
+          agentIdentity: docsIdentity,
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "docs" },
+      )) as { id: string }
+      const supportRun = (await runAgent(
+        agent,
+        {
+          agentIdentity: supportIdentity,
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "support" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun(docsIdentity.name, docsRun.id)).resolves.toMatchObject({
@@ -13204,40 +16125,56 @@ describe("agent message protocol", () => {
       const bindingAgent = defineAgent({
         name: "identity-definition-shadowed",
         runtime: workflow("identity-binding-wins"),
-        driver: { run: context => context.agentIdentity },
+        driver: { run: (context) => context.agentIdentity },
       })
       const definitionAgent = defineAgent({
         name: "identity-definition-wins",
         runtime: workflow(),
-        driver: { run: context => context.agentIdentity },
+        driver: { run: (context) => context.agentIdentity },
       })
       const hostAgent = defineAgent({
         runtime: workflow(),
-        driver: { run: context => context.agentIdentity },
+        driver: { run: (context) => context.agentIdentity },
       })
 
-      const bindingRun = await runAgent(bindingAgent, {
-        agentIdentity: hostIdentity,
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
-      const definitionRun = await runAgent(definitionAgent, {
-        agentIdentity: hostIdentity,
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
-      const hostRun = await runAgent(hostAgent, {
-        agentIdentity: hostIdentity,
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      const bindingRun = (await runAgent(
+        bindingAgent,
+        {
+          agentIdentity: hostIdentity,
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )) as { id: string }
+      const definitionRun = (await runAgent(
+        definitionAgent,
+        {
+          agentIdentity: hostIdentity,
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )) as { id: string }
+      const hostRun = (await runAgent(
+        hostAgent,
+        {
+          agentIdentity: hostIdentity,
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )) as { id: string }
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("identity-binding-wins", bindingRun.id)).resolves.toMatchObject({ result: hostIdentity })
+      await expect(getWorkflowRun("identity-binding-wins", bindingRun.id)).resolves.toMatchObject({
+        result: hostIdentity,
+      })
       await expect(getWorkflowRun("identity-definition-wins", definitionRun.id)).resolves.toMatchObject({ result: hostIdentity })
-      await expect(getWorkflowRun(hostIdentity.name, hostRun.id)).resolves.toMatchObject({ result: hostIdentity })
+      await expect(getWorkflowRun(hostIdentity.name, hostRun.id)).resolves.toMatchObject({
+        result: hostIdentity,
+      })
     })
 
     it("resolves workspace names from explicit configuration before host identity", async () => {
@@ -13245,9 +16182,19 @@ describe("agent message protocol", () => {
       const { workspaceNameFromOptions } = await import("../src/workspace-agent.ts")
       const hostIdentity = { name: "identity-host-agent", workspace: "identity-host-workspace" }
       const inferred = defineAgent({ driver: { run: () => "ok" }, workspace: {} })
-      const named = defineAgent({ driver: { run: () => "ok" }, name: "identity-explicit-name", workspace: {} })
-      const referenced = defineAgent({ driver: { run: () => "ok" }, workspace: { name: "identity-explicit-reference" } })
-      const stringWorkspace = defineAgent({ driver: { run: () => "ok" }, workspace: "identity-explicit-string" })
+      const named = defineAgent({
+        driver: { run: () => "ok" },
+        name: "identity-explicit-name",
+        workspace: {},
+      })
+      const referenced = defineAgent({
+        driver: { run: () => "ok" },
+        workspace: { name: "identity-explicit-reference" },
+      })
+      const stringWorkspace = defineAgent({
+        driver: { run: () => "ok" },
+        workspace: "identity-explicit-string",
+      })
 
       expect(workspaceNameFromOptions(inferred.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe(hostIdentity.workspace)
       expect(workspaceNameFromOptions(named.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-name")
@@ -13283,14 +16230,18 @@ describe("agent message protocol", () => {
       const agent = defineAgent({
         name: "reviewer",
         runtime: workflow(),
-        driver: { run: context => `received ${context.prompt}` },
+        driver: { run: (context) => `received ${context.prompt}` },
         workspace: {},
       })
-      const run = await runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("reviewer", run.id)).resolves.toMatchObject({
@@ -13309,11 +16260,17 @@ describe("agent message protocol", () => {
         driver: { run: () => "ok" },
       })
 
-      await expect(runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: vi.fn(),
-      }, { prompt: "hello" })).rejects.toThrow("requires a name")
+      await expect(
+        runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            runtime: "vercel",
+            waitUntil: vi.fn(),
+          },
+          { prompt: "hello" },
+        ),
+      ).rejects.toThrow("requires a name")
     })
 
     it("passes runtimeConfig through Workflow Runs", async () => {
@@ -13336,12 +16293,16 @@ describe("agent message protocol", () => {
         },
         runtime: workflow("configured-agent"),
       } as ReturnType<typeof defineAgent>
-      const run = await runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        runtimeConfig: { region: "iad" },
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "hello" }) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "vercel",
+          runtimeConfig: { region: "iad" },
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "hello" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("configured-agent", run.id)).resolves.toMatchObject({
@@ -13362,26 +16323,34 @@ describe("agent message protocol", () => {
       const firstAgent = defineAgent({
         runtime: workflow("support-agent"),
         driver: {
-          run
+          run,
         },
       })
       const secondAgent = defineAgent({
         runtime: workflow("support-agent"),
         driver: {
-          run
+          run,
         },
       })
 
-      const first = await runAgent(firstAgent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "first" }) as { id: string }
-      const second = await runAgent(secondAgent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, { prompt: "second" }) as { id: string }
+      const first = (await runAgent(
+        firstAgent,
+        {
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "first" },
+      )) as { id: string }
+      const second = (await runAgent(
+        secondAgent,
+        {
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        { prompt: "second" },
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent", first.id)).resolves.toMatchObject({
@@ -13402,25 +16371,32 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        capabilities: [{
-          id: "portal",
-          triggers: {
-            message: {
-              invoke: (_context, input: { text: string }) => ({
-                input: { prompt: input.text },
-                run: { origin: "portal", runId: "portal:run" },
-              }),
+        capabilities: [
+          {
+            id: "portal",
+            triggers: {
+              message: {
+                invoke: (_context, input: { text: string }) => ({
+                  input: { prompt: input.text },
+                  run: { origin: "portal", runId: "portal:run" },
+                }),
+              },
             },
           },
-        }],
+        ],
         runtime: workflow("portal-agent"),
-        driver: { run: context => `received ${context.prompt}` },
+        driver: { run: (context) => `received ${context.prompt}` },
       })
-      const run = await runAgentTrigger(agent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, "portal.message", { text: "hello" }) as { id: string }
+      const run = (await runAgentTrigger(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        "portal.message",
+        { text: "hello" },
+      )) as { id: string }
 
       expect(run).toMatchObject({
         id: "portal:run",
@@ -13444,25 +16420,32 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "cloudflare" })
 
       const agent = defineAgent({
-        capabilities: [{
-          id: "telegram",
-          triggers: {
-            message: {
-              invoke: () => ({
-                input: { prompt: "hello" },
-                run: { origin: "telegram", runId: consumerRunId },
-              }),
+        capabilities: [
+          {
+            id: "telegram",
+            triggers: {
+              message: {
+                invoke: () => ({
+                  input: { prompt: "hello" },
+                  run: { origin: "telegram", runId: consumerRunId },
+                }),
+              },
             },
           },
-        }],
-        driver: { run: context => context.run?.runId },
+        ],
+        driver: { run: (context) => context.run?.runId },
         runtime: workflow("telegram-agent"),
       })
-      const run = await runAgentTrigger(agent, {
-        memo: vi.fn(),
-        runtime: "cloudflare-agents",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, "telegram.message", {}) as { id: string }
+      const run = (await runAgentTrigger(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "cloudflare-agents",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        "telegram.message",
+        {},
+      )) as { id: string }
 
       expect(run.id).toBe(workflowRunId)
       await Promise.all(waitUntilTasks)
@@ -13472,11 +16455,16 @@ describe("agent message protocol", () => {
       })
 
       consumerRunId = workflowRunId
-      const reservedRun = await runAgentTrigger(agent, {
-        memo: vi.fn(),
-        runtime: "cloudflare-agents",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, "telegram.message", {}) as { id: string }
+      const reservedRun = (await runAgentTrigger(
+        agent,
+        {
+          memo: vi.fn(),
+          runtime: "cloudflare-agents",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        "telegram.message",
+        {},
+      )) as { id: string }
       expect(reservedRun.id).not.toBe(workflowRunId)
       expect(reservedRun.id).toMatch(/^vitehub-invalid-[a-f0-9]{64}$/)
     })
@@ -13490,14 +16478,18 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         runtime: workflow("explicit-cloudflare-env-agent"),
-        driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
+        driver: { run: (context) => context.cloudflare?.env?.NUXT_SITE },
       })
-      const run = await runAgent(agent, {
-        cloudflare: { env: { NUXT_SITE: "explicit.nuxt.com" } },
-        memo: vi.fn(),
-        runtime: "cloudflare-agents",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      const run = (await runAgent(
+        agent,
+        {
+          cloudflare: { env: { NUXT_SITE: "explicit.nuxt.com" } },
+          memo: vi.fn(),
+          runtime: "cloudflare-agents",
+          waitUntil: (promise) => waitUntilTasks.push(promise),
+        },
+        {},
+      )) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("explicit-cloudflare-env-agent", run.id)).resolves.toMatchObject({
@@ -13516,14 +16508,18 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         runtime: workflow("cloudflare-agent"),
-        driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
+        driver: { run: (context) => context.cloudflare?.env?.NUXT_SITE },
       })
       await runWithActiveCloudflareEnv({ NUXT_SITE: "nuxt.com" }, async () => {
-        const run = await runAgent(agent, {
-          memo: vi.fn(),
-          runtime: "cloudflare-agents",
-          waitUntil: promise => waitUntilTasks.push(promise),
-        }, {}) as { id: string }
+        const run = (await runAgent(
+          agent,
+          {
+            memo: vi.fn(),
+            runtime: "cloudflare-agents",
+            waitUntil: (promise) => waitUntilTasks.push(promise),
+          },
+          {},
+        )) as { id: string }
 
         expect(run).toMatchObject({
           provider: "cloudflare",
