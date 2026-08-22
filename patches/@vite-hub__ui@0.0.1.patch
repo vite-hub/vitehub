@@ -1,7 +1,15 @@
 diff --git a/dist/index.js b/dist/index.js
-index 6a2ca614ee61c3a3c777d90dcd9827b3995a6e63..2b2e28aae694dcb61301538683040abba22abfef 100644
+index 6a2ca614ee61c3a3c777d90dcd9827b3995a6e63..cd5cfeadd3f86c9e205227e1a949afc8d9980788 100644
 --- a/dist/index.js
 +++ b/dist/index.js
+@@ -1,6 +1,6 @@
+ import { i as useViteHubUI, n as createViteHubUI, r as resolveViteHubUIDefaults, t as ViteHubUIInjectionKey } from "./config-CkT-efYj.js";
+ import { MessageScrollerButton, MessageScrollerContent, MessageScrollerItem, MessageScrollerRoot, MessageScrollerViewport, calculatePrependScrollTop, useMessageScroller } from "./headless.js";
+-import { computed, defineComponent, getCurrentScope, h, markRaw, onBeforeUnmount, onScopeDispose, onUpdated, ref, resolveComponent, shallowRef, toRaw } from "vue";
++import { computed, defineComponent, getCurrentScope, h, markRaw, onBeforeUnmount, onScopeDispose, onUpdated, ref, resolveComponent, shallowRef, Suspense, toRaw } from "vue";
+ import { Markdown } from "@comark/vue";
+ //#region \0rolldown/runtime.js
+ var __defProp$2 = Object.defineProperty;
 @@ -32602,6 +32602,151 @@ const AgentTrace = defineComponent({
  });
  //#endregion
@@ -154,7 +162,7 @@ index 6a2ca614ee61c3a3c777d90dcd9827b3995a6e63..2b2e28aae694dcb61301538683040abb
  const AgentInvocation = defineComponent({
  	name: "AgentInvocation",
  	props: { invocation: {
-@@ -32609,28 +32754,66 @@ const AgentInvocation = defineComponent({
+@@ -32609,28 +32754,69 @@ const AgentInvocation = defineComponent({
  		type: Object
  	} },
  	setup(props, { slots }) {
@@ -166,7 +174,10 @@ index 6a2ca614ee61c3a3c777d90dcd9827b3995a6e63..2b2e28aae694dcb61301538683040abb
 -			const color = props.invocation.status === "failed" ? "error" : props.invocation.status === "completed" ? "success" : props.invocation.status === "cancelled" ? "neutral" : "warning";
 +			const metrics = invocationMetric(props.invocation, activities.value);
 +			const configuration = props.invocation.configuration;
-+			const renderMarkdown = (value, className) => value ? h(AgentMarkdown, { class: className, value }) : null;
++			const renderMarkdown = (value, className) => value ? h(Suspense, null, {
++				default: () => h(AgentMarkdown, { class: className, value }),
++				fallback: () => h("p", { class: className }, value)
++			}) : null;
 +			const renderActivity = (activity) => {
 +				const role = activity.attributes["message.role"] === "assistant" || activity.attributes["result.text"] ? "assistant" : "user";
 +				if (activity.kind === "message") return h("li", { class: "vh-invocation-activity vh-invocation-message", "data-role": role, key: activity.id }, [
