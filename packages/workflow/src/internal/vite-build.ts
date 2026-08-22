@@ -1198,27 +1198,7 @@ async function readVercelWorkflowFunctionOwnership(functionRoot: string): Promis
   }
 }
 
-async function isLegacyVercelWorkflowFunction(functionRoot: string): Promise<boolean> {
-  try {
-    const [contents, functionConfig] = await Promise.all([
-      readFile(resolve(functionRoot, "index.mjs"), "utf8"),
-      readFile(resolve(functionRoot, ".vc-config.json"), "utf8").then(value => JSON.parse(value) as Record<string, unknown>),
-    ])
-    return contents.includes("function createWorkflowVercelServer(")
-      && contents.includes("setWorkflowRuntimeRegistry(options.registry)")
-      && functionConfig.handler === "index.mjs"
-      && functionConfig.launcherType === "Nodejs"
-      && typeof functionConfig.runtime === "string"
-      && /^nodejs\d+\.x$/.test(functionConfig.runtime)
-      && functionConfig.shouldAddHelpers === false
-      && functionConfig.supportsResponseStreaming === true
-  }
-  catch {
-    return false
-  }
-}
-
-async function getVercelWorkflowFunctionOwnership(functionRoot: string, legacy: boolean): Promise<VercelWorkflowFunctionOwnership | undefined> {
+async function getVercelWorkflowFunctionOwnership(functionRoot: string): Promise<VercelWorkflowFunctionOwnership | undefined> {
   const ownership = await readVercelWorkflowFunctionOwnership(functionRoot)
   if (ownership) {
     try {
@@ -1228,12 +1208,6 @@ async function getVercelWorkflowFunctionOwnership(functionRoot: string, legacy: 
     catch {
       return
     }
-  }
-  if (!legacy || !await isLegacyVercelWorkflowFunction(functionRoot)) return
-  return {
-    digest: createHash("sha256").update(await readFile(resolve(functionRoot, "index.mjs"))).digest("hex"),
-    ...(functionRoot.endsWith("__server.func") ? { rootConfigRoutes: vercelRootWorkflowRoutes } : {}),
-    version: 1,
   }
 }
 
@@ -1305,7 +1279,7 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
   for (const serverFunctionName of candidates) {
     if (serverFunctionName === activeServerFunctionName || !isSafeVercelFunctionName(functionsRoot, serverFunctionName)) continue
     const functionRoot = resolve(functionsRoot, serverFunctionName)
-    const ownership = await getVercelWorkflowFunctionOwnership(functionRoot, serverFunctionName === "__server.func" || serverFunctionName === "__workflow.func")
+    const ownership = await getVercelWorkflowFunctionOwnership(functionRoot)
     if (!ownership) continue
     removedRootConfigRoutes.push(...(ownership.rootConfigRoutes ?? (previousOutput?.serverFunctionName === serverFunctionName ? previousOutput.rootConfigRoutes ?? [] : [])))
     removedFunctionRoots.push(functionRoot)
@@ -1380,7 +1354,7 @@ async function generateProviderOutputsWithinLock(
       ? resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", activeServerFunctionName)
       : undefined
     const previouslyOwnedActiveFunction = activeFunctionRoot
-      ? Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot, activeServerFunctionName === "__server.func" || activeServerFunctionName === "__workflow.func"))
+      ? Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
       : false
     if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
       ...options.providerImportAliases,
@@ -1414,7 +1388,7 @@ async function generateProviderOutputsWithinLock(
     catch (error) {
       if (activeFunctionRoot) {
         const hasRecoverableActiveFunction = previouslyOwnedActiveFunction
-          && Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot, false))
+          && Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
         if (!hasRecoverableActiveFunction) await rm(activeFunctionRoot, { force: true, recursive: true })
         if (!hasRecoverableActiveFunction && !options.serverFunctionName) await cleanVercelWorkflowRootConfig(options.rootDir, vercelRootWorkflowRoutes)
       }

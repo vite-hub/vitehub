@@ -2,10 +2,8 @@ import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
-import { createRateLimiter } from "@vite-hub/rate-limit"
-import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
-import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority, ViteHubError } from "@vite-hub/runtime"
-import { chat, mcp, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, ViteHubError } from "@vite-hub/runtime"
+import { chat, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
@@ -33,35 +31,6 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, reject, resolve }
-}
-
-function nativeSummarySchema() {
-  return {
-    "~standard": {
-      jsonSchema: {
-        input: () => ({
-          properties: { summary: { type: "string" }, title: { type: "string" } },
-          required: ["summary", "title"],
-          type: "object",
-        }),
-      },
-      validate: (value: unknown) => value
-        && typeof value === "object"
-        && typeof (value as { summary?: unknown }).summary === "string"
-        && typeof (value as { title?: unknown }).title === "string"
-        ? { value: value as { summary: string, title: string } }
-        : { issues: [{ message: "Expected a string", path: ["title"] }] },
-      vendor: "vitehub-test",
-      version: 1 as const,
-    },
-  }
-}
-
-function nativeOutputError(text: string) {
-  return Object.assign(new Error("No object generated"), {
-    name: "AI_NoObjectGeneratedError",
-    text,
-  })
 }
 
 async function failedTitleInvocation(options: {
@@ -251,15 +220,6 @@ describe("agent message protocol", () => {
     }, { prompt: "hello" })).rejects.toThrow(
       'Invocation-resolved Capability "dynamic-trigger" cannot contribute triggers',
     )
-  })
-
-  it("rejects structured output at the agent root", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-
-    expect(() => defineAgent({
-      driver: { run: () => "{}" },
-      output: { schema: {} },
-    } as never)).toThrowError("defineAgent({ output }) is no longer supported")
   })
 
   it("runs agent input hooks once before driver execution and can abort", async () => {
@@ -3793,26 +3753,6 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("rejects legacy chat platform adapters", async () => {
-    const { chat } = await import("../src/capabilities.ts")
-
-    expect(() => chat({
-      platforms: {
-        telegram: () => ({}) as never,
-      },
-    } as never)).toThrow("chat({ platforms }) was removed")
-  })
-
-  it("rejects legacy chat webhook registrations", async () => {
-    const { chat } = await import("../src/capabilities.ts")
-
-    expect(() => chat({
-      webhooks: {
-        telegram: { path: "/api/webhooks/telegram" },
-      },
-    } as never)).toThrow("chat({ webhooks }) was removed")
-  })
-
   it("creates chat triggers from message-shaped channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams } = await import("../src/channels.ts")
@@ -4458,7 +4398,7 @@ describe("agent message protocol", () => {
         commands: {
           review: {
             description: "Review a pull request.",
-            run: commandRun,
+            call: commandRun,
           },
         },
       })],
@@ -4514,7 +4454,7 @@ describe("agent message protocol", () => {
         commands: {
           summary: {
             description: "Summarize a pull request.",
-            run: summaryRun,
+            call: summaryRun,
           },
         },
       })],
@@ -4714,26 +4654,6 @@ describe("agent message protocol", () => {
       },
       driver: { run: () => "ok" },
     })).toThrow("[vitehub] Channel webhooks require an adapter-backed Channel.")
-  })
-
-  it("rejects legacy message history settings", async () => {
-    const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const { webChat } = await import("../src/channels.ts")
-
-    expect(() => chat({
-      history: { maxMessages: 20, source: "thread" },
-    })).toThrow("messages.history was replaced by messages.triggerHistory")
-
-    expect(() => defineAgent({
-      channels: {
-        web: webChat(),
-      },
-      messages: {
-        history: { maxMessages: 20, source: "thread" },
-      },
-      driver: { run: () => "ok" },
-    })).toThrow("messages.history was replaced by messages.triggerHistory")
   })
 
   it("rejects streaming and commentary with manual message delivery", async () => {
@@ -5113,7 +5033,7 @@ describe("agent message protocol", () => {
     })).toThrow("Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel")
   })
 
-  it("rejects mixing channels with the legacy chat capability", async () => {
+  it("rejects mixing Channels with the Chat Capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
     const { webChat } = await import("../src/channels.ts")

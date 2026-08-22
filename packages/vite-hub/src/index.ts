@@ -206,7 +206,7 @@ export interface ViteHubConfig {
   preset?: DeploymentPreset
 }
 
-type DeploymentIdentitySource = "VITEHUB_DEPLOYMENT_NAME" | "WRANGLER_CI_OVERRIDE_NAME" | "package.json" | "root" | "vitehub.name"
+type DeploymentIdentitySource = "WRANGLER_CI_OVERRIDE_NAME" | "package.json" | "root" | "vitehub.name"
 
 interface DeploymentIdentity {
   name: string
@@ -253,24 +253,14 @@ function resolveDeploymentIdentity(
   if (configuredName !== undefined && !configured) {
     throw new Error("[vitehub] vitehub name must contain at least one letter or number.")
   }
-  const environmentName = process.env.VITEHUB_DEPLOYMENT_NAME
-  const environment = normalizeDeploymentName(environmentName)
-  if (environmentName?.trim() && !environment) {
-    throw new Error("[vitehub] VITEHUB_DEPLOYMENT_NAME must contain at least one letter or number.")
-  }
   const workersBuilds = normalizeDeploymentName(workersBuildsName)
   if (workersBuildsName?.trim() && !workersBuilds) {
     throw new Error("[vitehub] WRANGLER_CI_OVERRIDE_NAME must contain at least one letter or number.")
   }
-  if (configured && environment && configured !== environment) {
-    throw new Error(`[vitehub] vitehub name ${JSON.stringify(configuredName)} conflicts with VITEHUB_DEPLOYMENT_NAME=${JSON.stringify(environmentName)}.`)
-  }
-  const explicit = configured || environment
-  if (explicit && workersBuilds && explicit !== workersBuilds) {
-    throw new Error(`[vitehub] deployment identity ${JSON.stringify(explicit)} conflicts with WRANGLER_CI_OVERRIDE_NAME=${JSON.stringify(workersBuildsName)}.`)
+  if (configured && workersBuilds && configured !== workersBuilds) {
+    throw new Error(`[vitehub] deployment identity ${JSON.stringify(configured)} conflicts with WRANGLER_CI_OVERRIDE_NAME=${JSON.stringify(workersBuildsName)}.`)
   }
   if (configured) return { name: configured, source: "vitehub.name" }
-  if (environment) return { name: environment, source: "VITEHUB_DEPLOYMENT_NAME" }
   if (workersBuilds) return { name: workersBuilds, source: "WRANGLER_CI_OVERRIDE_NAME" }
   const manifestName = normalizeDeploymentName(packageName(root))
   if (manifestName) return { name: manifestName, source: "package.json" }

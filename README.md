@@ -132,7 +132,6 @@ Libraries and focused integrations can depend on any `@vite-hub/*` owner package
 - [Capabilities](https://vitehub.dev/docs/capabilities)
 - [Server primitives](https://vitehub.dev/docs/server-primitives)
 - [Runtime imports](https://vitehub.dev/docs/reference/import-paths)
-- [Migrate to `vite-hub`](https://vitehub.dev/docs/getting-started/migration)
 
 ## Development
 

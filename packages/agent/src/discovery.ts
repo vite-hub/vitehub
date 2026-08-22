@@ -13,10 +13,9 @@ import type { DiscoveredAgentDefinition } from "./types.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const folderAgentPattern = /^agent\.(?:c|m)?[jt]s$/i
-const legacyFolderAgentPattern = /^config\.(?:c|m)?[jt]s$/i
 const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
 const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
-const colocatedAgentResourceDirectories = new Set(["home", "skills"])
+const colocatedAgentResourceDirectories = new Set(["skills"])
 
 export const agentEvalFileConvention = {
   include: [
@@ -165,7 +164,7 @@ export function discoverAgentDefinitions(options:
         normalizeName(directory, file) {
           const fileName = basename(file)
           if (folderAgentPattern.test(fileName) && dirname(file) !== directory) return
-          if (legacyFolderAgentPattern.test(fileName) || indexDefinitionPattern.test(fileName) || isEvalDefinitionFile(file)) return
+          if (indexDefinitionPattern.test(fileName) || isEvalDefinitionFile(file)) return
           for (const agentDir of folderAgentDirs) {
             const path = relative(agentDir, file).replace(/\\/g, "/")
             if (isColocatedAgentResourcePath(path)) return

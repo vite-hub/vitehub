@@ -100,6 +100,7 @@ describe("workflow definitions", () => {
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "team", source: "agent-workflow" }),
+      expect.objectContaining({ name: "team/config", source: "agent-workflow" }),
       expect.objectContaining({ name: "team/review", source: "agent-workflow" }),
     ])
   })

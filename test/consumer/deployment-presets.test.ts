@@ -163,10 +163,8 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
   const manualBucket = { binding: "MANUAL_BUCKET", bucket_name: "manual-bucket" }
   const manualContainer = { class_name: "ManualContainer", name: "manual-container" }
   const manualRateLimit = { name: "MANUAL", namespace_id: "9", simple: { limit: 1, period: 10 } }
-  const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
   const previousProviderName = process.env.WRANGLER_CI_OVERRIDE_NAME
   try {
-    delete process.env.VITEHUB_DEPLOYMENT_NAME
     process.env.WRANGLER_CI_OVERRIDE_NAME = deploymentName
     await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/api"), { recursive: true })
@@ -286,8 +284,6 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     expect(emittedSource).not.toContain("@vercel/queue")
     expect(existsSync(join(root, ".vercel/output"))).toBe(false)
   } finally {
-    if (typeof previousDeploymentName === "undefined") delete process.env.VITEHUB_DEPLOYMENT_NAME
-    else process.env.VITEHUB_DEPLOYMENT_NAME = previousDeploymentName
     if (typeof previousProviderName === "undefined") delete process.env.WRANGLER_CI_OVERRIDE_NAME
     else process.env.WRANGLER_CI_OVERRIDE_NAME = previousProviderName
     await rm(root, { force: true, recursive: true })
