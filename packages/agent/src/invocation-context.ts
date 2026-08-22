@@ -1,7 +1,13 @@
-import type { AgentInvocationContextStore } from "./types.ts"
+import type { AgentInvocationContextStore, AgentModelInput } from "./types.ts"
 
 export const agentInvocationRunId = Symbol.for("vitehub.agent.invocationRunId")
 export const agentInvocationResolvedModelContextKey = "agent.inspection.modelResolved"
+
+export interface AgentInvocationResolvedConfiguration {
+  instructions: string
+  model: AgentModelInput
+  tools: readonly string[]
+}
 
 function isCallbackContextValue(id: string): boolean {
   return id !== "actor"

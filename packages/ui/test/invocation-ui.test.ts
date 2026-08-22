@@ -7,6 +7,21 @@ import { AgentInvocationInspector } from "../src/components/agent-invocation.ts"
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("discloses truncated invocation configuration", () => {
+    const invocation: AgentInvocationView = {
+      configuration: { instructions: ["partial"], truncated: true },
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "invocation",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:01.000Z",
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    expect(wrapper.text()).toContain("Some configuration values were truncated");
+  });
+
   it("copies identifiers without displaying their full values", async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", {

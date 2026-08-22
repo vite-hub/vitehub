@@ -56,6 +56,7 @@ export interface AgentInvocationConfiguration {
     provider?: string;
   };
   instructions?: readonly string[];
+  truncated?: boolean;
   runtime?: {
     name?: string;
   };

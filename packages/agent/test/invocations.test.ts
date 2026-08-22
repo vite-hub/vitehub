@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, runAgent, runAgentInline } from "../src/index.ts"
-import { bindAgentInvocations } from "../src/invocations.ts"
+import { agentInvocationObservationWouldTruncate, bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
@@ -22,6 +22,12 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("detects values that the observation journal will truncate", () => {
+    expect(agentInvocationObservationWouldTruncate({ instructions: ["short"] })).toBe(false)
+    expect(agentInvocationObservationWouldTruncate({ instructions: ["x".repeat(513)] })).toBe(true)
+    expect(agentInvocationObservationWouldTruncate({ tools: Array.from({ length: 33 }, (_, index) => ({ name: String(index) })) })).toBe(true)
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({

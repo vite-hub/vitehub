@@ -228,6 +228,21 @@ function boundedObservationValue(value: unknown, depth = 0): unknown {
     .map(([key, child]) => [boundedString(key), boundedObservationValue(child, depth + 1)]))
 }
 
+export function agentInvocationObservationWouldTruncate(value: unknown, depth = 0): boolean {
+  if (typeof value === "string") return value.length > MAX_METADATA_STRING_LENGTH
+  if (value === null || typeof value === "boolean" || typeof value === "number") return false
+  if (typeof value === "bigint") return String(value).length > MAX_METADATA_STRING_LENGTH
+  if (depth >= MAX_OBSERVATION_DEPTH) return true
+  if (Array.isArray(value)) {
+    return value.length > MAX_OBSERVATION_COLLECTION_ITEMS
+      || value.some(item => agentInvocationObservationWouldTruncate(item, depth + 1))
+  }
+  if (!value || typeof value !== "object") return String(value).length > MAX_METADATA_STRING_LENGTH
+  const entries = Object.entries(value as Record<string, unknown>)
+  return entries.length > MAX_OBSERVATION_COLLECTION_ITEMS
+    || entries.some(([key, child]) => key.length > MAX_METADATA_STRING_LENGTH || agentInvocationObservationWouldTruncate(child, depth + 1))
+}
+
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   const attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)

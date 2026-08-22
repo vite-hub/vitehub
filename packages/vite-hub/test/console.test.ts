@@ -97,12 +97,12 @@ describe("Agent invocation console", () => {
       const invocation = await reader.getByRunId("console-cross-realm")
       expect(invocation).toMatchObject({ status: "completed" })
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
-        attributes: {
+        attributes: expect.objectContaining({
           "vitehub.agent.configuration": expect.objectContaining({
             agent: { version: "1.0.0" },
             driver: { kind: "run" },
           }),
-        },
+        }),
         name: "vitehub.agent.configured",
       }))
       expect(agent.invocations).toBe(writer)

@@ -9,7 +9,7 @@ import { markMessageChannelInstructionConsumer, resolveMessageChannelInstruction
 import {
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
-import { agentInvocationCallbackContextValues, agentInvocationResolvedModelContextKey } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, type AgentInvocationResolvedConfiguration, agentInvocationResolvedModelContextKey } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
@@ -1170,7 +1170,6 @@ async function createAgent(
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
   const resolvedModel = await resolveValue(options.model as never, modelContext) as AgentModelInput
-  await context.context.get<((model: AgentModelInput) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.(resolvedModel)
   const model = await materializeAgentModel(resolvedModel, modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const instrumentedModel = instrumentations.length
@@ -1198,6 +1197,11 @@ async function createAgent(
     type: "provider-defined",
   }]))
   const toolSet = { ...resolvedTools, ...providerTools }
+  await context.context.get<((configuration: AgentInvocationResolvedConfiguration) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.({
+    instructions,
+    model: resolvedModel,
+    tools: Object.keys(toolSet),
+  })
   const {
     instructions: _instructions,
     execution: _execution,

@@ -1684,6 +1684,7 @@ export function createInvocationInspectionMetadata<
   capabilities: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[],
   tools: readonly string[],
   resolvedModel?: AgentModelInput,
+  resolvedInstructions?: string,
 ): AgentInspectionMetadata {
   const capabilityMetadata = new Map(capabilityInspectionMetadata(capabilities).map(capability => [capability.id, capability]))
   const inspection = createAgentInspectionMetadata(definition)
@@ -1694,6 +1695,7 @@ export function createInvocationInspectionMetadata<
     ...(driver && resolvedModel !== undefined
       ? { config: { ...inspection.config, driver: { ...driver, model: modelMetadata(resolvedModel, true) } } }
       : {}),
+    ...(resolvedInstructions !== undefined ? { instructions: resolvedInstructions ? [resolvedInstructions] : [] } : {}),
     tools: tools.map(name => ({ name })),
   }
 }

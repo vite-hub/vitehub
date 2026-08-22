@@ -80,7 +80,15 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
     ...invocation,
     observations: detail.observations.value,
   };
-  if (configuration) view.configuration = configuration;
+  if (configuration) {
+    const configured = detail.observations.value.findLast(
+      (entry) => entry.name === "vitehub.agent.configured",
+    );
+    view.configuration = {
+      ...configuration,
+      truncated: configured?.attributes?.["vitehub.agent.configurationTruncated"] === true,
+    };
+  }
   return view;
 });
 const splitterItems = computed<SplitterItem[]>(() =>
@@ -174,7 +182,14 @@ function runLabel(invocation: AgentInvocationSummary): string {
 }
 
 function sessionStatus(session: ConsoleSession): AgentInvocationSummary["status"] {
+  if (session.invocations.some(invocation => invocation.status === "running")) return "running";
+  if (session.invocations.some(invocation => invocation.status === "pending")) return "pending";
   return session.invocations[0]?.status ?? "pending";
+}
+
+function sessionLabel(session: ConsoleSession): string {
+  const name = session.agentName || "Agent session";
+  return `${name} · ${session.id.slice(0, 8)}`;
 }
 
 function statusIcon(status: AgentInvocationSummary["status"]): string {
@@ -353,7 +368,7 @@ onBeforeUnmount(() => {
                   /></span>
                   <span class="min-w-0 flex-1"
                     ><strong class="block truncate text-sm font-medium text-highlighted">{{
-                      session.agentName || "Agent session"
+                      sessionLabel(session)
                     }}</strong
                     ><span class="mt-0.5 block truncate text-xs text-muted"
                       >{{ session.invocations.length }} run{{

@@ -46,9 +46,9 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { agentInvocationCallbackContextValues, agentInvocationResolvedModelContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, type AgentInvocationResolvedConfiguration, agentInvocationResolvedModelContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
-import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
+import { agentInvocationObservationWouldTruncate, bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -153,7 +153,6 @@ import type {
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
-  AgentModelInput,
   AgentModelDriver,
   AgentOutputDefinition,
   AgentModelResolver,
@@ -2390,8 +2389,8 @@ async function createAgentInvocationContext<
     }
     invocationContext.set("agent.errorHook", Boolean(invocation.errorHook), { overwrite: true })
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
-    invocationContext.set(agentInvocationResolvedModelContextKey, async (model: AgentModelInput) => {
-      if (definition && invocationJournal) await traceAgentConfiguration(definition, invocation, model)
+    invocationContext.set(agentInvocationResolvedModelContextKey, async (configuration: AgentInvocationResolvedConfiguration) => {
+      if (definition && invocationJournal) await traceAgentConfiguration(definition, invocation, configuration)
     }, { overwrite: true })
     if (definition && invocationJournal) await traceAgentConfiguration(definition, invocation)
     await traceAgentInvocationStart(toTraceContext(invocation))
@@ -4442,44 +4441,47 @@ async function executeAgentInvocationWithCapacityLease<
 async function traceAgentConfiguration<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
   invocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
-  resolvedModel?: AgentModelInput,
+  resolved?: AgentInvocationResolvedConfiguration,
 ): Promise<void> {
   try {
     const inspected = createInvocationInspectionMetadata(
       definition,
       invocation.inspectionCapabilities,
-      Object.keys(invocation.tools || {}),
-      resolvedModel,
+      resolved?.tools ?? Object.keys(invocation.tools || {}),
+      resolved?.model,
+      resolved?.instructions,
     )
     const driver = inspected.config?.driver
+    const configuration = {
+      ...(inspected.name || inspected.version
+        ? { agent: { ...(inspected.name ? { name: inspected.name } : {}), ...(inspected.version ? { version: inspected.version } : {}) } }
+        : {}),
+      ...(inspected.capabilities?.length ? { capabilities: inspected.capabilities } : {}),
+      ...(driver
+        ? { driver: {
+            kind: driver.kind,
+            ...(driver.model ? { model: driver.model } : {}),
+            ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
+          } }
+        : {}),
+      ...(inspected.instructions?.length ? { instructions: inspected.instructions } : {}),
+      ...(inspected.tools?.length ? { tools: inspected.tools.map(({ name }) => ({ name })) } : {}),
+      ...(invocation.workspaceDefinition?.name
+        ? {
+            workspace: {
+              mode: invocation.workspaceMode,
+              name: invocation.workspaceDefinition.name,
+              ...(invocation.workspaceDefinition.sources
+                ? { sources: Object.keys(invocation.workspaceDefinition.sources) }
+                : {}),
+            },
+          }
+        : {}),
+    }
     await invocation.runtimeContext.traceLog?.append({
       attributes: {
-        "vitehub.agent.configuration": {
-          ...(inspected.name || inspected.version
-            ? { agent: { ...(inspected.name ? { name: inspected.name } : {}), ...(inspected.version ? { version: inspected.version } : {}) } }
-            : {}),
-          ...(inspected.capabilities?.length ? { capabilities: inspected.capabilities } : {}),
-          ...(driver
-            ? { driver: {
-                kind: driver.kind,
-                ...(driver.model ? { model: driver.model } : {}),
-                ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
-              } }
-            : {}),
-          ...(inspected.instructions?.length ? { instructions: inspected.instructions } : {}),
-          ...(inspected.tools?.length ? { tools: inspected.tools.map(({ name }) => ({ name })) } : {}),
-          ...(invocation.workspaceDefinition?.name
-            ? {
-                workspace: {
-                  mode: invocation.workspaceMode,
-                  name: invocation.workspaceDefinition.name,
-                  ...(invocation.workspaceDefinition.sources
-                    ? { sources: Object.keys(invocation.workspaceDefinition.sources) }
-                    : {}),
-                },
-              }
-            : {}),
-        },
+        "vitehub.agent.configuration": configuration,
+        "vitehub.agent.configurationTruncated": agentInvocationObservationWouldTruncate(configuration),
       },
       name: "vitehub.agent.configured",
       ...(invocation.runtimeContext.trace ? { trace: { ...invocation.runtimeContext.trace } } : {}),

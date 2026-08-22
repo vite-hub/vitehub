@@ -214,6 +214,9 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
   const driver = configurationLabel(configuration);
   const workspace = workspaceLabel(configuration);
   return [
+    configuration.truncated
+      ? inspectorSection("Configuration notice", h("p", "Some configuration values were truncated by the invocation journal."))
+      : null,
     inspectorSection("Environment", h("dl", { class: "vh-invocation-inspector__list" }, [
       inspectorRow("Driver", driver),
       inspectorRow("Runtime", configuration.runtime?.name),
