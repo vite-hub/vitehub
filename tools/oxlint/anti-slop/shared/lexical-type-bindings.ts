@@ -70,9 +70,9 @@ export function collectTypeBindings(
 	}
 }
 
-function enclosingNamespacePath(binding: TypeBinding): readonly string[] | null {
+function enclosingNamespacePath(node: ESTree.Node): readonly string[] | null {
 	const names: string[] = [];
-	let current: ESTree.Node | null = binding.parent;
+	let current: ESTree.Node | null = node.parent;
 	while (current !== null) {
 		if (current.type === "TSModuleDeclaration") {
 			if (current.id.type === "Literal") return null;
@@ -83,6 +83,25 @@ function enclosingNamespacePath(binding: TypeBinding): readonly string[] | null 
 		current = current.parent;
 	}
 	return names;
+}
+
+function isExportedTypeBinding(binding: TypeBinding): boolean {
+	return (
+		binding.parent.type === "ExportNamedDeclaration" &&
+		binding.parent.declaration === binding
+	);
+}
+
+function namespacePathsMatch(
+	left: readonly string[] | null,
+	right: readonly string[] | null,
+): boolean {
+	return (
+		left !== null &&
+		right !== null &&
+		left.length === right.length &&
+		left.every((part, index) => part === right[index])
+	);
 }
 
 function visibleNamespacePaths(
@@ -196,6 +215,16 @@ export function visibleTypeBindings(
 					lexicalTypeContainer(candidate) === current,
 			);
 			if (matches.length > 0) return matches;
+			if (current.type === "TSModuleBlock") {
+				const namespacePath = enclosingNamespacePath(current);
+				const mergedExports = bindings.filter(
+					(candidate) =>
+						typeBindingName(candidate) === name &&
+						isExportedTypeBinding(candidate) &&
+						namespacePathsMatch(enclosingNamespacePath(candidate), namespacePath),
+				);
+				if (mergedExports.length > 0) return mergedExports;
+			}
 		}
 		current = current.parent;
 	}

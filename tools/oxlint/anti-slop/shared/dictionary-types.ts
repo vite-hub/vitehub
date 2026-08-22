@@ -239,12 +239,13 @@ function isEffectivelyEmptyTypeLiteral(type: ESTree.TSTypeLiteral): boolean {
 function isEffectivelyEmptyInterface(
 	declarations: readonly ESTree.TSInterfaceDeclaration[],
 ): boolean {
-	if (declarations.length !== 1) return false;
-	const [type] = declarations;
 	return (
-		type !== undefined &&
-		type.extends.length === 0 &&
-		(type.body.body.length === 0 || type.body.body.every(isEffectivelyEmptyMember))
+		declarations.length > 0 &&
+		declarations.every(
+			(type) =>
+				type.extends.length === 0 &&
+				(type.body.body.length === 0 || type.body.body.every(isEffectivelyEmptyMember)),
+		)
 	);
 }
 
@@ -689,6 +690,12 @@ export function isKnownEvidenceExpression(expression: ESTree.Expression): boolea
 		current.type === "TSSatisfiesExpression"
 	) {
 		current = current.expression;
+	}
+	if (current.type === "ConditionalExpression") {
+		return (
+			isKnownEvidenceExpression(current.consequent) &&
+			isKnownEvidenceExpression(current.alternate)
+		);
 	}
 	if (current.type === "ObjectExpression") return true;
 	return (

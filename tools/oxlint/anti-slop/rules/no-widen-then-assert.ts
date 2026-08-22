@@ -284,6 +284,26 @@ function knownValueEvidence(
     return { type: null };
   }
 
+  if (unwrapped.type === "ConditionalExpression") {
+    const consequent = knownValueEvidence(
+      unwrapped.consequent,
+      scopes,
+      boundary,
+      visitedVariables,
+      environmentAtNode,
+    );
+    if (consequent === null) return null;
+    const alternate = knownValueEvidence(
+      unwrapped.alternate,
+      scopes,
+      boundary,
+      visitedVariables,
+      environmentAtNode,
+    );
+    if (alternate === null) return null;
+    return { type: consequent.type === alternate.type ? consequent.type : null };
+  }
+
   if (
     unwrapped.type === "ArrayExpression" ||
     unwrapped.type === "ArrowFunctionExpression" ||

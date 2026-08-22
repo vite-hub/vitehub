@@ -352,6 +352,23 @@ describe("anti-slop lexical type resolution", () => {
     expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
   });
 
+  test("preserves recursively known conditional evidence", () => {
+    const result = diagnostics(`
+        declare const flag: boolean;
+        declare function loadUnknown(): unknown;
+        const widened: unknown = flag ? { id: "a" } : { id: "b" };
+        // SAFETY: fixture intentionally recreates the discarded type.
+        const restored = widened as { id: string };
+        const uncertain: unknown = flag ? { id: "known" } : loadUnknown();
+        // SAFETY: fixture verifies that both branches must establish evidence.
+        const unresolved = uncertain as { id: string };
+        void restored;
+        void unresolved;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(2);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
+  });
+
   test("checks assignments to annotated class fields", () => {
     const result = diagnostics(`
         class Store {
@@ -509,6 +526,59 @@ describe("anti-slop lexical type resolution", () => {
     }
   });
 
+  test("resolves exports across merged namespace blocks", () => {
+    const result = diagnostics(`
+        namespace Contracts {
+          export type Identity<T> = T;
+          export type Dictionary<T> = Record<string, T>;
+          type PrivateIdentity<T> = T;
+        }
+        namespace Contracts {
+          type Hidden = Identity<unknown>;
+          type UnresolvedPrivate = PrivateIdentity<unknown>;
+          function unknownInput(value: Identity<unknown>) { return value; }
+          function objectInput(value: Identity<object>) { return value; }
+          function unknownOutput(): Identity<unknown> { throw new Error(); }
+          interface UnsafeEnvironment extends Dictionary<unknown> {}
+          interface SafeEnvironment extends Dictionary<string> {}
+          void (null as unknown as UnresolvedPrivate);
+          void (null as unknown as UnsafeEnvironment);
+          void (null as unknown as SafeEnvironment);
+        }
+        void Contracts;
+      `);
+    for (const code of [
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-unsafe-dictionary-type)",
+    ]) {
+      expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
+    }
+  });
+
+  test("classifies merged interfaces by all declarations", () => {
+    const result = diagnostics(`
+        interface EmptyValue {}
+        interface EmptyValue {}
+        interface PopulatedValue {}
+        interface PopulatedValue { id: string }
+        interface BaseValue { id: string }
+        interface InheritedValue {}
+        interface InheritedValue extends BaseValue {}
+        type Unsafe = Record<string, EmptyValue>;
+        type SafePopulated = Record<string, PopulatedValue>;
+        type SafeInherited = Record<string, InheritedValue>;
+        void (null as unknown as Unsafe);
+        void (null as unknown as SafePopulated);
+        void (null as unknown as SafeInherited);
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-unsafe-dictionary-type)")).toHaveLength(
+      1,
+    );
+  });
+
   test("recognizes unshadowed host-global Reflect objects", () => {
     const result = diagnostics(`
         declare const target: object;
@@ -518,17 +588,26 @@ describe("anti-slop lexical type resolution", () => {
         declare const args: unknown[];
         window.Reflect.get(target, key);
         self.Reflect.apply(fn, receiver, args);
+        (globalThis!).Reflect.get(target, key);
+        (globalThis satisfies typeof globalThis).Reflect.get(target, key);
+        // SAFETY: fixture verifies transparent assertions around a host global.
+        (globalThis as typeof globalThis).Reflect.get(target, key);
+        // SAFETY: fixture verifies angle-bracket assertions around a host global.
+        (<typeof globalThis>self).Reflect.apply(fn, receiver, args);
+        // SAFETY: fixture verifies assertions around a worker host global.
+        (self as typeof globalThis).Reflect.apply(fn, receiver, args);
         function safe(window: { Reflect: { get(value: object, property: PropertyKey): unknown } }) {
-          return window.Reflect.get(target, key);
+          // SAFETY: fixture verifies transparent wrappers retain the lexical shadow.
+          return (window as typeof globalThis).Reflect.get(target, key);
         }
         function safeWorker(self: { Reflect: { apply: typeof Reflect.apply } }) {
-          return self.Reflect.apply(fn, receiver, args);
+          return (self!).Reflect.apply(fn, receiver, args);
         }
         void safe;
         void safeWorker;
       `);
-    expect(result.filter((code) => code === "anti-slop(no-reflect-get)")).toHaveLength(1);
-    expect(result.filter((code) => code === "anti-slop(no-reflect-apply)")).toHaveLength(1);
+    expect(result.filter((code) => code === "anti-slop(no-reflect-get)")).toHaveLength(4);
+    expect(result.filter((code) => code === "anti-slop(no-reflect-apply)")).toHaveLength(3);
   });
 
   test("tracks qualified dictionary alias cycles by declaration", () => {

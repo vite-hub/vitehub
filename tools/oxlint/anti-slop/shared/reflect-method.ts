@@ -18,7 +18,16 @@ function resolveVariable(
 function isUnshadowedHostGlobal(
   sourceCode: SourceCode,
   expression: ESTree.Expression,
-): expression is ESTree.IdentifierReference {
+): boolean {
+  while (
+    expression.type === "ParenthesizedExpression" ||
+    expression.type === "TSAsExpression" ||
+    expression.type === "TSNonNullExpression" ||
+    expression.type === "TSSatisfiesExpression" ||
+    expression.type === "TSTypeAssertion"
+  ) {
+    expression = expression.expression;
+  }
   if (expression.type !== "Identifier" || !hostGlobalNames.has(expression.name)) return false;
   if (sourceCode.isGlobalReference(expression)) return true;
   const variable = resolveVariable(sourceCode, expression);
