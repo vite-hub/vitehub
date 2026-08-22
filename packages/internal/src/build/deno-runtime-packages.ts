@@ -313,11 +313,11 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const organization = process.env.DENO_DEPLOY_ORG
-const app = process.env.DENO_DEPLOY_APP || process.env.VITEHUB_DEPLOYMENT_NAME || ${JSON.stringify(deploymentName)}
+const app = process.env.DENO_DEPLOY_APP || ${JSON.stringify(deploymentName)}
 const region = process.env.DENO_DEPLOY_REGION || "global"
 
 if (!organization || !app) {
-  throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP (or VITEHUB_DEPLOYMENT_NAME) are required.")
+  throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP are required.")
 }
 
 let activeChild

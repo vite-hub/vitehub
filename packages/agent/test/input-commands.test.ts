@@ -37,7 +37,7 @@ describe("inputCommands", () => {
         commands: {
           summary: {
             description: "Summarize the request.",
-            run: ({ args }) => args,
+            call: ({ args }) => args,
           },
         },
       })],
@@ -127,7 +127,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => args,
+            call: ({ args }) => args,
           },
         },
       })],
@@ -145,7 +145,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `Review this: ${args}`,
+            call: ({ args }) => `Review this: ${args}`,
           },
         },
       })],
@@ -167,7 +167,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `review:${args}`,
+            call: ({ args }) => `review:${args}`,
           },
         },
       })],
@@ -190,7 +190,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `review:${args}`,
+            call: ({ args }) => `review:${args}`,
           },
         },
       })],
@@ -212,7 +212,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `review:${args}`,
+            call: ({ args }) => `review:${args}`,
           },
         },
       })],
@@ -244,7 +244,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `review:${args}`,
+            call: ({ args }) => `review:${args}`,
           },
         },
       })],
@@ -276,7 +276,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `review:${args}`,
+            call: ({ args }) => `review:${args}`,
           },
         },
       })],
@@ -298,7 +298,7 @@ describe("inputCommands", () => {
         commands: {
           issue: {
             description: "Attach issue context.",
-            run: ({ args }) => ({
+            call: ({ args }) => ({
               context: { issue: args, keep: "override" },
               options: { mode: "focused" },
               timeout: 100,
@@ -328,7 +328,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => ({ context: { review: { args } } }),
+            call: ({ args }) => ({ context: { review: { args } } }),
           },
         },
       })],
@@ -347,7 +347,7 @@ describe("inputCommands", () => {
         commands: {
           block: {
             description: "Block the request.",
-            run: () => Response.json({ accepted: false }),
+            call: () => Response.json({ accepted: false }),
             hooks: {
               async "agent:finish"(context) {
                 await context.message.reply(`handled:${context.text}`)
@@ -376,7 +376,7 @@ describe("inputCommands", () => {
         commands: {
           switch: {
             description: "Switch to messages.",
-            run: () => ({ messages: [message] }),
+            call: () => ({ messages: [message] }),
           },
         },
       })],
@@ -395,7 +395,7 @@ describe("inputCommands", () => {
         commands: {
           switch: {
             description: "Switch to a prompt.",
-            run: () => ({ prompt: "rewritten" }),
+            call: () => ({ prompt: "rewritten" }),
           },
         },
       })],
@@ -410,19 +410,19 @@ describe("inputCommands", () => {
     const { normalizeCapabilities, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
     expect(() => normalizeCapabilities([
-      inputCommands({ commands: { one: { description: "One.", run: () => undefined } } }),
-      inputCommands({ commands: { two: { description: "Two.", run: () => undefined } } }),
+      inputCommands({ commands: { one: { description: "One.", call: () => undefined } } }),
+      inputCommands({ commands: { two: { description: "Two.", call: () => undefined } } }),
     ])).toThrow("Duplicate capability id")
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         inputCommands({
-          commands: { one: { description: "One.", run: () => "one" } },
+          commands: { one: { description: "One.", call: () => "one" } },
         }),
         inputCommands({
           id: "bangCommands",
           trigger: "!",
-          commands: { two: { description: "Two.", run: () => "two" } },
+          commands: { two: { description: "Two.", call: () => "two" } },
         }),
       ],
     }, runtime(), { prompt: "!two" })
@@ -440,7 +440,7 @@ describe("inputCommands", () => {
         commands: {
           run: {
             description: "Run a workflow.",
-            run: ({ args }) => `run:${args}`,
+            call: ({ args }) => `run:${args}`,
           },
         },
       })],
@@ -454,19 +454,19 @@ describe("inputCommands", () => {
 
     expect(() => inputCommands({
       commands: {
-        Review: { description: "Review.", run: () => undefined },
+        Review: { description: "Review.", call: () => undefined },
       },
     })).toThrow("lowercase stable identifier")
 
     expect(inputCommands({
       commands: {
-        review: { run: () => undefined },
+        review: { call: () => undefined },
       },
     }).metadata).toMatchObject({ commands: { review: {} } })
 
     expect(() => inputCommands({
       commands: {
-        review: { description: "", run: () => undefined },
+        review: { description: "", call: () => undefined },
       },
     })).toThrow("description must be a non-empty string")
 
@@ -484,7 +484,7 @@ describe("inputCommands", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [inputCommands({
         commands: {
-          known: { description: "Known.", run: () => "changed" },
+          known: { description: "Known.", call: () => "changed" },
         },
       })],
     }, runtime(), { prompt: "Please /unknown value" })
@@ -502,14 +502,14 @@ describe("inputCommands", () => {
         commands: {
           first: {
             description: "First.",
-            run: ({ args }) => {
+            call: ({ args }) => {
               order.push(`first:${args}`)
               return { context: { value: "first" } }
             },
           },
           second: {
             description: "Second.",
-            run: ({ args }) => {
+            call: ({ args }) => {
               order.push(`second:${args}`)
               return { context: { value: "second" } }
             },
@@ -534,7 +534,7 @@ describe("inputCommands", () => {
         commands: {
           mark: {
             description: "Mark the input.",
-            run,
+            call: run,
           },
         },
       })],
@@ -553,14 +553,14 @@ describe("inputCommands", () => {
         commands: {
           first: {
             description: "First.",
-            run: () => {
+            call: () => {
               order.push("first")
               return { prompt: "/second shifted" }
             },
           },
           second: {
             description: "Second.",
-            run: ({ args }) => {
+            call: ({ args }) => {
               order.push(`second:${args}`)
               return "done"
             },
@@ -583,14 +583,14 @@ describe("inputCommands", () => {
         commands: {
           first: {
             description: "First.",
-            run: () => {
+            call: () => {
               order.push("first")
               return "/second injected"
             },
           },
           second: {
             description: "Second.",
-            run: ({ args }) => {
+            call: ({ args }) => {
               order.push(`second:${args}`)
               return "done"
             },
@@ -612,7 +612,7 @@ describe("inputCommands", () => {
         commands: {
           mutate: {
             description: "Mutate input.",
-            run: ({ context }) => {
+            call: ({ context }) => {
               context.input.set({
                 context: { fromHandler: true },
                 prompt: "/mutate now",
@@ -639,7 +639,7 @@ describe("inputCommands", () => {
         commands: {
           mutate: {
             description: "Mutate input.",
-            run: ({ context }) => {
+            call: ({ context }) => {
               context.input.set({ prompt: "handler text" })
               return "returned text"
             },
@@ -661,14 +661,14 @@ describe("inputCommands", () => {
         commands: {
           first: {
             description: "First.",
-            run: ({ context }) => {
+            call: ({ context }) => {
               order.push("first")
               context.input.set({ prompt: "/second shifted" })
             },
           },
           second: {
             description: "Second.",
-            run: ({ args }) => {
+            call: ({ args }) => {
               order.push(`second:${args}`)
               return "done"
             },
@@ -690,11 +690,11 @@ describe("inputCommands", () => {
         commands: {
           first: {
             description: "First.",
-            run: ({ args }) => `first:${args}`,
+            call: ({ args }) => `first:${args}`,
           },
           second: {
             description: "Second.",
-            run: ({ args }) => `second:${args}`,
+            call: ({ args }) => `second:${args}`,
           },
         },
       })],
@@ -712,7 +712,7 @@ describe("inputCommands", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [inputCommands({
         commands: {
-          review: { description: "Review.", run },
+          review: { call: run, description: "Review." },
         },
       })],
     }, runtime(), input)

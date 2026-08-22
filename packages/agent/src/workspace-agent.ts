@@ -349,7 +349,6 @@ function withCapabilityWorkspaceSources(
   workspace: NormalizedWorkspaceOptions,
   capabilities: AgentCapabilityDefinition[] | undefined,
 ): NormalizedWorkspaceOptions {
-  assertNoLegacyWorkspaceSourceInstructions(workspace.sources)
   const contributed = capabilityWorkspaceSources(capabilities)
   if (!contributed) return workspace
   const sources = { ...workspace.sources }
@@ -359,18 +358,9 @@ function withCapabilityWorkspaceSources(
     }
     sources[key] = source
   }
-  assertNoLegacyWorkspaceSourceInstructions(sources)
   return {
     ...workspace,
     sources,
-  }
-}
-
-function assertNoLegacyWorkspaceSourceInstructions(sources: WorkspaceDefinition["sources"] | undefined): void {
-  for (const [key, source] of Object.entries(sources || {})) {
-    if (source && typeof source === "object" && "instructions" in source) {
-      throw new TypeError(`[vitehub] Workspace source "${key}" instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::source coverage.`)
-    }
   }
 }
 
@@ -449,7 +439,7 @@ function modelDriverInstructions<
       ? (driver as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
       : undefined
   }
-  return (options as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
+  return undefined
 }
 
 function shouldUseColocatedAgentInstructions<
