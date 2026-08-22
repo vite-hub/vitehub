@@ -1,17 +1,17 @@
 import { defineConfig } from "vite-plus"
+import * as v from "valibot"
 
 import frameworkPackageManifest from "./package.json" with { type: "json" }
 
-function manifestStringLeaves(value: unknown): string[] {
-  if (typeof value === "string") return [value]
-  if (Array.isArray(value)) return value.flatMap(manifestStringLeaves)
-  if (!value || typeof value !== "object") return []
-  return Object.values(value).flatMap(manifestStringLeaves)
-}
+const manifestStringLeavesSchema: v.GenericSchema<unknown, string[]> = v.lazy(() => v.union([
+  v.pipe(v.string(), v.transform(value => [value])),
+  v.pipe(v.array(manifestStringLeavesSchema), v.transform(values => values.flat())),
+  v.pipe(v.record(v.string(), manifestStringLeavesSchema), v.transform(value => Object.values(value).flat())),
+]))
 
 export function distributionEntriesFromManifest(value: unknown): string[] {
   return [...new Set(
-    manifestStringLeaves(value)
+    v.parse(manifestStringLeavesSchema, value)
       .filter(target => target.startsWith("./dist/") && target.endsWith(".js"))
       .map(target => target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")),
   )].sort()
