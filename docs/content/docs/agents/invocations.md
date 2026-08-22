@@ -188,6 +188,27 @@ The journal records pending, running, completed, failed, and cancelled states pl
 
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch and reconcile failures after the generated Agent module loads but before the Agent handler starts. If that module cannot be evaluated, use Workflow inspection because the Agent-owned invocation store is unavailable. An accepted Vercel run also starts its journal in the Agent worker because arbitrary Agent Definitions cannot be embedded in Vercel's deterministic native Workflow bundle; use Workflow inspection when it fails before then. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation.
 
+## Inspect local invocations
+
+Enable the read-only invocation console in a Nuxt project:
+
+```bash
+pnpm add @nuxt/ui
+```
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  vitehub: {
+    console: true,
+    preset: 'cloudflare',
+  },
+})
+```
+
+During `nuxt dev`, open `/_vitehub` to inspect local Agent sessions and trace observations. ViteHub stores the console journal in `.vitehub/data/console.sqlite`. The console is not installed in production builds, even when the option remains enabled in shared configuration.
+
+The fallback applies to Agent Definitions imported from `vite-hub/agent`. An explicit `defineAgent({ invocations })` store, including one assigned later by an integration, remains authoritative. Imports directly from `@vite-hub/agent` do not receive the framework console fallback.
+
 ## Control child work
 
 Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model delegates work itself.

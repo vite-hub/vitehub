@@ -135,7 +135,7 @@ describe("framework package contract", () => {
   })
 
   it("forwards feature APIs from their owner packages", () => {
-    expect(frameworkAgent.defineAgent).toBe(ownerAgent.defineAgent)
+    expect(frameworkAgent.defineAgent).not.toBe(ownerAgent.defineAgent)
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
@@ -173,7 +173,7 @@ describe("framework package contract", () => {
       .filter(({ source }) => !exportedForwarders.has(source))
       .map(({ subpath }) => subpath)
       .sort(),
-    ).toEqual([".", "./_internal/database/runtime/state", "./_internal/kv/runtime/disabled-upstash", "./nuxt"])
+    ).toEqual([".", "./_internal/database/runtime/state", "./_internal/kv/runtime/disabled-upstash", "./agent", "./console", "./console/server", "./nuxt"])
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)

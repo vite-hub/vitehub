@@ -15,6 +15,8 @@ import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } f
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
+const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
+type NuxtPage = { file: string, name: string, path: string }
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
@@ -89,6 +91,37 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
     }
     if (!existing) imports.push({ from, name })
   }
+}
+
+async function installConsole(nuxt: NuxtLike): Promise<void> {
+  const uiModule = (await import("@vite-hub/ui/nuxt")).default
+  await uiModule(undefined, nuxt)
+  const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
+  hookPages?.("pages:extend", (pages) => {
+    const additions: NuxtPage[] = [
+      { file: join(consoleRuntimeRoot, "pages/index.vue"), name: "vitehub-console", path: "/_vitehub" },
+      { file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-agents", path: "/_vitehub/agents/:session?" },
+    ]
+    for (const page of additions) {
+      if (!pages.some(candidate => candidate.path === page.path)) pages.push(page)
+    }
+  })
+
+  const nitro = (nuxt.options.nitro ??= {}) as {
+    handlers?: Array<{ handler: string, route: string }>
+    plugins?: string[]
+  }
+  const handlers = (nitro.handlers ??= [])
+  const additions = [
+    { handler: join(consoleRuntimeRoot, "server/invocations.get.js"), route: "/api/_vitehub/console/invocations" },
+    { handler: join(consoleRuntimeRoot, "server/invocation.get.js"), route: "/api/_vitehub/console/invocations/:id" },
+  ]
+  for (const handler of additions) {
+    if (!handlers.some(candidate => candidate.route === handler.route)) handlers.push(handler)
+  }
+  const plugins = (nitro.plugins ??= [])
+  const plugin = join(consoleRuntimeRoot, "server/plugin.js")
+  if (!plugins.includes(plugin)) plugins.push(plugin)
 }
 
 function isEnvDeclarationNamespace(value: unknown): value is Record<string, unknown> {
@@ -288,6 +321,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...moduleOptions,
     env: envOptions,
   } as Parameters<typeof vitehub>[0]
+  if (options.console && nuxt.options.dev) await installConsole(nuxt)
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)

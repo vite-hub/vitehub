@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
     },
   })),
   useEnvPlugin: vi.fn(),
+  uiModule: vi.fn(),
   vitehub: vi.fn(),
   workflowNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
@@ -60,14 +61,17 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
+vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 
 import viteHubNuxtModule from "../src/nuxt.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
+  const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
   const nuxt = {
-    hook(name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) {
-      if (name === "nitro:config") nitroConfigHooks.push(callback)
+    hook(name: "nitro:config" | "pages:extend", callback: ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
+      if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
+      else pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
     },
     options: {
       alias: {
@@ -75,6 +79,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       },
       buildDir: "/tmp/vitehub-nuxt/.nuxt",
       dev,
+      nitro: {} as Record<string, unknown>,
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
       srcDir: "/tmp/vitehub-nuxt/app",
@@ -83,10 +88,14 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   }
   return {
     nitroConfigHooks,
+    pageHooks,
     nuxt,
     async runNitroConfigHook(config: Record<string, unknown>) {
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
       for (const hook of nitroConfigHooks) await hook(config)
+    },
+    runPagesHook(pages: Array<{ file: string, name: string, path: string }>) {
+      for (const hook of pageHooks) hook(pages)
     },
   }
 }
@@ -104,6 +113,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
     mocks.useEnvPlugin.mockClear()
+    mocks.uiModule.mockReset()
     mocks.workflowNitroConfig.mockClear()
     mocks.vitehub.mockReset()
     mocks.vitehub.mockReturnValue([
@@ -188,6 +198,43 @@ describe("ViteHub Nuxt integration", () => {
         config: mocks.envHook,
       },
     ])
+  })
+
+  it("installs the read-only console only during Nuxt development", async () => {
+    const development = createNuxt(true)
+    await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+    const pages: Array<{ file: string, name: string, path: string }> = []
+    development.runPagesHook(pages)
+
+    expect(mocks.uiModule).toHaveBeenCalledOnce()
+    expect(pages).toEqual([
+      expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents/:session?" }),
+    ])
+    expect(development.nuxt.options.nitro).toMatchObject({
+      handlers: [
+        { route: "/api/_vitehub/console/invocations" },
+        { route: "/api/_vitehub/console/invocations/:id" },
+      ],
+      plugins: [expect.stringContaining("/console/runtime/server/plugin.js")],
+    })
+
+    mocks.uiModule.mockClear()
+    const production = createNuxt(false)
+    await viteHubNuxtModule({ console: true, preset: "node" }, production.nuxt)
+    expect(mocks.uiModule).not.toHaveBeenCalled()
+    expect(production.pageHooks).toHaveLength(0)
+    expect(production.nuxt.options.nitro).not.toHaveProperty("handlers")
+    expect(production.nuxt.options.nitro).not.toHaveProperty("plugins")
+  })
+
+  it("does not install the console when the option is omitted", async () => {
+    const { nuxt, pageHooks } = createNuxt(true)
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+
+    expect(mocks.uiModule).not.toHaveBeenCalled()
+    expect(pageHooks).toHaveLength(0)
+    expect(nuxt.options.nitro).not.toHaveProperty("handlers")
   })
 
   it("installs flattened ViteHub plugins and applies their config hooks to Nitro", async () => {

@@ -35,6 +35,8 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
+      { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "src/ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
@@ -52,11 +54,19 @@ export default defineConfig({
         }
       },
     }],
-    entry: distributionEntries,
+    entry: [
+      ...distributionEntries,
+      "src/console/runtime/server/invocation.get.ts",
+      "src/console/runtime/server/invocations.get.ts",
+      "src/console/runtime/server/plugin.ts",
+    ],
     exports: {
       exclude: ["bin"],
       bin: distributionBinEntries,
       customExports(exports) {
+        delete exports["./console/runtime/server/invocation.get"]
+        delete exports["./console/runtime/server/invocations.get"]
+        delete exports["./console/runtime/server/plugin"]
         return {
           ...exports,
           "./ui/styles.css": "./dist/ui/styles.css",

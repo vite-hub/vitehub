@@ -89,6 +89,8 @@
     "./browser/providers/local": "./dist/browser/providers/local.js",
     "./channels": "./dist/channels.js",
     "./channels/server": "./dist/channels/server.js",
+    "./console": "./dist/console.js",
+    "./console/server": "./dist/console/server.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",
     "./email": "./dist/email.js",
@@ -207,9 +209,13 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@nuxt/ui": "^4.9.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@nuxt/ui": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
