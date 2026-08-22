@@ -10,6 +10,8 @@ icon: i-ph-activity-light
 
 Rich session replay requires a trace log created with `{ content: "full" }`. The default metadata-only trace policy records activity milestones but strips prompts, message text, tool input, and tool output. Agent Invocation journals still bound full-content records to 512 characters per string, 32 collection items, four nesting levels, and 256 observations per invocation.
 
+Enable full-content traces only when the store and the current viewer are authorized to retain and inspect that session content.
+
 ```vue
 <AgentInvocation :invocation="record" />
 
