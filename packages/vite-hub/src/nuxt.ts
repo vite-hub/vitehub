@@ -13,6 +13,7 @@ import { mergeConfig } from "vite"
 import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { assertLocalConsolePeer } from "./console/runtime/server/local-request.ts"
+import { consoleInvocationRootPlugin } from "./console/vite.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
@@ -425,7 +426,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
-  const plugins = installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output")
+  const plugins = [
+    ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
+    ...(options.console && nuxt.options.dev ? [consoleInvocationRootPlugin(projectRoot)] : []),
+  ]
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
   )

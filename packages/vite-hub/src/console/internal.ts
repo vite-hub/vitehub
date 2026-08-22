@@ -23,9 +23,13 @@ function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegist
 export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {
   const root = scope[consoleInvocationsRootKey]
   const registered = processRegistry(scope)?.[consoleInvocationsRegistryKey]
-  const rooted = root && registered instanceof Map ? registered.get(root) : undefined
-  return rooted
-    ?? processRegistry(scope)?.[consoleInvocationsKey] as AgentInvocations | undefined
+  if (root) {
+    return registered instanceof Map ? registered.get(root) ?? scope[consoleInvocationsKey] : scope[consoleInvocationsKey]
+  }
+  if (!root && registered instanceof Map && registered.size > 1) {
+    return scope[consoleInvocationsKey]
+  }
+  return processRegistry(scope)?.[consoleInvocationsKey] as AgentInvocations | undefined
     ?? scope[consoleInvocationsKey]
 }
 

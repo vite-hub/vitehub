@@ -235,6 +235,9 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ route: "/_vitehub" }),
       expect.objectContaining({ route: "/api/_vitehub/console" }),
     ])
+    expect(development.nuxt.options.vite.plugins).toContainEqual(
+      expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
+    )
     const apiGuard = development.nuxt.options.devServerHandlers?.find(handler =>
       handler.route === "/api/_vitehub/console" && handler.handler !== existingConsoleHandler,
     )
@@ -255,6 +258,9 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.nuxt.options.nitro).not.toHaveProperty("handlers")
     expect(production.nuxt.options.nitro).not.toHaveProperty("plugins")
     expect(production.nuxt.options.devServerHandlers).toBeUndefined()
+    expect(production.nuxt.options.vite.plugins).not.toContainEqual(
+      expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
+    )
   })
 
   it("does not reinstall a configured ViteHub UI module for the console", async () => {
