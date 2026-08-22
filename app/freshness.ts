@@ -6,12 +6,6 @@ export function relativeDuration(elapsedMs: number): string {
   return `${Math.floor(elapsedMs / 3_600_000)}h`
 }
 
-export function isRunningStale(status: string, updatedAt: string | undefined, nowMs: number): boolean {
-  if (status !== 'running' || !updatedAt) return false
-  const updatedAtMs = Date.parse(updatedAt)
-  return Number.isFinite(updatedAtMs) && nowMs - updatedAtMs >= STALE_AFTER_MS
-}
-
 export function syncFreshness(lastSuccessfulPollAt: number | undefined, nowMs: number): { label: string, stale: boolean } {
   if (lastSuccessfulPollAt === undefined) return { label: 'Connecting', stale: false }
   const elapsed = Math.max(0, nowMs - lastSuccessfulPollAt)

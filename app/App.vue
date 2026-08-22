@@ -2,7 +2,7 @@
 import { AgentInvocation, AgentInvocationInspector, type AgentInvocationConfiguration, type AgentInvocationView } from '@vite-hub/ui'
 import { useAgentInvocation, useAgentInvocations } from 'vite-hub/agent/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { isRunningStale, syncFreshness } from './freshness'
+import { syncFreshness } from './freshness'
 import { invocationContext, invocationSummary, invocationTitle } from './invocation-display'
 
 import type { SplitterItem } from '@nuxt/ui'
@@ -117,10 +117,6 @@ function invocationUpdatedAt(invocation: AgentInvocationSummary) {
   return invocation.updatedAt || invocation.startedAt || invocation.createdAt
 }
 
-function invocationStale(invocation: AgentInvocationSummary) {
-  return isRunningStale(invocation.status, invocationUpdatedAt(invocation), nowMs.value)
-}
-
 function updateDesktop(event?: MediaQueryListEvent) {
   isDesktop.value = event?.matches ?? media?.matches ?? false
 }
@@ -175,11 +171,11 @@ onBeforeUnmount(() => {
           <UScrollArea v-else class="min-h-0 flex-1">
             <nav class="space-y-1 px-2 pb-4" aria-label="Agent sessions">
               <template v-for="invocation in invocations" :key="invocation.id">
-                <UTooltip v-if="collapsed" :text="invocationTitle(invocation)" :content="{ side: 'right' }"><UButton :icon="statusIcon(invocation.status)" :color="invocation.status === 'failed' ? 'error' : invocationStale(invocation) ? 'warning' : 'neutral'" :variant="selectedId === invocation.id ? 'soft' : 'ghost'" block :aria-label="invocationTitle(invocation)" @click="selectInvocation(invocation.id)" /></UTooltip>
+                <UTooltip v-if="collapsed" :text="invocationTitle(invocation)" :content="{ side: 'right' }"><UButton :icon="statusIcon(invocation.status)" :color="invocation.status === 'failed' ? 'error' : 'neutral'" :variant="selectedId === invocation.id ? 'soft' : 'ghost'" block :aria-label="invocationTitle(invocation)" @click="selectInvocation(invocation.id)" /></UTooltip>
                 <button v-else type="button" class="group flex w-full min-w-0 items-start gap-3 rounded-lg border px-3 py-2.5 text-start outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary" :class="selectedId === invocation.id ? 'border-default bg-default shadow-xs' : 'border-transparent hover:bg-elevated/60'" @click="selectInvocation(invocation.id)">
-                  <span class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-elevated"><UIcon :name="invocationStale(invocation) ? 'i-lucide-triangle-alert' : statusIcon(invocation.status)" class="size-3.5" :class="[invocationStale(invocation) ? 'text-warning' : statusColor(invocation.status), invocation.status === 'running' && !invocationStale(invocation) ? 'animate-spin' : undefined]" /></span>
+                  <span class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-elevated"><UIcon :name="statusIcon(invocation.status)" class="size-3.5" :class="[statusColor(invocation.status), invocation.status === 'running' ? 'animate-spin' : undefined]" /></span>
                   <span class="min-w-0 flex-1"><strong class="block truncate text-sm font-medium text-highlighted">{{ invocationTitle(invocation) }}</strong><span class="mt-0.5 block truncate text-xs text-muted">{{ invocationContext(invocation) }}</span><span v-if="invocation.error?.message" class="mt-1 block truncate text-xs text-error">{{ invocationSummary(invocation) }}</span></span>
-                  <span class="grid shrink-0 justify-items-end gap-0.5 text-xs"><small :class="invocationStale(invocation) ? 'text-warning' : 'text-muted'">{{ invocationStale(invocation) ? 'No activity' : statusLabel(invocation.status) }}</small><time class="text-dimmed">{{ formatTime(invocationUpdatedAt(invocation)) }}</time></span>
+                  <span class="grid shrink-0 justify-items-end gap-0.5 text-xs"><small class="text-muted">{{ statusLabel(invocation.status) }}</small><time class="text-dimmed">{{ formatTime(invocationUpdatedAt(invocation)) }}</time></span>
                 </button>
               </template>
             </nav>
