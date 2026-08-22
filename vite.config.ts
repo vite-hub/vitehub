@@ -17,6 +17,11 @@ export default defineConfig({
         command: "node packages/database/test/e2e.mjs",
         dependsOn: ["@vite-hub/database#build"],
       },
+      "doctor:typescript": {
+        cache: false,
+        command:
+          'node node_modules/vite-doctor/dist/cli.mjs scan . --extends vite-doctor/typescript/strict --since "${VITE_DOCTOR_SINCE:-HEAD^}" --no-cache --max-warnings 0',
+      },
       "docs:build": {
         cache: false,
         command: "vp run --filter vitehub-docs build",
@@ -46,7 +51,8 @@ export default defineConfig({
       },
       "fallow:dead-code": {
         cache: false,
-        command: "vp exec fallow dead-code --summary --format markdown --fail-on-issues",
+        command:
+          "vp exec fallow dead-code --baseline .fallow-baseline.json --summary --format markdown --fail-on-issues",
       },
       "knip:catalog": {
         cache: false,
@@ -92,7 +98,8 @@ export default defineConfig({
       },
       release: {
         cache: false,
-        command: 'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',
+        command:
+          'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',
       },
       "sandbox:e2e": {
         cache: false,
@@ -132,11 +139,13 @@ export default defineConfig({
       },
       typecheck: {
         cache: false,
-        command: "vp run build && vp run --filter vitehub-docs --ignore-depends-on typecheck && node test/run-package-task.mjs typecheck",
+        command:
+          "vp run build && vp run --filter vitehub-docs --ignore-depends-on typecheck && node test/run-package-task.mjs typecheck",
       },
       verify: {
         cache: false,
-        command: "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+        command:
+          "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,
