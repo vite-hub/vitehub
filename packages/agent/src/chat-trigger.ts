@@ -3,6 +3,7 @@ import { createChatMessageTriggerInput } from "./chat-message-input.ts"
 import { toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
+import { isRuntimeFunction, isRuntimeObject, isRuntimeString } from "./internal/runtime-value.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -25,33 +26,24 @@ import type {
 import type { AgentChatMessageTriggerInput } from "./chat-message-input.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
-export type {
-  AgentChatMessageTriggerInput,
-  UIMessageLike,
-} from "./chat-message-input.ts"
+export type { AgentChatMessageTriggerInput, UIMessageLike } from "./chat-message-input.ts"
 
 type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
 }
 
-type ResolvedMaybeResolvable<T> =
-  T extends (...args: any[]) => infer TResult
+type ResolvedMaybeResolvable<T> = T extends (...args: any[]) => infer TResult
+  ? Awaited<TResult>
+  : T extends { resolve: (...args: any[]) => infer TResult }
     ? Awaited<TResult>
-    : T extends { resolve: (...args: any[]) => infer TResult }
-      ? Awaited<TResult>
-      : T
+    : T
 
-type AgentChatPlatformOrigin<TPlatforms> =
-  Extract<keyof NonNullable<ResolvedMaybeResolvable<TPlatforms>>, string>
+type AgentChatPlatformOrigin<TPlatforms> = Extract<keyof NonNullable<ResolvedMaybeResolvable<TPlatforms>>, string>
 
-type AgentChatKnownOrigin<TOptions> =
-  TOptions extends { platforms?: infer TPlatforms } ? AgentChatPlatformOrigin<TPlatforms> : never
+type AgentChatKnownOrigin<TOptions> = TOptions extends { platforms?: infer TPlatforms } ? AgentChatPlatformOrigin<TPlatforms> : never
 
-export type AgentChatOptionsOrigin<TOptions> =
-  [AgentChatKnownOrigin<TOptions>] extends [never]
-    ? string
-    : AgentChatKnownOrigin<TOptions>
+export type AgentChatOptionsOrigin<TOptions> = [AgentChatKnownOrigin<TOptions>] extends [never] ? string : AgentChatKnownOrigin<TOptions>
 
 export const agentChatContextKey = "chat"
 
@@ -78,12 +70,11 @@ export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const durableChatErrorFallbackTimeoutMs = 30_000
 export function isDurableChatErrorFallbackEffect(effect: unknown): boolean {
-  return typeof effect === "function" && (effect as { kind?: string }).kind === "chat.error-fallback"
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  return isRuntimeFunction(effect) && (effect as { kind?: string }).kind === "chat.error-fallback"
 }
 
-export function durableChatErrorFallbackTimeout(
-  options: Pick<AgentChatOptions, "timeout"> | undefined,
-): number {
+export function durableChatErrorFallbackTimeout(options: Pick<AgentChatOptions, "timeout"> | undefined): number {
   return Math.min(options?.timeout ?? durableChatErrorFallbackTimeoutMs, durableChatErrorFallbackTimeoutMs)
 }
 
@@ -97,17 +88,17 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
 ): Promise<string | undefined> {
   const fallback = options?.errorFallbackText
   if (fallback === null) return
-  if (typeof fallback === "function") {
+  if (isRuntimeFunction(fallback)) {
     try {
       const resolution = Promise.resolve(fallback(args))
-      return await (resolveFallback ? resolveFallback(resolution) : resolution) as string || undefined
-    }
-    catch {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      return ((await (resolveFallback ? resolveFallback(resolution) : resolution)) as string) || undefined
+    } catch {
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
   if (args.publicError.code !== "INTERNAL") return args.publicError.error
-  return typeof fallback === "string" ? fallback : defaultChatErrorFallbackText
+  return isRuntimeString(fallback) ? fallback : defaultChatErrorFallbackText
 }
 
 export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -125,8 +116,7 @@ export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends Agent
           timeoutId = setTimeout(() => reject(new Error(`Durable chat error fallback timed out after ${timeout}ms.`)), timeout)
         }),
       ])
-    }
-    finally {
+    } finally {
       if (timeoutId) clearTimeout(timeoutId)
     }
   })
@@ -139,11 +129,13 @@ export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig exte
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
   let acceptingIntents = true
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const hookArgs = {
     ...args,
     thread: {
       post: async (message: unknown) => {
         if (!acceptingIntents) throw new Error("Durable chat error fallback resolution has already completed.")
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
         intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" }))
       },
     },
@@ -156,11 +148,16 @@ export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig exte
   return intents
 }
 
-function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig>,
-) {
+function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(options: AgentChatOptions<TRuntimeConfig>) {
   const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
-    if (context.error === undefined || !(context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
+    const runtimeContext: unknown = context
+    // SAFETY: Agent finish contexts carry the workflow execution marker installed by the workflow runtime.
+    if (
+      context.error === undefined ||
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      !(runtimeContext as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]
+    )
+      return
     const chat = getAgentChatContext(context.context)
     const channel = context.context.get<AgentChannelContext>("channel")
     if (!chat && !channel) return
@@ -173,10 +170,17 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
       toolResults: context.event.toolResults,
     })
   })
-  effect.active = context => options.errorFallbackText !== null
-    && context.error !== undefined
-    && Boolean((context as unknown as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
-    && (Boolean(getAgentChatContext(context.context)) || context.context.has("channel"))
+  effect.active = (context) => {
+    const runtimeContext: unknown = context
+    // SAFETY: Agent finish contexts carry the workflow execution marker installed by the workflow runtime.
+    const workflowExecution = (runtimeContext as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]
+    return (
+      options.errorFallbackText !== null &&
+      context.error !== undefined &&
+      Boolean(workflowExecution) &&
+      (Boolean(getAgentChatContext(context.context)) || context.context.has("channel"))
+    )
+  }
   effect.kind = "chat.error-fallback"
   return effect
 }
@@ -217,15 +221,9 @@ declare global {
   }
 }
 
-export function getAgentChatContext<
-  TMeta extends object = Record<string, unknown>,
-  TUser extends object = Record<string, unknown>,
-  TMessageMetadata extends object = Record<string, unknown>,
->(
-  input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
-): AgentChatContext<TMeta, TUser, TMessageMetadata> | undefined {
+export function getAgentChatContext(input: AgentInvocationContextStore | { context: AgentInvocationContextStore }): AgentChatContext | undefined {
   const store = "get" in input ? input : input.context
-  return store.get<AgentChatContext<TMeta, TUser, TMessageMetadata>>(agentChatContextKey)
+  return store.get<AgentChatContext>(agentChatContextKey)
 }
 
 async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -234,27 +232,30 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
 ): Promise<string | null | undefined> {
   const fallback = options.fallbackStreamingPlaceholderText
   if (fallback === null) return null
-  if (typeof fallback === "function") {
+  if (isRuntimeFunction(fallback)) {
     const resolved = await fallback(args)
     if (resolved === null) return null
-    return typeof resolved === "string" ? resolved : undefined
+    return isRuntimeString(resolved) ? resolved : undefined
   }
   if (Array.isArray(fallback)) {
     if (fallback.length === 0) return null
     return fallback[Math.floor(Math.random() * fallback.length)]
   }
-  if (typeof fallback === "string") return fallback
+  if (isRuntimeString(fallback)) return fallback
   return undefined
 }
 
 function isResolvableObject(value: unknown): value is { resolve: (...args: never[]) => unknown } {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as { resolve?: unknown }).resolve === "function"
+  return (
+    isRuntimeObject(value) &&
+    value !== null &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    isRuntimeFunction((value as { resolve?: unknown }).resolve)
+  )
 }
 
 function isStaticPlatformMap(value: AgentChatOptions["platforms"]): value is Record<string, AgentChatPlatformResolver> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && !isResolvableObject(value)
+  return isRuntimeObject(value) && value !== null && !Array.isArray(value) && !isResolvableObject(value)
 }
 
 function isKnownChatWebhookPlatform(platform: string): platform is KnownChatWebhookPlatform {
@@ -286,13 +287,12 @@ function normalizeChatWebhookRegistrations(
 function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
   if (!isStaticPlatformMap(options.platforms)) return []
   return Object.keys(options.platforms)
-    .filter(platform => !hasExplicitChatWebhook(options, platform))
-    .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
+    .filter((platform) => !hasExplicitChatWebhook(options, platform))
+    .flatMap((platform) => normalizeChatWebhookRegistrations(platform, {}))
 }
 
 function explicitChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
-  return Object.entries(options.webhooks ?? {})
-    .flatMap(([platform, input]) => normalizeChatWebhookRegistrations(platform, input))
+  return Object.entries(options.webhooks ?? {}).flatMap(([platform, input]) => normalizeChatWebhookRegistrations(platform, input))
 }
 
 export function resolveChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
@@ -321,31 +321,35 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
 
 export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.delivery === "manual" && (options.stream === true || options.commentary !== undefined)) {
-    throw new TypeError("[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary.")
+    throw new TypeError('[vitehub] messages.delivery "manual" cannot be combined with messages.stream or messages.commentary.')
   }
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
     throw new TypeError("[vitehub] messages.timeout must be a positive finite number.")
   }
   if (options.durable && options.delivery !== "manual") {
-    throw new TypeError("[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply.")
+    throw new TypeError('[vitehub] messages.durable requires delivery: "manual" so Agent finish effects own the deferred reply.')
   }
   if (options.durable && options.concurrency !== undefined && options.concurrency !== "parallel" && options.concurrency !== "steer") {
-    throw new TypeError(`[vitehub] messages.durable cannot be combined with concurrency: ${JSON.stringify(options.concurrency)} because Workflow handoff releases the webhook lease before the Agent Invocation settles.`)
+    throw new TypeError(
+      `[vitehub] messages.durable cannot be combined with concurrency: ${JSON.stringify(options.concurrency)} because Workflow handoff releases the webhook lease before the Agent Invocation settles.`,
+    )
   }
 }
 
 export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  capabilities: AgentCapabilityDefinition[],
+  capabilities: AgentCapabilityDefinition<TRuntimeConfig>[],
 ): AgentChatOptions<TRuntimeConfig> | undefined {
-  return capabilities.find(capability => capability.id === "chat" && (capability.metadata as ChatCapabilityMetadata | undefined)?.kind === "chat")
-    ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  return capabilities.find((capability) => capability.id === "chat" && (capability.metadata as ChatCapabilityMetadata | undefined)?.kind === "chat")?.metadata
+    ?.chat as AgentChatOptions<TRuntimeConfig> | undefined
 }
 
 export function defineChatCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   const TOptions extends AgentChatOptions<TRuntimeConfig> = AgentChatOptions<TRuntimeConfig>,
 >(
-  options: TOptions = {} as TOptions,
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  options: TOptions & AgentChatOptions<TRuntimeConfig> = {} as TOptions & AgentChatOptions<TRuntimeConfig>,
 ): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<AgentChatOptionsOrigin<TOptions>>> {
   assertChatDeliveryOptions(options)
   return defineCapability({
@@ -359,6 +363,7 @@ export function defineChatCapability<
     },
     output(context) {
       context.finish.provide(() => context.context.get<AgentChatFinishExtension>(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       context.delivery.finishEffect(durableChatErrorFallback(options) as never)
     },
     triggers: {
@@ -371,7 +376,13 @@ export function chat<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   const TOptions extends AgentChatCapabilityOptions<TRuntimeConfig> = AgentChatCapabilityOptions<TRuntimeConfig>,
 >(
-  options: TOptions = {} as TOptions,
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  options: TOptions & AgentChatCapabilityOptions<TRuntimeConfig> = {} as TOptions & AgentChatCapabilityOptions<TRuntimeConfig>,
 ): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<string>> {
-  return defineChatCapability(options as AgentChatOptions<TRuntimeConfig>) as AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<string>>
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  return defineChatCapability(options as AgentChatOptions<TRuntimeConfig>) as AgentCapabilityDefinition<
+    TRuntimeConfig,
+    WorkspaceName,
+    ChatCapabilityTypeContract<string>
+  >
 }

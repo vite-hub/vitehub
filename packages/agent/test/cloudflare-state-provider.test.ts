@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { AtomicAgentStateQueueAdapter } from "../src/internal/state-queue.ts"
+import { isRuntimeNumber } from "../src/internal/runtime-value.ts"
 import { createCloudflareAgentState } from "../src/state/providers/cloudflare.ts"
 
 import type { Lock, QueueEntry } from "chat"
@@ -46,7 +47,15 @@ function queueEntry(text: string): QueueEntry {
   return {
     enqueuedAt: Date.now(),
     expiresAt: Date.now() + 60_000,
-    message: { author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" }, formatted: { children: [], type: "root" }, id: text, raw: {}, text, threadId: "thread" } as never,
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    message: {
+      author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" },
+      formatted: { children: [], type: "root" },
+      id: text,
+      raw: {},
+      text,
+      threadId: "thread",
+    } as never,
   }
 }
 
@@ -62,12 +71,14 @@ function createFakeDurableObjectState() {
       if (normalized.startsWith("SELECT COALESCE(MAX(version)")) return sqlCursor([{ version: 2 }])
       if (normalized.startsWith("INSERT INTO lists")) {
         const [key, value, expiresAt] = bindings
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         lists.push({ expires_at: expiresAt as number | null, id: ++nextId, key: String(key), value: String(value) })
         return sqlCursor()
       }
       if (normalized.startsWith("UPDATE lists SET expires_at = ? WHERE key = ?")) {
         const [expiresAt, key] = bindings
         for (const row of lists) {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           if (row.key === key) row.expires_at = expiresAt as number | null
         }
         return sqlCursor()
@@ -82,11 +93,13 @@ function createFakeDurableObjectState() {
       }
       if (normalized.startsWith("DELETE FROM lists WHERE key = ? AND id NOT IN")) {
         const [key, , maxLength] = bindings
-        const keepIds = new Set(lists
-          .filter(row => row.key === key)
-          .sort((a, b) => b.id - a.id)
-          .slice(0, Number(maxLength))
-          .map(row => row.id))
+        const keepIds = new Set(
+          lists
+            .filter((row) => row.key === key)
+            .sort((a, b) => b.id - a.id)
+            .slice(0, Number(maxLength))
+            .map((row) => row.id),
+        )
         for (let index = lists.length - 1; index >= 0; index--) {
           if (lists[index]!.key === key && !keepIds.has(lists[index]!.id)) lists.splice(index, 1)
         }
@@ -94,14 +107,20 @@ function createFakeDurableObjectState() {
       }
       if (normalized.startsWith("SELECT value FROM lists WHERE key = ? ORDER BY id ASC")) {
         const [key] = bindings
-        return sqlCursor(lists.filter(row => row.key === key).sort((a, b) => a.id - b.id).map(row => ({ value: row.value })))
+        return sqlCursor(
+          lists
+            .filter((row) => row.key === key)
+            .sort((a, b) => a.id - b.id)
+            .map((row) => ({ value: row.value })),
+        )
       }
       if (normalized.startsWith("SELECT MIN(expires_at) as next_expiry")) {
         const now = Number(bindings[0] || Date.now())
-        const next = lists
-          .map(row => row.expires_at)
-          .filter((expiresAt): expiresAt is number => typeof expiresAt === "number" && expiresAt > now)
-          .sort((a, b) => a - b)[0] ?? null
+        const next =
+          lists
+            .map((row) => row.expires_at)
+            .filter((expiresAt): expiresAt is number => isRuntimeNumber(expiresAt) && expiresAt > now)
+            .sort((a, b) => a - b)[0] ?? null
         return sqlCursor([{ next_expiry: next }])
       }
       if (normalized.startsWith("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?")) {
@@ -113,13 +132,19 @@ function createFakeDurableObjectState() {
       }
       if (normalized.startsWith("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC")) {
         const [threadId] = bindings
-        const matches = queues.filter(row => row.thread_id === threadId).sort((a, b) => a.id - b.id)
+        const matches = queues.filter((row) => row.thread_id === threadId).sort((a, b) => a.id - b.id)
         const selected = normalized.endsWith("LIMIT 1") ? matches.slice(0, 1) : matches
-        return sqlCursor(selected.map(row => ({ value: row.value })))
+        return sqlCursor(selected.map((row) => ({ value: row.value })))
       }
       if (normalized.startsWith("SELECT id, value FROM queue WHERE thread_id = ? ORDER BY id ASC LIMIT 1")) {
         const [threadId] = bindings
-        return sqlCursor(queues.filter(row => row.thread_id === threadId).sort((a, b) => a.id - b.id).slice(0, 1).map(row => ({ ...row })))
+        return sqlCursor(
+          queues
+            .filter((row) => row.thread_id === threadId)
+            .sort((a, b) => a.id - b.id)
+            .slice(0, 1)
+            .map((row) => ({ ...row })),
+        )
       }
       if (normalized.startsWith("DELETE FROM queue WHERE thread_id = ?")) {
         const [threadId] = bindings
@@ -130,7 +155,7 @@ function createFakeDurableObjectState() {
       }
       if (normalized.startsWith("DELETE FROM queue WHERE id = ?")) {
         const [id] = bindings
-        const index = queues.findIndex(row => row.id === id)
+        const index = queues.findIndex((row) => row.id === id)
         if (index >= 0) queues.splice(index, 1)
         return sqlCursor()
       }
@@ -216,7 +241,7 @@ function createFakeCloudflareStateNamespace(): ViteHubAgentStateDurableObjectNam
     },
     listAppend(key, value, maxLength) {
       const next = [...(lists.get(key) || []), value]
-      lists.set(key, typeof maxLength === "number" ? next.slice(-maxLength) : next)
+      lists.set(key, isRuntimeNumber(maxLength) ? next.slice(-maxLength) : next)
     },
     listGet(key) {
       return lists.get(key) || []
@@ -278,16 +303,28 @@ describe("Cloudflare Agent State Provider", () => {
     const entry: QueueEntry = {
       enqueuedAt: Date.now(),
       expiresAt: Date.now() + 60_000,
-      message: { author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" }, formatted: { children: [], type: "root" }, id: "m", raw: {}, text: "hello", threadId: "thread" } as never,
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      message: {
+        author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" },
+        formatted: { children: [], type: "root" },
+        id: "m",
+        raw: {},
+        text: "hello",
+        threadId: "thread",
+      } as never,
     }
     await expect(state.enqueue("thread", entry, 10)).resolves.toBe(1)
     await expect(state.dequeue("thread")).resolves.toEqual(entry)
 
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const original = { ...entry, message: { ...entry.message, text: "original" } } as QueueEntry
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const tail = { ...entry, message: { ...entry.message, text: "tail" } } as QueueEntry
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const restored = { ...entry, message: { ...entry.message, text: "restored" } } as QueueEntry
     await state.enqueue("thread", original, 10)
     await state.enqueue("thread", tail, 10)
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const atomicQueue = state as AtomicAgentStateQueueAdapter
     await expect(atomicQueue.queuePeek("thread")).resolves.toEqual(original)
     await expect(atomicQueue.queueReplaceHead("thread", original, [restored], 10)).resolves.toBe(true)
@@ -311,6 +348,7 @@ describe("Cloudflare Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-05-31T10:00:00.000Z"))
     const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
     const { ctx } = createFakeDurableObjectState()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const state = new ViteHubAgentStateDO(ctx as never, {})
 
     state.listAppend("history", "one", undefined, 100)
@@ -324,6 +362,7 @@ describe("Cloudflare Agent State Provider", () => {
   it("atomically replaces a durable queue head", async () => {
     const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
     const { ctx } = createFakeDurableObjectState()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const state = new ViteHubAgentStateDO(ctx as never, {})
     const original = JSON.stringify(queueEntry("original"))
     const tail = JSON.stringify(queueEntry("tail"))

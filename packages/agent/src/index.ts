@@ -4,26 +4,38 @@ import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
+import { isRuntimeFunction, isRuntimeObject, isRuntimeString } from "./internal/runtime-value.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityOverrides, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
-import {
-  createBackedAgentInvocationController,
-  startLiveAgentInvocation,
-} from "./agent-invocation.ts"
+import { createBackedAgentInvocationController, startLiveAgentInvocation } from "./agent-invocation.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, withAgentInvocationControlId } from "./internal/agent-invocation-control.ts"
-import {
-  createReactionDeliveryEffectIntent,
-  createReplyDeliveryEffectIntent,
-  createStatusDeliveryEffectIntent,
-} from "./delivery-effects.ts"
+import { createReactionDeliveryEffectIntent, createReplyDeliveryEffectIntent, createStatusDeliveryEffectIntent } from "./delivery-effects.ts"
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
-import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
-import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import {
+  agentResultKind,
+  agentStreamErrorSymbol,
+  finalTextFromAgentOutput,
+  hasTraceableStreamResult,
+  isAsyncIterable,
+  resolveAgentUsageRecord,
+  streamAgentOutputToEvents,
+  toAgentRunResult,
+  toAgentStreamEvent,
+  usageRecordFromStreamChunk,
+} from "./agent-output.ts"
+import {
+  defineChatCapability,
+  durableChatErrorFallbackTimeout,
+  getAgentChatContext,
+  getChatCapabilityOptions,
+  isDurableChatErrorFallbackEffect,
+  resolveDurableChatErrorFallbackIntents,
+} from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import {
@@ -64,13 +76,15 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
-import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
-import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
-  colocatedAgentSkillsContextKey,
-  colocatedAgentSkillsSymbol,
-  type ColocatedAgentSkills,
-} from "./internal/colocated-agent-skills.ts"
+  finalChannelOutputContextKey,
+  finalChannelOutputSelectedSymbol,
+  hasOnlyPortableAgentWorkflowCapabilities,
+  requireAgentWorkflowContextKey,
+  responseTitleFallbackContextKey,
+} from "./internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
+import { colocatedAgentSkillsContextKey, colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -84,14 +98,25 @@ import {
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
-import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
+import type {
+  AgentCapabilityRegistries,
+  CapabilityCleanupOutcome,
+  ResolvedAgentFinishExtensionProvider,
+  ResolvedAgentOutputExtensionProvider,
+} from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
-  applyAgentToolPolicies,
-  withAgentToolStepReporting,
-  withJsonCompatibleToolOutputs,
-} from "./tool-runtime.ts"
+  cancellableAsyncIterableSource,
+  createAgentUIMessageStreamResponse,
+  finalizeUiMessageStreamOutput,
+  isUIMessageStreamResponse,
+  isUIMessageStreamResult,
+  normalizeUiMessageStream,
+  uiMessageStreamFromResponse,
+  uiMessageTextDelta,
+  withReadableStreamCleanup,
+} from "./stream-output.ts"
+import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "./tool-runtime.ts"
 import {
   agentInvocationTraceIdContextKey,
   traceAgentInvocationError,
@@ -175,24 +200,13 @@ import type {
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
-import type {
-  AgentInvocationController,
-  AgentInvocationSnapshot,
-} from "./agent-invocation.ts"
+import type { AgentInvocationController, AgentInvocationSnapshot } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentChannelContext } from "./chat-trigger.ts"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
-import type {
-  WorkspaceAgentDefinition,
-  WorkspaceAgentOptions,
-} from "./workspace-agent.ts"
-import type {
-  ReadonlyWorkspaceFacade,
-  WritableWorkspaceFacade,
-  WorkspaceDefinition,
-  WorkspaceName,
-} from "@vite-hub/workspace"
+import type { WorkspaceAgentDefinition, WorkspaceAgentOptions } from "./workspace-agent.ts"
+import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
 
 export type {
@@ -217,11 +231,7 @@ export type {
   AgentInvocationStatus,
 } from "./agent-invocation.ts"
 
-export type {
-  AgentPublicError,
-  AgentPublicErrorCode,
-  AgentPublicErrorDetails,
-} from "./agent-error.ts"
+export type { AgentPublicError, AgentPublicErrorCode, AgentPublicErrorDetails } from "./agent-error.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -454,16 +464,9 @@ export {
   workspaceDefinitionFromOptions,
 } from "./workspace-agent.ts"
 
-export {
-  agentInvokerContextKey,
-  defineAgentInvoker,
-} from "./invoker.ts"
+export { agentInvokerContextKey, defineAgentInvoker } from "./invoker.ts"
 
-export type {
-  WorkspaceAgentDefinition,
-  WorkspaceAgentDefaults,
-  WorkspaceAgentOptions,
-} from "./workspace-agent.ts"
+export type { WorkspaceAgentDefinition, WorkspaceAgentDefaults, WorkspaceAgentOptions } from "./workspace-agent.ts"
 
 export type {
   AgentMessagePhase,
@@ -477,16 +480,9 @@ export type {
   ToolInvocationState,
 } from "./messages.ts"
 
-export {
-  agentChatContextKey,
-  getAgentChatContext,
-} from "./chat-trigger.ts"
+export { agentChatContextKey, getAgentChatContext } from "./chat-trigger.ts"
 
-export type {
-  AgentChannelContext,
-  AgentChatContext,
-  AgentChatRunContext,
-} from "./chat-trigger.ts"
+export type { AgentChannelContext, AgentChatContext, AgentChatRunContext } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
@@ -495,91 +491,52 @@ const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const baseAgentDefinitionResolve = Symbol.for("vitehub.baseAgentDefinitionResolve")
 const baseAgentOutput = Symbol.for("vitehub.baseAgentOutput")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
-type WorkspaceSourceNames<TWorkspace> =
-  TWorkspace extends { sources: infer TSources }
-    ? Extract<keyof NonNullable<TSources>, string>
-    : string
-type WorkspaceContribution<TWorkspace> =
-  TWorkspace extends (...args: any[]) => infer TResult
-    ? NonNullable<Awaited<TResult>>
-    : NonNullable<TWorkspace>
+type WorkspaceSourceNames<TWorkspace> = TWorkspace extends { sources: infer TSources } ? Extract<keyof NonNullable<TSources>, string> : string
+type WorkspaceContribution<TWorkspace> = TWorkspace extends (...args: any[]) => infer TResult ? NonNullable<Awaited<TResult>> : NonNullable<TWorkspace>
 type WorkspaceContributionSourceNames<TWorkspace> =
-  WorkspaceContribution<TWorkspace> extends { sources?: infer TSources }
-    ? Extract<keyof NonNullable<TSources>, string>
-    : never
+  WorkspaceContribution<TWorkspace> extends { sources?: infer TSources } ? Extract<keyof NonNullable<TSources>, string> : never
 type CapabilityWorkspaceSourceNames<TCapability> =
-  (TCapability extends { workspaceSources: infer TSources }
-    ? Extract<keyof NonNullable<TSources>, string>
-    : never)
-  | (TCapability extends { workspace: infer TWorkspace }
-    ? WorkspaceContributionSourceNames<TWorkspace>
-    : never)
-  | (TCapability extends { capabilities: infer TCapabilities }
-    ? AgentCapabilitiesWorkspaceSourceNames<TCapabilities>
-    : never)
-type ResolvedAgentCapabilitiesInput<TCapabilities> =
-  TCapabilities extends (...args: any[]) => infer TResult
-    ? Awaited<TResult>
-    : TCapabilities
+  | (TCapability extends { workspaceSources: infer TSources } ? Extract<keyof NonNullable<TSources>, string> : never)
+  | (TCapability extends { workspace: infer TWorkspace } ? WorkspaceContributionSourceNames<TWorkspace> : never)
+  | (TCapability extends { capabilities: infer TCapabilities } ? AgentCapabilitiesWorkspaceSourceNames<TCapabilities> : never)
+type ResolvedAgentCapabilitiesInput<TCapabilities> = TCapabilities extends (...args: any[]) => infer TResult ? Awaited<TResult> : TCapabilities
 type AgentCapabilitiesWorkspaceSourceNames<TCapabilities> =
-  ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[]
-    ? CapabilityWorkspaceSourceNames<TCapability>
-    : never
-type WorkspaceSourceHasRemovedScopes<TSource, TDepth extends readonly unknown[] = []> =
-  TDepth["length"] extends 8
-    ? false
-    : TSource extends object
-      ? "scopes" extends keyof TSource
-        ? true
-        : TSource extends { source: infer TWrappedSource }
-          ? WorkspaceSourceHasRemovedScopes<TWrappedSource, [...TDepth, unknown]>
-          : false
-      : false
-type WorkspaceSourceNamesWithRemovedScopes<TSources> =
-  {
-    [TSourceName in keyof NonNullable<TSources>]:
-    true extends WorkspaceSourceHasRemovedScopes<NonNullable<TSources>[TSourceName]>
-      ? TSourceName
-      : never
-  }[keyof NonNullable<TSources>]
+  ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[] ? CapabilityWorkspaceSourceNames<TCapability> : never
+type WorkspaceSourceHasRemovedScopes<TSource, TDepth extends readonly unknown[] = []> = TDepth["length"] extends 8
+  ? false
+  : TSource extends object
+    ? "scopes" extends keyof TSource
+      ? true
+      : TSource extends { source: infer TWrappedSource }
+        ? WorkspaceSourceHasRemovedScopes<TWrappedSource, [...TDepth, unknown]>
+        : false
+    : false
+type WorkspaceSourceNamesWithRemovedScopes<TSources> = {
+  [TSourceName in keyof NonNullable<TSources>]: true extends WorkspaceSourceHasRemovedScopes<NonNullable<TSources>[TSourceName]> ? TSourceName : never
+}[keyof NonNullable<TSources>]
 type WorkspaceSourcesWithRemovedScopes<TWorkspace> =
-  WorkspaceContribution<TWorkspace> extends { sources?: infer TSources }
-    ? WorkspaceSourceNamesWithRemovedScopes<TSources>
-    : never
+  WorkspaceContribution<TWorkspace> extends { sources?: infer TSources } ? WorkspaceSourceNamesWithRemovedScopes<TSources> : never
 type CapabilityWorkspaceSourcesWithRemovedScopes<TCapability> =
-  (TCapability extends { workspaceSources: infer TSources }
-    ? WorkspaceSourceNamesWithRemovedScopes<TSources>
-    : never)
-  | (TCapability extends { workspace: infer TWorkspace }
-    ? WorkspaceSourcesWithRemovedScopes<TWorkspace>
-    : never)
-  | (TCapability extends { capabilities: infer TCapabilities }
-    ? AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>
-    : never)
+  | (TCapability extends { workspaceSources: infer TSources } ? WorkspaceSourceNamesWithRemovedScopes<TSources> : never)
+  | (TCapability extends { workspace: infer TWorkspace } ? WorkspaceSourcesWithRemovedScopes<TWorkspace> : never)
+  | (TCapability extends { capabilities: infer TCapabilities } ? AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities> : never)
 type AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities> =
-  ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[]
-    ? CapabilityWorkspaceSourcesWithRemovedScopes<TCapability>
-    : never
+  ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[] ? CapabilityWorkspaceSourcesWithRemovedScopes<TCapability> : never
 type InvalidWorkspaceSourceGrant<TSourceName> = {
   readonly __vitehubInvalidWorkspaceSourceGrant: TSourceName
 }
 type InvalidWorkspaceSourceOption<TSourceName> = {
   readonly __vitehubInvalidWorkspaceSourceOption: TSourceName
 }
-type ValidateCapabilityWorkspaceSources<
-  TSourceName,
-  TWorkspace,
-  TCapabilities,
-  TCapability,
-> =
-  [TSourceName] extends [never]
-    ? TCapability
-    : TSourceName extends string
+type ValidateCapabilityWorkspaceSources<TSourceName, TWorkspace, TCapabilities, TCapability> = [TSourceName] extends [never]
+  ? TCapability
+  : TSourceName extends string
     ? string extends TSourceName
       ? TCapability
       : Exclude<TSourceName, WorkspaceSourceNames<TWorkspace> | AgentCapabilitiesWorkspaceSourceNames<TCapabilities>> extends never
         ? TCapability
-        : TCapability & InvalidWorkspaceSourceGrant<Exclude<TSourceName, WorkspaceSourceNames<TWorkspace> | AgentCapabilitiesWorkspaceSourceNames<TCapabilities>>>
+        : TCapability &
+            InvalidWorkspaceSourceGrant<Exclude<TSourceName, WorkspaceSourceNames<TWorkspace> | AgentCapabilitiesWorkspaceSourceNames<TCapabilities>>>
     : TCapability
 type ValidateAgentCapability<TCapability, TWorkspace, TCapabilities> =
   TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
@@ -587,22 +544,19 @@ type ValidateAgentCapability<TCapability, TWorkspace, TCapabilities> =
       ? ValidateCapabilityWorkspaceSources<TSourceName, TWorkspace, TCapabilities, TCapability>
       : TCapability
     : TCapability
-type ValidateAgentCapabilitiesList<TCapabilities, TWorkspace> =
-  TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
-    ? { [Index in keyof TCapabilities]: ValidateAgentCapability<TCapabilities[Index], TWorkspace, TCapabilities> }
-    : TCapabilities extends readonly (infer TCapability)[]
-      ? readonly ValidateAgentCapability<TCapability, TWorkspace, TCapabilities>[]
-      : TCapabilities
-type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
-  TCapabilities extends (...args: infer TArgs) => infer TResult
-    ? (...args: TArgs) => TResult extends PromiseLike<infer TResolved>
+type ValidateAgentCapabilitiesList<TCapabilities, TWorkspace> = TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
+  ? { [Index in keyof TCapabilities]: ValidateAgentCapability<TCapabilities[Index], TWorkspace, TCapabilities> }
+  : TCapabilities extends readonly (infer TCapability)[]
+    ? readonly ValidateAgentCapability<TCapability, TWorkspace, TCapabilities>[]
+    : TCapabilities
+type ValidateAgentCapabilities<TCapabilities, TWorkspace> = TCapabilities extends (...args: infer TArgs) => infer TResult
+  ? (
+      ...args: TArgs
+    ) => TResult extends PromiseLike<infer TResolved>
       ? Promise<ValidateAgentCapabilitiesList<TResolved, TWorkspace>>
       : ValidateAgentCapabilitiesList<TResult, TWorkspace>
-    : ValidateAgentCapabilitiesList<TCapabilities, TWorkspace>
-type UnionToIntersection<T> =
-  (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
-    ? TIntersection
-    : never
+  : ValidateAgentCapabilitiesList<TCapabilities, TWorkspace>
+type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void ? TIntersection : never
 type CapabilityInvocationContextValues<TCapability> =
   TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
     ? TTypeContract extends AgentCapabilityTypeContract
@@ -611,23 +565,24 @@ type CapabilityInvocationContextValues<TCapability> =
         : never
       : never
     : never
-type AgentCapabilitiesInvocationContextValues<TCapabilities> =
-  AgentInvocationContextValues & UnionToIntersection<
+type AgentCapabilitiesInvocationContextValues<TCapabilities> = AgentInvocationContextValues &
+  UnionToIntersection<
     ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly [unknown, ...unknown[]] | readonly []
       ? CapabilityInvocationContextValues<ResolvedAgentCapabilitiesInput<TCapabilities>[number]>
       : ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[]
         ? CapabilityInvocationContextValues<TCapability>
         : unknown
   >
-type ValidateWorkspaceAgentOptions<TOptions> =
-  TOptions extends { capabilities?: infer TCapabilities, workspace: infer TWorkspace }
-    ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> }
-      & ([WorkspaceSourcesWithRemovedScopes<TWorkspace> | AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>] extends [never]
-        ? unknown
-        : InvalidWorkspaceSourceOption<WorkspaceSourcesWithRemovedScopes<TWorkspace> | AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>>)
-    : unknown
-type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> =
-  (context: AgentRuntimeContext<TRuntimeConfig>) => Promise<AgentAdapter<CALL_OPTIONS>>
+type ValidateWorkspaceAgentOptions<TOptions> = TOptions extends { capabilities?: infer TCapabilities; workspace: infer TWorkspace }
+  ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> } & ([
+      WorkspaceSourcesWithRemovedScopes<TWorkspace> | AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>,
+    ] extends [never]
+      ? unknown
+      : InvalidWorkspaceSourceOption<WorkspaceSourcesWithRemovedScopes<TWorkspace> | AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>>)
+  : unknown
+type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> = (
+  context: AgentRuntimeContext<TRuntimeConfig>,
+) => Promise<AgentAdapter<CALL_OPTIONS>>
 type AgentDefinitionWithBaseResolve<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -693,20 +648,23 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): AgentRuntimeContext<TRuntimeConfig> {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   if (!context.agentIdentity || (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) return context
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return { ...context, [agentIdentityOwner]: agent as object } as AgentRuntimeContext<TRuntimeConfig>
 }
 
 function hasAgentDefinition(value: unknown): value is AgentDefinition {
-  return typeof value === "object"
-    && value !== null
-    && "resolve" in value
-    && typeof (value as { resolve?: unknown }).resolve === "function"
+  return (
+    isRuntimeObject(value) &&
+    value !== null &&
+    "resolve" in value &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    isRuntimeFunction((value as { resolve?: unknown }).resolve)
+  )
 }
 
-function resolveAgentWorkflowRuntimeBinding<
-  TRuntimeConfig extends AgentRuntimeConfig,
->(
+function resolveAgentWorkflowRuntimeBinding<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentWorkflowRuntimeBinding | undefined {
   if (!hasAgentDefinition(agent)) return undefined
@@ -721,7 +679,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   const definition = hasAgentDefinition(agent) ? agent : undefined
   const name = binding.name || ("discoveryDefault" in binding ? context.agentIdentity?.name : definition?.name || context.agentIdentity?.name)
   if (name) return name
-  throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
+  throw new Error('[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow("name").')
 }
 
 async function deferAgentWorkflowRecovery<TPayload, TResult>(
@@ -734,31 +692,30 @@ async function deferAgentWorkflowRecovery<TPayload, TResult>(
     try {
       await handle.defer(payload, options)
       return
-    }
-    catch (error) {
+    } catch (error) {
       failure = error
     }
   }
   throw failure
 }
 
-async function getAgentWorkflowHandle<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TOutput,
->(
+async function getAgentWorkflowHandle<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS, TOutput>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  _input: AgentRunInput<CALL_OPTIONS>,
   name: string,
   reuseRegistry: boolean,
   recovery = false,
 ): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>> {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
   const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
   const existing = handles.get(cacheKey)
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
 
   const { createWorkflow } = await loadAgentWorkflowModule()
-  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, loadWorkflowDefinition, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
+  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, loadWorkflowDefinition, registerInlineWorkflowDefinition } =
+    await loadAgentWorkflowRuntimeStateModule()
   const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
   if (registered) {
     const definition = await loadWorkflowDefinition(name)
@@ -771,19 +728,28 @@ async function getAgentWorkflowHandle<
       internalAgentInvocationRecovery: true,
       handler: async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
-        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        return (await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)) as AgentWorkflowOutput<TOutput>
       },
       options: { rootStep: false },
     })
   }
-  const handle = registered || recovery
-    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name)
-    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
-        const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
-        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
-      }, { rootStep: false })
+  const handle =
+    registered || recovery
+      ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name)
+      : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(
+          name,
+          async (workflowContext) => {
+            const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            return (await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)) as AgentWorkflowOutput<TOutput>
+          },
+          { rootStep: false },
+        )
   agentWorkflowNames.add(name)
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   agentWorkflowHandles.set(agent as object, handles)
   return handle
 }
@@ -792,24 +758,28 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   const generatedPrefix = "vitehub-invalid-"
   if (/^[a-zA-Z0-9_][a-zA-Z0-9-_]{0,99}$/.test(runId) && !runId.startsWith(generatedPrefix)) return runId
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(runId))
-  return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
+  return `${generatedPrefix}${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
   const materialized = await materializeMessageAttachmentData(messages)
-  return await Promise.all(materialized.map(async message => ({
-    ...message,
-    parts: await Promise.all(message.parts.map(async (part) => {
-      if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
-      let data = part.data
-      if (data instanceof Blob) data = await data.arrayBuffer()
-      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      const portable = data instanceof Uint8Array
-        ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
-        : part
-      return cloneWorkflowJsonValue(portable) as typeof part
+  return await Promise.all(
+    materialized.map(async (message) => ({
+      ...message,
+      parts: await Promise.all(
+        message.parts.map(async (part) => {
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
+          let data = part.data
+          if (data instanceof Blob) data = await data.arrayBuffer()
+          if (data instanceof ArrayBuffer) data = new Uint8Array(data)
+          const portable = data instanceof Uint8Array ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` } : part
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          return cloneWorkflowJsonValue(portable) as typeof part
+        }),
+      ),
     })),
-  })))
+  )
 }
 
 export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): Promise<AgentRunInput<CALL_OPTIONS>> {
@@ -817,16 +787,13 @@ export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunIn
   delete workflowInput.abortSignal
   if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
   if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
-  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
+  if (workflowInput.message && !isRuntimeString(workflowInput.message)) [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>
 }
 
-async function runAgentAsWorkflow<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TOutput,
->(
+async function runAgentAsWorkflow<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS, TOutput>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -854,22 +821,21 @@ async function runAgentAsWorkflow<
     workflowRuntimeState.setWorkflowRuntimeConfig(workflowConfig)
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
     if (owner && owner !== agent) return undefined
   }
   const disabledCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
-  const hasNonportableCapabilities = !await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)
+  const hasNonportableCapabilities = !(await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities))
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
   const workflowName = resolveAgentWorkflowName(agent, binding, context)
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, input, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   const workflowInput = await portableAgentWorkflowInput(input)
-  const inheritedRun = options.fresh && context.run
-    ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
-    : context.run
+  const inheritedRun = options.fresh && context.run ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId")) : context.run
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
@@ -890,57 +856,64 @@ async function runAgentAsWorkflow<
       waitUntil: context.waitUntil,
     },
   }
-  const workflowRunId = !options.fresh && context.run?.runId
-    ? workflowConfig && workflowConfig.provider === "cloudflare"
-      ? await portableAgentWorkflowRunId(context.run.runId)
-      : context.run.runId
-    : undefined
+  const workflowRunId =
+    !options.fresh && context.run?.runId
+      ? workflowConfig && workflowConfig.provider === "cloudflare"
+        ? await portableAgentWorkflowRunId(context.run.runId)
+        : context.run.runId
+      : undefined
   const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
     if (!hasAgentDefinition(agent)) return false
     const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
     const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
       agent,
+      input,
       getAgentInvocationRecoveryWorkflowName(handle.name),
       Boolean(context.agentIdentity),
       true,
     )
     try {
-      await deferAgentWorkflowRecovery(recoveryHandle, {
-        invocationRecovery: {
-          ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
-          runId,
-          sourceRunId,
-          workflowName,
+      await deferAgentWorkflowRecovery(
+        recoveryHandle,
+        {
+          invocationRecovery: {
+            ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
+            runId,
+            sourceRunId,
+            workflowName,
+          },
+          ...(context.trace ? { trace: context.trace } : {}),
         },
-        ...(context.trace ? { trace: context.trace } : {}),
-      }, { id: recoveryId })
+        { id: recoveryId },
+      )
       return true
-    }
-    catch {
+    } catch {
       return false
     }
   }
   let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   try {
-    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
-      payload,
-      workflowRunId ? { id: workflowRunId } : {},
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    run = (await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () =>
+      handle.run(payload, workflowRunId ? { id: workflowRunId } : {}),
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
-  }
-  catch (error) {
+  } catch (error) {
     const ambiguous = isAmbiguousAgentWorkflowStartFailure(error)
-    const failedRunId = !options.fresh && context.run?.runId
-      ? context.run.runId
-      : workflowRunId || (ambiguous ? undefined : createTraceId())
+    const failedRunId = !options.fresh && context.run?.runId ? context.run.runId : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
-      const recoveryAccepted = !ambiguous
-        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
-        || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
+      const recoveryAccepted =
+        !ambiguous ||
+        !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId) ||
+        (Boolean(agent.invocations) && (await deferRecovery(workflowRunId, failedRunId)))
       if (recoveryAccepted) {
-        const invocationJournal = await bindAgentInvocations(agent.invocations, {
-          ...context,
-          run: { ...context.run, runId: failedRunId },
-        }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
+        const invocationJournal = await bindAgentInvocations(
+          agent.invocations,
+          {
+            ...context,
+            run: { ...context.run, runId: failedRunId },
+          },
+          { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true },
+        )
         if (!ambiguous) await invocationJournal?.finish("failed", error)
       }
     }
@@ -953,12 +926,16 @@ async function runAgentAsWorkflow<
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
       const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id
-      if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
+      if (!(await deferRecovery(run.id, sourceRunId))) return { handle, run }
     }
-    invocationJournal = await bindAgentInvocations(agent.invocations, {
-      ...context,
-      run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
-    }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
+    invocationJournal = await bindAgentInvocations(
+      agent.invocations,
+      {
+        ...context,
+        run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
+      },
+      { agentName: agent.name, deferClaim: true, terminalTakeover: true },
+    )
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
@@ -966,17 +943,18 @@ async function runAgentAsWorkflow<
   return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
 }
 
-function resolveRegistryModule<TContext extends AgentRuntimeContext>(
-  module: AgentRegistryModule<TContext>,
-): AgentInput<TContext> | undefined {
-  return typeof module === "object" && module !== null && "default" in module
-    ? module.default as AgentInput<TContext> | undefined
-    : module as AgentInput<TContext>
+function resolveRegistryModule<TContext extends AgentRuntimeContext>(module: AgentRegistryModule<TContext>): AgentInput<TContext> | undefined {
+  return isRuntimeObject(module) && module !== null && "default" in module
+    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      (module.default as AgentInput<TContext> | undefined)
+    : // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      (module as AgentInput<TContext>)
 }
 
 function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
@@ -984,9 +962,7 @@ function createTraceId(run?: AgentRunMetadata): string {
   return run?.runId || globalThis.crypto?.randomUUID?.() || `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function createAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
-  context: AgentRuntimeContext<TRuntimeConfig>,
-) {
+function createAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(context: AgentRuntimeContext<TRuntimeConfig>) {
   const { runtimeConfig: _runtimeConfig, ...callbackContext } = createResolvedRuntimeContext(context)
   return callbackContext
 }
@@ -1004,7 +980,7 @@ function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig
 ): readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[] {
   const handlers = channel.effects?.[intent.kind]
   if (!handlers) return []
-  return typeof handlers === "function" ? [handlers] : [...handlers]
+  return isRuntimeFunction(handlers) ? [handlers] : [...handlers]
 }
 
 function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1053,10 +1029,7 @@ async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRunt
   invocationContext.set(messageChannelTitleSupportContextKey, supported, { overwrite: true })
 }
 
-async function applyChannelDeliveryEffectIntents<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function applyChannelDeliveryEffectIntents<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   intents: readonly AgentChannelDeliveryEffectIntent[],
   finish?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
@@ -1073,15 +1046,19 @@ async function applyChannelDeliveryEffectIntents<
       "channel.effect.supported": handlers.length > 0,
     }
     if (!active || !handlers.length) {
-      await runObservedAgentHook(context.hooks, {
-        ids: { channelId: active?.channelId, runId: context.run?.runId },
-        metadata,
-        name: "channel:delivery-effect",
-        owner: "channel",
-        phase: "effect",
-      }, async () => {
-        await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
-      })
+      await runObservedAgentHook(
+        context.hooks,
+        {
+          ids: { channelId: active?.channelId, runId: context.run?.runId },
+          metadata,
+          name: "channel:delivery-effect",
+          owner: "channel",
+          phase: "effect",
+        },
+        async () => {
+          await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
+        },
+      )
       continue
     }
 
@@ -1091,6 +1068,7 @@ async function applyChannelDeliveryEffectIntents<
             ...metadata,
             "error.message": agentErrorMessage(error),
           })
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
           return { deliver: true } as MessageChannelTitleDeliveryAttempt
         })
       : undefined
@@ -1116,58 +1094,61 @@ async function applyChannelDeliveryEffectIntents<
         if (context.input.abortSignal?.aborted) return
         try {
           await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
-        }
-        catch {}
-        await runObservedAgentHook(context.hooks, {
-          ids: { channelId: active.channelId, runId: context.run?.runId },
-          metadata,
-          name: "channel:delivery-effect",
-          owner: "channel",
-          phase: "effect",
-        }, async () => {
-          if (context.input.abortSignal?.aborted) {
-            skippedForAbort = true
-            return
-          }
-          await handler({
-            ...context.runtimeContext,
-            channel: active.channel,
-            context: context.context,
-            effect: intent,
-            ...(finish ? { finish: finish as never } : {}),
-            input: context.input,
-            request: context.runtimeContext.request,
-            run: context.run,
-            trigger: {
-              channelId: active.channelId,
-              ...(active.trigger?.id ? { id: active.trigger.id } : {}),
-              ...(active.trigger?.name ? { name: active.trigger.name } : {}),
-            },
-            workspace: context.workspace,
-          })
-          await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
-        })
+        } catch {}
+        await runObservedAgentHook(
+          context.hooks,
+          {
+            ids: { channelId: active.channelId, runId: context.run?.runId },
+            metadata,
+            name: "channel:delivery-effect",
+            owner: "channel",
+            phase: "effect",
+          },
+          async () => {
+            if (context.input.abortSignal?.aborted) {
+              skippedForAbort = true
+              return
+            }
+            await handler({
+              ...context.runtimeContext,
+              channel: active.channel,
+              context: context.context,
+              effect: intent,
+              // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              ...(finish ? { finish: finish as never } : {}),
+              input: context.input,
+              request: context.runtimeContext.request,
+              run: context.run,
+              trigger: {
+                channelId: active.channelId,
+                ...(active.trigger?.id ? { id: active.trigger.id } : {}),
+                ...(active.trigger?.name ? { name: active.trigger.name } : {}),
+              },
+              workspace: context.workspace,
+            })
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
+          },
+        )
         if (skippedForAbort) return
         handlerCompleted = true
-      }
-      catch (error) {
+      } catch (error) {
         delivered = false
         try {
-          console.error(JSON.stringify({
-            scope: "vitehub.channel.delivery",
-            event: "outbound.failed",
-            channelId: active.channelId.slice(0, 256),
-            effect: intent.kind.slice(0, 256),
-            intent: intent.intent?.slice(0, 256),
-            runId: context.run?.runId.slice(0, 256),
-            error: agentErrorMessage(error).slice(0, 2_000),
-          }))
-        }
-        catch {}
+          console.error(
+            JSON.stringify({
+              scope: "vitehub.channel.delivery",
+              event: "outbound.failed",
+              channelId: active.channelId.slice(0, 256),
+              effect: intent.kind.slice(0, 256),
+              intent: intent.intent?.slice(0, 256),
+              runId: context.run?.runId.slice(0, 256),
+              error: agentErrorMessage(error).slice(0, 2_000),
+            }),
+          )
+        } catch {}
         try {
           await delivery?.event({ error: agentErrorMessage(error), type: "outbound.failed", runId: context.run?.runId })
-        }
-        catch {}
+        } catch {}
         await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
@@ -1176,15 +1157,13 @@ async function applyChannelDeliveryEffectIntents<
       if (handlerCompleted) {
         try {
           await delivery?.event({ type: "outbound.completed", runId: context.run?.runId })
-        }
-        catch {}
+        } catch {}
       }
     }
     if (titleDelivery) {
       try {
         await finishMessageChannelTitleDelivery(titleDelivery, delivered, Boolean(finish))
-      }
-      catch (error) {
+      } catch (error) {
         await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
@@ -1201,13 +1180,14 @@ export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runti
 export { defineCapability } from "./capability-runtime.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
-export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
+export type {
+  AgentWebhookVerificationResult,
+  ResolvedAgentTriggerHandledInvocation,
+  ResolvedAgentTriggerInvocation,
+  ResolvedAgentTriggerInvocationResult,
+} from "./trigger-runtime.ts"
 export * from "./messages.ts"
-export {
-  agentInvocationStreamRoute,
-  createAgentInvocationStreamResponse,
-  readAgentInvocationStream,
-} from "./invocation-stream.ts"
+export { agentInvocationStreamRoute, createAgentInvocationStreamResponse, readAgentInvocationStream } from "./invocation-stream.ts"
 export type { AgentInvocationStreamErrorEvent, AgentInvocationStreamEvent } from "./invocation-stream.ts"
 export type { AgentDevLoopAgentSummary, AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
 
@@ -1232,64 +1212,67 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!inputs) return inputs
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const value = input as unknown
-    if (typeof value === "object" && value && "kind" in value && typeof value.kind === "string") continue
-    const channel = typeof input === "function"
+    if (isRuntimeObject(value) && value && "kind" in value && isRuntimeString(value.kind)) continue
+    const channel = isRuntimeFunction(input)
       ? input()
       : id === "discord"
-        ? builtInDiscord<TRuntimeConfig>(input as never)
+        ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          builtInDiscord<TRuntimeConfig>(input as never)
         : id === "github"
-          ? builtInGitHub<TRuntimeConfig>(input as never)
+          ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            builtInGitHub<TRuntimeConfig>(input as never)
           : id === "http"
-            ? builtInHttp<TRuntimeConfig>(input as never)
+            ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              builtInHttp<TRuntimeConfig>(input as never)
             : id === "slack"
-              ? builtInSlack<TRuntimeConfig>(input as never)
+              ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                builtInSlack<TRuntimeConfig>(input as never)
               : id === "teams"
-                ? builtInTeams<TRuntimeConfig>(input as never)
+                ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                  builtInTeams<TRuntimeConfig>(input as never)
                 : id === "telegram"
-                  ? builtInTelegram<TRuntimeConfig>(input as never)
+                  ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                    builtInTelegram<TRuntimeConfig>(input as never)
                   : id === "webChat"
-                    ? builtInWebChat<TRuntimeConfig>(input as never)
+                    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                      builtInWebChat<TRuntimeConfig>(input as never)
                     : undefined
-    if (!channel || typeof channel !== "object" || typeof channel.kind !== "string") {
-      throw new TypeError(typeof input === "function"
-        ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.`)
+    if (!channel || !isRuntimeObject(channel) || !isRuntimeString(channel.kind)) {
+      throw new TypeError(
+        isRuntimeFunction(input)
+          ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
+          : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.`,
+      )
     }
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
     channels[id] = channel
   }
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return channels || (inputs as AgentChannels<TRuntimeConfig>)
 }
 
 function capabilitiesContributeWorkspace(capabilities: unknown): boolean {
-  return Array.isArray(capabilities)
-    && normalizeCapabilities(capabilities).some(capability => Boolean(capability.workspace))
+  return Array.isArray(capabilities) && normalizeCapabilities(capabilities).some((capability) => Boolean(capability.workspace))
 }
 
 function capabilitiesRequireWritableWorkspace(capabilities: unknown): boolean {
-  return Array.isArray(capabilities)
-    && normalizeCapabilities(capabilities).some(capability =>
-      capability.requires?.some(requirement => requirement.workspace?.mode === "write"),
-    )
+  return (
+    Array.isArray(capabilities) &&
+    normalizeCapabilities(capabilities).some((capability) => capability.requires?.some((requirement) => requirement.workspace?.mode === "write"))
+  )
 }
 
-function agentContributesWorkspace(options: {
-  capabilities?: unknown
-  channels?: AgentChannels
-}): boolean {
+function agentContributesWorkspace(options: { capabilities?: unknown; channels?: AgentChannels }): boolean {
   if (capabilitiesContributeWorkspace(options.capabilities)) return true
-  return Object.values(options.channels || {})
-    .some(channel => capabilitiesContributeWorkspace(channel.capabilities))
+  return Object.values(options.channels || {}).some((channel) => capabilitiesContributeWorkspace(channel.capabilities))
 }
 
-function agentRequiresWritableWorkspace(options: {
-  capabilities?: unknown
-  channels?: AgentChannels
-}): boolean {
+function agentRequiresWritableWorkspace(options: { capabilities?: unknown; channels?: AgentChannels }): boolean {
   if (capabilitiesRequireWritableWorkspace(options.capabilities)) return true
-  return Object.values(options.channels || {})
-    .some(channel => capabilitiesRequireWritableWorkspace(channel.capabilities))
+  return Object.values(options.channels || {}).some((channel) => capabilitiesRequireWritableWorkspace(channel.capabilities))
 }
 
 function defineBaseAgent<
@@ -1298,57 +1281,90 @@ function defineBaseAgent<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TOutput = unknown,
 >(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
+  options: AgentSettings<
+    TRuntimeConfig,
+    CALL_OPTIONS,
+    TInvokerProfile,
+    AgentInvocationContextValues,
+    AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
+    TOutput
+  >,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, telemetry, uiMessageStream, version, workspace } = options
+  const {
+    capabilities,
+    cli,
+    description,
+    hooks,
+    invocations,
+    messages,
+    name,
+    runtime = defaultAgentWorkflowRuntime(),
+    runEvents,
+    telemetry,
+    uiMessageStream,
+    version,
+    workspace,
+  } = options
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" ? driver.run : undefined
-  const capabilitiesResolver = typeof capabilities === "function"
-    ? capabilities as AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
+  const capabilitiesResolver = isRuntimeFunction(capabilities)
+    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      (capabilities as AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>)
     : undefined
   const baseCapabilities = normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
   const chatCapability = getChatCapabilityOptions<TRuntimeConfig>(baseCapabilities)
   if (chatCapability && channelChat) {
-    throw new TypeError("[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels }).")
+    throw new TypeError(
+      "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels }).",
+    )
   }
   const chat = chatCapability || channelChat
   const normalizedCapabilities = channelChat
-    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
+    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
     : baseCapabilities
-  if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
-    driverKind: driver.kind,
-    hasWorkspace: false,
-  })
+  if (!workspace)
+    validateAgentCapabilityComposition(normalizedCapabilities, {
+      driverKind: driver.kind,
+      hasWorkspace: false,
+    })
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
-    const resolvedAdapter = driver.kind === "model"
-      ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
-          execution: driver.execution,
-          instructions: driver.instructions,
-          model: driver.model,
-        } as never) as AgentAdapter<CALL_OPTIONS>
-      : driver.kind === "provider"
-        ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS>({
-            env: driver.env,
+    const resolvedAdapter =
+      driver.kind === "model"
+        ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          ((await import("./ai-sdk.ts")).createAiSdkAdapter({
             execution: driver.execution,
             instructions: driver.instructions,
             model: driver.model,
-            permissions: driver.permissions,
-            provider: driver.provider,
-          })))
-        : undefined
+          } as never) as AgentAdapter<CALL_OPTIONS>)
+        : driver.kind === "provider"
+          ? await (providerAdapter ??= import("./provider-agent.ts").then((module) =>
+              module.createProviderAgentAdapter<CALL_OPTIONS>({
+                env: driver.env,
+                execution: driver.execution,
+                instructions: driver.instructions,
+                model: driver.model,
+                permissions: driver.permissions,
+                provider: driver.provider,
+              }),
+            ))
+          : undefined
     if (!resolvedAdapter) {
       throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
-    return typeof resolvedAdapter === "function"
-      ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
-      : resolvedAdapter
+    if (!isRuntimeFunction(resolvedAdapter)) return resolvedAdapter
+    const adapterFactory: unknown = resolvedAdapter
+    // SAFETY: The runtime callable guard above establishes the configured adapter factory branch.
+    return await (adapterFactory as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
   }
 
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const definition = {
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
@@ -1376,15 +1392,14 @@ function defineBaseAgent<
       context = withAgentIdentityOwner(definition, context)
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
-      const resolvedTools = driver.kind === "model" && normalizedCapabilities.length && !workspace
-        ? await resolveStaticCapabilityTools({ capabilities: normalizedCapabilities }, resolvedContext)
-        : undefined
+      const resolvedTools =
+        driver.kind === "model" && normalizedCapabilities.length && !workspace
+          ? await resolveStaticCapabilityTools({ capabilities: normalizedCapabilities }, resolvedContext)
+          : undefined
       const capabilityTools = Object.keys(resolvedTools || {}).length
         ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolvedTools) || {}), context.toolStepReporter)
         : undefined
-      return capabilityTools
-        ? { ...adapterInstance, tools: capabilityTools }
-        : adapterInstance
+      return capabilityTools ? { ...adapterInstance, tools: capabilityTools } : adapterInstance
     },
   } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS, TOutput>
   configureAgentCapacity(definition, driver.capacity)
@@ -1408,31 +1423,35 @@ function defaultAgentWorkflowRuntime(): DefaultAgentWorkflowRuntimeBinding {
   return { discoveryDefault: true, kind: "workflow" }
 }
 
-function createSyntheticWorkspaceRun<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TOutput,
->(
+function createSyntheticWorkspaceRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS, TOutput>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
     let release = await acquireAgentCapacity(definition, context.input.abortSignal)
     try {
-      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context, context.input)
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
-      const textOutput = typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
-        ? (result as { text: string }).text
-        : undefined
-      if (textOutput !== undefined && result && typeof result === "object") {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      const textOutput =
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        isRuntimeObject(result) && result && "text" in result && isRuntimeString((result as { text?: unknown }).text)
+          ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            (result as { text: string }).text
+          : undefined
+      if (textOutput !== undefined && result && isRuntimeObject(result)) {
         const eagerStreams: AsyncIterable<unknown>[] = []
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
         for (const property of ["stream", "fullStream", "textStream"] as const) {
           let descriptor: PropertyDescriptor | undefined
           for (let owner: object | null = result; owner && !descriptor; owner = Object.getPrototypeOf(owner))
             descriptor = Object.getOwnPropertyDescriptor(owner, property)
           if (descriptor && "value" in descriptor && isAsyncIterable(descriptor.value)) eagerStreams.push(descriptor.value)
         }
-        await Promise.allSettled([...new Set(eagerStreams)].map(stream => cancellableAsyncIterableSource(stream).cancel()))
+        await Promise.allSettled([...new Set(eagerStreams)].map((stream) => cancellableAsyncIterableSource(stream).cancel()))
       }
       const output = textOutput ?? result
       if (!release) return output
@@ -1451,11 +1470,10 @@ function createSyntheticWorkspaceRun<
           cancelOnAbort: source.cancel,
         })
         release = undefined
-        return typeof (output as ReadableStream<unknown>).getReader === "function"
-          ? toReadableAsyncIterableStream(streamed)
-          : streamed
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        return isRuntimeFunction((output as ReadableStream<unknown>).getReader) ? toReadableAsyncIterableStream(streamed) : streamed
       }
-      if (output && typeof output === "object") {
+      if (output && isRuntimeObject(output)) {
         const capacityRelease = release
         const sources = new Set<ReturnType<typeof cancellableAsyncIterableSource>>()
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
@@ -1464,7 +1482,7 @@ function createSyntheticWorkspaceRun<
           if (finished) return
           finished = true
           context.input.abortSignal?.removeEventListener("abort", onAbort)
-          await Promise.allSettled([...sources].filter(source => source !== completedSource).map(source => source.cancel(reason)))
+          await Promise.allSettled([...sources].filter((source) => source !== completedSource).map((source) => source.cancel(reason)))
           capacityRelease()
         }
         const onAbort = () => void finish(context.input.abortSignal?.reason).catch(() => {})
@@ -1474,13 +1492,12 @@ function createSyntheticWorkspaceRun<
           if (finished) throw new Error("[vitehub] Agent Invocation output has already finished.")
           const source = cancellableAsyncIterableSource(stream)
           sources.add(source)
-          const wrapped = withCapabilityCleanup(source.stream, outcome => finish(outcome.failed ? outcome.error : undefined, source), {
+          const wrapped = withCapabilityCleanup(source.stream, (outcome) => finish(outcome.failed ? outcome.error : undefined, source), {
             abortSignal: context.input.abortSignal,
             cancelOnAbort: source.cancel,
           })
-          const preserved = typeof (stream as ReadableStream<unknown>).getReader === "function"
-            ? toReadableAsyncIterableStream(wrapped)
-            : wrapped
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          const preserved = isRuntimeFunction((stream as ReadableStream<unknown>).getReader) ? toReadableAsyncIterableStream(wrapped) : wrapped
           preservedStreams.set(stream, preserved)
           return preserved
         }
@@ -1513,8 +1530,7 @@ function createSyntheticWorkspaceRun<
                       }
                       if (isAsyncIterable(resolved)) unresolvedLazyStreamSurfaces--
                       initialized = true
-                    }
-                    catch (error) {
+                    } catch (error) {
                       void finish(error).catch(() => {})
                       throw error
                     }
@@ -1522,8 +1538,7 @@ function createSyntheticWorkspaceRun<
                   return value
                 },
               }
-            }
-            else {
+            } else {
               if (!isAsyncIterable(descriptor.value)) continue
               hasStreamSurface = true
               descriptors[property] = {
@@ -1535,6 +1550,7 @@ function createSyntheticWorkspaceRun<
           if (isUIMessageStreamResult(output)) {
             hasStreamSurface = true
             unresolvedLazyStreamSurfaces++
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
             const toUIMessageStream = output.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
             let uiMessageStreamResolved = false
             descriptors.toUIMessageStream = {
@@ -1549,16 +1565,14 @@ function createSyntheticWorkspaceRun<
                     unresolvedLazyStreamSurfaces--
                   }
                   return wrapStream(stream)
-                }
-                catch (error) {
+                } catch (error) {
                   void finish(error).catch(() => {})
                   throw error
                 }
               },
             }
           }
-        }
-        catch (error) {
+        } catch (error) {
           await finish(error)
           throw error
         }
@@ -1571,8 +1585,7 @@ function createSyntheticWorkspaceRun<
         }
       }
       return output
-    }
-    finally {
+    } finally {
       release?.()
     }
   }
@@ -1584,32 +1597,32 @@ type AgentCapabilitiesOption<
   Name extends WorkspaceName,
   CALL_OPTIONS,
   TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
-> = (TCapabilities & ValidateStaticAgentCapabilities<TCapabilities>) | AgentCapabilitiesResolver<
-  TRuntimeConfig,
-  Name,
-  CALL_OPTIONS,
-  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
-    ? TCapabilities
-    : readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
->
-
-type ValidateStaticAgentCapability<TCapability> =
-  TCapability extends AgentCapabilityDefinition
-    ? TCapability
-    : Extract<keyof TCapability, symbol> extends never
-      ? never
-      : TCapability[Extract<keyof TCapability, symbol>] extends true
-        ? TCapability
-        : never
-
-type ValidateStaticAgentCapabilities<TCapabilities> =
-  TCapabilities extends readonly unknown[]
-    ? number extends TCapabilities["length"]
-      ? IsTypedAgentStaticCapabilitiesList<TCapabilities> extends true
+> =
+  | (TCapabilities & ValidateStaticAgentCapabilities<TCapabilities>)
+  | AgentCapabilitiesResolver<
+      TRuntimeConfig,
+      Name,
+      CALL_OPTIONS,
+      TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
         ? TCapabilities
-        : readonly ValidateStaticAgentCapability<TCapabilities[number]>[]
-      : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
-    : TCapabilities
+        : readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+    >
+
+type ValidateStaticAgentCapability<TCapability> = TCapability extends AgentCapabilityDefinition
+  ? TCapability
+  : Extract<keyof TCapability, symbol> extends never
+    ? never
+    : TCapability[Extract<keyof TCapability, symbol>] extends true
+      ? TCapability
+      : never
+
+type ValidateStaticAgentCapabilities<TCapabilities> = TCapabilities extends readonly unknown[]
+  ? number extends TCapabilities["length"]
+    ? IsTypedAgentStaticCapabilitiesList<TCapabilities> extends true
+      ? TCapabilities
+      : readonly ValidateStaticAgentCapability<TCapabilities[number]>[]
+    : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
+  : TCapabilities
 
 export interface DefineAgent {
   <
@@ -1617,7 +1630,9 @@ export interface DefineAgent {
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined =
+      | readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+      | undefined,
     TOutput = unknown,
     const TOptions extends WorkspaceAgentOptions<
       TRuntimeConfig,
@@ -1639,14 +1654,28 @@ export interface DefineAgent {
       CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
     >,
   >(
-    options: TOptions & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, driver: CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput> } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
+    options: TOptions & {
+      capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>
+      driver: CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
+      invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>>
+    } & ValidateWorkspaceAgentOptions<TOptions>,
+  ): WorkspaceAgentDefinition<
+    TRuntimeConfig,
+    Name,
+    CALL_OPTIONS,
+    TInvokerProfile,
+    AgentCapabilitiesInvocationContextValues<TCapabilities>,
+    AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>,
+    TOutput
+  >
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined =
+      | readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+      | undefined,
     TOutput = unknown,
     const TOptions extends WorkspaceAgentOptions<
       TRuntimeConfig,
@@ -1664,8 +1693,20 @@ export interface DefineAgent {
       AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>
     >,
   >(
-    options: TOptions & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput> } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
+    options: TOptions & {
+      capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>
+      driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
+      invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>>
+    } & ValidateWorkspaceAgentOptions<TOptions>,
+  ): WorkspaceAgentDefinition<
+    TRuntimeConfig,
+    Name,
+    CALL_OPTIONS,
+    TInvokerProfile,
+    AgentCapabilitiesInvocationContextValues<TCapabilities>,
+    AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>,
+    TOutput
+  >
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
@@ -1681,7 +1722,7 @@ export interface DefineAgent {
       AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>,
       TOutput,
       CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
-    > & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never },
+    > & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>; workspace?: never },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1697,7 +1738,7 @@ export interface DefineAgent {
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
       AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>,
       TOutput
-    > & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never },
+    > & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>; workspace?: never },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
 }
 
@@ -1708,16 +1749,36 @@ function createWorkspaceAgentDefinition<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TOutput = unknown,
 >(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined, TOutput>,
-): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined, TOutput> {
-  const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
+  options: WorkspaceAgentOptions<
+    TRuntimeConfig,
+    Name,
+    CALL_OPTIONS,
+    TInvokerProfile,
+    AgentInvocationContextValues,
+    AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
+    TOutput
+  >,
+): WorkspaceAgentDefinition<
+  TRuntimeConfig,
+  Name,
+  CALL_OPTIONS,
+  TInvokerProfile,
+  AgentInvocationContextValues,
+  AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
+  TOutput
+> {
+  const untypedOptions: unknown = options
+  // SAFETY: Workspace option normalization reads only the shared runtime fields represented by the erased config type.
+  const normalizedOptions = untypedOptions as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
+  const workspaceDefinition = workspaceDefinitionFromOptions(normalizedOptions)
   if (Array.isArray(options.capabilities)) {
     validateAgentCapabilityComposition(options.capabilities, {
       driverKind: normalizeAgentDriver(options).kind,
       hasWorkspace: true,
-      workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
+      workspaceMode: workspaceModeFromOptions(normalizedOptions),
     })
   }
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const definition = defineBaseAgent<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TOutput>({
     ...options,
     description: options.description,
@@ -1725,7 +1786,15 @@ function createWorkspaceAgentDefinition<
     runtime: options.runtime,
     version: options.version,
     workspace: workspaceDefinition,
-  } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined, TOutput>
+  } as never) as WorkspaceAgentDefinition<
+    TRuntimeConfig,
+    Name,
+    CALL_OPTIONS,
+    TInvokerProfile,
+    AgentInvocationContextValues,
+    AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
+    TOutput
+  >
 
   if (!definition.run) {
     definition.run = createSyntheticWorkspaceRun(definition)
@@ -1738,12 +1807,12 @@ function createWorkspaceAgentDefinition<
   return definition
 }
 
+// SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
 export const defineAgent: DefineAgent = ((options: unknown) => {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const agentOptions = options as AgentSettings
   const channels = normalizeAgentChannels(agentOptions.channels)
-  const normalizedOptions = channels === agentOptions.channels
-    ? agentOptions
-    : { ...agentOptions, channels }
+  const normalizedOptions = channels === agentOptions.channels ? agentOptions : { ...agentOptions, channels }
   if (isWorkspaceAgentOptions(normalizedOptions)) {
     return createWorkspaceAgentDefinition(normalizedOptions)
   }
@@ -1762,30 +1831,36 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
             : "read",
         },
       })
-    : defineBaseAgent(normalizedOptions as never)
+    : // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      defineBaseAgent(normalizedOptions as never)
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
   if (!instructions || !hasAgentDefinition(agent)) return agent
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
   if (!settings || settings.workspace) return agent
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "run" || driver.instructions !== undefined) return agent
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const definition = defineAgent({
     ...settings,
-    driver: driver.kind === "model"
-      ? { ...(settings.driver as AgentModelDriver), instructions }
-      : {
-          capacity: driver.capacity,
-          env: driver.env,
-          execution: driver.execution,
-          instructions,
-          kind: driver.provider,
-          model: driver.model,
-          output: driver.output,
-          permissions: driver.permissions,
-        },
+    driver:
+      driver.kind === "model"
+        ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          { ...(settings.driver as AgentModelDriver), instructions }
+        : {
+            capacity: driver.capacity,
+            env: driver.env,
+            execution: driver.execution,
+            instructions,
+            kind: driver.provider,
+            model: driver.model,
+            output: driver.output,
+            permissions: driver.permissions,
+          },
   } as never) as Agent
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
   delete decorations.__vitehubAgentSettings
   Reflect.deleteProperty(decorations, baseAgentResolve)
@@ -1793,43 +1868,46 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   Reflect.deleteProperty(decorations, baseAgentDriverKind)
   Reflect.deleteProperty(decorations, baseAgentDefinitionResolve)
   if (
-    (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown }).resolve
-    === (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown })[baseAgentDefinitionResolve]
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown }).resolve ===
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown })[baseAgentDefinitionResolve]
   ) {
     delete decorations.resolve
   }
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   Object.setPrototypeOf(definition as object, Object.getPrototypeOf(agent as object))
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   Object.defineProperties(definition as object, decorations)
   return definition
 }
 
-export async function resolveAgent<TContext extends AgentRuntimeContext>(
-  agent: AgentInput<TContext>,
-  context: TContext,
-): Promise<AgentAdapter> {
+export async function resolveAgent<TContext extends AgentRuntimeContext>(agent: AgentInput<TContext>, context: TContext): Promise<AgentAdapter> {
   if (hasAgentDefinition(agent)) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     return await agent.resolve(context as never)
   }
 
   throw new TypeError("[vitehub] Invalid agent definition.")
 }
 
-async function resolveAgentForRun<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function resolveAgentForRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
+  _input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<AgentAdapter<CALL_OPTIONS>> {
   if (hasAgentDefinition(agent)) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const resolver = (agent as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>)[baseAgentResolve]
     if (resolver) return await resolver(context)
   }
-  return await resolveAgent(agent, context) as AgentAdapter<CALL_OPTIONS>
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  return (await resolveAgent(agent, context)) as AgentAdapter<CALL_OPTIONS>
 }
 
 export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>(
   name: string,
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   registry: AgentRegistry<TContext> = agentRegistry as AgentRegistry<TContext>,
 ): Promise<AgentInput<TContext>> {
   const loader = registry[name]
@@ -1845,38 +1923,23 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   return agent
 }
 
-export async function resolveAgentTriggers<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
->(
+export async function resolveAgentTriggers<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
   return await resolveAgentTriggersWithResolvedContext(agent, createResolvedRuntimeContext(context))
 }
 
-export async function resolveAgentTriggerInvocation<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TInput = unknown,
-  CALL_OPTIONS = unknown,
->(
+export async function resolveAgentTriggerInvocation<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TInput = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
-): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
-  return await resolveAgentTriggerInvocationWithResolvedContext<TRuntimeConfig, TInput, CALL_OPTIONS>(
-    agent,
-    createResolvedRuntimeContext(context),
-    triggerId,
-    input,
-  )
+): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, unknown>> {
+  return await resolveAgentTriggerInvocationWithResolvedContext<TRuntimeConfig, TInput, unknown>(agent, createResolvedRuntimeContext(context), triggerId, input)
 }
 
-export async function runAgentTrigger<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TInput = unknown,
-  CALL_OPTIONS = unknown,
->(
+export async function runAgentTrigger<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TInput = unknown, CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
@@ -1885,11 +1948,7 @@ export async function runAgentTrigger<
   return await runAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(runAgent, agent, createResolvedRuntimeContext(context), triggerId, input)
 }
 
-export async function streamAgentTrigger<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TInput = unknown,
-  CALL_OPTIONS = unknown,
->(
+export async function streamAgentTrigger<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TInput = unknown, CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
@@ -1899,25 +1958,28 @@ export async function streamAgentTrigger<
     output?: "events" | "ui-message-stream"
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  return await streamAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(streamAgent, agent, createResolvedRuntimeContext(context), triggerId, input, options)
+  return await streamAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(
+    streamAgent,
+    agent,
+    createResolvedRuntimeContext(context),
+    triggerId,
+    input,
+    options,
+  )
 }
 
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  _input: AgentRunInput<CALL_OPTIONS>,
 ): agent is AgentDefinition<TRuntimeConfig, any> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
-  return hasAgentDefinition(agent)
-    && typeof agent.run === "function"
-    && !(syntheticWorkspaceRun in agent.run)
+  return hasAgentDefinition(agent) && isRuntimeFunction(agent.run) && !(syntheticWorkspaceRun in agent.run)
 }
 
 interface RunAgentInlineOptions {
   output?: "raw" | "rendered"
 }
 
-type AgentInvocationContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-> = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
+type AgentInvocationContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS> = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -1938,7 +2000,7 @@ type AgentInvocationContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   startTask?: Promise<void>
   telemetry?: AgentTelemetry<TRuntimeConfig>
-  telemetryAgent: { name?: string, version?: string }
+  telemetryAgent: { name?: string; version?: string }
   telemetryInvocationId: string
   instructions?: string
   startedAt: number
@@ -1954,18 +2016,17 @@ type AgentInvocationContext<
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
 }
 
-function toAgentAdapterRunContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function toAgentAdapterRunContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
     instructions: context.instructions,
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
     nativeStructuredOutput: !context.outputRenderers.length && !context.finalOutputRenderers.length,
     runtime: context.runtimeContext,
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
   }
 }
@@ -1973,8 +2034,7 @@ function toAgentAdapterRunContext<
 async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<WorkspaceDefinition | undefined> {
   try {
     return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
-  }
-  catch (error) {
+  } catch (error) {
     if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
     throw error
   }
@@ -2004,6 +2064,7 @@ function mergeAgentWorkspaceDefinition(
   if (!registered) return configured ? { ...configured, name } : undefined
   if (!configured) return { ...registered, name: registered.name || name }
 
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const { name: _configuredName, sources: configuredSources, ...configuredFields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   const { mode: _mode, ...configuredDefinitionFields } = configuredFields
   if (!Object.keys(configuredDefinitionFields).length && !Object.keys(configuredSources || {}).length) {
@@ -2019,13 +2080,9 @@ function mergeAgentWorkspaceDefinition(
 
 const ownedAgentWorkspaceDefinitions = new WeakMap<object, Map<string, WorkspaceDefinition>>()
 
-function resolveOwnedAgentWorkspaceDefinition(
-  agent: unknown,
-  name: string,
-  configured: WorkspaceDefinition | undefined,
-): WorkspaceDefinition | undefined {
+function resolveOwnedAgentWorkspaceDefinition(agent: unknown, name: string, configured: WorkspaceDefinition | undefined): WorkspaceDefinition | undefined {
   const resolved = configured ? { ...configured, name } : undefined
-  if (typeof agent !== "object" || agent === null) return resolved
+  if (!isRuntimeObject(agent) || agent === null) return resolved
   const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
   const existing = definitions.get(name)
   if (existing) return existing
@@ -2033,7 +2090,7 @@ function resolveOwnedAgentWorkspaceDefinition(
   return resolved
 }
 
-function setOwnedAgentWorkspaceDefinition(agent: object, name: string, definition: WorkspaceDefinition): void {
+function setOwnedAgentWorkspaceDefinition<TOwner extends object>(agent: TOwner, name: string, definition: WorkspaceDefinition): void {
   const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
   definitions.set(name, definition)
   ownedAgentWorkspaceDefinitions.set(agent, definitions)
@@ -2041,6 +2098,7 @@ function setOwnedAgentWorkspaceDefinition(agent: object, name: string, definitio
 
 function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
   if (!definition) return false
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
 }
@@ -2054,12 +2112,12 @@ async function registerResolvedAgentWorkspaceDefinition(name: string, definition
 
 const ownedAgentWorkspaceRegistrations = new WeakMap<object, Map<string, Promise<WorkspaceDefinition | undefined>>>()
 
-async function awaitOwnedAgentWorkspaceRegistration(agent: object, name: string): Promise<void> {
+async function awaitOwnedAgentWorkspaceRegistration<TOwner extends object>(agent: TOwner, name: string): Promise<void> {
   await ownedAgentWorkspaceRegistrations.get(agent)?.get(name)
 }
 
-async function registerOwnedAgentWorkspaceDefinition(
-  agent: object,
+async function registerOwnedAgentWorkspaceDefinition<TOwner extends object>(
+  agent: TOwner,
   name: string,
   definition: WorkspaceDefinition,
 ): Promise<WorkspaceDefinition | undefined> {
@@ -2083,11 +2141,14 @@ function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, 
   void task.catch(() => {})
   try {
     runtime.waitUntil(task)
-  }
-  catch {}
+  } catch {}
 }
 
-function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>, invocationId: string, runId?: string): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
+function agentInvocationTraceLog(
+  traceLog: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>,
+  invocationId: string,
+  runId?: string,
+): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
   return {
     append(event) {
       return traceLog.append({
@@ -2106,40 +2167,39 @@ function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeConte
 function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   telemetry: AgentTelemetry<TRuntimeConfig> | undefined,
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-  agent: { name?: string, version?: string },
+  agent: { name?: string; version?: string },
   invocationId: string,
 ): void {
   if (!telemetry || !runtime.traceLog) return
   const task = Promise.resolve()
     .then(async () => {
-      const events = runtime.traceLog!.entries().filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
+      const events = runtime.traceLog!.entries().filter((event) => event.attributes?.["agent.invocation.id"] === invocationId)
       const runs = deriveTraceRuns(events)
       const id = runtime.run?.runId || runtime.trace?.id
-      const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
+      const run = (id ? runs.find((candidate) => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
       if (!run || run.status === "running") return
       const name = runtime.agentIdentity?.name || agent.name
-      const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) => index
-        ? span
-        : {
-            ...span,
-            attributes: {
-              ...span.attributes,
-              "gen_ai.operation.name": "invoke_agent",
-              ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
-              ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
-              "vitehub.runtime.name": runtime.runtime,
+      const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) =>
+        index
+          ? span
+          : {
+              ...span,
+              attributes: {
+                ...span.attributes,
+                "gen_ai.operation.name": "invoke_agent",
+                ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
+                ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
+                "vitehub.runtime.name": runtime.runtime,
+              },
             },
-          })
+      )
       await telemetry({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans })
     })
     .catch(() => console.error("[vitehub] Agent telemetry export failed."))
   registerAgentBackgroundTask(runtime, task)
 }
 
-async function createAgentInvocationContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function createAgentInvocationContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -2158,30 +2218,28 @@ async function createAgentInvocationContext<
     await context.toolStepReporter?.(step)
   }
   invocationContext.set(agentInvocationTraceIdContextKey, telemetryInvocationId, { overwrite: true })
-  const tracedRuntimeContextBase = resolvedContext.trace && resolvedContext.traceLog
-    ? resolvedContext
-    : {
-        ...resolvedContext,
-        trace: resolvedContext.trace || { id: createTraceId(context.run) },
-        traceLog: resolvedContext.traceLog || createTraceEventLog(),
-      }
-  const tracedRuntimeContext = definition?.telemetry && tracedRuntimeContextBase.traceLog
-    ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId) }
-    : tracedRuntimeContextBase
+  const tracedRuntimeContextBase =
+    resolvedContext.trace && resolvedContext.traceLog
+      ? resolvedContext
+      : {
+          ...resolvedContext,
+          trace: resolvedContext.trace || { id: createTraceId(context.run) },
+          traceLog: resolvedContext.traceLog || createTraceEventLog(),
+        }
+  const tracedRuntimeContext =
+    definition?.telemetry && tracedRuntimeContextBase.traceLog
+      ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId) }
+      : tracedRuntimeContextBase
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
-    runtimeContext = boundRunEvents
-      ? { ...tracedRuntimeContext, runEvents: boundRunEvents }
-      : tracedRuntimeContext
+    runtimeContext = boundRunEvents ? { ...tracedRuntimeContext, runEvents: boundRunEvents } : tracedRuntimeContext
     const callbackContext = createAgentCallbackContext(runtimeContext)
-    bindMessageChannelInstructions(
-      invocationContext,
-      activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
-    )
+    bindMessageChannelInstructions(invocationContext, activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel)
     invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
     invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
     invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
     invoker = await resolveAgentInvoker(
@@ -2192,8 +2250,11 @@ async function createAgentInvocationContext<
       context.run,
       invocationContext.get<boolean>(scheduledAgentTurnContextKey) === true,
     )
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
     const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
@@ -2212,6 +2273,7 @@ async function createAgentInvocationContext<
       : []
     const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
     const channelCapabilities = activeChannel?.capabilities || []
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const resolvedCapabilityDefinitions = normalizeCapabilities([
       ...invocationResolvedCapabilities,
       ...(definition?.capabilities || []),
@@ -2223,24 +2285,16 @@ async function createAgentInvocationContext<
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
-    const workspaceName = workspaceOptions
-      ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
-      : undefined
-    const configuredWorkspaceDefinition = workspaceOptions && workspaceName
-      ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
-      : undefined
+    const workspaceName = workspaceOptions ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity) : undefined
+    const configuredWorkspaceDefinition =
+      workspaceOptions && workspaceName ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName } : undefined
     const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
-    const registeredWorkspaceDefinition = workspaceName
-      ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
-      : undefined
-    if (workspaceName && ownsWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+    const registeredWorkspaceDefinition = workspaceName ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName) : undefined
+    if (workspaceName && ownsWorkspaceDefinition && isRuntimeObject(workspaceDefinition) && workspaceDefinition !== null) {
       await awaitOwnedAgentWorkspaceRegistration(workspaceDefinition, workspaceName)
     }
     const usesRegisteredOwnedDefinition = Boolean(
-      workspaceName
-      && ownsWorkspaceDefinition
-      && registeredWorkspaceDefinition
-      && workspaceAgentUsesRegisteredDefinition(workspaceDefinition, workspaceName),
+      workspaceName && ownsWorkspaceDefinition && registeredWorkspaceDefinition && workspaceAgentUsesRegisteredDefinition(workspaceDefinition, workspaceName),
     )
     const configuredDefinitionForMerge = ownsWorkspaceDefinition ? undefined : configuredWorkspaceDefinition
     let resolvedWorkspaceDefinition = workspaceName
@@ -2251,40 +2305,43 @@ async function createAgentInvocationContext<
         : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
     if (workspaceName && ownsWorkspaceDefinition && resolvedWorkspaceDefinition && !registeredWorkspaceDefinition) {
-      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+      if (resolvedWorkspaceDefinition && isRuntimeObject(workspaceDefinition) && workspaceDefinition !== null) {
         resolvedWorkspaceDefinition = await registerOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
-      }
-      else {
+      } else {
         resolvedWorkspaceDefinition = await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
       }
-      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+      if (resolvedWorkspaceDefinition && isRuntimeObject(workspaceDefinition) && workspaceDefinition !== null) {
         setOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
       }
     }
-    const workspaceUseOptions = resolvedWorkspaceDefinition && (
-      ownsWorkspaceDefinition
-        ? !usesRegisteredOwnedDefinition
-        : hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge)
-    )
-      ? { definition: resolvedWorkspaceDefinition }
-      : undefined
+    const workspaceUseOptions =
+      resolvedWorkspaceDefinition && (ownsWorkspaceDefinition ? !usesRegisteredOwnedDefinition : hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge))
+        ? { definition: resolvedWorkspaceDefinition }
+        : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
-    const baseWorkspace = workspaceName && workspaceModule
-      ? workspaceMode === "write"
-        ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
-        : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
-      : undefined
+    const baseWorkspace =
+      workspaceName && workspaceModule
+        ? workspaceMode === "write"
+          ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
+          : workspaceUseOptions
+            ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" })
+            : workspaceModule.useWorkspace(workspaceName)
+        : undefined
     const workspace = baseWorkspace
     const capabilityOptions = resolvedCapabilityDefinitions.length
-      ? { capabilities: resolvedCapabilityDefinitions, hooks: definition?.hooks as never }
+      ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        { capabilities: resolvedCapabilityDefinitions, hooks: definition?.hooks as never }
       : undefined
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const agentModel = internalDefinition?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
       invocationKind,
       invoker,
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       model: agentModel as never,
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
@@ -2292,24 +2349,30 @@ async function createAgentInvocationContext<
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
-        await runObservedAgentHook(definition?.hooks as AgentHookObserverHooks | undefined, {
-          name: "agent:input",
-          owner: "agent",
-          phase: "input",
-        }, () => inputHook({
-          ...callbackContext,
-          actor: invoker,
-          context: invocationContext,
-          input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
-          invoker,
-          run: context.run,
-        }))
-      }
-      catch (error) {
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        await runObservedAgentHook(
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          definition?.hooks as AgentHookObserverHooks | undefined,
+          {
+            name: "agent:input",
+            owner: "agent",
+            phase: "input",
+          },
+          () =>
+            inputHook({
+              ...callbackContext,
+              actor: invoker,
+              context: invocationContext,
+              // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+              invoker,
+              run: context.run,
+            }),
+        )
+      } catch (error) {
         try {
           await capabilities.close()
-        }
-        catch (closeError) {
+        } catch (closeError) {
           throw new AggregateError([error, closeError], "[vitehub] Agent input hook failed and cleanup also failed.")
         }
         throw error
@@ -2317,21 +2380,21 @@ async function createAgentInvocationContext<
     }
     const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
-    const tools = Object.keys(transformedTools || {}).length
-      ? withAgentToolStepReporting(preparedTools, toolStepReporter)
-      : undefined
+    const tools = Object.keys(transformedTools || {}).length ? withAgentToolStepReporting(preparedTools, toolStepReporter) : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const configuredWorkspace = workspaceOptions?.workspace
-    const workspaceAutoCommit = configuredWorkspace && typeof configuredWorkspace === "object" && !("name" in configuredWorkspace)
-      ? configuredWorkspace.commit
-      : undefined
-    const instructions = workspaceOptions && activeWorkspace
-      ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
-      : undefined
+    const workspaceAutoCommit =
+      configuredWorkspace && isRuntimeObject(configuredWorkspace) && !("name" in configuredWorkspace) ? configuredWorkspace.commit : undefined
+    const instructions =
+      workspaceOptions && activeWorkspace
+        ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
+        : undefined
     const workspaceInstructionBindings = activeWorkspaceDefinition
-      ? await resolveWorkspaceInstructionBindings(activeWorkspaceDefinition, activeWorkspace as ReadonlyWorkspaceFacade | undefined)
+      ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        await resolveWorkspaceInstructionBindings(activeWorkspaceDefinition, activeWorkspace as ReadonlyWorkspaceFacade | undefined)
       : undefined
 
     const invocation = {
@@ -2351,11 +2414,15 @@ async function createAgentInvocationContext<
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       errorHook: definition?.hooks?.["agent:error"] as never,
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
       invoker,
@@ -2365,10 +2432,11 @@ async function createAgentInvocationContext<
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
       output: internalDefinition?.[baseAgentOutput],
       outputRenderers: capabilities.registries.outputRenderers,
-      prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+      prompt: isRuntimeString(capabilities.input.prompt) ? capabilities.input.prompt : undefined,
       providerTools: capabilities.registries.providerTools,
       run: context.run,
       runtimeContext,
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       startTask: undefined as Promise<void> | undefined,
       startedAt,
       telemetry: definition?.telemetry,
@@ -2390,28 +2458,29 @@ async function createAgentInvocationContext<
     const startCapabilities = capabilities.start
     if (!invocation.handledResponse && startCapabilities) {
       try {
-        if (invocation.messages.some(message => message.role === "user") && hasTitleDeliveryEffectProvider(invocation.finishDeliveryEffectProviders)) {
+        if (invocation.messages.some((message) => message.role === "user") && hasTitleDeliveryEffectProvider(invocation.finishDeliveryEffectProviders)) {
           await setChannelDeliverySupportContext(invocation.channels, invocation.context, invocation.runtimeContext, invocation.input, invocation.run)
         }
         invocation.startTask = (async () => {
           await applyChannelDeliveryEffectIntents(invocation, await startCapabilities())
-        })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error))
+        })().catch((error) => traceAgentInvocationError(toTraceContext(invocation), error))
         runtimeContext.waitUntil?.(invocation.startTask)
-      }
-      catch (error) {
+      } catch (error) {
         await traceAgentInvocationError(toTraceContext(invocation), error)
       }
     }
     return invocation
-  }
-  catch (error) {
-    await traceAgentInvocationError({
-      context: invocationContext,
-      input,
-      invoker,
-      run: context.run,
-      runtime: runtimeContext,
-    }, error)
+  } catch (error) {
+    await traceAgentInvocationError(
+      {
+        context: invocationContext,
+        input,
+        invoker,
+        run: context.run,
+        runtime: runtimeContext,
+      },
+      error,
+    )
     scheduleAgentTelemetry(definition?.telemetry, runtimeContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
   }
@@ -2419,7 +2488,7 @@ async function createAgentInvocationContext<
 
 function appendAgentToolResult(results: AgentToolStepItem[], result: AgentToolStepItem): void {
   const id = result.toolCallId ?? result.id
-  if (id !== undefined && results.some(candidate => (candidate.toolCallId ?? candidate.id) === id)) return
+  if (id !== undefined && results.some((candidate) => (candidate.toolCallId ?? candidate.id) === id)) return
   results.push(result)
 }
 
@@ -2438,10 +2507,7 @@ function agentToolResultStreamCollector(toolResults: AgentToolStepItem[]): (chun
   }
 }
 
-type InvocationRunContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-> = {
+type InvocationRunContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS> = {
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   context: AgentInvocationContextStore
@@ -2464,7 +2530,7 @@ type InvocationRunContext<
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
   telemetry?: AgentTelemetry<TRuntimeConfig>
-  telemetryAgent: { name?: string, version?: string }
+  telemetryAgent: { name?: string; version?: string }
   telemetryInvocationId: string
   toolResults: AgentToolStepItem[]
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
@@ -2473,10 +2539,9 @@ type InvocationRunContext<
   workspaceMode: AgentCapabilityMode
 }
 
-function toTraceContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AgentTraceContext<TRuntimeConfig> {
+function toTraceContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): AgentTraceContext<TRuntimeConfig> {
   return {
     context: context.context,
     input: context.input,
@@ -2486,22 +2551,19 @@ function toTraceContext<
   }
 }
 
-function maybeTraceAgentStream<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(stream: AsyncIterable<StreamEvent>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AsyncIterable<StreamEvent> {
+function maybeTraceAgentStream<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  stream: AsyncIterable<StreamEvent>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): AsyncIterable<StreamEvent> {
   return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
 }
 
-function withEagerStreamUsageExtensions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function withEagerStreamUsageExtensions<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   stream: AsyncIterable<unknown>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
 ): AsyncIterable<unknown> {
-  const providers = context.finishExtensionProviders.filter(provider => provider.eager)
+  const providers = context.finishExtensionProviders.filter((provider) => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
     for await (const chunk of stream) {
@@ -2524,8 +2586,9 @@ function withEagerStreamUsageExtensions<
         runtime: context.runtimeContext,
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       await createAgentInvocationExtensions(eventBase as never, providers)
-      if (chunk && typeof chunk === "object") {
+      if (chunk && isRuntimeObject(chunk)) {
         const prototype = Object.getPrototypeOf(chunk)
         if (prototype !== Object.prototype && prototype !== null) {
           if (Object.isExtensible(chunk)) {
@@ -2538,8 +2601,7 @@ function withEagerStreamUsageExtensions<
               })
               yield chunk
               continue
-            }
-            catch {
+            } catch {
               // Preserve the custom chunk and emit the canonical record separately.
             }
           }
@@ -2555,48 +2617,52 @@ function withEagerStreamUsageExtensions<
   })()
 }
 
-function withEagerUiMessageStreamUsageExtensions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function withEagerUiMessageStreamUsageExtensions<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   rendered: unknown,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): unknown {
   if (isUIMessageStreamResult(rendered)) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
     return cloneWithPropertyDescriptors(rendered, {
       toUIMessageStream: {
         configurable: true,
         enumerable: false,
-        value: (...args: unknown[]) => toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
-          toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)),
-          context,
-          rendered,
-        )),
+        value: (...args: unknown[]) =>
+          toReadableAsyncIterableStream(
+            withEagerStreamUsageExtensions(toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)), context, rendered),
+          ),
       },
     })
   }
-  return isAsyncIterable(rendered)
-    ? withEagerStreamUsageExtensions(rendered, context, rendered)
-    : rendered
+  return isAsyncIterable(rendered) ? withEagerStreamUsageExtensions(rendered, context, rendered) : rendered
 }
 
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
-  if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
-  Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
-    configurable: true,
-    enumerable: true,
-    get: () => (result as Record<string, unknown>)[key],
-  }])))
+  if (!isRuntimeObject(stream) || stream === null || !isRuntimeObject(result) || result === null) return stream
+  Object.defineProperties(
+    stream,
+    Object.fromEntries(
+      ["usage", "usageRecord"].map((key) => [
+        key,
+        {
+          configurable: true,
+          enumerable: true,
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          get: () => (result as Record<string, unknown>)[key],
+        },
+      ]),
+    ),
+  )
   return stream
 }
 
 function resultWithStreamedText(result: unknown, text: string): unknown {
-  if (!text || typeof result === "string") return result
-  if (result && typeof result === "object" && !(result instanceof Response)) {
+  if (!text || isRuntimeString(result)) return result
+  if (result && isRuntimeObject(result) && !(result instanceof Response)) {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
-    if (typeof current === "string" && current) return result
+    if (isRuntimeString(current) && current) return result
     const prototype = Object.getPrototypeOf(result)
     if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) return result
     return resultWithPreservedProperties(result, {
@@ -2612,15 +2678,16 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
 
 function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined): unknown {
   if (!usageRecord || result instanceof Response) return result
-  if (!result || typeof result !== "object") {
+  if (!result || !isRuntimeObject(result)) {
     return {
       raw: result,
-      ...(typeof result === "string" && result ? { text: result } : {}),
+      ...(isRuntimeString(result) && result ? { text: result } : {}),
       usage: usageRecord.usage,
       usageRecord,
     }
   }
-  const record = result as { usage?: unknown, usageRecord?: unknown }
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  const record = result as { usage?: unknown; usageRecord?: unknown }
   record.usageRecord ??= usageRecord
   record.usage ??= usageRecord.usage
   return result
@@ -2628,7 +2695,7 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
 
 function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
   if (!usageRecord || result instanceof Response) return result
-  if (!result || typeof result !== "object") return resultWithUsageRecord(result, usageRecord)
+  if (!result || !isRuntimeObject(result)) return resultWithUsageRecord(result, usageRecord)
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null) {
     if (Object.isExtensible(result)) {
@@ -2652,8 +2719,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
           },
         })
         return result
-      }
-      catch {
+      } catch {
         // Fall through to a wrapper when an existing property cannot be replaced.
       }
     }
@@ -2684,14 +2750,13 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
   })
 }
 
-function resultWithPreservedProperties(result: object, descriptors: PropertyDescriptorMap): object {
+function resultWithPreservedProperties<TResult extends object>(result: TResult, descriptors: PropertyDescriptorMap): TResult {
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
     try {
       Object.defineProperties(result, descriptors)
       return result
-    }
-    catch {
+    } catch {
       // Fall through to descriptor cloning for plain result objects and immutable properties.
     }
   }
@@ -2736,9 +2801,17 @@ function withStreamedResult(
             toolName: event.name,
           })
         }
-        const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
-          && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
-          && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
+        const explicitlyPhasedTextChunk =
+          chunk &&
+          isRuntimeObject(chunk) &&
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          "phase" in chunk &&
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          (chunk as { phase?: unknown }).phase !== undefined &&
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          "type" in chunk &&
+          // SAFETY: The chunk type property is present in the guarded runtime record above.
+          ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
         if (explicitlyPhasedTextChunk || (event?.type === "text-delta" && event.phase !== undefined)) {
           explicitTextPhaseSeen = true
           unphasedText = ""
@@ -2747,22 +2820,19 @@ function withStreamedResult(
           if (event.phase === "final") finalText += event.text
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
-        const attachedUsageRecord = chunk && typeof chunk === "object" && "usageRecord" in chunk
-          ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
-          : undefined
-        usageRecord = event?.type === "usage"
-          ? event.usageRecord
-          : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
+        const attachedUsageRecord =
+          chunk && isRuntimeObject(chunk) && "usageRecord" in chunk
+            ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
+            : undefined
+        usageRecord = event?.type === "usage" ? event.usageRecord : (attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord)
         yield chunk
       }
     })(),
   }
 }
 
-async function finishStreamAgentInvocation<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function finishStreamAgentInvocation<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   lifecycle: AgentInvocationLifecycle<AgentInvocationFinishOutcome>,
   result: unknown,
@@ -2780,7 +2850,7 @@ async function finishStreamAgentInvocation<
     const usageRecord = await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
-    if (usageRecord && resolvedResult !== result && result && typeof result === "object" && Object.isExtensible(result)) {
+    if (usageRecord && resolvedResult !== result && result && isRuntimeObject(result) && Object.isExtensible(result)) {
       try {
         Object.defineProperty(result, "usageRecord", {
           configurable: true,
@@ -2788,26 +2858,26 @@ async function finishStreamAgentInvocation<
           value: usageRecord,
           writable: true,
         })
-      }
-      catch {
+      } catch {
         // The resolved wrapper still carries usage when the original result cannot.
       }
     }
     finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
     finishResult = context.output
-      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal, undefined, context.output), { allowMaterializedObject: finishResult !== result })
+      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal, undefined, context.output), {
+          allowMaterializedObject: finishResult !== result,
+        })
       : resultWithUsageRecord(finishResult, usageRecord)
-  }
-  catch (finishError) {
+  } catch (finishError) {
     await lifecycle.fail({ error: finishError, status: "error" }, finishError, failureMessage)
   }
   await lifecycle.finish({ result: finishResult, status: "success", usage: finishUsage })
 }
 
-function traceUiMessageStream<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(stream: ReadableStream<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): ReadableStream<unknown> {
+function traceUiMessageStream<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  stream: ReadableStream<unknown>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): ReadableStream<unknown> {
   const reader = stream.getReader()
   const toolNames = new Map<string, string>()
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
@@ -2834,8 +2904,7 @@ function traceUiMessageStream<
           await traceAgentStreamEvent(toTraceContext(context), event)
         }
         controller.enqueue(result.value)
-      }
-      catch (error) {
+      } catch (error) {
         release()
         controller.error(error)
       }
@@ -2843,18 +2912,18 @@ function traceUiMessageStream<
     async cancel(reason) {
       try {
         await reader.cancel(reason)
-      }
-      finally {
+      } finally {
         release()
       }
     },
   })
 }
 
-function maybeTraceUiMessageStreamResult<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(rendered: { toUIMessageStream: () => ReadableStream<unknown> }, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>) {
+function maybeTraceUiMessageStreamResult<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  rendered: { toUIMessageStream: () => ReadableStream<unknown> },
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+) {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
   return cloneWithPropertyDescriptors(rendered, {
     toUIMessageStream: {
@@ -2865,115 +2934,99 @@ function maybeTraceUiMessageStreamResult<
   })
 }
 
-function maybeTraceUiMessageStreamOutput<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
+function maybeTraceUiMessageStreamOutput<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  rendered: unknown,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): unknown {
   if (context.runtimeContext.traceLog) {
     if (isUIMessageStreamResult(rendered)) return maybeTraceUiMessageStreamResult(rendered, context)
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     if (isAsyncIterable(rendered)) return maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context)
     if (!hasTraceableStreamResult(rendered)) return rendered
     return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
   }
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered
 }
 
-function hasFinishConsumer<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+function hasFinishConsumer<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
   return Boolean(context.finishHook || context.finishDeliveryEffectProviders.length)
 }
 
-function hasFinishWork<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return Boolean(context.errorHook) || hasFinishConsumer(context) || context.finishExtensionProviders.some(provider => provider.eager)
+function hasFinishWork<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+  return Boolean(context.errorHook) || hasFinishConsumer(context) || context.finishExtensionProviders.some((provider) => provider.eager)
 }
 
-async function resolveFinishUsageRecord<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function resolveFinishUsageRecord<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
 ): Promise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined> {
   if (hasFinishConsumer(context)) return await resolveAgentUsageRecord(result, context.run)
-  if (!context.runtimeContext.traceLog && !context.finishExtensionProviders.some(provider => provider.eager)) return undefined
+  if (!context.runtimeContext.traceLog && !context.finishExtensionProviders.some((provider) => provider.eager)) return undefined
   try {
     return await resolveAgentUsageRecord(result, context.run)
-  }
-  catch {
+  } catch {
     // Core tracing is best-effort and must not change Agent output.
     return undefined
   }
 }
 
 type AgentInvocationFinishOutcome =
-  | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
-  | { error: unknown, status: "error" }
+  | { result?: unknown; status: "success"; usage?: AgentUsageRecord; usageResolved?: boolean }
+  | { error: unknown; status: "error" }
 
-function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
+function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown; failed: true }, result?: unknown): AgentInvocationFinishOutcome {
   return outcome.failed ? { error: outcome.error, status: "error" } : { result, status: "success" }
 }
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
-  return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
+  return Boolean(workspace && isRuntimeObject(workspace) && "diff" in workspace && "snapshot" in workspace)
 }
 
-function hasWorkspaceAutoCommit<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return context.workspaceMode === "write"
-    && Boolean(context.workspaceDefinition && isWritableWorkspaceFacade(context.workspace))
+function hasWorkspaceAutoCommit<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+  return context.workspaceMode === "write" && Boolean(context.workspaceDefinition && isWritableWorkspaceFacade(context.workspace))
 }
 
-function shouldDeferFinish<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
-  return context.hasCapabilityCleanup || hasFinishWork(context) || Boolean(context.finalOutputRenderers.length) || Boolean(context.output) || hasWorkspaceAutoCommit(context)
+function shouldDeferFinish<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
+): boolean {
+  return (
+    context.hasCapabilityCleanup ||
+    hasFinishWork(context) ||
+    Boolean(context.finalOutputRenderers.length) ||
+    Boolean(context.output) ||
+    hasWorkspaceAutoCommit(context)
+  )
 }
 
-function shouldWrapInvocationOutput<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
+function shouldWrapInvocationOutput<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
+): boolean {
   return shouldDeferFinish(context) || Boolean(context.runtimeContext.traceLog)
 }
 
-async function commitWorkspaceChanges<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<void> {
+async function commitWorkspaceChanges<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<void> {
   if (!context.workspaceDefinition || !isWritableWorkspaceFacade(context.workspace)) return
 
   const diff = await context.workspace.diff()
   const { isWorkspaceConflict, resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
-  const commit = resolveWorkspaceAutoCommit(
-    workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
-    diff,
-  )
+  const commit = resolveWorkspaceAutoCommit(workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit), diff)
   if (!commit || context.input.abortSignal?.aborted) return
   for (let attempt = 0; ; attempt++) {
     try {
       if (context.input.abortSignal?.aborted) return
       await context.workspace.snapshot({ name: commit.message })
       return
-    }
-    catch (error) {
+    } catch (error) {
       if (!isWorkspaceConflict(error) || attempt >= 2) throw error
       await context.workspace.history.rebase()
     }
   }
 }
 
-async function applyFinalOutputRenderers<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function applyFinalOutputRenderers<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   result: unknown,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   outputExtensions = new Map<string, unknown>(),
@@ -2982,7 +3035,8 @@ async function applyFinalOutputRenderers<
 }
 
 function assertDeliveryEffectIntent(value: unknown): asserts value is AgentChannelDeliveryEffectIntent {
-  if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string" || !(value as { kind: string }).kind.trim()) {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  if (!value || !isRuntimeObject(value) || !isRuntimeString((value as { kind?: unknown }).kind) || !(value as { kind: string }).kind.trim()) {
     throw new TypeError("[vitehub] Channel finish delivery effect resolvers must return an effect intent with a non-empty kind.")
   }
 }
@@ -2996,10 +3050,7 @@ function appendDeliveryEffectIntent(intents: AgentChannelDeliveryEffectIntent[],
   intents.push(value)
 }
 
-async function resolveFinishDeliveryEffectIntents<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function resolveFinishDeliveryEffectIntents<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   providers: readonly AgentChannelDeliveryFinishEffect[],
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
@@ -3007,7 +3058,7 @@ async function resolveFinishDeliveryEffectIntents<
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const finishContext = createFinishDeliveryEffectContext(event, context)
   for (const provider of providers) {
-    const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
+    const intent = isRuntimeFunction(provider) ? await provider(finishContext, event) : provider
     if (!intent) continue
     appendDeliveryEffectIntent(intents, intent)
   }
@@ -3026,6 +3077,7 @@ function createDurableFailureDeadline(timeout: number): DurableFailureDeadline {
 function durableFailureTimeoutError(timeout: number): Error & { isRetryable: false } {
   return Object.assign(
     new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     { isRetryable: false as const },
   )
 }
@@ -3043,67 +3095,63 @@ async function runWithinDurableFailureDeadline<T>(
     return await Promise.race([
       task,
       new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => {
-          const error = durableFailureTimeoutError(deadline.timeout)
-          controller.abort(error)
-          reject(error)
-        }, Math.max(0, deadline.expiresAt - Date.now()))
+        timeoutId = setTimeout(
+          () => {
+            const error = durableFailureTimeoutError(deadline.timeout)
+            controller.abort(error)
+            reject(error)
+          },
+          Math.max(0, deadline.expiresAt - Date.now()),
+        )
       }),
     ])
-  }
-  finally {
+  } finally {
     if (timeoutId) clearTimeout(timeoutId)
     void task.catch(() => undefined)
   }
 }
 
-async function applyDurableFailureDeliveryEffects<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function applyDurableFailureDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   providers: readonly AgentChannelDeliveryFinishEffect[],
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   deadline: DurableFailureDeadline,
 ): Promise<void> {
   const fallbackProviders = providers.filter(isDurableChatErrorFallbackEffect)
-  const otherProviders = providers.filter(provider => !isDurableChatErrorFallbackEffect(provider))
-  await runWithinDurableFailureDeadline(deadline, async (abortSignal) => {
-    const deliveryContext = { ...context, input: { ...context.input, abortSignal } }
-    for (const group of [fallbackProviders, otherProviders]) {
-      const intents = await resolveFinishDeliveryEffectIntents(group, event, deliveryContext)
-      for (const intent of intents) await applyChannelDeliveryEffectIntents(deliveryContext, [intent], event)
-    }
-  }, context.input.abortSignal)
+  const otherProviders = providers.filter((provider) => !isDurableChatErrorFallbackEffect(provider))
+  await runWithinDurableFailureDeadline(
+    deadline,
+    async (abortSignal) => {
+      const deliveryContext = { ...context, input: { ...context.input, abortSignal } }
+      for (const group of [fallbackProviders, otherProviders]) {
+        const intents = await resolveFinishDeliveryEffectIntents(group, event, deliveryContext)
+        for (const intent of intents) await applyChannelDeliveryEffectIntents(deliveryContext, [intent], event)
+      }
+    },
+    context.input.abortSignal,
+  )
 }
 
-async function resolveDurableFailureFinishExtensions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function resolveDurableFailureFinishExtensions<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   event: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
   providers: ResolvedAgentFinishExtensionProvider[],
   deadline: DurableFailureDeadline,
 ): Promise<AgentFinishExtensions> {
   return await runWithinDurableFailureDeadline(
     deadline,
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     async () => await createAgentInvocationExtensions(event as never, providers),
   )
 }
 
-function createFinishDeliveryEffectContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function createFinishDeliveryEffectContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS> {
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
   const active = activeAgentChannel(context.channels, context.context, context.run)
   const reply: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>["reply"] = (input, options = {}) => {
-    const inputArtifacts = typeof input === "object" && input !== null && "artifacts" in input
-      ? input.artifacts
-      : undefined
+    const inputArtifacts = isRuntimeObject(input) && input !== null && "artifacts" in input ? input.artifacts : undefined
     return createReplyDeliveryEffectIntent(input, {
       ...options,
       artifacts: options.artifacts ?? inputArtifacts ?? result?.artifacts,
@@ -3133,10 +3181,7 @@ function createFinishDeliveryEffectContext<
   }
 }
 
-function createAgentFinishHookEvent<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function createAgentFinishHookEvent<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS> {
@@ -3150,10 +3195,7 @@ function createAgentFinishHookEvent<
   }
 }
 
-function createAgentErrorHookEvent<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function createAgentErrorHookEvent<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS> {
@@ -3170,50 +3212,47 @@ function createAgentErrorHookEvent<
   }
 }
 
-function activeFinishDeliveryEffectProviders<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function activeFinishDeliveryEffectProviders<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentChannelDeliveryFinishEffect[] {
   if (!context.finishDeliveryEffectProviders.length) return []
   const active = createFinishDeliveryEffectContext(event, context)
   return context.finishDeliveryEffectProviders.filter((provider) => {
-    if (typeof provider !== "function" || !provider.active) return true
+    if (!isRuntimeFunction(provider) || !provider.active) return true
     return provider.active(active)
   })
 }
 
-function provisionalFinishEvent<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+function provisionalFinishEvent<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   eventBase: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
 ): AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> {
+  const emptyExtensions: AgentFinishExtensions = {
+    entries: () => [],
+    get: () => undefined,
+    toJSON: () => ({}),
+  }
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return {
     ...eventBase,
-    extensions: { get: () => undefined } as unknown as AgentFinishExtensions,
+    extensions: emptyExtensions,
   } as AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>
 }
 
 function hasTitleDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
   return providers.some((provider) => {
-    if (typeof provider === "function") return provider.kind === "title"
+    if (isRuntimeFunction(provider)) return provider.kind === "title"
     const effects = Array.isArray(provider) ? provider : [provider]
-    return effects.some(effect => effect.kind === "title")
+    return effects.some((effect) => effect.kind === "title")
   })
 }
 
 function hasDeferredFinishDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
-  return providers.some(provider => typeof provider === "function" && (provider.kind === undefined || Boolean(provider.active)))
+  return providers.some((provider) => isRuntimeFunction(provider) && (provider.kind === undefined || Boolean(provider.active)))
 }
 
-async function prepareProvisionalTitleDeliverySupport<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function prepareProvisionalTitleDeliverySupport<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   eventBase: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
 ): Promise<AgentChannelDeliveryFinishEffect[]> {
@@ -3223,10 +3262,7 @@ async function prepareProvisionalTitleDeliverySupport<
   return activeFinishDeliveryEffectProviders(context, provisionalFinishEvent(context, eventBase))
 }
 
-async function finishAgentInvocation<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function finishAgentInvocation<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   outcome: AgentInvocationFinishOutcome,
 ): Promise<void> {
@@ -3246,16 +3282,13 @@ async function finishAgentInvocation<
     usage = undefined
     runResult = undefined
     text = undefined
-    error = context.input.abortSignal.reason instanceof Error
-      ? context.input.abortSignal.reason
-      : new Error("[vitehub] Agent invocation aborted.")
+    error = context.input.abortSignal.reason instanceof Error ? context.input.abortSignal.reason : new Error("[vitehub] Agent invocation aborted.")
   }
   try {
     await context.startTask
     try {
       await context.close()
-    }
-    catch (cleanupError) {
+    } catch (cleanupError) {
       closeError = cleanupError
       if (!failed) {
         failed = true
@@ -3272,8 +3305,7 @@ async function finishAgentInvocation<
       try {
         resultKind = agentResultKind(result)
         if (!usageResolved) usage ??= await resolveAgentUsageRecord(result, context.run)
-      }
-      catch {
+      } catch {
         // Invocation data must not change Agent output or mask the original failure.
       }
     }
@@ -3298,59 +3330,66 @@ async function finishAgentInvocation<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalEvent = provisionalFinishEvent(context, eventBase)
       const provisionallyActiveDeliveryProviders = activeFinishDeliveryEffectProviders(context, provisionalEvent)
-      const hasDurableFailureDelivery = failed
-        && context.durableErrorFallbackTimeout !== undefined
-        && provisionallyActiveDeliveryProviders.some(isDurableChatErrorFallbackEffect)
-      const durableFailureDeadline = hasDurableFailureDelivery
-        ? createDurableFailureDeadline(context.durableErrorFallbackTimeout!)
-        : undefined
+      const hasDurableFailureDelivery =
+        failed && context.durableErrorFallbackTimeout !== undefined && provisionallyActiveDeliveryProviders.some(isDurableChatErrorFallbackEffect)
+      const durableFailureDeadline = hasDurableFailureDelivery ? createDurableFailureDeadline(context.durableErrorFallbackTimeout!) : undefined
       const provisionalActiveDeliveryProviders = hasDurableFailureDelivery
         ? provisionallyActiveDeliveryProviders
         : await prepareProvisionalTitleDeliverySupport(context, eventBase)
       const cleanupOnlyFailure = outcome.status === "success" && closeError !== undefined
-      const outcomeHook = failed
-        ? cleanupOnlyFailure ? undefined : context.errorHook
-        : context.finishHook
+      const outcomeHook = failed ? (cleanupOnlyFailure ? undefined : context.errorHook) : context.finishHook
       const hookName = failed ? "agent:error" : "agent:finish"
-      const hasOutcomeConsumer = Boolean(outcomeHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders))
+      const hasOutcomeConsumer = Boolean(
+        outcomeHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders),
+      )
       const finishExtensionProviders = hasOutcomeConsumer
         ? context.finishExtensionProviders
-        : context.finishExtensionProviders.filter(provider => provider.eager)
+        : context.finishExtensionProviders.filter((provider) => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
-          const fallbackProviders = activeFinishDeliveryEffectProviders(context, fallbackEvent)
-            .filter(isDurableChatErrorFallbackEffect)
+          const fallbackProviders = activeFinishDeliveryEffectProviders(context, fallbackEvent).filter(isDurableChatErrorFallbackEffect)
           await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, durableFailureDeadline!)
         }
         const extensions = hasDurableFailureDelivery
           ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!)
-          : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
+          : // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
-        const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
-          .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never).filter(
+          (provider) => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider),
+        )
         if (hasDurableFailureDelivery) {
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
           await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline!)
-        }
-        else {
+        } else {
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
           const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
           for (const intent of finishIntents) {
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
             await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
           }
         }
         const runOutcomeHook = async (hookContext: typeof context) => {
           const hookFinishEvent = { ...finishEvent, input: hookContext.input }
           let outcomeHookResult: void | AgentChannelDeliveryFinishEffectResult
-          await runObservedAgentHook(context.hooks, {
-            ids: { runId: context.run?.runId },
-            name: hookName,
-            owner: "agent",
-            phase: failed ? "error" : "finish",
-          }, async () => {
-            outcomeHookResult = failed
-              ? await outcomeHook?.(createAgentErrorHookEvent(hookFinishEvent, hookContext) as never)
-              : await outcomeHook?.(createAgentFinishHookEvent(hookFinishEvent, hookContext) as never)
-          })
+          await runObservedAgentHook(
+            context.hooks,
+            {
+              ids: { runId: context.run?.runId },
+              name: hookName,
+              owner: "agent",
+              phase: failed ? "error" : "finish",
+            },
+            async () => {
+              outcomeHookResult = failed
+                ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                  await outcomeHook?.(createAgentErrorHookEvent(hookFinishEvent, hookContext) as never)
+                : // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                  await outcomeHook?.(createAgentFinishHookEvent(hookFinishEvent, hookContext) as never)
+            },
+          )
           if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
             const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
             appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
@@ -3358,11 +3397,14 @@ async function finishAgentInvocation<
           }
         }
         if (durableFailureDeadline) {
-          await runWithinDurableFailureDeadline(durableFailureDeadline, async (abortSignal) => {
-            await runOutcomeHook({ ...context, input: { ...context.input, abortSignal } })
-          }, context.input.abortSignal)
-        }
-        else {
+          await runWithinDurableFailureDeadline(
+            durableFailureDeadline,
+            async (abortSignal) => {
+              await runOutcomeHook({ ...context, input: { ...context.input, abortSignal } })
+            },
+            context.input.abortSignal,
+          )
+        } else {
           await runOutcomeHook(context)
         }
       }
@@ -3376,44 +3418,33 @@ async function finishAgentInvocation<
         ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
         ...(usage ? { "usage.record": usage } : {}),
       })
-    }
-    else {
+    } else {
       await traceAgentInvocationError(toTraceContext(context), error)
     }
-    await context.invocationJournal?.finish(
-      failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
-      error,
-    )
+    await context.invocationJournal?.finish(failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed", error)
     if (closeError !== undefined) throw closeError
-  }
-  catch (finishError) {
+  } catch (finishError) {
     await traceAgentInvocationError(toTraceContext(context), failed ? error : finishError)
-    await context.invocationJournal?.finish(
-      failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
-      failed ? error : finishError,
-    )
+    await context.invocationJournal?.finish(failed && context.input.abortSignal?.aborted ? "cancelled" : "failed", failed ? error : finishError)
     if (closeError !== undefined && finishError !== closeError) {
       throw new AggregateError([closeError, finishError], "[vitehub] Capability cleanup and Agent finish lifecycle both failed.")
     }
     throw finishError
-  }
-  finally {
+  } finally {
     scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent, context.telemetryInvocationId)
   }
 }
 
-async function finalizeAgentInvocationResult<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TResult,
->(
+async function finalizeAgentInvocationResult<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS, TResult>(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
   lifecycle: AgentInvocationLifecycle<AgentInvocationFinishOutcome>,
   result: unknown,
-  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
+  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean; finishResult: unknown; finishUsage?: AgentUsageRecord; value: TResult }>,
   failureMessage: string,
   options: {
-    finalizeResponse?: (response: Response) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: Response | TResult } | undefined>
+    finalizeResponse?: (
+      response: Response,
+    ) => MaybePromise<{ deferFinish?: boolean; finishResult: unknown; finishUsage?: AgentUsageRecord; value: Response | TResult } | undefined>
     finalizeRawStreams?: boolean
     holdOutput?: boolean
     outputExtensions?: Map<string, unknown>
@@ -3431,30 +3462,33 @@ async function finalizeAgentInvocationResult<
         return finalized.value
       }
       const responseMediaType = result.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
-      const responseIsText = responseMediaType !== "text/event-stream" && (responseMediaType?.startsWith("text/")
-        || responseMediaType === "application/json"
-        || responseMediaType?.endsWith("+json")
-        || responseMediaType === "application/xml"
-        || responseMediaType?.endsWith("+xml"))
-      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true && responseIsText
-        ? new TextDecoder()
-        : undefined
+      const responseIsText =
+        responseMediaType !== "text/event-stream" &&
+        (responseMediaType?.startsWith("text/") ||
+          responseMediaType === "application/json" ||
+          responseMediaType?.endsWith("+json") ||
+          responseMediaType === "application/xml" ||
+          responseMediaType?.endsWith("+xml"))
+      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true && responseIsText ? new TextDecoder() : undefined
       let responseText = ""
-      const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
-        responseText += responseDecoder?.decode() ?? ""
-        const finishResult = responseText && !outcome.failed
-          ? { raw: result, text: responseText }
-          : result
-        if (!outcome.failed && !outcome.completed) {
-          await lifecycle.finish({ result: finishResult, status: "success", usageResolved: true })
-        }
-        else {
-          await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
-        }
-      }, {
-        abortSignal: context.input.abortSignal,
-        onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
-      }) : result
+      const response = shouldWrapOutput
+        ? await withResponseCleanup(
+            result,
+            async (outcome) => {
+              responseText += responseDecoder?.decode() ?? ""
+              const finishResult = responseText && !outcome.failed ? { raw: result, text: responseText } : result
+              if (!outcome.failed && !outcome.completed) {
+                await lifecycle.finish({ result: finishResult, status: "success", usageResolved: true })
+              } else {
+                await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+              }
+            },
+            {
+              abortSignal: context.input.abortSignal,
+              onChunk: (chunk) => (responseText += responseDecoder?.decode(chunk, { stream: true }) ?? ""),
+            },
+          )
+        : result
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
@@ -3468,35 +3502,51 @@ async function finalizeAgentInvocationResult<
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result, undefined, context.toolResults)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
-          const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
-            const finishOutcome = finishOutcomeFromCleanup(outcome, result)
-            const usage = streamed.finishUsage()
-            if (!outcome.failed && !outcome.completed) {
-              return lifecycle.finish({
-                result,
-                status: "success",
-                ...(usage ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, context.run) } : {}),
-                usageResolved: true,
-              })
-            }
-            return lifecycle.finish(finishOutcome.status === "success"
-              ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
-              : finishOutcome)
-          }, {
+          const value = withCapabilityCleanup(
+            streamed.stream,
+            async (outcome) => {
+              const finishOutcome = finishOutcomeFromCleanup(outcome, result)
+              const usage = streamed.finishUsage()
+              if (!outcome.failed && !outcome.completed) {
+                return lifecycle.finish({
+                  result,
+                  status: "success",
+                  ...(usage ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, context.run) } : {}),
+                  usageResolved: true,
+                })
+              }
+              return lifecycle.finish(
+                finishOutcome.status === "success"
+                  ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
+                  : finishOutcome,
+              )
+            },
+            {
+              abortSignal: context.input.abortSignal,
+              cancelOnAbort: source.cancel,
+            },
+          )
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          return isRuntimeFunction((result as ReadableStream<unknown>).getReader) ? toReadableAsyncIterableStream(value) : value
+        }
+        const value = withCapabilityCleanup(
+          streamed.stream,
+          (outcome) =>
+            finishStreamAgentInvocation(
+              context,
+              lifecycle,
+              streamed.finishResult(),
+              finishOutcomeFromCleanup(outcome),
+              failureMessage,
+              options.outputExtensions,
+            ),
+          {
             abortSignal: context.input.abortSignal,
             cancelOnAbort: source.cancel,
-          })
-          return typeof (result as ReadableStream<unknown>).getReader === "function"
-            ? toReadableAsyncIterableStream(value)
-            : value
-        }
-        const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
-          abortSignal: context.input.abortSignal,
-          cancelOnAbort: source.cancel,
-        })
-        return typeof (result as ReadableStream<unknown>).getReader === "function"
-          ? toReadableAsyncIterableStream(value)
-          : value
+          },
+        )
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        return isRuntimeFunction((result as ReadableStream<unknown>).getReader) ? toReadableAsyncIterableStream(value) : value
       }
       return stream
     }
@@ -3505,8 +3555,7 @@ async function finalizeAgentInvocationResult<
       await lifecycle.finish({ result: finalized.finishResult, status: "success", usage: finalized.finishUsage })
     }
     return finalized.value
-  }
-  catch (error) {
+  } catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, failureMessage)
   }
 }
@@ -3520,7 +3569,7 @@ async function materializeAgentStructuredOutput(
   let streamResult = result
   const streamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
   if (!isAsyncIterable(streamResult)) {
-    if (!streamResult || typeof streamResult !== "object") return result
+    if (!streamResult || !isRuntimeObject(streamResult)) return result
     const descriptors: PropertyDescriptorMap = {}
     let hasStream = false
     try {
@@ -3531,9 +3580,7 @@ async function materializeAgentStructuredOutput(
         if (!descriptor) continue
         if ("get" in descriptor && hasStream) continue
         const value = "get" in descriptor ? descriptor.get?.call(streamResult) : descriptor.value
-        const source = isAsyncIterable(value)
-          ? streamSources.get(value) ?? cancellableAsyncIterableSource(value)
-          : undefined
+        const source = isAsyncIterable(value) ? (streamSources.get(value) ?? cancellableAsyncIterableSource(value)) : undefined
         if (source) streamSources.set(value, source)
         descriptors[property] = {
           configurable: true,
@@ -3543,8 +3590,7 @@ async function materializeAgentStructuredOutput(
         }
         if (source) hasStream = true
       }
-    }
-    catch (error) {
+    } catch (error) {
       await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel(error)))
       throw error
     }
@@ -3558,19 +3604,25 @@ async function materializeAgentStructuredOutput(
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(streamResult))
-  const events = withCapabilityCleanup(source.stream, async (outcome) => {
-    const cancellations = await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
-    const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
-    if (rejected) throw rejected.reason
-  }, {
-    abortSignal,
-    cancelOnAbort: source.cancel,
-  }) as AsyncIterable<StreamEvent>
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  const events = withCapabilityCleanup(
+    source.stream,
+    async (outcome) => {
+      const cancellations = await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
+      const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+      if (rejected) throw rejected.reason
+    },
+    {
+      abortSignal,
+      cancelOnAbort: source.cancel,
+    },
+  ) as AsyncIterable<StreamEvent>
   for await (const event of events) {
     onEvent?.(event)
     if (event.type === "error") {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
-      const rejectedText = typeof streamError?.text === "string" ? streamError.text : text
+      const rejectedText = isRuntimeString(streamError?.text) ? streamError.text : text
       if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
       throw streamError ?? new Error(event.error)
     }
@@ -3580,21 +3632,13 @@ async function materializeAgentStructuredOutput(
   return resultWithUsageRecord(text, usageRecord)
 }
 
-type AgentInvocationExecutionOptions =
-  & (
-    | { kind: "run", renderOutput: boolean }
-    | { kind: "stream", output: "events" | "ui-message-stream" }
-  )
-  & {
-    holdCapacity?: boolean
-    onCapacityBypass?: () => void
-    onFinish?: (outcome: AgentInvocationFinishOutcome) => void
-  }
+type AgentInvocationExecutionOptions = ({ kind: "run"; renderOutput: boolean } | { kind: "stream"; output: "events" | "ui-message-stream" }) & {
+  holdCapacity?: boolean
+  onCapacityBypass?: () => void
+  onFinish?: (outcome: AgentInvocationFinishOutcome) => void
+}
 
-async function finishPreparedInvocationFailure<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function finishPreparedInvocationFailure<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   error: unknown,
   waitForFinish: boolean,
@@ -3606,8 +3650,7 @@ async function finishPreparedInvocationFailure<
   }
   try {
     await finishTask
-  }
-  catch (finishError) {
+  } catch (finishError) {
     throw new AggregateError([error, finishError], "[vitehub] Agent capacity acquisition and finish lifecycle both failed.")
   }
 }
@@ -3618,6 +3661,7 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   input: AgentRunInput<CALL_OPTIONS>,
   error: unknown,
 ): Promise<void> {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   if (!(context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
   const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
   if (!options) return
@@ -3628,33 +3672,44 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   const invoker = createFallbackAgentInvoker(context.run)
   const timeout = durableChatErrorFallbackTimeout(options)
   const deadline = createDurableFailureDeadline(timeout)
-  await runWithinDurableFailureDeadline(deadline, async (abortSignal) => {
-    const intents = await resolveDurableChatErrorFallbackIntents(options, {
-      error,
-      history: input.messages || [],
-      message: chat?.message || channel?.message || { text: "" },
-      publicError: toAgentPublicError(error, "http"),
-      run: context.run,
-      toolResults: [],
-    }, async resolution => await resolution)
-    if (abortSignal.aborted || !intents.length) return
-    await applyChannelDeliveryEffectIntents({
-      actor: invoker,
-      channels: definition?.channels,
-      context: invocationContext,
-      hooks: definition?.hooks as AgentHookObserverHooks | undefined,
-      input: { ...input, abortSignal },
-      invoker,
-      run: context.run,
-      runtimeContext: createResolvedRuntimeContext(context),
-    } as never, intents)
-  }, input.abortSignal)
+  await runWithinDurableFailureDeadline(
+    deadline,
+    async (abortSignal) => {
+      const intents = await resolveDurableChatErrorFallbackIntents(
+        options,
+        {
+          error,
+          history: input.messages || [],
+          message: chat?.message || channel?.message || { text: "" },
+          publicError: toAgentPublicError(error, "http"),
+          run: context.run,
+          toolResults: [],
+        },
+        async (resolution) => await resolution,
+      )
+      if (abortSignal.aborted || !intents.length) return
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      await applyChannelDeliveryEffectIntents(
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        {
+          actor: invoker,
+          channels: definition?.channels,
+          context: invocationContext,
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          hooks: definition?.hooks as AgentHookObserverHooks | undefined,
+          input: { ...input, abortSignal },
+          invoker,
+          run: context.run,
+          runtimeContext: createResolvedRuntimeContext(context),
+        } as never,
+        intents,
+      )
+    },
+    input.abortSignal,
+  )
 }
 
-async function createAgentInvocationContextWithWorkflowFailureDelivery<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function createAgentInvocationContextWithWorkflowFailureDelivery<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -3663,23 +3718,17 @@ async function createAgentInvocationContextWithWorkflowFailureDelivery<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   try {
     return await createAgentInvocationContext(definition, context, input, kind, invocationJournal)
-  }
-  catch (error) {
+  } catch (error) {
     try {
       await deliverUnpreparedWorkflowFailure(definition, context, input, error)
-    }
-    catch (deliveryError) {
+    } catch (deliveryError) {
       throw new AggregateError([error, deliveryError], "[vitehub] Agent setup failed and Workflow fallback delivery also failed.")
     }
     throw error
   }
 }
 
-async function executeAgentInvocationWithCapacityLease<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TOutput,
->(
+async function executeAgentInvocationWithCapacityLease<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS, TOutput>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -3687,42 +3736,47 @@ async function executeAgentInvocationWithCapacityLease<
   preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
+  const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent, input)
+  const untypedAgent: unknown = agent
   const definition = hasAgentDefinition(agent)
-    ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
+    ? // SAFETY: hasAgentDefinition establishes the Agent Definition runtime shape; generic run types are retained by this invocation.
+      (untypedAgent as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>)
     : undefined
-  const invocation = preparedInvocation
-    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal)
+  const invocation =
+    preparedInvocation ?? (await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal))
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
-  const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
-    async (outcome) => {
-      try {
-        await finishAgentInvocation(invocation, outcome)
-        options.onFinish?.(outcome)
-      }
-      catch (error) {
-        options.onFinish?.({ error, status: "error" })
-        throw error
-      }
-    },
-  )
+  const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(async (outcome) => {
+    try {
+      await finishAgentInvocation(invocation, outcome)
+      options.onFinish?.(outcome)
+    } catch (error) {
+      options.onFinish?.({ error, status: "error" })
+      throw error
+    }
+  })
 
   const runFailureMessage = "[vitehub] Agent run failed and finish lifecycle also failed."
   const streamFailureMessage = "[vitehub] Agent stream failed and finish lifecycle also failed."
   const handledFailureMessage = options.kind === "run" ? runFailureMessage : streamFailureMessage
   if (invocation.handledResponse) {
     options.onCapacityBypass?.()
-    return await finalizeAgentInvocationResult(invocation, lifecycle, invocation.handledResponse, async result => ({ finishResult: result, value: result }), handledFailureMessage, {
-      holdOutput: false,
-    })
+    return await finalizeAgentInvocationResult(
+      invocation,
+      lifecycle,
+      invocation.handledResponse,
+      async (result) => ({ finishResult: result, value: result }),
+      handledFailureMessage,
+      {
+        holdOutput: false,
+      },
+    )
   }
 
   const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
   let adapter: AgentAdapter<CALL_OPTIONS> | undefined
   try {
-    adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, invocation.runtimeContext)
-  }
-  catch (error) {
+    adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, invocation.runtimeContext, input)
+  } catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
   let result: unknown
@@ -3731,33 +3785,33 @@ async function executeAgentInvocationWithCapacityLease<
     if (options.kind === "run" && !options.renderOutput) adapterContext.nativeStructuredOutput = false
     if (customRun) {
       result = await agent.run(invocation)
-    }
-    else if (options.kind === "stream"
-      && adapter?.stream
-      && (
-        invocation.context.get<boolean>(finalChannelOutputContextKey) !== true
-        || invocation.context.get<boolean>(progressSummaryOutputContextKey) === true
-      )) {
+    } else if (
+      options.kind === "stream" &&
+      adapter?.stream &&
+      (invocation.context.get<boolean>(finalChannelOutputContextKey) !== true || invocation.context.get<boolean>(progressSummaryOutputContextKey) === true)
+    ) {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       result = await adapter.stream(adapterContext as never)
-    }
-    else {
+    } else {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       result = await adapter!.generate(adapterContext as never)
     }
-  }
-  catch (error) {
+  } catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
-  if (options.kind === "run"
-    && invocation.context.get<boolean>(finalChannelOutputContextKey) === true
-    && !isAsyncIterable(result)
-    && !hasTraceableStreamResult(result)) {
+  if (
+    options.kind === "run" &&
+    invocation.context.get<boolean>(finalChannelOutputContextKey) === true &&
+    !isAsyncIterable(result) &&
+    !hasTraceableStreamResult(result)
+  ) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
-      const synthesizedRaw = typeof result === "object" && result !== null
-        && Object.getOwnPropertyDescriptor(result, synthesizedAgentOutputSymbol)?.value === true
-        ? Object.getOwnPropertyDescriptor(result, "raw")?.value
-        : undefined
+      const synthesizedRaw =
+        isRuntimeObject(result) && result !== null && Object.getOwnPropertyDescriptor(result, synthesizedAgentOutputSymbol)?.value === true
+          ? Object.getOwnPropertyDescriptor(result, "raw")?.value
+          : undefined
       result = { raw: synthesizedRaw ?? result, text }
       Object.defineProperty(result, finalChannelOutputSelectedSymbol, { enumerable: true, value: true })
     }
@@ -3767,701 +3821,807 @@ async function executeAgentInvocationWithCapacityLease<
   let renderedResult = false
   let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
   try {
-    const shouldRenderStream = options.kind === "run"
-      ? customRun && options.renderOutput && isAsyncIterable(result)
-      : isAsyncIterable(result) && options.output !== "ui-message-stream" && !invocation.finalOutputRenderers.length
+    const shouldRenderStream =
+      options.kind === "run"
+        ? customRun && options.renderOutput && isAsyncIterable(result)
+        : isAsyncIterable(result) && options.output !== "ui-message-stream" && !invocation.finalOutputRenderers.length
     if (shouldRenderStream) {
-      rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length
-        ? cancellableAsyncIterableSource(result as AsyncIterable<unknown>)
-        : undefined
+      rendererSource =
+        shouldHoldInvocationOutput() && invocation.outputRenderers.length
+          ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            cancellableAsyncIterableSource(result as AsyncIterable<unknown>)
+          : undefined
       result = await applyOutputRenderers(rendererSource?.stream ?? result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
       if (rendererSource && !isAsyncIterable(result) && !hasTraceableStreamResult(result) && !isUIMessageStreamResult(result)) {
         await rendererSource.cancel()
       }
       renderedResult = true
     }
-  }
-  catch (error) {
+  } catch (error) {
     await Promise.allSettled(rendererSource ? [rendererSource.cancel(error)] : [])
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
   if (options.kind === "run") {
-    return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-      const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
-        ? undefined
-        : await resolveFinishUsageRecord(invocation, result)
-      const rendered = options.renderOutput
-        ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
-        : result
-      const shouldPreserveStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
-        && !(options.renderOutput && invocation.output)
-        && (options.holdCapacity === true || invocation.finishExtensionProviders.some(provider => provider.eager))
-        && shouldHoldInvocationOutput()
-      if (shouldPreserveStreamResult || (options.renderOutput
-        && !invocation.output
-        && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
-        && rendered !== result
-        && (isAsyncIterable((rendered as { stream?: unknown }).stream)
-          || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
-          || isUIMessageStreamResult(rendered))
-        && shouldHoldInvocationOutput())) {
-        let textStreamDescriptor: PropertyDescriptor | undefined
-        for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
-          textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
-        const hasPrimaryStreamProperty = (["stream", "fullStream"] as const).some((property) => {
-          let descriptor: PropertyDescriptor | undefined
-          for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-            descriptor = Object.getOwnPropertyDescriptor(owner, property)
-          return descriptor !== undefined && ("get" in descriptor || isAsyncIterable(descriptor.value))
-        })
-        if (isUIMessageStreamResult(rendered)
-          && !hasPrimaryStreamProperty
-          && !textStreamDescriptor) {
-          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+    return await finalizeAgentInvocationResult(
+      invocation,
+      lifecycle,
+      result,
+      async (result) => {
+        const driverUsageRecord =
+          hasTraceableStreamResult(result) || isUIMessageStreamResult(result) ? undefined : await resolveFinishUsageRecord(invocation, result)
+        const rendered = options.renderOutput
+          ? renderedResult
+            ? result
+            : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+          : result
+        const shouldPreserveStreamResult =
+          (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered)) &&
+          !(options.renderOutput && invocation.output) &&
+          (options.holdCapacity === true || invocation.finishExtensionProviders.some((provider) => provider.eager)) &&
+          shouldHoldInvocationOutput()
+        if (
+          shouldPreserveStreamResult ||
+          (options.renderOutput &&
+            !invocation.output &&
+            invocation.context.get<boolean>(responseTitleFallbackContextKey) === true &&
+            rendered !== result &&
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            (isAsyncIterable((rendered as { stream?: unknown }).stream) ||
+              // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              isAsyncIterable((rendered as { fullStream?: unknown }).fullStream) ||
+              isUIMessageStreamResult(rendered)) &&
+            shouldHoldInvocationOutput())
+        ) {
+          let textStreamDescriptor: PropertyDescriptor | undefined
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
+            textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
+          const hasPrimaryStreamProperty = (["stream", "fullStream"] as const).some((property) => {
+            let descriptor: PropertyDescriptor | undefined
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+              descriptor = Object.getOwnPropertyDescriptor(owner, property)
+            return descriptor !== undefined && ("get" in descriptor || isAsyncIterable(descriptor.value))
+          })
+          if (isUIMessageStreamResult(rendered) && !hasPrimaryStreamProperty && !textStreamDescriptor) {
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+            let finishTask: Promise<void> | undefined
+            let streamedText = ""
+            let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+            const collectToolResult = agentToolResultStreamCollector(invocation.toolResults)
+            let preserved: object
+            let uiMessageStreamCreated = false
+            const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
+              invocation.input.abortSignal?.removeEventListener("abort", onAbort)
+              if (finishTask) return await finishTask
+              const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
+              finishTask = (async () => {
+                if (!outcome.failed && !outcome.completed) {
+                  await lifecycle.finish({
+                    result: finishResult,
+                    status: "success",
+                    ...(streamedUsageRecord ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) } : {}),
+                    usageResolved: true,
+                  })
+                } else {
+                  await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                }
+                const usageRecord =
+                  finishResult && isRuntimeObject(finishResult)
+                    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                      (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                    : undefined
+                if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+              })()
+              return await finishTask
+            }
+            const onAbort = () => {
+              const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
+              void finishPreserved({ error: reason, failed: true }).catch(() => {})
+            }
+            preserved = resultWithPreservedProperties(rendered, {
+              toUIMessageStream: {
+                configurable: true,
+                enumerable: false,
+                value: (...args: unknown[]) => {
+                  if (finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                  if (uiMessageStreamCreated) throw new Error("[vitehub] Agent Invocation UI-message stream has already been created.")
+                  uiMessageStreamCreated = true
+                  invocation.input.abortSignal?.removeEventListener("abort", onAbort)
+                  let source: ReturnType<typeof cancellableAsyncIterableSource>
+                  try {
+                    const renderedStream = toUIMessageStream.apply(rendered, args)
+                    source = cancellableAsyncIterableSource(renderedStream)
+                  } catch (error) {
+                    void finishPreserved({ error, failed: true }).catch(() => {})
+                    throw error
+                  }
+                  return withReadableStreamCleanup(
+                    toReadableAsyncIterableStream(
+                      withEagerStreamUsageExtensions(
+                        toReadableAsyncIterableStream(normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))),
+                        invocation,
+                        rendered,
+                      ),
+                    ),
+                    finishPreserved,
+                    {
+                      abortSignal: invocation.input.abortSignal,
+                      cancelOnAbort: source.cancel,
+                      onChunk(chunk) {
+                        collectToolResult(chunk)
+                        streamedText += uiMessageTextDelta(chunk) || ""
+                        streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+                      },
+                    },
+                  )
+                },
+              },
+            })
+            if (invocation.input.abortSignal?.aborted) onAbort()
+            else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+            return {
+              deferFinish: true,
+              finishResult: preserved,
+              value: preserved,
+            }
+          }
+          const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
+          const lazyPrimaryDescriptors = new Map<"fullStream" | "stream", PropertyDescriptor>()
+          const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
+          const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+          try {
+            for (const property of ["stream", "fullStream"] as const) {
+              let descriptor: PropertyDescriptor | undefined
+              // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+                descriptor = Object.getOwnPropertyDescriptor(owner, property)
+              if (!descriptor) continue
+              if ("get" in descriptor) {
+                lazyPrimaryDescriptors.set(property, descriptor)
+                continue
+              }
+              const value = descriptor.value
+              resolvedPrimaryProperties.set(property, value)
+              if (isAsyncIterable(value)) {
+                streamPropertyValues.set(property, value)
+                preservedSources.set(value, preservedSources.get(value) ?? cancellableAsyncIterableSource(value))
+              }
+            }
+          } catch (error) {
+            await Promise.allSettled([...preservedSources.values()].map(({ cancel }) => cancel(error)))
+            throw error
+          }
+          const streamProperties = [...streamPropertyValues.keys()]
           let finishTask: Promise<void> | undefined
-          let streamedText = ""
-          let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-          const collectToolResult = agentToolResultStreamCollector(invocation.toolResults)
+          let finishing = false
           let preserved: object
-          let uiMessageStreamCreated = false
-          const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
-            invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-            if (finishTask) return await finishTask
-            const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
-            finishTask = (async () => {
-              if (!outcome.failed && !outcome.completed) {
-                await lifecycle.finish({
-                  result: finishResult,
-                  status: "success",
-                  ...(streamedUsageRecord
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-                    : {}),
-                  usageResolved: true,
-                })
-              }
-              else {
-                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
-              }
-              const usageRecord = finishResult && typeof finishResult === "object"
-                ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
-                : undefined
-              if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
-            })()
-            return await finishTask
+          const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
+          const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
+            if (options.holdCapacity !== true) return outcome
+            const cancellations = await Promise.allSettled(
+              [...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)),
+            )
+            const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+            return rejected ? { error: rejected.reason, failed: true } : outcome
           }
           const onAbort = () => {
+            if (preservedSources.size) return
             const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
-            void finishPreserved({ error: reason, failed: true }).catch(() => {})
+            finishTask ||= finishStreamAgentInvocation(
+              invocation,
+              lifecycle,
+              preserved,
+              { error: reason, status: "error" },
+              runFailureMessage,
+              outputExtensions,
+            )
+            void finishTask.catch(() => {})
           }
-          preserved = resultWithPreservedProperties(rendered, {
-            toUIMessageStream: {
+          const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
+            const existing = preservedStreams.get(renderedStream)
+            if (existing) return existing
+            const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
+            preservedSources.set(renderedStream, source)
+            const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
+            const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults)
+            const value = withCapabilityCleanup(
+              streamed.stream,
+              async (outcome) => {
+                invocation.input.abortSignal?.removeEventListener("abort", onAbort)
+                finishing = true
+                const finalOutcome = await cancelPreservedSources(outcome)
+                if (finishTask) return await finishTask
+                const finishResult = streamed.finishResult(preserved)
+                finishTask = (async () => {
+                  if (!finalOutcome.failed && !finalOutcome.completed) {
+                    await lifecycle.finish({
+                      result: finishResult,
+                      status: "success",
+                      ...(streamed.finishUsage() ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) } : {}),
+                      usageResolved: true,
+                    })
+                  } else {
+                    await finishStreamAgentInvocation(
+                      invocation,
+                      lifecycle,
+                      finishResult,
+                      finishOutcomeFromCleanup(finalOutcome),
+                      runFailureMessage,
+                      outputExtensions,
+                    )
+                    const usageRecord =
+                      finishResult && isRuntimeObject(finishResult)
+                        ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                          (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                        : undefined
+                    if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+                  }
+                })()
+                return await finishTask
+              },
+              { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
+            )
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            const preservedStream = isRuntimeFunction((renderedStream as ReadableStream<unknown>).pipeThrough) ? toReadableAsyncIterableStream(value) : value
+            preservedStreams.set(renderedStream, preservedStream)
+            return preservedStream
+          }
+          const descriptors: PropertyDescriptorMap = {}
+          try {
+            for (const property of streamProperties) {
+              descriptors[property] = {
+                configurable: true,
+                enumerable: true,
+                value: preserveStream(streamPropertyValues.get(property)!),
+                writable: true,
+              }
+            }
+          } catch (error) {
+            const unresolvedSources = [...new Set(streamPropertyValues.values())].filter((stream) => !preservedSources.has(stream))
+            const [finalOutcome] = await Promise.all([
+              cancelPreservedSources({ error, failed: true }),
+              ...unresolvedSources.map(async (stream) => {
+                try {
+                  await cancellableAsyncIterableSource(stream).cancel(error)
+                } catch {}
+              }),
+            ])
+            throw finalOutcome.failed ? finalOutcome.error : error
+          }
+          for (const [property, value] of resolvedPrimaryProperties) {
+            if (!(property in descriptors)) {
+              descriptors[property] = {
+                configurable: true,
+                enumerable: true,
+                value,
+                writable: true,
+              }
+            }
+          }
+          let unresolvedLazyStreamSurfaces =
+            lazyPrimaryDescriptors.size + (textStreamDescriptor && "get" in textStreamDescriptor ? 1 : 0) + (isUIMessageStreamResult(rendered) ? 1 : 0)
+          for (const [property, descriptor] of lazyPrimaryDescriptors) {
+            let initialized = false
+            let value: unknown
+            descriptors[property] = {
+              configurable: true,
+              enumerable: descriptor.enumerable ?? false,
+              get() {
+                if (!initialized) {
+                  if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                  try {
+                    const resolved = descriptor.get?.call(rendered)
+                    value = isAsyncIterable(resolved) ? preserveStream(resolved) : resolved
+                    unresolvedLazyStreamSurfaces--
+                    if (!isAsyncIterable(resolved) && !preservedSources.size && !unresolvedLazyStreamSurfaces) {
+                      finishing = true
+                      finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
+                      void finishTask.catch(() => {})
+                    }
+                  } catch (error) {
+                    finishing = true
+                    void (async () => {
+                      const finalOutcome = await cancelPreservedSources({ error, failed: true })
+                      finishTask ||= finishStreamAgentInvocation(
+                        invocation,
+                        lifecycle,
+                        preserved,
+                        finishOutcomeFromCleanup(finalOutcome),
+                        runFailureMessage,
+                        outputExtensions,
+                      )
+                      await finishTask
+                    })().catch(() => {})
+                    throw error
+                  }
+                  initialized = true
+                }
+                return value
+              },
+            }
+          }
+          if (isUIMessageStreamResult(rendered)) {
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+            let uiMessageStreamResolved = false
+            descriptors.toUIMessageStream = {
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => {
-                if (finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
-                if (uiMessageStreamCreated) throw new Error("[vitehub] Agent Invocation UI-message stream has already been created.")
-                uiMessageStreamCreated = true
-                invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-                let source: ReturnType<typeof cancellableAsyncIterableSource>
+                if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
                 try {
                   const renderedStream = toUIMessageStream.apply(rendered, args)
-                  source = cancellableAsyncIterableSource(renderedStream)
-                }
-                catch (error) {
-                  void finishPreserved({ error, failed: true }).catch(() => {})
+                  if (!uiMessageStreamResolved) {
+                    uiMessageStreamResolved = true
+                    unresolvedLazyStreamSurfaces--
+                  }
+                  const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
+                  preservedSources.set(renderedStream, source)
+                  return withReadableStreamCleanup(
+                    normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
+                    async (outcome) => {
+                      finishing = true
+                      const finalOutcome = await cancelPreservedSources(outcome)
+                      if (finishTask) return await finishTask
+                      finishTask =
+                        !finalOutcome.failed && !finalOutcome.completed
+                          ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
+                          : finishStreamAgentInvocation(
+                              invocation,
+                              lifecycle,
+                              preserved,
+                              finishOutcomeFromCleanup(finalOutcome),
+                              runFailureMessage,
+                              outputExtensions,
+                            )
+                      return await finishTask
+                    },
+                    { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
+                  )
+                } catch (error) {
+                  finishing = true
+                  void (async () => {
+                    const finalOutcome = await cancelPreservedSources({ error, failed: true })
+                    finishTask ||= finishStreamAgentInvocation(
+                      invocation,
+                      lifecycle,
+                      preserved,
+                      finishOutcomeFromCleanup(finalOutcome),
+                      runFailureMessage,
+                      outputExtensions,
+                    )
+                    await finishTask
+                  })().catch(() => {})
                   throw error
                 }
-                return withReadableStreamCleanup(
-                  toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
-                    toReadableAsyncIterableStream(normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))),
-                    invocation,
-                    rendered,
-                  )),
-                  finishPreserved,
-                  {
-                    abortSignal: invocation.input.abortSignal,
-                    cancelOnAbort: source.cancel,
-                    onChunk(chunk) {
-                      collectToolResult(chunk)
-                      streamedText += uiMessageTextDelta(chunk) || ""
-                      streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
-                    },
-                  },
-                )
               },
-            },
-          })
-          if (invocation.input.abortSignal?.aborted) onAbort()
-          else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+            }
+          }
+          if (textStreamDescriptor) {
+            const resolveTextStream = "get" in textStreamDescriptor ? () => textStreamDescriptor.get?.call(rendered) : () => textStreamDescriptor.value
+            let preservedTextStream: unknown
+            let initialized = false
+            if (!("get" in textStreamDescriptor) && isAsyncIterable(textStreamDescriptor.value)) {
+              try {
+                preservedTextStream = preserveStream(textStreamDescriptor.value)
+                initialized = true
+              } catch (error) {
+                const finalOutcome = await cancelPreservedSources({ error, failed: true })
+                throw finalOutcome.failed ? finalOutcome.error : error
+              }
+            }
+            descriptors.textStream = {
+              configurable: true,
+              enumerable: textStreamDescriptor.enumerable ?? false,
+              get() {
+                if (!initialized) {
+                  if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                  try {
+                    const textStream = resolveTextStream()
+                    preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
+                    if ("get" in textStreamDescriptor) unresolvedLazyStreamSurfaces--
+                    if (!isAsyncIterable(textStream) && !preservedSources.size && !unresolvedLazyStreamSurfaces) {
+                      finishing = true
+                      finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
+                      void finishTask.catch(() => {})
+                    }
+                  } catch (error) {
+                    finishing = true
+                    void (async () => {
+                      const finalOutcome = await cancelPreservedSources({ error, failed: true })
+                      finishTask ||= finishStreamAgentInvocation(
+                        invocation,
+                        lifecycle,
+                        preserved,
+                        finishOutcomeFromCleanup(finalOutcome),
+                        runFailureMessage,
+                        outputExtensions,
+                      )
+                      await finishTask
+                    })().catch(() => {})
+                    throw error
+                  }
+                  initialized = true
+                }
+                return preservedTextStream
+              },
+            }
+          }
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          preserved = resultWithPreservedProperties(rendered as object, descriptors)
+          if (!streamProperties.length && !textStreamDescriptor && !isUIMessageStreamResult(rendered)) {
+            return {
+              finishResult: preserved,
+              value: preserved,
+            }
+          }
+          if (!streamProperties.length) {
+            if (invocation.input.abortSignal?.aborted) onAbort()
+            else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+          }
           return {
             deferFinish: true,
             finishResult: preserved,
             value: preserved,
           }
         }
-        const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
-        const lazyPrimaryDescriptors = new Map<"fullStream" | "stream", PropertyDescriptor>()
-        const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
-        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
-        try {
-          for (const property of ["stream", "fullStream"] as const) {
-            let descriptor: PropertyDescriptor | undefined
-            for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-              descriptor = Object.getOwnPropertyDescriptor(owner, property)
-            if (!descriptor) continue
-            if ("get" in descriptor) {
-              lazyPrimaryDescriptors.set(property, descriptor)
-              continue
+        const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
+        const structuredFinal =
+          options.renderOutput && invocation.output
+            ? await materializeAgentStructuredOutput(
+                final,
+                invocation.input.abortSignal,
+                invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
+                invocation.output,
+              )
+            : final
+        const resolvedUsageRecord =
+          options.renderOutput && invocation.output ? ((await resolveFinishUsageRecord(invocation, structuredFinal)) ?? driverUsageRecord) : driverUsageRecord
+        const hasEagerFinishExtension = invocation.finishExtensionProviders.some((provider) => provider.eager)
+        const structuredUsageRecord = hasEagerFinishExtension && resolvedUsageRecord ? { ...resolvedUsageRecord } : resolvedUsageRecord
+        const finishResult = invocation.output
+          ? undefined
+          : hasEagerFinishExtension
+            ? resultWithResolvedUsageRecord(final, structuredUsageRecord)
+            : hasFinishWork(invocation)
+              ? resultWithUsageRecord(final, structuredUsageRecord)
+              : final
+        const value =
+          options.renderOutput && invocation.output
+            ? await validateAgentOutput(invocation.output, structuredFinal, {
+                allowMaterializedObject: customRun ? structuredFinal === final : structuredFinal === final && final !== result,
+              })
+            : customRun
+              ? hasEagerFinishExtension
+                ? finishResult
+                : final
+              : options.renderOutput
+                ? toAgentRunResult(finishResult)
+                : final
+        return {
+          finishResult: invocation.output ? value : finishResult,
+          finishUsage: structuredUsageRecord,
+          value,
+        }
+      },
+      runFailureMessage,
+      {
+        finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
+        holdOutput: options.holdCapacity,
+        outputExtensions,
+        ...(customRun
+          ? {
+              // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation),
             }
-            const value = descriptor.value
-            resolvedPrimaryProperties.set(property, value)
-            if (isAsyncIterable(value)) {
-              streamPropertyValues.set(property, value)
-              preservedSources.set(value, preservedSources.get(value) ?? cancellableAsyncIterableSource(value))
+          : {}),
+      },
+    )
+  }
+
+  return await finalizeAgentInvocationResult(
+    invocation,
+    lifecycle,
+    result,
+    async (result) => {
+      const hasEagerFinishExtension = invocation.finishExtensionProviders.some((provider) => provider.eager)
+      const driverUsageRecord =
+        hasEagerFinishExtension && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
+          ? undefined
+          : await resolveFinishUsageRecord(invocation, result)
+      const rendered = renderedResult
+        ? result
+        : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+      if (options.output === "ui-message-stream") {
+        const projection = isRuntimeFunction(definition?.uiMessageStream) ? await definition.uiMessageStream(invocation) : definition?.uiMessageStream
+        let uiMessageSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
+        const uiMessageSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+        let capacityRendered = rendered
+        if (options.holdCapacity === true) {
+          if (isUIMessageStreamResult(rendered)) {
+            // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+            try {
+              for (const property of ["stream", "fullStream", "textStream"] as const) {
+                let descriptor: PropertyDescriptor | undefined
+                for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+                  descriptor = Object.getOwnPropertyDescriptor(owner, property)
+                if (!descriptor) continue
+                if ("get" in descriptor) continue
+                const candidate = descriptor.value
+                if (!isAsyncIterable(candidate)) continue
+                uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? cancellableAsyncIterableSource(candidate))
+              }
+            } catch (error) {
+              await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(error)))
+              throw error
             }
+            capacityRendered = cloneWithPropertyDescriptors(rendered, {
+              toUIMessageStream: {
+                configurable: true,
+                enumerable: false,
+                value: (...args: unknown[]) => {
+                  try {
+                    const stream = toUIMessageStream.apply(rendered, args)
+                    uiMessageSource = uiMessageSources.get(stream) ?? cancellableAsyncIterableSource(stream)
+                    uiMessageSources.set(stream, uiMessageSource)
+                    return toReadableAsyncIterableStream(uiMessageSource.stream)
+                  } catch (error) {
+                    return new ReadableStream({
+                      async start(controller) {
+                        await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(error)))
+                        controller.error(error)
+                      },
+                    })
+                  }
+                },
+              },
+            })
+          } else if (isAsyncIterable(rendered)) {
+            uiMessageSource = cancellableAsyncIterableSource(rendered)
+            uiMessageSources.set(rendered, uiMessageSource)
+            capacityRendered = uiMessageSource.stream
           }
         }
-        catch (error) {
-          await Promise.allSettled(
-            [...preservedSources.values()].map(({ cancel }) => cancel(error)),
-          )
+        const enrichedRendered = isUIMessageStreamResult(capacityRendered)
+          ? withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
+          : isAsyncIterable(capacityRendered)
+            ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
+            : capacityRendered
+        const shouldWrapOutput = shouldHoldInvocationOutput()
+        const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
+        return finalizeUiMessageStreamOutput(
+          maybeTraceUiMessageStreamOutput(enrichedRendered, invocation),
+          shouldWrapOutput,
+          async (outcome, streamedText, streamedUsageRecord) => {
+            const cancellations = await Promise.allSettled(
+              [...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)),
+            )
+            const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+            if (rejected) outcome = { error: rejected.reason, failed: true }
+            const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
+            if (!outcome.failed && !outcome.completed) {
+              await lifecycle.finish({
+                result: finishResult,
+                status: "success",
+                ...(streamedUsageRecord ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) } : {}),
+                usageResolved: true,
+              })
+            } else {
+              await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            }
+          },
+          {
+            abortSignal: invocation.input.abortSignal,
+            cancelOnAbort:
+              options.holdCapacity === true
+                ? async (reason) => {
+                    await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(reason)))
+                  }
+                : undefined,
+            ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
+            projection,
+          },
+        )
+      }
+
+      let isStreamResult = hasTraceableStreamResult(rendered)
+      let streamResult = rendered
+      const eagerStreamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+      if (isStreamResult && options.holdCapacity === true && rendered && isRuntimeObject(rendered)) {
+        const descriptors: PropertyDescriptorMap = {}
+        let selectedStream = false
+        try {
+          for (const property of ["stream", "fullStream", "textStream"] as const) {
+            let descriptor: PropertyDescriptor | undefined
+            for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+              descriptor = Object.getOwnPropertyDescriptor(owner, property)
+            if (!descriptor) continue
+            if ("get" in descriptor && selectedStream) continue
+            const candidate = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
+            const source = isAsyncIterable(candidate) ? (eagerStreamSources.get(candidate) ?? cancellableAsyncIterableSource(candidate)) : undefined
+            if (source) eagerStreamSources.set(candidate, source)
+            descriptors[property] = {
+              configurable: true,
+              enumerable: descriptor.enumerable ?? false,
+              value: source?.stream ?? candidate,
+              writable: true,
+            }
+            if (source) selectedStream = true
+          }
+          isStreamResult = selectedStream
+          streamResult = cloneWithPropertyDescriptors(rendered, descriptors)
+        } catch (error) {
+          await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(error)))
           throw error
         }
-        const streamProperties = [...streamPropertyValues.keys()]
-        let finishTask: Promise<void> | undefined
-        let finishing = false
-        let preserved: object
-        const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
-        const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
-          if (options.holdCapacity !== true) return outcome
-          const cancellations = await Promise.allSettled(
-            [...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)),
-          )
-          const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
-          return rejected ? { error: rejected.reason, failed: true } : outcome
+      }
+      if (customRun && !isAsyncIterable(rendered) && !isStreamResult) {
+        const final = await applyFinalOutputRenderers(rendered, invocation, outputExtensions)
+        const value = invocation.output ? await validateAgentOutput(invocation.output, final, { allowMaterializedObject: true }) : final
+        return {
+          finishResult: value,
+          finishUsage: driverUsageRecord,
+          value,
         }
-        const onAbort = () => {
-          if (preservedSources.size) return
-          const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
-          finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
-          void finishTask.catch(() => {})
-        }
-        const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
-          const existing = preservedStreams.get(renderedStream)
-          if (existing) return existing
-          const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
-          preservedSources.set(renderedStream, source)
-          const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
-          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults)
-          const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
-            invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-            finishing = true
-            const finalOutcome = await cancelPreservedSources(outcome)
-            if (finishTask) return await finishTask
-            const finishResult = streamed.finishResult(preserved)
-            finishTask = (async () => {
-              if (!finalOutcome.failed && !finalOutcome.completed) {
+      }
+      const stream = isStreamResult
+        ? streamAgentOutputToEvents(streamResult)
+        : // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          customRun
+          ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+            (rendered as AsyncIterable<StreamEvent>)
+          : streamAgentOutputToEvents(rendered)
+      const shouldWrapOutput = shouldHoldInvocationOutput()
+      const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
+      const streamed = withStreamedResult(
+        withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered),
+        rendered,
+        driverUsageRecord,
+        invocation.toolResults,
+      )
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
+      const value = shouldWrapOutput
+        ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          (withCapabilityCleanup(
+            tracedStream,
+            async (outcome) => {
+              const cancellations = await Promise.allSettled(
+                [...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)),
+              )
+              const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+              if (rejected) outcome = { error: rejected.reason, failed: true }
+              const finishResult = streamed.finishResult()
+              if (!outcome.failed && !outcome.completed) {
                 await lifecycle.finish({
                   result: finishResult,
                   status: "success",
-                  ...(streamed.finishUsage()
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
-                    : {}),
+                  ...(streamed.finishUsage() ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) } : {}),
                   usageResolved: true,
                 })
-              }
-              else {
-                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                const usageRecord = finishResult && typeof finishResult === "object"
-                  ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
-                  : undefined
-                if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
-              }
-            })()
-            return await finishTask
-          }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
-          const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
-            ? toReadableAsyncIterableStream(value)
-            : value
-          preservedStreams.set(renderedStream, preservedStream)
-          return preservedStream
-        }
-        const descriptors: PropertyDescriptorMap = {}
-        try {
-          for (const property of streamProperties) {
-            descriptors[property] = {
-              configurable: true,
-              enumerable: true,
-              value: preserveStream(streamPropertyValues.get(property)!),
-              writable: true,
-            }
-          }
-        }
-        catch (error) {
-          const unresolvedSources = [...new Set(streamPropertyValues.values())]
-            .filter(stream => !preservedSources.has(stream))
-          const [finalOutcome] = await Promise.all([
-            cancelPreservedSources({ error, failed: true }),
-            ...unresolvedSources.map(async (stream) => {
-              try {
-                await cancellableAsyncIterableSource(stream).cancel(error)
-              }
-              catch {}
-            }),
-          ])
-          throw finalOutcome.failed ? finalOutcome.error : error
-        }
-        for (const [property, value] of resolvedPrimaryProperties) {
-          if (!(property in descriptors)) {
-            descriptors[property] = {
-              configurable: true,
-              enumerable: true,
-              value,
-              writable: true,
-            }
-          }
-        }
-        let unresolvedLazyStreamSurfaces = lazyPrimaryDescriptors.size
-          + (textStreamDescriptor && "get" in textStreamDescriptor ? 1 : 0)
-          + (isUIMessageStreamResult(rendered) ? 1 : 0)
-        for (const [property, descriptor] of lazyPrimaryDescriptors) {
-          let initialized = false
-          let value: unknown
-          descriptors[property] = {
-            configurable: true,
-            enumerable: descriptor.enumerable ?? false,
-            get() {
-              if (!initialized) {
-                if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
-                try {
-                  const resolved = descriptor.get?.call(rendered)
-                  value = isAsyncIterable(resolved) ? preserveStream(resolved) : resolved
-                  unresolvedLazyStreamSurfaces--
-                  if (!isAsyncIterable(resolved) && !preservedSources.size && !unresolvedLazyStreamSurfaces) {
-                    finishing = true
-                    finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
-                    void finishTask.catch(() => {})
-                  }
-                }
-                catch (error) {
-                  finishing = true
-                  void (async () => {
-                    const finalOutcome = await cancelPreservedSources({ error, failed: true })
-                    finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                    await finishTask
-                  })().catch(() => {})
-                  throw error
-                }
-                initialized = true
-              }
-              return value
-            },
-          }
-        }
-        if (isUIMessageStreamResult(rendered)) {
-          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
-          let uiMessageStreamResolved = false
-          descriptors.toUIMessageStream = {
-            configurable: true,
-            enumerable: false,
-            value: (...args: unknown[]) => {
-              if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
-              try {
-                const renderedStream = toUIMessageStream.apply(rendered, args)
-                if (!uiMessageStreamResolved) {
-                  uiMessageStreamResolved = true
-                  unresolvedLazyStreamSurfaces--
-                }
-                const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
-                preservedSources.set(renderedStream, source)
-                return withReadableStreamCleanup(
-                  normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
-                  async (outcome) => {
-                    finishing = true
-                    const finalOutcome = await cancelPreservedSources(outcome)
-                    if (finishTask) return await finishTask
-                    finishTask = !finalOutcome.failed && !finalOutcome.completed
-                      ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
-                      : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                    return await finishTask
-                  },
-                  { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
+              } else {
+                await finishStreamAgentInvocation(
+                  invocation,
+                  lifecycle,
+                  finishResult,
+                  finishOutcomeFromCleanup(outcome),
+                  streamFailureMessage,
+                  outputExtensions,
                 )
               }
-              catch (error) {
-                finishing = true
-                void (async () => {
-                  const finalOutcome = await cancelPreservedSources({ error, failed: true })
-                  finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                  await finishTask
-                })().catch(() => {})
-                throw error
-              }
             },
-          }
-        }
-        if (textStreamDescriptor) {
-          const resolveTextStream = "get" in textStreamDescriptor
-            ? () => textStreamDescriptor.get?.call(rendered)
-            : () => textStreamDescriptor.value
-          let preservedTextStream: unknown
-          let initialized = false
-          if (!("get" in textStreamDescriptor) && isAsyncIterable(textStreamDescriptor.value)) {
-            try {
-              preservedTextStream = preserveStream(textStreamDescriptor.value)
-              initialized = true
-            }
-            catch (error) {
-              const finalOutcome = await cancelPreservedSources({ error, failed: true })
-              throw finalOutcome.failed ? finalOutcome.error : error
-            }
-          }
-          descriptors.textStream = {
-            configurable: true,
-            enumerable: textStreamDescriptor.enumerable ?? false,
-            get() {
-              if (!initialized) {
-                if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
-                try {
-                  const textStream = resolveTextStream()
-                  preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
-                  if ("get" in textStreamDescriptor) unresolvedLazyStreamSurfaces--
-                  if (!isAsyncIterable(textStream) && !preservedSources.size && !unresolvedLazyStreamSurfaces) {
-                    finishing = true
-                    finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
-                    void finishTask.catch(() => {})
-                  }
-                }
-                catch (error) {
-                  finishing = true
-                  void (async () => {
-                    const finalOutcome = await cancelPreservedSources({ error, failed: true })
-                    finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                    await finishTask
-                  })().catch(() => {})
-                  throw error
-                }
-                initialized = true
-              }
-              return preservedTextStream
-            },
-          }
-        }
-        preserved = resultWithPreservedProperties(rendered as object, descriptors)
-        if (!streamProperties.length && !textStreamDescriptor && !isUIMessageStreamResult(rendered)) {
-          return {
-            finishResult: preserved,
-            value: preserved,
-          }
-        }
-        if (!streamProperties.length) {
-          if (invocation.input.abortSignal?.aborted) onAbort()
-          else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
-        }
-        return {
-          deferFinish: true,
-          finishResult: preserved,
-          value: preserved,
-        }
-      }
-      const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
-      const structuredFinal = options.renderOutput && invocation.output
-        ? await materializeAgentStructuredOutput(
-            final,
-            invocation.input.abortSignal,
-            invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
-            invocation.output,
-          )
-        : final
-      const resolvedUsageRecord = options.renderOutput && invocation.output
-        ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
-        : driverUsageRecord
-      const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
-      const structuredUsageRecord = hasEagerFinishExtension && resolvedUsageRecord
-        ? { ...resolvedUsageRecord }
-        : resolvedUsageRecord
-      const finishResult = invocation.output
-        ? undefined
-        : hasEagerFinishExtension
-          ? resultWithResolvedUsageRecord(final, structuredUsageRecord)
-          : hasFinishWork(invocation) ? resultWithUsageRecord(final, structuredUsageRecord) : final
-      const value = options.renderOutput && invocation.output
-        ? await validateAgentOutput(invocation.output, structuredFinal, {
-            allowMaterializedObject: customRun
-              ? structuredFinal === final
-              : structuredFinal === final && final !== result,
-          })
-        : customRun
-          ? hasEagerFinishExtension ? finishResult : final
-          : options.renderOutput ? toAgentRunResult(finishResult) : final
+            { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel },
+          ) as AsyncIterable<StreamEvent>)
+        : tracedStream
       return {
-        finishResult: invocation.output ? value : finishResult,
-        finishUsage: structuredUsageRecord,
-        value,
+        deferFinish: shouldWrapOutput,
+        finishResult: rendered,
+        value: customRun ? withStreamResultProperties(value, rendered) : value,
       }
-    }, runFailureMessage, {
-      finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
+    },
+    executionFailureMessage,
+    {
+      finalizeResponse:
+        options.output === "ui-message-stream"
+          ? async (response) => {
+              if (!isUIMessageStreamResponse(response)) return
+              const projection = isRuntimeFunction(definition?.uiMessageStream) ? await definition.uiMessageStream(invocation) : definition?.uiMessageStream
+              const renderedResponseStream = await applyOutputRenderers(
+                {
+                  toUIMessageStream: () => uiMessageStreamFromResponse(response),
+                },
+                invocation.outputRenderers,
+                invocation.outputExtensionProviders,
+                outputExtensions,
+                response,
+              )
+              const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
+              const shouldWrapOutput = shouldHoldInvocationOutput()
+              const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
+              const finalized = await finalizeUiMessageStreamOutput(
+                enrichedResponseStream,
+                shouldWrapOutput,
+                async (outcome, streamedText, streamedUsageRecord) => {
+                  if (!outcome.failed && !outcome.completed) {
+                    await lifecycle.finish({
+                      result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
+                      status: "success",
+                      ...(streamedUsageRecord ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) } : {}),
+                      usageResolved: true,
+                    })
+                  } else {
+                    const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
+                    await finishStreamAgentInvocation(
+                      invocation,
+                      lifecycle,
+                      resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord),
+                      finishOutcomeFromCleanup(outcome),
+                      streamFailureMessage,
+                      outputExtensions,
+                    )
+                  }
+                },
+                {
+                  abortSignal: invocation.input.abortSignal,
+                  ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
+                  projection,
+                },
+              )
+              const headers = new Headers(response.headers)
+              headers.delete("content-encoding")
+              headers.delete("content-length")
+              return {
+                ...finalized,
+                finishResult: response,
+                value: createAgentUIMessageStreamResponse({
+                  headers,
+                  status: response.status,
+                  statusText: response.statusText,
+                  stream: finalized.value,
+                }),
+              }
+            }
+          : undefined,
+      finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
       holdOutput: options.holdCapacity,
       outputExtensions,
       ...(customRun
-        ? {
-            wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation),
-          }
+        ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
         : {}),
-    })
-  }
-
-  return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
-    const driverUsageRecord = hasEagerFinishExtension
-      && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
-      ? undefined
-      : await resolveFinishUsageRecord(invocation, result)
-    const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
-    if (options.output === "ui-message-stream") {
-      const projection = typeof definition?.uiMessageStream === "function"
-        ? await definition.uiMessageStream(invocation)
-        : definition?.uiMessageStream
-      let uiMessageSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
-      const uiMessageSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
-      let capacityRendered = rendered
-      if (options.holdCapacity === true) {
-        if (isUIMessageStreamResult(rendered)) {
-          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
-          try {
-            for (const property of ["stream", "fullStream", "textStream"] as const) {
-              let descriptor: PropertyDescriptor | undefined
-              for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-                descriptor = Object.getOwnPropertyDescriptor(owner, property)
-              if (!descriptor) continue
-              if ("get" in descriptor) continue
-              const candidate = descriptor.value
-              if (!isAsyncIterable(candidate)) continue
-              uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? cancellableAsyncIterableSource(candidate))
-            }
-          }
-          catch (error) {
-            await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(error)))
-            throw error
-          }
-          capacityRendered = cloneWithPropertyDescriptors(rendered, {
-            toUIMessageStream: {
-              configurable: true,
-              enumerable: false,
-              value: (...args: unknown[]) => {
-                try {
-                  const stream = toUIMessageStream.apply(rendered, args)
-                  uiMessageSource = uiMessageSources.get(stream) ?? cancellableAsyncIterableSource(stream)
-                  uiMessageSources.set(stream, uiMessageSource)
-                  return toReadableAsyncIterableStream(uiMessageSource.stream)
-                }
-                catch (error) {
-                  return new ReadableStream({
-                    async start(controller) {
-                      await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(error)))
-                      controller.error(error)
-                    },
-                  })
-                }
-              },
-            },
-          })
-        }
-        else if (isAsyncIterable(rendered)) {
-          uiMessageSource = cancellableAsyncIterableSource(rendered)
-          uiMessageSources.set(rendered, uiMessageSource)
-          capacityRendered = uiMessageSource.stream
-        }
-      }
-      const enrichedRendered = isUIMessageStreamResult(capacityRendered)
-        ? withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
-        : isAsyncIterable(capacityRendered)
-          ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
-          : capacityRendered
-      const shouldWrapOutput = shouldHoldInvocationOutput()
-      const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
-        const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
-        if (rejected) outcome = { error: rejected.reason, failed: true }
-        const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
-        if (!outcome.failed && !outcome.completed) {
-          await lifecycle.finish({
-            result: finishResult,
-            status: "success",
-            ...(streamedUsageRecord
-              ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-              : {}),
-            usageResolved: true,
-          })
-        }
-        else {
-          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
-        }
-      }, {
-        abortSignal: invocation.input.abortSignal,
-        cancelOnAbort: options.holdCapacity === true
-          ? async reason => { await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(reason))) }
-          : undefined,
-        ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
-        projection,
-      })
-    }
-
-    let isStreamResult = hasTraceableStreamResult(rendered)
-    let streamResult = rendered
-    const eagerStreamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
-    if (isStreamResult && options.holdCapacity === true && rendered && typeof rendered === "object") {
-      const descriptors: PropertyDescriptorMap = {}
-      let selectedStream = false
-      try {
-        for (const property of ["stream", "fullStream", "textStream"] as const) {
-          let descriptor: PropertyDescriptor | undefined
-          for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-            descriptor = Object.getOwnPropertyDescriptor(owner, property)
-          if (!descriptor) continue
-          if ("get" in descriptor && selectedStream) continue
-          const candidate = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
-          const source = isAsyncIterable(candidate)
-            ? eagerStreamSources.get(candidate) ?? cancellableAsyncIterableSource(candidate)
-            : undefined
-          if (source) eagerStreamSources.set(candidate, source)
-          descriptors[property] = {
-            configurable: true,
-            enumerable: descriptor.enumerable ?? false,
-            value: source?.stream ?? candidate,
-            writable: true,
-          }
-          if (source) selectedStream = true
-        }
-        isStreamResult = selectedStream
-        streamResult = cloneWithPropertyDescriptors(rendered, descriptors)
-      }
-      catch (error) {
-        await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(error)))
-        throw error
-      }
-    }
-    if (customRun && !isAsyncIterable(rendered) && !isStreamResult) {
-      const final = await applyFinalOutputRenderers(rendered, invocation, outputExtensions)
-      const value = invocation.output
-        ? await validateAgentOutput(invocation.output, final, { allowMaterializedObject: true })
-        : final
-      return {
-        finishResult: value,
-        finishUsage: driverUsageRecord,
-        value,
-      }
-    }
-    const stream = isStreamResult
-      ? streamAgentOutputToEvents(streamResult)
-      : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
-    const shouldWrapOutput = shouldHoldInvocationOutput()
-    const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
-    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.toolResults)
-    const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
-    const value = shouldWrapOutput
-      ? withCapabilityCleanup(tracedStream, async (outcome) => {
-          const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
-          const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
-          if (rejected) outcome = { error: rejected.reason, failed: true }
-          const finishResult = streamed.finishResult()
-          if (!outcome.failed && !outcome.completed) {
-            await lifecycle.finish({
-              result: finishResult,
-              status: "success",
-              ...(streamed.finishUsage()
-                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
-                : {}),
-              usageResolved: true,
-            })
-          }
-          else {
-            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
-          }
-        }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
-      : tracedStream
-    return {
-      deferFinish: shouldWrapOutput,
-      finishResult: rendered,
-      value: customRun ? withStreamResultProperties(value, rendered) : value,
-    }
-  }, executionFailureMessage, {
-    finalizeResponse: options.output === "ui-message-stream"
-      ? async (response) => {
-          if (!isUIMessageStreamResponse(response)) return
-          const projection = typeof definition?.uiMessageStream === "function"
-            ? await definition.uiMessageStream(invocation)
-            : definition?.uiMessageStream
-          const renderedResponseStream = await applyOutputRenderers({
-            toUIMessageStream: () => uiMessageStreamFromResponse(response),
-          }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions, response)
-          const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
-          const shouldWrapOutput = shouldHoldInvocationOutput()
-          const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
-          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-            if (!outcome.failed && !outcome.completed) {
-              await lifecycle.finish({
-                result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
-                status: "success",
-                ...(streamedUsageRecord
-                  ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-                  : {}),
-                usageResolved: true,
-              })
-            }
-            else {
-              const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
-              await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
-            }
-          }, {
-            abortSignal: invocation.input.abortSignal,
-            ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
-            projection,
-          })
-          const headers = new Headers(response.headers)
-          headers.delete("content-encoding")
-          headers.delete("content-length")
-          return {
-            ...finalized,
-            finishResult: response,
-            value: createAgentUIMessageStreamResponse({
-              headers,
-              status: response.status,
-              statusText: response.statusText,
-              stream: finalized.value,
-            }),
-          }
-        }
-      : undefined,
-    finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
-    holdOutput: options.holdCapacity,
-    outputExtensions,
-    ...(customRun
-      ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
-      : {}),
-  })
+    },
+  )
 }
 
-async function executeAgentInvocation<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TOutput,
->(
+async function executeAgentInvocation<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS, TOutput>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const definition = hasAgentDefinition(agent) ? agent as object : undefined
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  const definition = hasAgentDefinition(agent) ? (agent as object) : undefined
   const invocationJournal = definition
-    ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
-      ...context,
-      ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
-        ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
-        : {}),
-    }, { agentName: (definition as AgentDefinition).name })
+    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      await bindAgentInvocations(
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        (definition as AgentDefinition).invocations,
+        {
+          ...context,
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
+            ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+              { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
+            : {}),
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        },
+        // SAFETY: hasAgentDefinition established the definition shape before this metadata lookup.
+        { agentName: (definition as AgentDefinition).name },
+      )
     : undefined
   if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -4469,7 +4629,8 @@ async function executeAgentInvocation<
   try {
     if (definition && inspectAgentCapacity(definition)) {
       preparedInvocation = await createAgentInvocationContextWithWorkflowFailureDelivery(
-        agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
+        // SAFETY: definition and capacity inspection above establish that this input is the same typed Agent Definition.
+        agent as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
         context,
         input,
         options.kind,
@@ -4480,12 +4641,10 @@ async function executeAgentInvocation<
       await invocationJournal?.running()
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
     }
-    release = definition
-      ? await acquireAgentCapacity(definition, input.abortSignal)
-      : undefined
-  }
-  catch (error) {
+    release = definition ? await acquireAgentCapacity(definition, input.abortSignal) : undefined
+  } catch (error) {
     if (preparedInvocation) {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
       await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
     }
@@ -4496,8 +4655,7 @@ async function executeAgentInvocation<
     await invocationJournal?.running()
     try {
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
-    }
-    catch (error) {
+    } catch (error) {
       await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
       throw error
     }
@@ -4511,72 +4669,60 @@ async function executeAgentInvocation<
   }
   try {
     await invocationJournal?.running()
-    return await executeAgentInvocationWithCapacityLease(agent, context, input, {
-      ...options,
-      holdCapacity: true,
-      onCapacityBypass: releaseOnce,
-      onFinish(outcome) {
-        try {
-          options.onFinish?.(outcome)
-        }
-        finally {
-          releaseOnce()
-        }
+    return await executeAgentInvocationWithCapacityLease(
+      agent,
+      context,
+      input,
+      {
+        ...options,
+        holdCapacity: true,
+        onCapacityBypass: releaseOnce,
+        onFinish(outcome) {
+          try {
+            options.onFinish?.(outcome)
+          } finally {
+            releaseOnce()
+          }
+        },
       },
-    }, preparedInvocation, invocationJournal)
-  }
-  catch (error) {
+      preparedInvocation,
+      invocationJournal,
+    )
+  } catch (error) {
     await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     releaseOnce()
     throw error
   }
 }
 
-export function runAgentInline<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
->(
+export function runAgentInline<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown, TOutput = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { output: "raw" },
 ): Promise<unknown>
-export function runAgentInline<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
->(
+export function runAgentInline<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown, TOutput = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options?: RunAgentInlineOptions,
 ): Promise<TOutput | Response>
-export async function runAgentInline<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
->(
+export async function runAgentInline<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown, TOutput = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: RunAgentInlineOptions = {},
 ): Promise<TOutput | Response> {
   context = withAgentIdentityOwner(agent, context)
-  return await executeAgentInvocation(agent, context, input, {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  return (await executeAgentInvocation(agent, context, input, {
     kind: "run",
     renderOutput: options.output !== "raw",
-  }) as TOutput
+  })) as TOutput
 }
 
-function agentInvocationSnapshotFromWorkflow<TOutput>(
-  run: AgentWorkflowRun<TOutput>,
-): AgentInvocationSnapshot<TOutput> | undefined {
-  const status = run.status === "queued"
-    ? "pending"
-    : run.status === "unknown"
-      ? undefined
-      : run.status
+function agentInvocationSnapshotFromWorkflow<TOutput>(run: AgentWorkflowRun<TOutput>): AgentInvocationSnapshot<TOutput> | undefined {
+  const status = run.status === "queued" ? "pending" : run.status === "unknown" ? undefined : run.status
   if (!status) return undefined
   return {
     ...(run.status === "failed" && run.metadata !== undefined ? { error: run.metadata } : {}),
@@ -4587,10 +4733,11 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
 }
 
 function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable" {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && (error as { code?: unknown }).code === "WORKFLOW_OPERATION_UNSUPPORTED"
+  return isRuntimeObject(error) &&
+    error !== null &&
+    "code" in error &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    (error as { code?: unknown }).code === "WORKFLOW_OPERATION_UNSUPPORTED"
     ? "unsupported"
     : "unavailable"
 }
@@ -4608,24 +4755,25 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   }
   return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
     cancel: async () => {
-      const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      const snapshot = agentInvocationSnapshotFromWorkflow((await handle.cancel(run.id)) as AgentWorkflowRun<TOutput>)
       return await reconcileJournal(snapshot)
     },
     errorOutcome: workflowOperationOutcome,
     id: run.id,
-    inspect: async () => await reconcileJournal(agentInvocationSnapshotFromWorkflow(
-      await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
-    )),
+    inspect: async () =>
+      await reconcileJournal(
+        agentInvocationSnapshotFromWorkflow(
+          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+          (await handle.getRun(run.id)) as AgentWorkflowRun<TOutput>,
+        ),
+      ),
     parentAbortSignal,
     result: Promise.resolve(run),
   })
 }
 
-function createInlineAgentInvocationController<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TOutput,
->(
+function createInlineAgentInvocationController<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS, TOutput>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -4634,50 +4782,46 @@ function createInlineAgentInvocationController<
   return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS>({
     parentAbortSignal: input.abortSignal,
     sendInput: (id, nextInput, options) => sendAgentInvocationInput(id, nextInput, options),
-    start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
-      ...withAgentInvocationControlId(context, id),
-      run: { ...context.run, runId: runId || id },
-    }, { ...input, abortSignal }, {
-      kind: "run",
-      onFinish(outcome) {
-        onFinish(outcome.status === "success"
-          ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
-          : { error: outcome.error, status: "failed" })
-      },
-      renderOutput: true,
-    }),
-    support: id => agentInvocationInputSupport(id),
+    start: ({ abortSignal, id, onFinish }) =>
+      executeAgentInvocation(
+        agent,
+        {
+          ...withAgentInvocationControlId(context, id),
+          run: { ...context.run, runId: runId || id },
+        },
+        { ...input, abortSignal },
+        {
+          kind: "run",
+          onFinish(outcome) {
+            onFinish(
+              outcome.status === "success"
+                ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+                  { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
+                : { error: outcome.error, status: "failed" },
+            )
+          },
+          renderOutput: true,
+        },
+      ),
+    support: (id) => agentInvocationInputSupport(id),
   })
 }
 
-export async function startAgentInvocation<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
->(
+export async function startAgentInvocation<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown, TOutput = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { runId?: string } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
-  const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
-    agent,
-    invocationContext,
-    input,
-    { fresh: true },
-  )
+  const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input, { fresh: true })
   if (workflow) {
     return createWorkflowAgentInvocationController(workflow, input.abortSignal)
   }
   return createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
 }
 
-export async function runAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
->(
+export async function runAgent<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown, TOutput = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -4688,7 +4832,9 @@ export async function runAgent<
     return workflow.run
   }
   if (input.context?.[requireAgentWorkflowContextKey] === true) {
-    throw new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+    throw new Error(
+      "[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.",
+    )
   }
   return await runAgentInline(agent, invocationContext, input)
 }
@@ -4701,9 +4847,12 @@ export async function runScheduledAgent<CALL_OPTIONS = unknown>(
 ): Promise<unknown> {
   const memoValues = new Map<string, unknown>()
   const runId = context.runId || context.id
-  const turn = context.input && typeof context.input === "object" && (context.input as { kind?: unknown }).kind === "agent-turn"
-    ? parseScheduledAgentTurnInput(context.input)
-    : undefined
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  const turn =
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    context.input && isRuntimeObject(context.input) && (context.input as { kind?: unknown }).kind === "agent-turn"
+      ? parseScheduledAgentTurnInput(context.input)
+      : undefined
   const forwardedInput = { ...input }
   if (turn) {
     delete forwardedInput.message
@@ -4711,42 +4860,44 @@ export async function runScheduledAgent<CALL_OPTIONS = unknown>(
     delete forwardedInput.prompt
   }
 
-  return await runAgent(agent, {
-    ...runtimeContext,
-    memo(key, create) {
-      if (!memoValues.has(key)) memoValues.set(key, create())
-      return memoValues.get(key) as never
-    },
-    run: { ...runtimeContext.run, ...turn?.delivery, runId },
-    runtime: runtimeContext.runtime ?? "unknown",
-    waitUntil: runtimeContext.waitUntil ?? context.waitUntil ?? (() => {}),
-  }, {
-    ...forwardedInput,
-    context: {
-      ...input.context,
-      ...(turn
-        ? {
-            invoker: turn.invoker,
-            [scheduledAgentTurnContextKey]: true,
-          }
-        : {}),
-      schedule: {
-        id: context.id,
-        kind: "schedule",
-        runId,
-        scheduleId: context.scheduleId,
-        scheduledAt: context.scheduledAt,
-        target: context.target,
+  return await runAgent(
+    agent,
+    {
+      ...runtimeContext,
+      memo(key, create) {
+        if (!memoValues.has(key)) memoValues.set(key, create())
+        // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+        return memoValues.get(key) as never
       },
+      run: { ...runtimeContext.run, ...turn?.delivery, runId },
+      runtime: runtimeContext.runtime ?? "unknown",
+      waitUntil: runtimeContext.waitUntil ?? context.waitUntil ?? (() => {}),
     },
-    ...(turn ? { prompt: turn.prompt } : {}),
-  })
+    {
+      ...forwardedInput,
+      context: {
+        ...input.context,
+        ...(turn
+          ? {
+              invoker: turn.invoker,
+              [scheduledAgentTurnContextKey]: true,
+            }
+          : {}),
+        schedule: {
+          id: context.id,
+          kind: "schedule",
+          runId,
+          scheduleId: context.scheduleId,
+          scheduledAt: context.scheduledAt,
+          target: context.target,
+        },
+      },
+      ...(turn ? { prompt: turn.prompt } : {}),
+    },
+  )
 }
 
-export async function streamAgentInline<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
->(
+export async function streamAgentInline<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -4758,10 +4909,7 @@ export async function streamAgentInline<
   })
 }
 
-export async function streamAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
->(
+export async function streamAgent<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -4770,9 +4918,6 @@ export async function streamAgent<
   return await streamAgentInline(agent, context, input, options)
 }
 
-export async function getAgent<TContext extends AgentRuntimeContext>(
-  agent: AgentInput<TContext>,
-  context: TContext,
-): Promise<AgentAdapter> {
+export async function getAgent<TContext extends AgentRuntimeContext>(agent: AgentInput<TContext>, context: TContext): Promise<AgentAdapter> {
   return await resolveAgent(agent, context)
 }

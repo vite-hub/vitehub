@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 
+import { parseAgentStateQueueEntry } from "../internal/state-queue.ts"
+import { isRuntimeNumber, isRuntimeString } from "../internal/runtime-value.ts"
+
 import type { Lock } from "chat"
 
 interface CloudflareSqlCursor {
@@ -23,7 +26,7 @@ interface CloudflareDurableObjectState {
 }
 
 export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
-  protected declare ctx: CloudflareDurableObjectState
+  declare protected ctx: CloudflareDurableObjectState
   private readonly sql: CloudflareSqlStorage
 
   constructor(ctx: CloudflareDurableObjectState, env: TEnv) {
@@ -60,12 +63,8 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
   }
 
   cacheGet(key: string): string | null {
-    const rows = this.sql.exec(
-      "SELECT value FROM cache WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)",
-      key,
-      Date.now(),
-    ).toArray()
-    return typeof rows[0]?.value === "string" ? rows[0].value : null
+    const rows = this.sql.exec("SELECT value FROM cache WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)", key, Date.now()).toArray()
+    return isRuntimeString(rows[0]?.value) ? rows[0].value : null
   }
 
   cacheSet(key: string, value: string, ttlMs?: number): void {
@@ -77,11 +76,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
   cacheSetIfNotExists(key: string, value: string, ttlMs?: number): boolean {
     const now = Date.now()
     const result = this.ctx.storage.transactionSync(() => {
-      const existing = this.sql.exec(
-        "SELECT 1 FROM cache WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)",
-        key,
-        now,
-      ).toArray()
+      const existing = this.sql.exec("SELECT 1 FROM cache WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)", key, now).toArray()
       if (existing.length > 0) return { expiresAt: null, inserted: false }
 
       this.sql.exec("DELETE FROM cache WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?", key, now)
@@ -101,20 +96,14 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
       const row = rows[0]
       if (!row) return null
       this.sql.exec("DELETE FROM queue WHERE id = ?", row.id)
-      return typeof row.value === "string" ? row.value : null
+      return isRuntimeString(row.value) ? row.value : null
     })
   }
 
   enqueue(threadId: string, value: string, maxSize: number): number {
-    const entry = JSON.parse(value) as { enqueuedAt: number, expiresAt: number }
+    const entry = parseAgentStateQueueEntry(value)
     const result = this.ctx.storage.transactionSync(() => {
-      this.sql.exec(
-        "INSERT INTO queue (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)",
-        threadId,
-        value,
-        entry.enqueuedAt,
-        entry.expiresAt,
-      )
+      this.sql.exec("INSERT INTO queue (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)", threadId, value, entry.enqueuedAt, entry.expiresAt)
       this.sql.exec(
         `DELETE FROM queue WHERE thread_id = ? AND id NOT IN (
           SELECT id FROM queue WHERE thread_id = ? ORDER BY id DESC LIMIT ?
@@ -133,7 +122,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
     return this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?", threadId, Date.now())
       const row = this.sql.exec("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC LIMIT 1", threadId).toArray()[0]
-      return typeof row?.value === "string" ? row.value : null
+      return isRuntimeString(row?.value) ? row.value : null
     })
   }
 
@@ -141,20 +130,14 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
     const replaced = this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?", threadId, Date.now())
       const queue = this.sql.exec("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC", threadId).toArray()
-      const current = typeof queue[0]?.value === "string" ? queue[0].value : null
+      const current = isRuntimeString(queue[0]?.value) ? queue[0].value : null
       if (current !== expected) return false
-      const retained = queue.slice(expected === null ? 0 : 1).flatMap(row => typeof row.value === "string" ? [row.value] : [])
+      const retained = queue.slice(expected === null ? 0 : 1).flatMap((row) => (isRuntimeString(row.value) ? [row.value] : []))
       const next = maxSize > 0 ? [...replacement, ...retained].slice(-maxSize) : [...replacement, ...retained]
       this.sql.exec("DELETE FROM queue WHERE thread_id = ?", threadId)
       for (const value of next) {
-        const entry = JSON.parse(value) as { enqueuedAt: number, expiresAt: number }
-        this.sql.exec(
-          "INSERT INTO queue (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)",
-          threadId,
-          value,
-          entry.enqueuedAt,
-          entry.expiresAt,
-        )
+        const entry = parseAgentStateQueueEntry(value)
+        this.sql.exec("INSERT INTO queue (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)", threadId, value, entry.enqueuedAt, entry.expiresAt)
       }
       return true
     })
@@ -165,15 +148,17 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
   extendLock(threadId: string, token: string, ttlMs: number): boolean {
     return this.ctx.storage.transactionSync(() => {
       const now = Date.now()
-      const rows = this.sql.exec(
-        `UPDATE locks SET expires_at = ?
+      const rows = this.sql
+        .exec(
+          `UPDATE locks SET expires_at = ?
           WHERE thread_id = ? AND token = ? AND expires_at > ?
           RETURNING thread_id`,
-        now + ttlMs,
-        threadId,
-        token,
-        now,
-      ).toArray()
+          now + ttlMs,
+          threadId,
+          token,
+          now,
+        )
+        .toArray()
       return rows.length > 0
     })
   }
@@ -208,17 +193,14 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
   listGet(key: string): string[] {
     const now = Date.now()
     this.sql.exec("DELETE FROM lists WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?", key, now)
-    return this.sql.exec("SELECT value FROM lists WHERE key = ? ORDER BY id ASC", key)
+    return this.sql
+      .exec("SELECT value FROM lists WHERE key = ? ORDER BY id ASC", key)
       .toArray()
-      .map((row: { value?: unknown }) => typeof row.value === "string" ? row.value : JSON.stringify(row.value))
+      .map((row: { value?: unknown }) => (isRuntimeString(row.value) ? row.value : JSON.stringify(row.value)))
   }
 
   queueDepth(threadId: string): number {
-    return Number(this.sql.exec(
-      "SELECT COUNT(*) as cnt FROM queue WHERE thread_id = ? AND expires_at > ?",
-      threadId,
-      Date.now(),
-    ).one().cnt)
+    return Number(this.sql.exec("SELECT COUNT(*) as cnt FROM queue WHERE thread_id = ? AND expires_at > ?", threadId, Date.now()).one().cnt)
   }
 
   releaseLock(threadId: string, token: string): void {
@@ -242,8 +224,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
       this.sql.exec("DELETE FROM lists WHERE expires_at IS NOT NULL AND expires_at <= ?", now)
       const next = this.nextExpiry()
       if (next !== null) await this.ctx.storage.setAlarm(next)
-    }
-    catch {
+    } catch {
       await this.ctx.storage.setAlarm(Date.now() + 30_000)
     }
   }
@@ -312,8 +293,9 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
 
   private nextExpiry(): number | null {
     const now = Date.now()
-    const row = this.sql.exec(
-      `SELECT MIN(expires_at) as next_expiry FROM (
+    const row = this.sql
+      .exec(
+        `SELECT MIN(expires_at) as next_expiry FROM (
         SELECT expires_at FROM locks WHERE expires_at > ?
         UNION ALL
         SELECT expires_at FROM cache WHERE expires_at IS NOT NULL AND expires_at > ?
@@ -322,12 +304,13 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
         UNION ALL
         SELECT expires_at FROM lists WHERE expires_at IS NOT NULL AND expires_at > ?
       )`,
-      now,
-      now,
-      now,
-      now,
-    ).one()
-    return typeof row.next_expiry === "number" ? row.next_expiry : null
+        now,
+        now,
+        now,
+        now,
+      )
+      .one()
+    return isRuntimeNumber(row.next_expiry) ? row.next_expiry : null
   }
 
   private scheduleCleanupIfNeeded(): void {

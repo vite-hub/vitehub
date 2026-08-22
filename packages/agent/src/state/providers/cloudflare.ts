@@ -1,5 +1,7 @@
 import type { Lock, QueueEntry, StateAdapter } from "chat"
 
+import { parseAgentStateQueueEntry } from "../../internal/state-queue.ts"
+
 export interface ViteHubAgentStateDurableObjectStub {
   acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> | Lock | null
   cacheDelete(key: string): Promise<void> | void
@@ -54,7 +56,7 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
     return await this.stub(threadId).acquireLock(threadId, ttlMs)
   }
 
-  async appendToList(key: string, value: unknown, options?: { maxLength?: number, ttlMs?: number }): Promise<void> {
+  async appendToList(key: string, value: unknown, options?: { maxLength?: number; ttlMs?: number }): Promise<void> {
     await this.stub().listAppend(key, JSON.stringify(value), options?.maxLength, options?.ttlMs)
   }
 
@@ -68,7 +70,7 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
 
   async dequeue(threadId: string): Promise<QueueEntry | null> {
     const raw = await this.stub(threadId).dequeue(threadId)
-    return raw === null ? null : JSON.parse(raw) as QueueEntry
+    return raw === null ? null : parseAgentStateQueueEntry(raw)
   }
 
   async disconnect(): Promise<void> {
@@ -81,14 +83,14 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
 
   async queuePeek(threadId: string): Promise<QueueEntry | null> {
     const raw = await this.stub(threadId).queuePeek(threadId)
-    return raw === null ? null : JSON.parse(raw) as QueueEntry
+    return raw === null ? null : parseAgentStateQueueEntry(raw)
   }
 
   async queueReplaceHead(threadId: string, expected: QueueEntry | null, replacement: QueueEntry[], maxSize: number): Promise<boolean> {
     return await this.stub(threadId).queueReplaceHead(
       threadId,
       expected === null ? null : JSON.stringify(expected),
-      replacement.map(entry => JSON.stringify(entry)),
+      replacement.map((entry) => JSON.stringify(entry)),
       maxSize,
     )
   }
@@ -101,14 +103,30 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
     await this.stub(threadId).forceReleaseLock(threadId)
   }
 
-  async get<T = unknown>(key: string): Promise<T | null> {
+  async get<T = unknown>(
+    key: string,
+    parse: (value: unknown) => T = (value) => {
+      // SAFETY: State values are JSON-compatible and callers may provide a parser when they require a narrower runtime contract.
+      return value as T
+    },
+  ): Promise<T | null> {
     const raw = await this.stub().cacheGet(key)
     if (raw === null) return null
-    return JSON.parse(raw) as T
+    const value: unknown = JSON.parse(raw)
+    return parse(value)
   }
 
-  async getList<T = unknown>(key: string): Promise<T[]> {
-    return (await this.stub().listGet(key)).map(value => JSON.parse(value) as T)
+  async getList<T = unknown>(
+    key: string,
+    parse: (value: unknown) => T = (value) => {
+      // SAFETY: State list values are JSON-compatible and callers may provide a parser when they require a narrower runtime contract.
+      return value as T
+    },
+  ): Promise<T[]> {
+    return (await this.stub().listGet(key)).map((serialized) => {
+      const value: unknown = JSON.parse(serialized)
+      return parse(value)
+    })
   }
 
   async isSubscribed(threadId: string): Promise<boolean> {
@@ -149,9 +167,7 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
     this.ensureConnected()
     const name = threadId && this.shardKey ? this.shardKey(threadId) : this.defaultName
     const id = this.namespace.idFromName(name)
-    return this.locationHint
-      ? this.namespace.get(id, { locationHint: this.locationHint })
-      : this.namespace.get(id)
+    return this.locationHint ? this.namespace.get(id, { locationHint: this.locationHint }) : this.namespace.get(id)
   }
 }
 

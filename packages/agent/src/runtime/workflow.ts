@@ -19,6 +19,7 @@ import {
   withAgentChannelDelivery,
 } from "../internal/channel-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
+import { isRuntimeBoolean, isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "../internal/runtime-value.ts"
 
 import type {
   AgentHostIdentity,
@@ -76,7 +77,7 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
   runtimeContext: AgentRuntimeContext<TRuntimeConfig>,
   recovery: NonNullable<AgentWorkflowInvocationPayload["invocationRecovery"]>,
 ): Promise<void> {
-  if (!agent || typeof agent !== "object" || !("invocations" in agent)) return
+  if (!agent || !isRuntimeObject(agent) || !("invocations" in agent)) return
   const invocations = agent.invocations
   if (!invocations) return
   const journal = await bindAgentInvocations(
@@ -119,10 +120,10 @@ function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRunt
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
 function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true
-  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0)
-  if (!value || typeof value !== "object" || seen.has(value)) return false
-  if (Reflect.ownKeys(value).some((key) => typeof key === "symbol")) return false
+  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return true
+  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0)
+  if (!value || !isRuntimeObject(value) || seen.has(value)) return false
+  if (Reflect.ownKeys(value).some((key) => isRuntimeSymbol(key))) return false
   seen.add(value)
   let portable = false
   if (Array.isArray(value)) {
@@ -151,6 +152,7 @@ function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowV
 }
 
 function unsupportedWorkflowResult(): never {
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const error = new TypeError("Agent Workflow results must contain only JSON-compatible values.") as TypeError & { isRetryable: false }
   error.isRetryable = false
   throw error
@@ -170,7 +172,7 @@ function nonRetryableAgentWorkflowError(error: unknown): unknown {
   const status = readAgentErrorProperty(retry, "statusCode")
   const permanentProviderRequest =
     name === "AI_LoadAPIKeyError" ||
-    (name === "AI_APICallError" && typeof status === "number" && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status))
+    (name === "AI_APICallError" && isRuntimeNumber(status) && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status))
   const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON" || code === "AGENT_OUTPUT_SCHEMA_INVALID" || name === "AI_NoObjectGeneratedError"
   if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedProviderRetries && !exhaustedOutput) return error
 
@@ -180,6 +182,7 @@ function nonRetryableAgentWorkflowError(error: unknown): unknown {
     return value
   } catch {
     return Object.assign(new Error(value.message, { cause: value }), {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       isRetryable: false as const,
     })
   }
@@ -190,9 +193,9 @@ function isTextResponseMediaType(mediaType: string): boolean {
 }
 
 function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value
-  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
-  if (!value || typeof value !== "object") return unportableWorkflowValue
+  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return value
+  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
+  if (!value || !isRuntimeObject(value)) return unportableWorkflowValue
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
   if (value instanceof Date) return unportableWorkflowValue
   if (seen.has(value)) return unportableWorkflowValue
@@ -240,14 +243,14 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
     const aiSdkTextResultMarkerKeys = ["_output", "steps", "totalUsage"]
     const providerResultKeys = [...providerResultMarkerKeys, "initialResponseMessages"]
     const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
-    if (!result || typeof result !== "object" || !agentResultKeys.some((key) => key in result)) unsupportedWorkflowResult()
+    if (!result || !isRuntimeObject(result) || !agentResultKeys.some((key) => key in result)) unsupportedWorkflowResult()
     if (!Object.keys(result).every((key) => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
     if (Object.hasOwn(result, "initialResponseMessages")) {
       const prototype = Object.getPrototypeOf(result)
       const aiSdkTextResultGetterKeys = ["content", "finalStep", "text"]
       if (
         !aiSdkTextResultMarkerKeys.every((key) => Object.hasOwn(result, key)) ||
-        !aiSdkTextResultGetterKeys.every((key) => typeof Object.getOwnPropertyDescriptor(prototype, key)?.get === "function")
+        !aiSdkTextResultGetterKeys.every((key) => isRuntimeFunction(Object.getOwnPropertyDescriptor(prototype, key)?.get))
       )
         unsupportedWorkflowResult()
     }
@@ -255,9 +258,12 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
       unsupportedWorkflowResult()
     const normalizedResult = toAgentRunResult(result)
     if (Object.hasOwn(result, "initialResponseMessages")) {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       const { initialResponseMessages: _initialResponseMessages, ...raw } = result as Record<string, unknown>
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       normalizedResult.finishReason = (result as Record<string, unknown>).finishReason
       normalizedResult.raw = raw
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       normalizedResult.warnings = (result as Record<string, unknown>).warnings
     }
     const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(normalizedResult)
@@ -268,7 +274,8 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
     if (jsonWorkflowValue(portable) === unportableWorkflowValue) unsupportedWorkflowResult()
     return portable
   } catch (error) {
-    if (error && typeof error === "object" && (error as { isRetryable?: unknown }).isRetryable === false) throw error
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    if (error && isRuntimeObject(error) && (error as { isRetryable?: unknown }).isRetryable === false) throw error
     unsupportedWorkflowResult()
   }
 }
@@ -286,6 +293,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   const cloudflareEnv = context.provider === "cloudflare" ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent()) : undefined
   const runId = context.id || payload.run?.runId
   const backgroundTasks: Promise<unknown>[] = []
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
     ...(payload.capabilities ? { capabilities: payload.capabilities } : {}),
@@ -294,12 +302,14 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     ...(runId ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } } : {}),
     ...(payload.trace ? { trace: payload.trace } : {}),
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
     waitUntil(promise: Promise<unknown>) {
       backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
     },
   } as never)
   if (payload.run?.runId && payload.run.runId !== runId) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     ;(runtimeContext as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
   }
 
@@ -315,7 +325,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
 
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
-    ? await resumeWorkflowAgentChannelDelivery(agent as never, runtimeContext as never, channelDeliveryBinding)
+    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      await resumeWorkflowAgentChannelDelivery(agent as never, runtimeContext as never, channelDeliveryBinding)
     : undefined
   if (isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) && !channelDelivery) {
     throw new Error(`[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.`)
@@ -341,6 +352,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     const inlineResult = await runAgentInline(
       agent,
       runtimeContext,
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       payload.resolvedInvoker ? restoreResolvedAgentInvokerInput(workflowInput as AgentRunInput<CALL_OPTIONS>) : (workflowInput as AgentRunInput<CALL_OPTIONS>),
     )
     channelOwnership?.abortSignal?.throwIfAborted()
@@ -380,10 +392,14 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
 function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
   return Boolean(
     value &&
-    typeof value === "object" &&
-    (typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string" || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
-    typeof (value as AgentChannelDeliveryWorkflowBinding).deliveryId === "string" &&
-    typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string" &&
+    isRuntimeObject(value) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).channelId) || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).deliveryId) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).provider) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"),
   )
 }

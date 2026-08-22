@@ -2,6 +2,10 @@ import { mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parseAgentStateQueueEntry } from "../internal/state-queue.ts"
+import { parseAgentWebhookQueueDelivery } from "../internal/webhook-queue.ts"
+import { isRuntimeBigInt, isRuntimeObject, isRuntimeString } from "../internal/runtime-value.ts"
+
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 
 import type { Lock, QueueEntry } from "chat"
@@ -33,11 +37,11 @@ export interface SqliteAgentStateOptions {
 
 export interface LibsqlAgentStateClient {
   close?: () => MaybePromise<void>
-  execute: (statement: string | { args?: unknown[], sql: string }) => MaybePromise<SqliteAgentStateResult>
+  execute: (statement: string | { args?: unknown[]; sql: string }) => MaybePromise<SqliteAgentStateResult>
   transaction: (mode?: "deferred" | "read" | "write") => MaybePromise<{
     close?: () => MaybePromise<void>
     commit: () => MaybePromise<void>
-    execute: (statement: string | { args?: unknown[], sql: string }) => MaybePromise<SqliteAgentStateResult>
+    execute: (statement: string | { args?: unknown[]; sql: string }) => MaybePromise<SqliteAgentStateResult>
     rollback: () => MaybePromise<void>
   }>
 }
@@ -89,7 +93,7 @@ function rows(result: SqliteAgentStateResult | SqliteAgentStateRow[] | void): Sq
 }
 
 function numberValue(value: unknown): number {
-  return typeof value === "bigint" ? Number(value) : Number(value || 0)
+  return isRuntimeBigInt(value) ? Number(value) : Number(value || 0)
 }
 
 async function execute(executor: SqliteAgentStateExecutor, statement: string, args: unknown[] = []): Promise<SqliteAgentStateRow[]> {
@@ -98,8 +102,10 @@ async function execute(executor: SqliteAgentStateExecutor, statement: string, ar
 
 function isSqliteBusy(error: unknown): boolean {
   let current = error
-  while (current && typeof current === "object") {
+  while (current && isRuntimeObject(current)) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     if ((current as { code?: unknown }).code === "SQLITE_BUSY") return true
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     current = (current as { cause?: unknown }).cause
   }
   return false
@@ -109,10 +115,9 @@ async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await operation()
-    }
-    catch (error) {
+    } catch (error) {
       if (!isSqliteBusy(error) || attempt >= 7) throw error
-      await new Promise(resolve => setTimeout(resolve, Math.min(50, 2 ** attempt)))
+      await new Promise((resolve) => setTimeout(resolve, Math.min(50, 2 ** attempt)))
     }
   }
 }
@@ -150,7 +155,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
-  async appendToList(key: string, value: unknown, options?: { maxLength?: number, ttlMs?: number }): Promise<void> {
+  async appendToList(key: string, value: unknown, options?: { maxLength?: number; ttlMs?: number }): Promise<void> {
     await this.cleanupExpiredStateIfDue()
     const now = Date.now()
     const expiresAt = options?.ttlMs ? now + options.ttlMs : null
@@ -217,9 +222,9 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             RETURNING value`,
           [leaseToken, now + leaseTtlMs, scope, candidate.delivery_id, now],
         )
-        if (claimed.length === 0 || typeof candidate.value !== "string") continue
+        if (claimed.length === 0 || !isRuntimeString(candidate.value)) continue
         return {
-          ...JSON.parse(candidate.value) as AgentWebhookQueueDelivery,
+          ...parseAgentWebhookQueueDelivery(candidate.value),
           attempts: numberValue(candidate.attempts) + (candidate.status === "queued" ? 0 : 1),
           leaseExpiresAt: now + leaseTtlMs,
           leaseToken,
@@ -232,9 +237,11 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async claimWebhookSteering(delivery: AgentWebhookQueueDelivery, leaseToken: string, leaseExpiresAt: number): Promise<boolean> {
     const inserted = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      return await this.transaction(async tx => await execute(
-        tx,
-        `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+      return await this.transaction(
+        async (tx) =>
+          await execute(
+            tx,
+            `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
           scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
           lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
         ) SELECT ?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?
@@ -243,22 +250,23 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             WHERE scope = ? AND concurrency_key = ? AND status = 'queued'
           )
           RETURNING delivery_id`,
-        [
-          delivery.scope,
-          delivery.deliveryId,
-          JSON.stringify(delivery),
-          delivery.concurrencyGroup,
-          delivery.concurrencyKey || null,
-          delivery.concurrencyLimit,
-          delivery.leaseTtlMs,
-          delivery.enqueuedAt,
-          delivery.enqueuedAt,
-          leaseToken,
-          leaseExpiresAt,
-          delivery.scope,
-          delivery.concurrencyKey || null,
-        ],
-      ))
+            [
+              delivery.scope,
+              delivery.deliveryId,
+              JSON.stringify(delivery),
+              delivery.concurrencyGroup,
+              delivery.concurrencyKey || null,
+              delivery.concurrencyLimit,
+              delivery.leaseTtlMs,
+              delivery.enqueuedAt,
+              delivery.enqueuedAt,
+              leaseToken,
+              leaseExpiresAt,
+              delivery.scope,
+              delivery.concurrencyKey || null,
+            ],
+          ),
+      )
     })
     return inserted.length > 0
   }
@@ -266,14 +274,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean> {
     const completed = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      return await this.transaction(async tx => await execute(
-        tx,
-        `UPDATE ${this.tables.webhookQueue}
+      return await this.transaction(
+        async (tx) =>
+          await execute(
+            tx,
+            `UPDATE ${this.tables.webhookQueue}
           SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
           WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
           RETURNING delivery_id`,
-        [scope, deliveryId, leaseToken],
-      ))
+            [scope, deliveryId, leaseToken],
+          ),
+      )
     })
     return completed.length > 0
   }
@@ -296,8 +307,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     try {
       await this.migrate()
       await this.cleanupExpiredState()
-    }
-    catch (error) {
+    } catch (error) {
       this.connected = false
       throw error
     }
@@ -320,7 +330,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const row = queueRows[0]
       if (!row) return null
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE id = ?`, [row.id])
-      return typeof row.value === "string" ? JSON.parse(row.value) as QueueEntry : null
+      return isRuntimeString(row.value) ? parseAgentStateQueueEntry(row.value) : null
     })
   }
 
@@ -332,24 +342,27 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean> {
     const inserted = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      return await this.transaction(async tx => await execute(
-        tx,
-        `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+      return await this.transaction(
+        async (tx) =>
+          await execute(
+            tx,
+            `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
         lease_ttl_ms, status, enqueued_at, available_at, attempts
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0) RETURNING delivery_id`,
-        [
-          delivery.scope,
-          delivery.deliveryId,
-          JSON.stringify(delivery),
-          delivery.concurrencyGroup,
-          delivery.concurrencyKey || null,
-          delivery.concurrencyLimit,
-          delivery.leaseTtlMs,
-          delivery.enqueuedAt,
-          delivery.enqueuedAt,
-        ],
-      ))
+            [
+              delivery.scope,
+              delivery.deliveryId,
+              JSON.stringify(delivery),
+              delivery.concurrencyGroup,
+              delivery.concurrencyKey || null,
+              delivery.concurrencyLimit,
+              delivery.leaseTtlMs,
+              delivery.enqueuedAt,
+              delivery.enqueuedAt,
+            ],
+          ),
+      )
     })
     return inserted.length > 0
   }
@@ -357,11 +370,12 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async enqueue(threadId: string, entry: QueueEntry, maxSize: number): Promise<number> {
     await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
-      await execute(
-        tx,
-        `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)`,
-        [threadId, JSON.stringify(entry), entry.enqueuedAt, entry.expiresAt],
-      )
+      await execute(tx, `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)`, [
+        threadId,
+        JSON.stringify(entry),
+        entry.enqueuedAt,
+        entry.expiresAt,
+      ])
       await execute(
         tx,
         `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND id NOT IN (
@@ -379,7 +393,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, Date.now()])
       const queue = await execute(tx, `SELECT value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC LIMIT 1`, [threadId])
-      return typeof queue[0]?.value === "string" ? JSON.parse(queue[0].value) as QueueEntry : null
+      return isRuntimeString(queue[0]?.value) ? parseAgentStateQueueEntry(queue[0].value) : null
     })
   }
 
@@ -388,18 +402,18 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, Date.now()])
       const queue = await execute(tx, `SELECT id, value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC`, [threadId])
-      const current = typeof queue[0]?.value === "string" ? queue[0].value : null
+      const current = isRuntimeString(queue[0]?.value) ? queue[0].value : null
       if (current !== (expected === null ? null : JSON.stringify(expected))) return false
-      const retained = queue.slice(expected === null ? 0 : 1)
-        .flatMap(row => typeof row.value === "string" ? [JSON.parse(row.value) as QueueEntry] : [])
+      const retained = queue.slice(expected === null ? 0 : 1).flatMap((row) => (isRuntimeString(row.value) ? [parseAgentStateQueueEntry(row.value)] : []))
       const next = maxSize > 0 ? [...replacement, ...retained].slice(-maxSize) : [...replacement, ...retained]
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ?`, [threadId])
       for (const entry of next) {
-        await execute(
-          tx,
-          `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)`,
-          [threadId, JSON.stringify(entry), entry.enqueuedAt, entry.expiresAt],
-        )
+        await execute(tx, `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)`, [
+          threadId,
+          JSON.stringify(entry),
+          entry.enqueuedAt,
+          entry.expiresAt,
+        ])
       }
       return true
     })
@@ -423,9 +437,11 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
     const now = Date.now()
-    const extended = await this.transaction(async tx => await execute(
-      tx,
-      `UPDATE ${this.tables.webhookQueue} AS candidate SET lease_expires_at = ?
+    const extended = await this.transaction(
+      async (tx) =>
+        await execute(
+          tx,
+          `UPDATE ${this.tables.webhookQueue} AS candidate SET lease_expires_at = ?
         WHERE candidate.scope = ? AND candidate.delivery_id = ? AND candidate.status IN ('running', 'steering')
           AND candidate.lease_token = ?
           AND (
@@ -445,35 +461,52 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             )
           )
         RETURNING delivery_id`,
-      [now + ttlMs, scope, deliveryId, leaseToken, now, now, now],
-    ))
+          [now + ttlMs, scope, deliveryId, leaseToken, now, now, now],
+        ),
+    )
     return extended.length > 0
   }
 
   async forceReleaseLock(threadId: string): Promise<void> {
     await this.cleanupExpiredStateIfDue()
-    await this.transaction(async tx => await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ?`, [threadId]))
+    await this.transaction(async (tx) => await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ?`, [threadId]))
   }
 
-  async get<T = unknown>(key: string): Promise<T | null> {
+  async get<T = unknown>(
+    key: string,
+    parse: (value: unknown) => T = (value) => {
+      // SAFETY: State values are JSON-compatible and callers may provide a parser when they require a narrower runtime contract.
+      return value as T
+    },
+  ): Promise<T | null> {
     await this.cleanupExpiredStateIfDue()
-    const valueRows = await execute(
-      this.driver,
-      `SELECT value FROM ${this.tables.cache} WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)`,
-      [key, Date.now()],
-    )
+    const valueRows = await execute(this.driver, `SELECT value FROM ${this.tables.cache} WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)`, [
+      key,
+      Date.now(),
+    ])
     const value = valueRows[0]?.value
-    return typeof value === "string" ? JSON.parse(value) as T : null
+    if (!isRuntimeString(value)) return null
+    const parsed: unknown = JSON.parse(value)
+    return parse(parsed)
   }
 
-  async getList<T = unknown>(key: string): Promise<T[]> {
+  async getList<T = unknown>(
+    key: string,
+    parse: (value: unknown) => T = (value) => {
+      // SAFETY: State list values are JSON-compatible and callers may provide a parser when they require a narrower runtime contract.
+      return value as T
+    },
+  ): Promise<T[]> {
     await this.cleanupExpiredStateIfDue()
     const now = Date.now()
     const valueRows = await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
       return await execute(tx, `SELECT value FROM ${this.tables.lists} WHERE key = ? ORDER BY id ASC`, [key])
     })
-    return valueRows.map(row => JSON.parse(String(row.value)) as T)
+    return valueRows.map((row) => {
+      const value: unknown = JSON.parse(String(row.value))
+      return parse(value)
+    })
   }
 
   async isSubscribed(threadId: string): Promise<boolean> {
@@ -484,33 +517,41 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   async queueDepth(threadId: string): Promise<number> {
     await this.cleanupExpiredStateIfDue()
-    const countRows = await execute(
-      this.driver,
-      `SELECT COUNT(*) as count FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at > ?`,
-      [threadId, Date.now()],
-    )
+    const countRows = await execute(this.driver, `SELECT COUNT(*) as count FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at > ?`, [
+      threadId,
+      Date.now(),
+    ])
     return numberValue(countRows[0]?.count)
   }
 
   async releaseLock(lock: Lock): Promise<void> {
     await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      await this.transaction(async tx => await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND token = ?`, [lock.threadId, lock.token]))
+      await this.transaction(async (tx) => await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND token = ?`, [lock.threadId, lock.token]))
     })
   }
 
-  async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean> {
+  async retryWebhookDelivery(
+    scope: string,
+    deliveryId: string,
+    leaseToken: string,
+    availableAt: number,
+    options?: { incrementAttempts?: boolean },
+  ): Promise<boolean> {
     const retried = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      return await this.transaction(async tx => await execute(
-        tx,
-        `UPDATE ${this.tables.webhookQueue}
+      return await this.transaction(
+        async (tx) =>
+          await execute(
+            tx,
+            `UPDATE ${this.tables.webhookQueue}
         SET status = 'queued', available_at = ?, attempts = attempts + ?,
           lease_token = NULL, lease_expires_at = NULL
         WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
         RETURNING delivery_id`,
-        [availableAt, options?.incrementAttempts === false ? 0 : 1, scope, deliveryId, leaseToken],
-      ))
+            [availableAt, options?.incrementAttempts === false ? 0 : 1, scope, deliveryId, leaseToken],
+          ),
+      )
     })
     return retried.length > 0
   }
@@ -523,41 +564,46 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         WHERE status != 'completed'
         ORDER BY scope ASC`,
     )
-    return scopeRows.flatMap(row => typeof row.scope === "string" ? [row.scope] : [])
+    return scopeRows.flatMap((row) => (isRuntimeString(row.scope) ? [row.scope] : []))
   }
 
   async set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void> {
     await this.cleanupExpiredStateIfDue()
     const expiresAt = ttlMs ? Date.now() + ttlMs : null
-    await retrySqliteBusy(async () => await this.transaction(async tx => await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])))
+    await retrySqliteBusy(
+      async () =>
+        await this.transaction(
+          async (tx) =>
+            await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt]),
+        ),
+    )
   }
 
   async setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
-    return await retrySqliteBusy(async () => await this.transaction(async (tx) => {
-      const now = Date.now()
-      const existing = await execute(
-        tx,
-        `SELECT 1 FROM ${this.tables.cache} WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)`,
-        [key, now],
-      )
-      if (existing.length > 0) return false
+    return await retrySqliteBusy(
+      async () =>
+        await this.transaction(async (tx) => {
+          const now = Date.now()
+          const existing = await execute(tx, `SELECT 1 FROM ${this.tables.cache} WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)`, [key, now])
+          if (existing.length > 0) return false
 
-      await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
-      const expiresAt = ttlMs ? Date.now() + ttlMs : null
-      await execute(tx, `INSERT INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
-      return true
-    }))
+          await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
+          const expiresAt = ttlMs ? Date.now() + ttlMs : null
+          await execute(tx, `INSERT INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
+          return true
+        }),
+    )
   }
 
   async subscribe(threadId: string): Promise<void> {
     await this.cleanupExpiredStateIfDue()
-    await this.transaction(async tx => await execute(tx, `INSERT OR IGNORE INTO ${this.tables.subscriptions} (thread_id) VALUES (?)`, [threadId]))
+    await this.transaction(async (tx) => await execute(tx, `INSERT OR IGNORE INTO ${this.tables.subscriptions} (thread_id) VALUES (?)`, [threadId]))
   }
 
   async unsubscribe(threadId: string): Promise<void> {
     await this.cleanupExpiredStateIfDue()
-    await this.transaction(async tx => await execute(tx, `DELETE FROM ${this.tables.subscriptions} WHERE thread_id = ?`, [threadId]))
+    await this.transaction(async (tx) => await execute(tx, `DELETE FROM ${this.tables.subscriptions} WHERE thread_id = ?`, [threadId]))
   }
 
   private ensureConnected(): void {
@@ -599,16 +645,24 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (1)`)
       }
       if (version < 2) {
-        await execute(tx, `CREATE TABLE IF NOT EXISTS ${this.tables.queue} (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, value TEXT NOT NULL, enqueued_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`)
+        await execute(
+          tx,
+          `CREATE TABLE IF NOT EXISTS ${this.tables.queue} (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, value TEXT NOT NULL, enqueued_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
+        )
         await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.queue}_thread ON ${this.tables.queue}(thread_id, id)`)
         await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.queue}_expires ON ${this.tables.queue}(expires_at)`)
-        await execute(tx, `CREATE TABLE IF NOT EXISTS ${this.tables.lists} (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER)`)
+        await execute(
+          tx,
+          `CREATE TABLE IF NOT EXISTS ${this.tables.lists} (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER)`,
+        )
         await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.lists}_key ON ${this.tables.lists}(key, id)`)
         await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.lists}_expires ON ${this.tables.lists}(expires_at) WHERE expires_at IS NOT NULL`)
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (2)`)
       }
       if (version < 3) {
-        await execute(tx, `CREATE TABLE IF NOT EXISTS ${this.tables.webhookQueue} (
+        await execute(
+          tx,
+          `CREATE TABLE IF NOT EXISTS ${this.tables.webhookQueue} (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           scope TEXT NOT NULL,
           delivery_id TEXT NOT NULL,
@@ -624,16 +678,24 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           lease_token TEXT,
           lease_expires_at INTEGER,
           UNIQUE (scope, delivery_id)
-        )`)
+        )`,
+        )
         await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_claim ON ${this.tables.webhookQueue}(scope, status, available_at, id)`)
-        await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_group ON ${this.tables.webhookQueue}(concurrency_group, status, lease_expires_at)`)
-        await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_key ON ${this.tables.webhookQueue}(concurrency_key, status, lease_expires_at) WHERE concurrency_key IS NOT NULL`)
+        await execute(
+          tx,
+          `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_group ON ${this.tables.webhookQueue}(concurrency_group, status, lease_expires_at)`,
+        )
+        await execute(
+          tx,
+          `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_key ON ${this.tables.webhookQueue}(concurrency_key, status, lease_expires_at) WHERE concurrency_key IS NOT NULL`,
+        )
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (3)`)
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (4)`)
-      }
-      else if (version < 4) {
+      } else if (version < 4) {
         const migratedWebhookQueue = `${this.tables.webhookQueue}_v4`
-        await execute(tx, `CREATE TABLE ${migratedWebhookQueue} (
+        await execute(
+          tx,
+          `CREATE TABLE ${migratedWebhookQueue} (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           scope TEXT NOT NULL,
           delivery_id TEXT NOT NULL,
@@ -649,23 +711,33 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           lease_token TEXT,
           lease_expires_at INTEGER,
           UNIQUE (scope, delivery_id)
-        )`)
-        await execute(tx, `INSERT INTO ${migratedWebhookQueue} (
+        )`,
+        )
+        await execute(
+          tx,
+          `INSERT INTO ${migratedWebhookQueue} (
           scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
           lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
         ) SELECT
           scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
           lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
-        FROM ${this.tables.webhookQueue} ORDER BY enqueued_at ASC, rowid ASC`)
+        FROM ${this.tables.webhookQueue} ORDER BY enqueued_at ASC, rowid ASC`,
+        )
         await execute(tx, `DROP TABLE ${this.tables.webhookQueue}`)
         await execute(tx, `ALTER TABLE ${migratedWebhookQueue} RENAME TO ${this.tables.webhookQueue}`)
         await execute(tx, `CREATE INDEX idx_${this.tables.webhookQueue}_claim ON ${this.tables.webhookQueue}(scope, status, available_at, id)`)
         await execute(tx, `CREATE INDEX idx_${this.tables.webhookQueue}_group ON ${this.tables.webhookQueue}(concurrency_group, status, lease_expires_at)`)
-        await execute(tx, `CREATE INDEX idx_${this.tables.webhookQueue}_key ON ${this.tables.webhookQueue}(concurrency_key, status, lease_expires_at) WHERE concurrency_key IS NOT NULL`)
+        await execute(
+          tx,
+          `CREATE INDEX idx_${this.tables.webhookQueue}_key ON ${this.tables.webhookQueue}(concurrency_key, status, lease_expires_at) WHERE concurrency_key IS NOT NULL`,
+        )
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (4)`)
       }
       if (version < 5) {
-        await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_active_scope ON ${this.tables.webhookQueue}(scope) WHERE status != 'completed'`)
+        await execute(
+          tx,
+          `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_active_scope ON ${this.tables.webhookQueue}(scope) WHERE status != 'completed'`,
+        )
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (5)`)
       }
     })
@@ -682,8 +754,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         const result = await run(this.driver)
         await execute(this.driver, "COMMIT")
         return result
-      }
-      catch (error) {
+      } catch (error) {
         await execute(this.driver, "ROLLBACK").catch(() => undefined)
         throw error
       }
@@ -693,12 +764,11 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   private async serialize<T>(run: () => MaybePromise<T>): Promise<T> {
     const previous = this.transactionTail
     let release!: () => void
-    this.transactionTail = new Promise(resolve => release = resolve)
+    this.transactionTail = new Promise((resolve) => (release = resolve))
     await previous
     try {
       return await run()
-    }
-    finally {
+    } finally {
       release()
     }
   }
@@ -721,13 +791,12 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
   const openClient = async () => {
     if (options.client) return options.client
     if (options.url?.startsWith("file:")) {
-      const filePath = options.url.startsWith("file://")
-        ? fileURLToPath(options.url)
-        : options.url.slice("file:".length)
+      const filePath = options.url.startsWith("file://") ? fileURLToPath(options.url) : options.url.slice("file:".length)
       const directory = dirname(filePath)
       if (directory && directory !== ".") await mkdir(directory, { recursive: true })
     }
     const { createClient } = await import("@libsql/client")
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     return createClient({ authToken: options.authToken, url: options.url! }) as LibsqlAgentStateClient
   }
 
@@ -755,12 +824,10 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
           const result = await run({ execute: libsqlExecute(transaction) })
           await transaction.commit()
           return result
-        }
-        catch (error) {
+        } catch (error) {
           await Promise.resolve(transaction.rollback()).catch(() => undefined)
           throw error
-        }
-        finally {
+        } finally {
           await transaction.close?.()
         }
       },

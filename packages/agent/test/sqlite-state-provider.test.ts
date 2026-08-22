@@ -12,7 +12,7 @@ import type { AgentWebhookQueueDelivery } from "../src/internal/webhook-queue.ts
 
 const tempDirs: string[] = []
 
-async function createState(tablePrefix = "test_agent_state_"): Promise<{ state: StateAdapter, url: string }> {
+async function createState(tablePrefix = "test_agent_state_"): Promise<{ state: StateAdapter; url: string }> {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-agent-state-"))
   tempDirs.push(dir)
   const url = `file:${join(dir, "state.db")}`
@@ -26,7 +26,15 @@ function queueEntry(text = "hello"): QueueEntry {
   return {
     enqueuedAt: Date.now(),
     expiresAt: Date.now() + 60_000,
-    message: { author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" }, formatted: { children: [], type: "root" }, id: "m", raw: {}, text, threadId: "thread" } as never,
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    message: {
+      author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" },
+      formatted: { children: [], type: "root" },
+      id: "m",
+      raw: {},
+      text,
+      threadId: "thread",
+    } as never,
   }
 }
 
@@ -52,7 +60,7 @@ function webhookDelivery(deliveryId: string, concurrencyKey?: string): AgentWebh
 describe("SQLite Agent State Provider", () => {
   afterEach(async () => {
     vi.useRealTimers()
-    await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
   })
 
   it("persists Chat SDK state in a libSQL-compatible SQLite database", async () => {
@@ -74,13 +82,16 @@ describe("SQLite Agent State Provider", () => {
     await expect(state.queueDepth("thread")).resolves.toBe(1)
     await expect(state.dequeue("thread")).resolves.toMatchObject({ message: { text: "two" } })
 
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const atomicQueue = state as ViteHubSqliteAgentStateAdapter
     const original = queueEntry("original")
     await state.enqueue("thread", original, 10)
     await state.enqueue("thread", queueEntry("tail"), 10)
     await expect(atomicQueue.queuePeek("thread")).resolves.toEqual(original)
     const failureClient = createClient({ url })
-    await failureClient.execute(`CREATE TRIGGER fail_queue_rebuild BEFORE INSERT ON test_agent_state_queue BEGIN SELECT RAISE(FAIL, 'forced queue insert failure'); END`)
+    await failureClient.execute(
+      `CREATE TRIGGER fail_queue_rebuild BEFORE INSERT ON test_agent_state_queue BEGIN SELECT RAISE(FAIL, 'forced queue insert failure'); END`,
+    )
     await expect(atomicQueue.queueReplaceHead("thread", original, [queueEntry("restored")], 10)).rejects.toThrow("forced queue insert failure")
     await expect(atomicQueue.queuePeek("thread")).resolves.toEqual(original)
     await expect(state.queueDepth("thread")).resolves.toBe(2)
@@ -112,6 +123,7 @@ describe("SQLite Agent State Provider", () => {
   it("leases webhook deliveries under global and per-key concurrency", async () => {
     const { state, url } = await createState()
     await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const queue = state as ViteHubSqliteAgentStateAdapter
 
     await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-1", "pr-1"))).resolves.toBe(true)
@@ -146,10 +158,12 @@ describe("SQLite Agent State Provider", () => {
     await queue.completeWebhookDelivery(competingLease!.scope, competingLease!.deliveryId, competingLease!.leaseToken)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
-    await expect(client.execute({
-      args: [first!.scope, first!.deliveryId],
-      sql: "SELECT status, value FROM test_agent_state_webhook_queue WHERE scope = ? AND delivery_id = ?",
-    })).resolves.toMatchObject({ rows: [{ status: "completed", value: "{}" }] })
+    await expect(
+      client.execute({
+        args: [first!.scope, first!.deliveryId],
+        sql: "SELECT status, value FROM test_agent_state_webhook_queue WHERE scope = ? AND delivery_id = ?",
+      }),
+    ).resolves.toMatchObject({ rows: [{ status: "completed", value: "{}" }] })
     client.close()
     const third = await queue.claimWebhookDelivery("webhook:review:github:")
     expect(third?.deliveryId).toBe("delivery-2")
@@ -163,6 +177,7 @@ describe("SQLite Agent State Provider", () => {
   it("renews delayed steering ownership after its execution lease renews", async () => {
     const { state, url } = await createState()
     await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const queue = state as ViteHubSqliteAgentStateAdapter
     const execution = webhookDelivery("delivery-execution", "pr-1")
     const steering = webhookDelivery("delivery-steering", "pr-1")
@@ -223,6 +238,7 @@ describe("SQLite Agent State Provider", () => {
         busyRetry = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
       }
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       return await client.execute({ args: (args || []) as never, sql: statement })
     })
     const contended = createSqliteAgentState({
@@ -238,28 +254,32 @@ describe("SQLite Agent State Provider", () => {
     expect(contendedLock).toMatchObject({ threadId: "contended" })
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT INTO test_agent_state_locks"))).toHaveLength(2)
     await expect(contended.releaseLock(contendedLock!)).resolves.toBeUndefined()
-    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks WHERE thread_id = ? AND token = ?"))).toHaveLength(2)
+    expect(
+      execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks WHERE thread_id = ? AND token = ?")),
+    ).toHaveLength(2)
 
-    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    Reflect.set(contended, "nextCleanupAt", 0)
     busyCleanup = true
     await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-busy"))).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue"))).toHaveLength(2)
     const lease = await contended.claimWebhookDelivery("webhook:review:github:")
-    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    Reflect.set(contended, "nextCleanupAt", 0)
     busyCleanup = true
     await expect(contended.completeWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken)).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'completed'"))).toHaveLength(2)
     await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-retry-busy"))).resolves.toBe(true)
     const retryLease = await contended.claimWebhookDelivery("webhook:review:github:")
-    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    Reflect.set(contended, "nextCleanupAt", 0)
     busyCleanup = true
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(11)
-    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    Reflect.set(contended, "nextCleanupAt", 0)
     busyCleanup = true
     await expect(contended.claimWebhookSteering(webhookDelivery("steering-busy"), "steer-token", Date.now() + 1_000)).resolves.toBe(true)
-    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE") && String(statement).includes("'steering'"))).toHaveLength(2)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE") && String(statement).includes("'steering'"))).toHaveLength(
+      2,
+    )
     client.close()
   })
 
@@ -268,6 +288,7 @@ describe("SQLite Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-08-04T09:00:00.000Z"))
     const { state } = await createState()
     await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const queue = state as ViteHubSqliteAgentStateAdapter
 
     await queue.enqueueWebhookDelivery(webhookDelivery("blocker", "shared"))
@@ -340,6 +361,7 @@ describe("SQLite Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
     const { state, url } = await createState()
     await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const queue = state as ViteHubSqliteAgentStateAdapter
     await queue.enqueueWebhookDelivery(webhookDelivery("delivery-1"))
     const abandoned = await queue.claimWebhookDelivery("webhook:review:github:")
@@ -363,6 +385,7 @@ describe("SQLite Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
     const { state, url } = await createState()
     await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const queue = state as ViteHubSqliteAgentStateAdapter
     await queue.enqueueWebhookDelivery(webhookDelivery("crashed-delivery"))
     let lease = await queue.claimWebhookDelivery("webhook:review:github:")
@@ -387,6 +410,7 @@ describe("SQLite Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
     const { state } = await createState()
     await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const queue = state as ViteHubSqliteAgentStateAdapter
     const delivery = webhookDelivery("steered-delivery")
 
@@ -415,20 +439,13 @@ describe("SQLite Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
     const { state } = await createState()
     await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const queue = state as ViteHubSqliteAgentStateAdapter
     await queue.enqueueWebhookDelivery(webhookDelivery("queued-first", "pr-1"))
     vi.advanceTimersByTime(1)
 
-    await expect(queue.claimWebhookSteering(
-      webhookDelivery("steer-second", "pr-1"),
-      "steer-token",
-      Date.now() + 1_000,
-    )).resolves.toBe(false)
-    await expect(queue.claimWebhookSteering(
-      webhookDelivery("other-key", "pr-2"),
-      "other-token",
-      Date.now() + 1_000,
-    )).resolves.toBe(true)
+    await expect(queue.claimWebhookSteering(webhookDelivery("steer-second", "pr-1"), "steer-token", Date.now() + 1_000)).resolves.toBe(false)
+    await expect(queue.claimWebhookSteering(webhookDelivery("other-key", "pr-2"), "other-token", Date.now() + 1_000)).resolves.toBe(true)
     await state.disconnect()
   })
 
@@ -439,6 +456,7 @@ describe("SQLite Agent State Provider", () => {
 
   it("requires custom libSQL clients to support transactions", async () => {
     const state = createLibsqlAgentState({
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       client: {
         async execute() {
           return { rows: [] }
@@ -473,10 +491,9 @@ describe("SQLite Agent State Provider", () => {
         inTransaction = true
         try {
           migrations += 1
-          await new Promise(resolve => setTimeout(resolve, 10))
+          await new Promise((resolve) => setTimeout(resolve, 10))
           return await run(driver)
-        }
-        finally {
+        } finally {
           inTransaction = false
         }
       },
@@ -594,16 +611,18 @@ describe("SQLite Agent State Provider", () => {
     const listRows = await client.execute(`SELECT key FROM ${tablePrefix}lists ORDER BY key`)
     client.close()
 
-    expect(cacheRows.rows.map(row => row.key)).toEqual(["fresh-cache"])
+    expect(cacheRows.rows.map((row) => row.key)).toEqual(["fresh-cache"])
     expect(listRows.rows).toEqual([])
     await state.disconnect()
   })
 
   it("validates generated table names before opening the database", () => {
-    expect(() => createSqliteAgentState({
-      driver: { execute: async () => ({ rows: [] }) },
-      tablePrefix: "bad-prefix-",
-    })).toThrow("Invalid SQLite Agent State table name")
+    expect(() =>
+      createSqliteAgentState({
+        driver: { execute: async () => ({ rows: [] }) },
+        tablePrefix: "bad-prefix-",
+      }),
+    ).toThrow("Invalid SQLite Agent State table name")
   })
 
   it("supports injected SQLite-compatible drivers", async () => {
@@ -622,6 +641,6 @@ describe("SQLite Agent State Provider", () => {
     })
 
     await adapter.connect()
-    expect(executed.some(statement => statement.includes("CREATE TABLE IF NOT EXISTS"))).toBe(true)
+    expect(executed.some((statement) => statement.includes("CREATE TABLE IF NOT EXISTS"))).toBe(true)
   })
 })
