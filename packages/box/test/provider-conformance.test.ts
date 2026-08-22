@@ -41,6 +41,7 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
 
       await session.files.mkdir("/workspace/nested", { recursive: true });
       await session.files.write("/workspace/nested/data.bin", new Uint8Array([1, 2, 3]));
+      await session.files.write("/workspace/z.bin", new Uint8Array([5]));
       await session.files.mkdir("/workspace/excluded/deep", { recursive: true });
       await session.files.write("/workspace/excluded/deep/private.bin", new Uint8Array([4]));
       expect(await session.files.exists("/workspace/nested/data.bin")).toBe(true);
@@ -50,9 +51,26 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
         type: "file",
       });
       const listsBeforeExclusion = fixture.machine.lists.length;
-      expect(await session.files.list("/workspace", { exclude: ["/workspace/excluded"], recursive: true }))
-        .not.toEqual(expect.arrayContaining([expect.objectContaining({ path: expect.stringContaining("excluded") })]));
-      expect(fixture.machine.lists.slice(listsBeforeExclusion)).not.toContain("/workspace/excluded");
+      const listedWithExclusion = await session.files.list("/workspace", {
+        exclude: ["/workspace/excluded"],
+        recursive: true,
+      });
+      expect(listedWithExclusion).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: expect.stringContaining("excluded") }),
+        ]),
+      );
+      expect(listedWithExclusion.map((entry) => entry.path)).toEqual(
+        listedWithExclusion.map((entry) => entry.path).toSorted(),
+      );
+      expect(fixture.machine.lists.slice(listsBeforeExclusion)).not.toContain(
+        "/workspace/excluded",
+      );
+      const listsBeforeRootExclusion = fixture.machine.lists.length;
+      await expect(
+        session.files.list("/workspace", { exclude: ["/"], recursive: true }),
+      ).resolves.toEqual([]);
+      expect(fixture.machine.lists).toHaveLength(listsBeforeRootExclusion);
       await session.files.move?.(
         "/workspace/nested/data.bin",
         "/workspace/nested/moved.bin",
