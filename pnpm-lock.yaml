@@ -11,6 +11,9 @@ patchedDependencies:
   '@vite-hub/runtime@0.0.1':
     hash: a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6
     path: patches/@vite-hub__runtime@0.0.1.patch
+  '@vite-hub/ui@0.0.1':
+    hash: 86fc0ec7915002bbcdb3f8e21a52f3495ba08430f0b841a771f73ffc50b7ad57
+    path: patches/@vite-hub__ui@0.0.1.patch
   '@vite-hub/workspace':
     hash: 147f6be5125b0450e80e64e3db99b9fdeb96548b5440482f173822d816e26f1c
     path: patches/@vite-hub__workspace.patch
@@ -39,7 +42,7 @@ importers:
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       '@vite-hub/ui':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015
-        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(patch_hash=86fc0ec7915002bbcdb3f8e21a52f3495ba08430f0b841a771f73ffc50b7ad57)(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))
       ai:
         specifier: 7.0.38
         version: 7.0.38(zod@4.4.3)
@@ -10872,7 +10875,7 @@ snapshots:
       '@vite-hub/runtime': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       effect: 4.0.0-beta.99
 
-  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))':
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(patch_hash=86fc0ec7915002bbcdb3f8e21a52f3495ba08430f0b841a771f73ffc50b7ad57)(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))':
     dependencies:
       '@comark/vue': 0.6.2(vue@3.5.40(typescript@6.0.3))
       '@nuxt/kit': 4.4.8

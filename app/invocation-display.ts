@@ -2,7 +2,17 @@ import type { AgentInvocationRecord, AgentInvocationSummary } from 'vite-hub/age
 
 export type Invocation = AgentInvocationRecord | AgentInvocationSummary
 export function invocationTitle(invocation: Invocation) {
-  return invocation.agentName || 'Agent Invocation'
+  const githubTitle = invocation.annotations?.['github.title']
+  return (typeof githubTitle === 'string' ? githubTitle : undefined) || invocation.agentName || 'Agent Invocation'
+}
+
+export function invocationContext(invocation: Invocation) {
+  const repository = invocation.annotations?.['github.repository']
+  const pullRequest = invocation.annotations?.['github.pullRequest']
+  if (typeof repository === 'string' && (typeof pullRequest === 'string' || typeof pullRequest === 'number')) {
+    return `${repository} · PR #${pullRequest}`
+  }
+  return invocation.threadId || invocation.origin || invocation.id
 }
 
 export function invocationSummary(invocation: Invocation) {
