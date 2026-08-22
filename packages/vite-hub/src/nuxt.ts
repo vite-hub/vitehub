@@ -43,6 +43,7 @@ type NuxtLike = {
     imports?: {
       imports?: Array<{ as?: string, from: string, name: string }>
     }
+    modules?: unknown[]
     nitro?: Record<string, unknown>
     rootDir?: string
     serverDir?: string
@@ -119,7 +120,13 @@ async function writeConsoleNitroPlugin(file: string, projectRoot: string): Promi
 
 async function installConsole(nuxt: NuxtLike, projectRoot: string): Promise<void> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
-  await uiModule(undefined, nuxt)
+  const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
+    const module = Array.isArray(entry) ? entry[0] : entry
+    return module === "@vite-hub/ui/nuxt" || module === uiModule
+  })
+  if (!uiConfigured) {
+    await uiModule(undefined, nuxt)
+  }
   installConsoleInvocations(projectRoot)
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
   hookPages?.("pages:extend", (pages) => {

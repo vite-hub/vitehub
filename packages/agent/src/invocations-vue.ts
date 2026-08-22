@@ -314,6 +314,10 @@ export function useAgentInvocation(
       invocation.value = null;
       observations.value = [];
     },
+    beforeSourceChange() {
+      invocation.value = null;
+      observations.value = [];
+    },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
     load(signal) {

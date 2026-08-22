@@ -114,6 +114,8 @@ describe("Agent Invocation Vue composables", () => {
     id.value = "inv-2";
     await nextTick();
     expect(calls[1]!.path).toBe("/api/invocations/inv-2");
+    expect(resource.invocation.value).toBeNull();
+    expect(resource.observations.value).toEqual([]);
     scope.stop();
     expect(calls[1]!.options.signal?.aborted).toBe(true);
     expect(resource.isLoading.value).toBe(false);

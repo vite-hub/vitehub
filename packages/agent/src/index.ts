@@ -108,6 +108,7 @@ import {
   streamAgentTriggerWith,
 } from "./trigger-runtime.ts"
 import {
+  createAgentInspectionMetadata,
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
@@ -4379,6 +4380,34 @@ async function executeAgentInvocation<
     }, { agentName: (definition as AgentDefinition).name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
+  if (invocationJournal && definition) {
+    const inspected = createAgentInspectionMetadata(definition as AgentDefinition)
+    const driver = inspected.config?.driver
+    await context.traceLog?.append({
+      attributes: {
+        "vitehub.agent.configuration": {
+          ...(inspected.name || inspected.version
+            ? { agent: { ...(inspected.name ? { name: inspected.name } : {}), ...(inspected.version ? { version: inspected.version } : {}) } }
+            : {}),
+          ...(inspected.capabilities?.length ? { capabilities: inspected.capabilities } : {}),
+          ...(driver
+            ? {
+                driver: {
+                  kind: driver.kind,
+                  ...(driver.model ? { model: driver.model } : {}),
+                  ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
+                },
+              }
+            : {}),
+          ...(inspected.instructions?.length ? { instructions: inspected.instructions } : {}),
+          ...(inspected.tools?.length ? { tools: inspected.tools.map(({ name }) => ({ name })) } : {}),
+        },
+      },
+      name: "vitehub.agent.configured",
+      ...(context.trace ? { trace: { ...context.trace } } : {}),
+      type: "run",
+    })
+  }
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {

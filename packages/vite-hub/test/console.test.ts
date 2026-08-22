@@ -90,11 +90,21 @@ describe("Agent invocation console", () => {
     vi.spyOn(process, "cwd").mockReturnValue(unrelatedCwd)
     try {
       const writer = installConsoleInvocations(projectRoot)
-      const agent = defineAgent({ driver: { run: () => "persisted" }, runtime: false })
+      const agent = defineAgent({ driver: { run: () => "persisted" }, runtime: false, version: "1.0.0" })
       await runAgent(agent, runtime("console-cross-realm"), {})
 
       const reader = createConsoleInvocations(projectRoot)
-      await expect(reader.getByRunId("console-cross-realm")).resolves.toMatchObject({ status: "completed" })
+      const invocation = await reader.getByRunId("console-cross-realm")
+      expect(invocation).toMatchObject({ status: "completed" })
+      expect(invocation?.observations).toContainEqual(expect.objectContaining({
+        attributes: {
+          "vitehub.agent.configuration": expect.objectContaining({
+            agent: { version: "1.0.0" },
+            driver: { kind: "run" },
+          }),
+        },
+        name: "vitehub.agent.configured",
+      }))
       expect(agent.invocations).toBe(writer)
       expect(existsSync(join(projectRoot, ".vitehub/data/console.sqlite"))).toBe(true)
       expect(existsSync(join(unrelatedCwd, ".vitehub/data/console.sqlite"))).toBe(false)

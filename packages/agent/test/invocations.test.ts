@@ -273,6 +273,7 @@ describe("Agent Invocations", () => {
     })
     expect(record?.annotations).not.toHaveProperty("secret key")
     expect(record?.observations.map(event => event.name)).toEqual([
+      "vitehub.agent.configured",
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
@@ -342,7 +343,7 @@ describe("Agent Invocations", () => {
 
     await runAgent(agent, { ...runtime("custom-sequence"), traceLog } as never, {})
     const observations = (await invocations.getByRunId("custom-sequence"))?.observations || []
-    expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3])
+    expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3, 4])
     expect(observations.every(observation => Number.isSafeInteger(observation.sequence))).toBe(true)
   })
 
@@ -568,6 +569,7 @@ describe("Agent Invocations", () => {
     release()
     await expect(first).resolves.toBe("done")
     expect((await invocations.getByRunId("delivery-1"))?.observations.map(event => event.name)).toEqual([
+      "vitehub.agent.configured",
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
@@ -688,11 +690,12 @@ describe("Agent Invocations", () => {
         status: "completed",
       })
       expect((await restored.getByRunId("durable-run"))?.observations.map(event => event.name)).toEqual([
+        "vitehub.agent.configured",
         "agent.invocation.start",
         "numbers",
         "agent.invocation.finish",
       ])
-      expect((await restored.getByRunId("durable-run"))?.observations[1]?.attributes).toMatchObject({ nan: null })
+      expect((await restored.getByRunId("durable-run"))?.observations[2]?.attributes).toMatchObject({ nan: null })
       for (const cursor of ["invalid", "01", "1.0", " 1", String(Number.MAX_SAFE_INTEGER + 1)]) {
         await expect(restored.list({ cursor })).rejects.toThrow("cursor is invalid")
       }
