@@ -193,6 +193,7 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
+  let loadedPageCount = 1;
   let oldestLoadedId: string | undefined;
   let revision = 0;
   let stopped = false;
@@ -204,6 +205,7 @@ export function useAgentInvocations(
       oldestLoadedId = result.invocations.at(-1)?.id;
     },
     clear() {
+      loadedPageCount = 1;
       oldestLoadedId = undefined;
       invocations.value = [];
       cursor.value = undefined;
@@ -215,6 +217,7 @@ export function useAgentInvocations(
       isLoadingMore.value = false;
     },
     beforeSourceChange() {
+      loadedPageCount = 1;
       oldestLoadedId = undefined;
     },
     immediate:
@@ -228,16 +231,26 @@ export function useAgentInvocations(
       const refreshed = [...first.invocations];
       let nextCursor = first.cursor;
       const boundaryId = oldestLoadedId;
+      const continuationCursor = cursor.value;
       const seenCursors = new Set<string>();
-      while (boundaryId && !refreshed.some(invocation => invocation.id === boundaryId) && nextCursor && !seenCursors.has(nextCursor)) {
+      let refreshedPages = 1;
+      const firstBoundaryIndex = boundaryId ? refreshed.findIndex(invocation => invocation.id === boundaryId) : -1;
+      if (firstBoundaryIndex !== -1) {
+        return { cursor: continuationCursor, invocations: refreshed.slice(0, firstBoundaryIndex + 1) };
+      }
+      while (boundaryId && nextCursor && !seenCursors.has(nextCursor) && refreshedPages <= loadedPageCount) {
         seenCursors.add(nextCursor);
         const next = await request<AgentInvocationListResult>(
           appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
           { signal },
         );
+        refreshedPages++;
         const ids = new Set(refreshed.map(invocation => invocation.id));
-        refreshed.push(...next.invocations.filter(invocation => !ids.has(invocation.id)));
+        const additions = next.invocations.filter(invocation => !ids.has(invocation.id));
+        const boundaryIndex = additions.findIndex(invocation => invocation.id === boundaryId);
+        refreshed.push(...(boundaryIndex === -1 ? additions : additions.slice(0, boundaryIndex + 1)));
         nextCursor = next.cursor;
+        if (boundaryIndex !== -1) return { cursor: continuationCursor, invocations: refreshed };
       }
       return { cursor: nextCursor, invocations: refreshed };
     },
@@ -269,6 +282,7 @@ export function useAgentInvocations(
         ...result.invocations.filter(invocation => !ids.has(invocation.id)),
       ];
       oldestLoadedId = invocations.value.at(-1)?.id;
+      loadedPageCount++;
       cursor.value = result.cursor;
       return result;
     } catch (cause) {

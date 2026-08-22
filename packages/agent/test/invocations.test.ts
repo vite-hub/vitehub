@@ -85,6 +85,20 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
   })
 
+  it("does not let a rejecting trace sink fail Agent execution or strand its invocation", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const run = vi.fn(() => "done")
+    const traceLog = {
+      append: vi.fn(async () => { throw new Error("trace unavailable") }),
+      entries: () => [],
+    }
+    const agent = defineAgent({ driver: { run }, invocations, runtime: false })
+
+    await expect(runAgent(agent, { ...runtime("rejecting-trace"), traceLog } as never, {})).resolves.toBe("done")
+    expect(run).toHaveBeenCalledOnce()
+    await expect(invocations.getByRunId("rejecting-trace")).resolves.toMatchObject({ status: "completed" })
+  })
+
   it("does not reacquire journal ownership for observations appended after finish", async () => {
     const memory = createMemoryAgentInvocationStore()
     const claim = vi.fn(memory.claim)
