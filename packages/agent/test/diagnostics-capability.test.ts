@@ -224,6 +224,42 @@ describe("diagnostics Capability", () => {
     expect(delivered.at(-1)).toBe("agent.invocation.terminal:terminal")
   })
 
+  it("does not overlap reporting between concurrent invocations", async () => {
+    let activeReporters = 0
+    let maxReporters = 0
+    let releaseFirst: (() => void) | undefined
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const firstStarted = Promise.withResolvers<void>()
+    let reports = 0
+    const agent = defineAgent({
+      capabilities: [diagnostics({
+        reporter: async () => {
+          reports += 1
+          activeReporters += 1
+          maxReporters = Math.max(maxReporters, activeReporters)
+          if (reports === 1) {
+            firstStarted.resolve()
+            await firstBlocked
+          }
+          activeReporters -= 1
+        },
+        timeout: 50,
+      })],
+      driver: { run: () => "ok" },
+    })
+    const runtime = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
+
+    const first = runAgent(agent, runtime(), {})
+    await firstStarted.promise
+    const second = runAgent(agent, runtime(), {})
+    const third = runAgent(agent, runtime(), {})
+    releaseFirst?.()
+
+    await expect(Promise.all([first, second, third])).resolves.toEqual(["ok", "ok", "ok"])
+    expect(reports).toBe(3)
+    expect(maxReporters).toBe(1)
+  })
+
   it("reports an aborted invocation as cancelled", async () => {
     const events: RuntimeDiagnosticEvent[] = []
     const controller = new AbortController()

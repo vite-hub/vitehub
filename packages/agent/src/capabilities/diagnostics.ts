@@ -52,10 +52,9 @@ function defaultReporter(event: RuntimeDiagnosticEvent): void {
 
 function boundedReporter(reporter: RuntimeDiagnosticReporter, timeout: number): RuntimeDiagnosticReporter {
   let active: Promise<void> | undefined
-  const wait = async (delivery: Promise<void>): Promise<boolean> => {
+  const wait = async (delivery: Promise<void>, duration = timeout): Promise<boolean> => {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(new DOMException("Diagnostic reporting timed out.", "TimeoutError")), timeout)
-    timer.unref?.()
+    const timer = setTimeout(() => controller.abort(new DOMException("Diagnostic reporting timed out.", "TimeoutError")), duration)
     try {
       await Promise.race([
         delivery,
@@ -77,7 +76,11 @@ function boundedReporter(reporter: RuntimeDiagnosticReporter, timeout: number): 
     }
   }
   return async (event) => {
-    if (active && !await wait(active)) return
+    const deadline = Date.now() + timeout
+    while (active) {
+      const remaining = deadline - Date.now()
+      if (remaining <= 0 || !await wait(active, remaining)) return
+    }
     const delivery = Promise.resolve().then(() => reporter(event))
     const slot = delivery.then(() => undefined, () => undefined)
     active = slot
@@ -123,7 +126,6 @@ function createMonitor(options: {
 
   const inspect = async (reason: "finish" | "poll" | "start", inspection: Promise<RuntimeResourceSnapshot>, controller: AbortController) => {
     const timer = setTimeout(() => controller.abort(new DOMException("Resource inspection timed out.", "TimeoutError")), options.timeout)
-    timer.unref?.()
     try {
       const snapshot = await Promise.race([
         inspection,
@@ -215,7 +217,6 @@ function createMonitor(options: {
         activeInspection.then(() => true),
         new Promise<false>((resolve) => {
           timer = setTimeout(() => resolve(false), options.timeout)
-          timer.unref?.()
         }),
       ])
       if (timer) clearTimeout(timer)
