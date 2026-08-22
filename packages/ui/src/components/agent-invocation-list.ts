@@ -33,7 +33,7 @@ function statusIcon(status: AgentInvocationStatus) {
     completed: ["m8 12 2.5 2.5L16 9", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
     failed: ["m9 9 6 6", "m15 9-6 6", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
     pending: ["M12 7v5l3 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
-    running: ["M21 12a9 9 0 0 1-9 9", "M3 12a9 9 0 0 1 9-9"],
+    running: ["M21 12a9 9 0 1 1-6.219-8.56"],
   };
   return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, paths[status].map(path => h("path", {
     d: path,

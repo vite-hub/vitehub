@@ -11,6 +11,18 @@ import { invocationActivities } from "../src/internal/invocation-activity.ts";
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("renders the working state with the loader-circle path", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "running", status: "running", title: "Working session" }],
+        virtual: false,
+      },
+    });
+
+    expect(wrapper.get('[data-status="running"] .vh-invocation-list__state-icon path').attributes("d"))
+      .toBe("M21 12a9 9 0 1 1-6.219-8.56");
+  });
+
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {
     const base = { timestamp: "2026-08-22T00:00:00.000Z", type: "event" as const };
     const invocation = {

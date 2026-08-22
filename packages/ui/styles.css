@@ -389,6 +389,16 @@
   color: var(--ui-info, #0284c7);
 }
 
+.vh-invocation-list__item[data-status="running"] .vh-invocation-list__state-icon svg {
+  animation: vh-invocation-status-spin 800ms linear infinite;
+}
+
+@keyframes vh-invocation-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .vh-invocation-list__item[data-status="completed"] .vh-invocation-list__state {
   color: var(--ui-success, #15803d);
 }
@@ -1051,5 +1061,9 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 @media (prefers-reduced-motion: reduce) {
   .vh-chat__viewport {
     scroll-behavior: auto;
+  }
+
+  .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state-icon svg {
+    animation: none;
   }
 }
