@@ -200,7 +200,10 @@ describe("anti-slop lexical type resolution", () => {
         type Identity<T> = T;
         type Container<T> = T;
         type Wrapper<T> = Identity<Container<T>>;
+        type Dictionary<T> = Record<string, T>;
+        type DictionaryWrapper<T> = Dictionary<Identity<Container<T>>>;
         type Hidden = Wrapper<unknown>;
+        type HiddenDictionary = DictionaryWrapper<unknown>;
         function unknownInput(value: Wrapper<unknown>) { return value; }
         function objectInput(value: Wrapper<object>) { return value; }
         function unknownOutput(): Wrapper<unknown> { throw new Error(); }
@@ -210,6 +213,7 @@ describe("anti-slop lexical type resolution", () => {
       "anti-slop(no-unknown-parameters)",
       "anti-slop(no-unknown-returns)",
       "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-unsafe-dictionary-type)",
     ]) {
       expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
     }
@@ -372,7 +376,8 @@ describe("anti-slop lexical type resolution", () => {
         namespace Outer {
           export namespace Contracts {
             export type Identity<T> = T;
-            export type Dictionary<T> = Record<string, T>;
+            export type Container<T> = T;
+            export type Dictionary<T> = Record<string, Identity<Container<T>>>;
           }
           type Hidden = Contracts.Identity<unknown>;
           function unknownInput(value: Contracts.Identity<unknown>) { return value; }
@@ -382,6 +387,34 @@ describe("anti-slop lexical type resolution", () => {
           interface SafeEnvironment extends Contracts.Dictionary<string> {}
         }
         void Outer;
+      `);
+    for (const code of [
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-unsafe-dictionary-type)",
+    ]) {
+      expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
+    }
+  });
+
+  test("resolves import-equals roots in qualified type names", () => {
+    const result = diagnostics(`
+        namespace Contracts {
+          export type Identity<T> = T;
+          export type Dictionary<T> = Record<string, T>;
+        }
+        namespace Scoped {
+          import C = Contracts;
+          type Hidden = C.Identity<unknown>;
+          function unknownInput(value: C.Identity<unknown>) { return value; }
+          function objectInput(value: C.Identity<object>) { return value; }
+          function unknownOutput(): C.Identity<unknown> { throw new Error(); }
+          interface UnsafeEnvironment extends C.Dictionary<unknown> {}
+          interface SafeEnvironment extends C.Dictionary<string> {}
+        }
+        void Scoped;
       `);
     for (const code of [
       "anti-slop(no-object-parameters)",

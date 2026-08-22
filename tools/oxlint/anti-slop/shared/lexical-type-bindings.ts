@@ -70,6 +70,36 @@ function enclosingNamespacePath(binding: TypeBinding): readonly string[] | null 
 	return names;
 }
 
+function visibleNamespacePaths(
+	name: string,
+	site: ESTree.Node,
+	bindings: readonly TypeBinding[],
+	visited: ReadonlySet<TypeBinding> = new Set(),
+): readonly (readonly string[])[] {
+	return visibleTypeBindings(name, site, bindings).flatMap((binding) => {
+		if (visited.has(binding)) return [];
+		if (binding.type === "TSModuleDeclaration") {
+			const enclosingPath = enclosingNamespacePath(binding);
+			return enclosingPath === null ? [] : [[...enclosingPath, name]];
+		}
+		if (
+			binding.type !== "TSImportEqualsDeclaration" ||
+			binding.moduleReference.type === "TSExternalModuleReference"
+		) {
+			return [];
+		}
+		const target = qualifiedTypeNameParts(binding.moduleReference);
+		if (target === null || target.length === 0) return [];
+		const [targetRoot, ...targetRest] = target;
+		if (targetRoot === undefined) return [];
+		const nextVisited = new Set(visited);
+		nextVisited.add(binding);
+		return visibleNamespacePaths(targetRoot, binding, bindings, nextVisited).map(
+			(path) => [...path, ...targetRest],
+		);
+	});
+}
+
 function lexicalTypeContainer(node: ESTree.Node): ESTree.Node {
 	let current = node;
 	while (
@@ -111,20 +141,15 @@ export function visibleTypeBindingForParts(
 	const root = parts[0];
 	const leaf = parts.at(-1);
 	if (root === undefined || leaf === undefined) return undefined;
-	const visibleRoots = visibleTypeBindings(root, site, bindings).filter(
-		(binding): binding is ESTree.TSModuleDeclaration =>
-			binding.type === "TSModuleDeclaration" && binding.id.type === "Identifier",
-	);
-	if (visibleRoots.length === 0) return undefined;
-	const namespacePath = parts.slice(0, -1);
+	const visibleRootPaths = visibleNamespacePaths(root, site, bindings);
+	if (visibleRootPaths.length === 0) return undefined;
+	const namespaceRest = parts.slice(1, -1);
 	return bindings.find((binding) => {
 		if (typeBindingName(binding) !== leaf) return false;
 		const path = enclosingNamespacePath(binding);
 		if (path === null) return false;
-		return visibleRoots.some((visibleRoot) => {
-			const enclosingPath = enclosingNamespacePath(visibleRoot);
-			if (enclosingPath === null) return false;
-			const targetPath = [...enclosingPath, ...namespacePath];
+		return visibleRootPaths.some((rootPath) => {
+			const targetPath = [...rootPath, ...namespaceRest];
 			return (
 				path.length === targetPath.length &&
 				path.every((part, index) => part === targetPath[index])
