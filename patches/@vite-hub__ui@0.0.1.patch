@@ -1,8 +1,31 @@
 diff --git a/dist/index.js b/dist/index.js
-index 712c51363cdfca22332b61e366afa21a0701743c..cbc27dabca09f2b05870e671da5b6c7e66e1f7a8 100644
+index 712c51363cdfca22332b61e366afa21a0701743c..fab53f88d728a2b2e8f0971d72dd3ab31adc65db 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -33049,7 +33049,7 @@ function statusIcon(status) {
+@@ -33008,6 +33008,22 @@ function statusLabel(status) {
+ 		running: "Working"
+ 	}[status];
+ }
++const invocationListRowSize = 86;
++const invocationListRowWithDescriptionSize = 106;
++function rowSize(item) {
++	return item.description ? invocationListRowWithDescriptionSize : invocationListRowSize;
++}
++function rowIndexAtOffset(offsets, offset) {
++	let low = 0;
++	let high = offsets.length - 2;
++	while (low <= high) {
++		const middle = Math.floor((low + high) / 2);
++		if (offset < offsets[middle]) high = middle - 1;
++		else if (offset >= offsets[middle + 1]) low = middle + 1;
++		else return middle;
++	}
++	return Math.max(0, Math.min(low, offsets.length - 2));
++}
+ function relativeTime(value, now) {
+ 	if (!value || now === void 0) return;
+ 	const elapsed = now - Date.parse(value);
+@@ -33049,7 +33065,7 @@ function statusIcon(status) {
  			"M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"
  		],
  		pending: ["M12 7v5l3 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
@@ -11,6 +34,53 @@ index 712c51363cdfca22332b61e366afa21a0701743c..cbc27dabca09f2b05870e671da5b6c7e
  	}[status].map((path) => h("path", {
  		d: path,
  		"stroke-linecap": "round",
+@@ -33121,19 +33137,27 @@ const AgentInvocationList = defineComponent({
+ 		const scrollRevision = ref(0);
+ 		const scrollTop = ref(0);
+ 		const viewportHeight = ref(0);
+-		const rowSize = 86;
+ 		const overscan = 6;
+ 		let resizeObserver;
+ 		let measureViewport;
++		const rowOffsets = computed(() => {
++			const offsets = [0];
++			for (const item of props.items) offsets.push(offsets.at(-1) + rowSize(item));
++			return offsets;
++		});
+ 		const virtualRows = computed(() => {
+-			const visibleRows = Math.max(1, Math.ceil(viewportHeight.value / rowSize));
+-			const start = Math.max(0, Math.floor(scrollTop.value / rowSize) - overscan);
+-			const end = Math.min(props.items.length, start + visibleRows + overscan * 2);
++			if (!props.items.length) return [];
++			const offsets = rowOffsets.value;
++			const firstVisible = rowIndexAtOffset(offsets, scrollTop.value);
++			const lastVisible = rowIndexAtOffset(offsets, scrollTop.value + Math.max(0, viewportHeight.value - 1));
++			const start = Math.max(0, firstVisible - overscan);
++			const end = Math.min(props.items.length, lastVisible + overscan + 1);
+ 			return Array.from({ length: end - start }, (_, offset) => {
+ 				const index = start + offset;
+ 				return {
+ 					index,
+-					start: index * rowSize
++					size: offsets[index + 1] - offsets[index],
++					start: offsets[index]
+ 				};
+ 			});
+ 		});
+@@ -33183,11 +33207,11 @@ const AgentInvocationList = defineComponent({
+ 			props.items.length === 0 ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.") : null,
+ 			props.items.length && props.virtual && typeof window !== "undefined" ? h("ul", {
+ 				class: "vh-invocation-list__virtual",
+-				style: { height: `${props.items.length * rowSize}px` }
++				style: { height: `${rowOffsets.value.at(-1)}px` }
+ 			}, virtualRows.value.map((row) => renderItem(props.items[row.index], props.selectedId, props.now, select, slots.projectIcon, slots.harness, {
+ 				"data-index": row.index,
+ 				style: {
+-					height: `${rowSize}px`,
++					height: `${row.size}px`,
+ 					transform: `translateY(${row.start}px)`
+ 				}
+ 			}))) : props.items.length ? h("ul", props.items.map((item) => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness))) : null,
 diff --git a/dist/styles.css b/dist/styles.css
 index 35cf66b5cbffc3f5bd3c45ebf461dd760f3038c1..3686d58486a4b4675be6f426d732d5a24abb4e08 100644
 --- a/dist/styles.css
