@@ -1,19 +1,10 @@
 <script setup lang="ts">
+import { AgentInvocation, type AgentInvocationView } from '@vite-hub/ui'
 import { useAgentInvocation, useAgentInvocations } from 'vite-hub/agent/vue'
 import { computed, ref, watch } from 'vue'
 import {
-  annotationItems,
-  humanize,
-  invocationFinishedAt,
   invocationSummary,
   invocationTitle,
-  isToolObservation,
-  observationContent,
-  observationDetail,
-  observationDurationMs,
-  observationTone,
-  statusLabel,
-  type Invocation,
 } from './invocation-display'
 
 import type { AgentInvocationRecordStatus } from 'vite-hub/agent'
@@ -59,9 +50,9 @@ const groupedInvocations = computed(() => groups.map(group => ({
 const selectedSummary = computed(() => invocations.value.find(invocation => invocation.id === selectedId.value))
 const matchingDetail = computed(() => selected.value?.id === selectedId.value ? selected.value : undefined)
 const visibleSelection = computed(() => matchingDetail.value || selectedSummary.value)
-const visibleObservations = computed(() => matchingDetail.value ? observations.value : [])
-const toolObservations = computed(() => visibleObservations.value.filter(isToolObservation))
-const visibleAnnotations = computed(() => annotationItems(visibleSelection.value))
+const invocationView = computed<AgentInvocationView | undefined>(() => matchingDetail.value
+  ? { ...matchingDetail.value, observations: observations.value }
+  : undefined)
 
 async function refresh() {
   await Promise.all([list.refresh(), detail.refresh()])
@@ -85,36 +76,6 @@ function formatTime(value?: string) {
   if (!value) return '—'
   const date = new Date(value)
   return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date)
-}
-
-function formatDateTime(value?: string) {
-  if (!value) return '—'
-  const date = new Date(value)
-  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat(undefined, {
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    month: 'short',
-  }).format(date)
-}
-
-function formatDuration(milliseconds?: number) {
-  if (milliseconds === undefined) return undefined
-  if (milliseconds < 1_000) return `${milliseconds} ms`
-  const seconds = Math.round(milliseconds / 1_000)
-  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-}
-
-function invocationDuration(invocation?: Invocation) {
-  if (!invocation?.startedAt) return undefined
-  const finishedAt = invocationFinishedAt(invocation)
-  const end = finishedAt ? new Date(finishedAt).valueOf() : Date.now()
-  const start = new Date(invocation.startedAt).valueOf()
-  return Number.isNaN(start) || Number.isNaN(end) ? undefined : formatDuration(end - start)
-}
-
-function observationDuration(observation: Parameters<typeof observationDurationMs>[0]) {
-  return formatDuration(observationDurationMs(observation))
 }
 
 watch(invocations, (next) => {
@@ -227,114 +188,20 @@ watch(invocations, (next) => {
             </div>
           </div>
 
-          <template v-else-if="visibleSelection">
-            <header class="detail-heading">
-              <div class="detail-title">
-                <div class="status-line">
-                  <span class="status-dot" :data-tone="visibleSelection.status" />
-                  <span>{{ statusLabel(visibleSelection.status) }}</span>
-                </div>
-                <h2>{{ invocationTitle(visibleSelection) }}</h2>
-                <p>{{ invocationSummary(visibleSelection) }}</p>
-              </div>
+          <div v-else-if="detailErrorMessage" class="notice detail-notice" role="alert">
+            <strong>History unavailable</strong>
+            <p>{{ detailErrorMessage }}</p>
+          </div>
 
-              <dl class="detail-facts">
-                <div>
-                  <dt>Started</dt>
-                  <dd>{{ formatDateTime(visibleSelection.startedAt || visibleSelection.createdAt) }}</dd>
-                </div>
-                <div>
-                  <dt>Duration</dt>
-                  <dd>{{ invocationDuration(visibleSelection) || '—' }}</dd>
-                </div>
-                <div>
-                  <dt>Agent</dt>
-                  <dd>{{ visibleSelection.agentName || 'Unknown' }}</dd>
-                </div>
-              </dl>
-            </header>
+          <div v-else-if="loadingDetail && !invocationView" class="detail-placeholder" aria-label="Loading invocation">
+            <USkeleton class="h-48 w-full rounded-sm" />
+          </div>
 
-            <div v-if="visibleAnnotations.length" class="annotation-strip" aria-label="Invocation annotations">
-              <component
-                :is="annotation.href ? 'a' : 'span'"
-                v-for="annotation in visibleAnnotations"
-                :key="`${annotation.label}:${annotation.value}`"
-                class="annotation"
-                :href="annotation.href"
-                :target="annotation.href ? '_blank' : undefined"
-                :rel="annotation.href ? 'noreferrer' : undefined"
-              >
-                <small>{{ annotation.label }}</small>
-                <strong>{{ annotation.value }}</strong>
-                <span v-if="annotation.href" aria-hidden="true">↗</span>
-              </component>
-            </div>
-
-            <div v-if="detailErrorMessage" class="notice detail-notice" role="alert">
-              <strong>History unavailable</strong>
-              <p>{{ detailErrorMessage }}</p>
-            </div>
-
-            <div class="evidence-grid" :class="{ loading: loadingDetail }">
-              <section class="timeline-panel">
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Complete history</p>
-                    <h3>Session</h3>
-                  </div>
-                  <span>{{ visibleObservations.length }} events</span>
-                </div>
-
-                <ol v-if="visibleObservations.length" class="timeline">
-                  <li v-for="observation in visibleObservations" :key="observation.sequence" :data-tone="observationTone(observation)">
-                    <span class="timeline-node" aria-hidden="true" />
-                    <div class="event-copy">
-                      <div>
-                        <strong>{{ humanize(observation.name) }}</strong>
-                        <time :datetime="observation.timestamp">{{ formatTime(observation.timestamp) }}</time>
-                      </div>
-                      <p v-if="observationDetail(observation)">{{ observationDetail(observation) }}</p>
-                      <pre v-if="observationContent(observation)" class="event-content">{{ observationContent(observation) }}</pre>
-                    </div>
-                  </li>
-                </ol>
-                <div v-else class="section-empty">
-                  <span aria-hidden="true">···</span>
-                  <p>No recorded events for this invocation.</p>
-                </div>
-              </section>
-
-              <aside class="tools-panel">
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Capability activity</p>
-                    <h3>Tools</h3>
-                  </div>
-                  <span>{{ toolObservations.length }}</span>
-                </div>
-
-                <ul v-if="toolObservations.length" class="tool-list">
-                  <li v-for="observation in toolObservations" :key="observation.sequence">
-                    <span class="tool-index">{{ String(toolObservations.indexOf(observation) + 1).padStart(2, '0') }}</span>
-                    <div>
-                      <strong>{{ humanize(observation.name) }}</strong>
-                      <p>{{ observationDetail(observation) || humanize(observation.type) }}</p>
-                    </div>
-                    <time v-if="observationDuration(observation)">{{ observationDuration(observation) }}</time>
-                  </li>
-                </ul>
-                <div v-else class="section-empty compact">
-                  <span aria-hidden="true">—</span>
-                  <p>No tool calls recorded.</p>
-                </div>
-
-                <div class="invocation-id">
-                  <span>Invocation ID</span>
-                  <code>{{ visibleSelection.id }}</code>
-                </div>
-              </aside>
-            </div>
-          </template>
+          <AgentInvocation v-else-if="invocationView" :invocation="invocationView">
+            <template #title="{ invocation }">
+              {{ invocationTitle(invocation) }}
+            </template>
+          </AgentInvocation>
         </section>
       </main>
     </div>

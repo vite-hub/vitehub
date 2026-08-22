@@ -1,4 +1,4 @@
-import ui from '@nuxt/ui/vite'
+import ui from '@vite-hub/ui/vite'
 import vue from '@vitejs/plugin-vue'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
@@ -22,7 +22,7 @@ export default defineConfig({
   },
   plugins: [
     vue(),
-    ui(),
+    ...ui({ comark: false }),
     vitehub({
       preset: 'node',
       agent: { providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } } },

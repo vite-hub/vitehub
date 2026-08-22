@@ -392,6 +392,10 @@ a:focus-visible {
   scrollbar-gutter: stable;
 }
 
+.invocation-detail > .vh-invocation {
+  margin: clamp(18px, 3vw, 40px);
+}
+
 .detail-placeholder {
   display: flex;
   min-height: 70vh;

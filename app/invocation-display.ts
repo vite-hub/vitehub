@@ -1,12 +1,6 @@
-import type { AgentInvocationRecord, AgentInvocationRecordStatus, AgentInvocationSummary } from 'vite-hub/agent'
+import type { AgentInvocationRecord, AgentInvocationSummary } from 'vite-hub/agent'
 
 export type Invocation = AgentInvocationRecord | AgentInvocationSummary
-export type InvocationObservation = AgentInvocationRecord['observations'][number]
-
-export function statusLabel(status: AgentInvocationRecordStatus) {
-  return ({ pending: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled' } as const)[status]
-}
-
 export function invocationTitle(invocation: Invocation) {
   return invocation.agentName || 'Agent Invocation'
 }
@@ -17,53 +11,4 @@ export function invocationSummary(invocation: Invocation) {
   if (invocation.channelId) return `Channel ${invocation.channelId}`
   if (invocation.threadId) return `Thread ${invocation.threadId}`
   return invocation.id
-}
-
-export function invocationFinishedAt(invocation: Invocation) {
-  return invocation.completedAt || invocation.failedAt || invocation.cancelledAt
-}
-
-export function observationTone(observation: InvocationObservation) {
-  if (observation.type === 'error' || observation.name.endsWith('.error')) return 'failed'
-  if (observation.name.endsWith('.start') || observation.name.endsWith('.request')) return 'running'
-  if (isToolObservation(observation)) return 'tool'
-  return 'neutral'
-}
-
-export function observationDetail(observation: InvocationObservation) {
-  const attributes = observation.attributes || {}
-  const preferred = ['tool.name', 'capability.name', 'model.name', 'error.message', 'message']
-    .map(key => attributes[key])
-    .find(value => typeof value === 'string' || typeof value === 'number')
-  return preferred === undefined ? undefined : String(preferred)
-}
-
-export function observationContent(observation: InvocationObservation) {
-  const attributes = observation.attributes || {}
-  const value = ['result.text', 'tool.input', 'tool.output', 'approval.input', 'message', 'text']
-    .map(key => attributes[key])
-    .find(item => item !== undefined)
-  if (value === undefined) return
-  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-}
-
-export function observationDurationMs(observation: InvocationObservation) {
-  const value = observation.attributes?.['duration.ms']
-  return typeof value === 'number' ? value : undefined
-}
-
-export function isToolObservation(observation: InvocationObservation) {
-  return observation.name.includes('tool') || Object.keys(observation.attributes || {}).some(key => key.startsWith('tool.'))
-}
-
-export function humanize(value: string) {
-  return value.replace(/[._-]+/g, ' ').replace(/\b\w/g, character => character.toUpperCase())
-}
-
-export function annotationItems(invocation?: Invocation) {
-  return Object.entries(invocation?.annotations || {}).map(([label, value]) => ({
-    href: typeof value === 'string' && /^https?:\/\//.test(value) ? value : undefined,
-    label: humanize(label),
-    value: value === null ? 'None' : String(value),
-  }))
 }

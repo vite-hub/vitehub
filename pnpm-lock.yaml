@@ -37,6 +37,9 @@ importers:
       '@vite-hub/runtime':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
+      '@vite-hub/ui':
+        specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))
       ai:
         specifier: 7.0.38
         version: 7.0.38(zod@4.4.3)
@@ -570,6 +573,21 @@ packages:
 
   '@cloudflare/workers-types@4.20260702.1':
     resolution: {integrity: sha512-mOhf5TUEB1m2vPrxtqoIGfz0fUC9xyxRDx5gWHy5s+OCo6dcV+g7wI1R7gYCMFohhqF/2y2xeKVwMwCJjfn/WA==}
+
+  '@comark/vue@0.6.2':
+    resolution: {integrity: sha512-ToRyzz4I96DjXtDgYOC1WnNWt0W6YgOcazuT8rVRMJRR86NXBLATnIWb3hdMM0/8lMaDz+DmlcpX5EN1hqsG0Q==}
+    peerDependencies:
+      beautiful-mermaid: ^1.1.3
+      katex: ^0.17.0
+      shiki: ^4.3.1
+      vue: ^3.5.0
+    peerDependenciesMeta:
+      beautiful-mermaid:
+        optional: true
+      katex:
+        optional: true
+      shiki:
+        optional: true
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
@@ -3145,6 +3163,18 @@ packages:
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015':
+    resolution: {integrity: sha512-AnKbp258DfdZhaMEz7H2tn+fipJxnPZcUy3PCYrDkD36XF8st81ertCO5B56Dwkn43ja6CIALgVmAE5LjNH5xw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015}
+    version: 0.0.1
+    engines: {node: '>=24.15.0'}
+    peerDependencies:
+      '@nuxt/ui': ^4.9.0
+      ai: ^6.0.0 || ^7.0.0-0
+      vue: ^3.5.0
+    peerDependenciesMeta:
+      '@nuxt/ui':
+        optional: true
+
   '@vite-hub/workflow@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@5cbf7129916e12a6798cb936b5d9faa3654ca0a2':
     resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@5cbf7129916e12a6798cb936b5d9faa3654ca0a2}
     version: 0.0.1
@@ -3970,6 +4000,23 @@ packages:
       beautiful-mermaid:
         optional: true
       katex:
+        optional: true
+      shiki:
+        optional: true
+
+  comark@0.6.2:
+    resolution: {integrity: sha512-hlWa7KlGPfRxovQavnHZlLlTUKrfwE7/o4ewCY0FzqFtRvVT8VdslrumQwELIiK9utsurpoSWCBFj1yVMtDOtw==}
+    peerDependencies:
+      beautiful-mermaid: ^1.1.3
+      katex: ^0.17.0
+      rangi: ^2.2.0
+      shiki: ^4.3.1
+    peerDependenciesMeta:
+      beautiful-mermaid:
+        optional: true
+      katex:
+        optional: true
+      rangi:
         optional: true
       shiki:
         optional: true
@@ -8304,6 +8351,13 @@ snapshots:
 
   '@cloudflare/workers-types@4.20260702.1': {}
 
+  '@comark/vue@0.6.2(vue@3.5.40(typescript@6.0.3))':
+    dependencies:
+      comark: 0.6.2
+      vue: 3.5.40(typescript@6.0.3)
+    transitivePeerDependencies:
+      - rangi
+
   '@drizzle-team/brocli@0.10.2': {}
 
   '@effect/platform-node-shared@4.0.0-rc.109(effect@4.0.0-beta.103)':
@@ -10818,6 +10872,21 @@ snapshots:
       '@vite-hub/runtime': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       effect: 4.0.0-beta.99
 
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))':
+    dependencies:
+      '@comark/vue': 0.6.2(vue@3.5.40(typescript@6.0.3))
+      '@nuxt/kit': 4.4.8
+      ai: 7.0.38(zod@4.4.3)
+      vue: 3.5.40(typescript@6.0.3)
+    optionalDependencies:
+      '@nuxt/ui': 4.10.0(2b88d2307741de2aa2ff6d1c089118db)
+    transitivePeerDependencies:
+      - beautiful-mermaid
+      - katex
+      - magicast
+      - rangi
+      - shiki
+
   '@vite-hub/workflow@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(ff19c59c62d29e6b29536ff6c7fafcff)':
     dependencies:
       '@vercel/functions': 3.7.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0)
@@ -11903,6 +11972,13 @@ snapshots:
   colortranslator@5.0.0: {}
 
   comark@0.5.1:
+    dependencies:
+      entities: 8.0.0
+      htmlparser2: 12.0.0
+      js-yaml: 5.2.1
+      markdown-exit: 1.1.0-beta.2
+
+  comark@0.6.2:
     dependencies:
       entities: 8.0.0
       htmlparser2: 12.0.0
@@ -14329,7 +14405,7 @@ snapshots:
   pkg-types@2.3.1:
     dependencies:
       confbox: 0.2.4
-      exsolve: 1.1.0
+      exsolve: 1.1.1
       pathe: 2.0.3
 
   playwright-core@1.62.1:
