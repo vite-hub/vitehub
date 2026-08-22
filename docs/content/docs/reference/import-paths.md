@@ -108,7 +108,6 @@ for libraries, focused integrations, and advanced composition.
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
 | `@vite-hub/markdown-template` | Markdown Template Package | Deterministic Markdown rendering from explicit template strings. |
-| `#vitehub/templates` | Markdown Template Package | Generated named-template renderer and `TemplateName` union for `server/templates/**/*.md`. |
 | `@vite-hub/queue` | Queue Package | Queue Definition and enqueue Runtime Helper. |
 | `@vite-hub/rate-limit` | Rate Limit Package | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
@@ -139,7 +138,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/email/vite` | Configure one Unemail provider and generate its runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
 | `@vite-hub/kv/vite` | Register the KV Vite Integration. |
-| `@vite-hub/markdown-template/vite` | Register Markdown template discovery, generated types, and direct `.template.md` imports. |
+| `@vite-hub/markdown-template/vite` | Register generated types and direct `.template.md` imports. |
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
 | `@vite-hub/rate-limit/vite` | Register Rate Limit source collection and provider output. |
 | `@vite-hub/realtime/vite` | Register Realtime Definition discovery and generated runtime wiring. |

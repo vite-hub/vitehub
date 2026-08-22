@@ -67,33 +67,12 @@ describe("bundleEsmEntry", () => {
     await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
   })
 
-  it("bundles the generated named-template registry", async () => {
-    const projectRoot = await createTempDir()
-    const rootDir = join(projectRoot, "app")
-    const entry = join(rootDir, "entry.mjs")
-    const registry = join(projectRoot, ".vitehub", "markdown-template", "templates.mjs")
-    const outfile = join(rootDir, "bundle.mjs")
-    await mkdir(dirname(registry), { recursive: true })
-    await mkdir(rootDir, { recursive: true })
-    await writeFile(join(projectRoot, "package.json"), "{}", "utf8")
-    await mkdir(join(projectRoot, "server", "templates"), { recursive: true })
-    await writeFile(registry, `export async function renderTemplate(name, data) { return name + ":" + data.value }\n`, "utf8")
-    await writeFile(entry, `import { renderTemplate } from "#vitehub/templates"\nexport default () => renderTemplate("review", { value: 42 })\n`, "utf8")
-
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
-    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
-
-    await rm(join(projectRoot, ".vitehub"), { force: true, recursive: true })
-    const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("review:42")
-  })
-
   it("fails when a bundled Markdown template import is missing", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(join(rootDir, "prompt.md"), "@./missing.md\n", "utf8")
-    await writeFile(entry, 'import prompt from "./prompt.md?markdown-template"\nexport default prompt\n', "utf8")
+    await writeFile(join(rootDir, "prompt.template.md"), "@./missing.md\n", "utf8")
+    await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default prompt\n', "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir }))

@@ -431,7 +431,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...(emailPlugin && !nuxt.options.dev
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
       : {}),
-    "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)
