@@ -20,7 +20,7 @@ export default defineConfig({
       "doctor:typescript": {
         cache: false,
         command:
-          "vp exec vite-doctor scan . --extends vite-doctor/typescript/strict --baseline .vite-doctor-baseline.json --new-only --no-cache --max-warnings 0",
+          'vp exec vite-doctor scan . --extends vite-doctor/typescript/strict --since "${VITE_DOCTOR_SINCE:-HEAD^}" --no-cache --max-warnings 0',
       },
       "docs:build": {
         cache: false,
