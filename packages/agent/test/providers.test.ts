@@ -10236,6 +10236,74 @@ describe("server helpers", () => {
     }
   })
 
+  it("detaches an accepted steered Workflow when queued evidence cannot be journaled", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-accepted-journal-failure-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    let queuedJournalFailures = 0
+    const failingState = Object.assign(new Proxy(state, {
+      get(target, property, receiver) {
+        if (property !== "appendToList") return Reflect.get(target, property, receiver)
+        return async (...args: Parameters<typeof state.appendToList>) => {
+          if ((args[1] as { type?: string })?.type === "queued") {
+            queuedJournalFailures++
+            throw new Error("queued journal unavailable")
+          }
+          return await state.appendToList(...args)
+        }
+      },
+    }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => [{ id, status: async () => ({ status: "queued" }) }])
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer",
+            delivery: "manual",
+            errorFallbackText: "Workflow failed.",
+            state: failingState,
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const response = await handler(chatWebhookRequest(91_129), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+          },
+        },
+      })
+
+      expect(response.status).toBe(200)
+      expect(createBatch).toHaveBeenCalledOnce()
+      expect(queuedJournalFailures).toBe(1)
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      expect(await state.acquireLock(ownershipKey!, 1_000)).toBeNull()
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("serializes steered manual delivery across durable Agent Workflows", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -10661,7 +10729,9 @@ describe("server helpers", () => {
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
     const workflowPayloads: Array<Record<string, unknown> & { input?: AgentRunInput }> = []
+    const workflowIds: string[] = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: Record<string, unknown> & { input?: AgentRunInput } }>) => {
+      workflowIds.push(id)
       workflowPayloads.push(params)
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
@@ -10721,6 +10791,7 @@ describe("server helpers", () => {
       expect(sideEffect).toHaveBeenCalledOnce()
       expect(throwSuccessorRead).toBe(false)
       expect(workflowPayloads).toHaveLength(2)
+      expect(workflowIds[1]).not.toBe(workflowIds[0])
       expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91152"])
 
       const pending = await state.queuePeek(binding!.steer!.pendingQueue) as { message?: { settlementStatus?: string } } | null
@@ -10759,30 +10830,28 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-start-failure-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
-    const queueReplaceHead = vi.spyOn(state, "queueReplaceHead")
+    const replaceQueueHead = state.queueReplaceHead.bind(state)
+    let rejectFallbackProgress = true
+    const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
+      const replacement = args[2] as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>
+      if (rejectFallbackProgress && replacement.some(entry => entry.message?.errorDeliveries?.some(item => item.fallbackAttempted))) {
+        rejectFallbackProgress = false
+        return false
+      }
+      return await replaceQueueHead(...args)
+    })
     const adapter = createTestChatAdapter()
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
-    let rejectNextAdapterResolution = false
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
-      if (createBatch.mock.calls.length > 1) {
-        rejectNextAdapterResolution = true
-        throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
-      }
+      if (createBatch.mock.calls.length > 1) throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
       return [{ id, status: async () => ({ status: "queued" }) }]
-    })
-    const adapterResolver = vi.fn(async () => {
-      if (rejectNextAdapterResolution) {
-        rejectNextAdapterResolution = false
-        throw new Error("adapter resolver unavailable")
-      }
-      return adapter as never
     })
     const errorFallbackText = vi.fn(() => "Could not process message.")
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
-          adapter: adapterResolver,
+          adapter: () => adapter as never,
           messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
         }),
       },
@@ -10822,12 +10891,13 @@ describe("server helpers", () => {
       expect(errorFallbackText).toHaveBeenCalledOnce()
       expect(adapter.postMessage).toHaveBeenCalledOnce()
       expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
+      expect(rejectFallbackProgress).toBe(false)
       expect(queueReplaceHead).toHaveBeenCalledWith(
         expect.any(String),
         expect.anything(),
         [expect.objectContaining({
           message: expect.objectContaining({
-            errorDeliveries: expect.arrayContaining([expect.objectContaining({ fallbackDelivered: true })]),
+            errorDeliveries: expect.arrayContaining([expect.objectContaining({ fallbackAttempted: true })]),
           }),
         })],
         expect.any(Number),
