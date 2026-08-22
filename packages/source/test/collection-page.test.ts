@@ -85,6 +85,33 @@ describe("Collections", () => {
     expect(load).toHaveBeenLastCalledWith({ cursor: 2, limit: 2, query: {}, signal: undefined })
   })
 
+  it("derives the continuation cursor before a transform mutates its source item", async () => {
+    const load = vi.fn(async ({ cursor }: { cursor?: number }) =>
+      cursor === undefined
+        ? [
+            { createdAt: 2, id: "two" },
+            { createdAt: 1, id: "one" },
+          ]
+        : [],
+    )
+    const collection = defineCollection(load, {
+      cursor: row => row.createdAt,
+      cursorSchema: v.number(),
+      defaultLimit: 1,
+      maxLimit: 1,
+      transform(row) {
+        row.createdAt = -1
+        return { id: row.id }
+      },
+    })
+
+    const first = await collection.page({ query: {} })
+    await collection.page({ cursor: first.nextCursor!, query: {} })
+
+    expect(first.items).toEqual([{ id: "two" }])
+    expect(load).toHaveBeenLastCalledWith({ cursor: 2, limit: 2, query: {}, signal: undefined })
+  })
+
   it("rejects malformed cursors and invalid definition limits", async () => {
     const { collection } = mealsCollection()
     await expect(

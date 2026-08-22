@@ -345,16 +345,17 @@ export function defineCollection<
       }
       const hasMore = sourceItems.length > limit
       const pageItems = sourceItems.slice(0, limit)
+      const nextCursor =
+        hasMore && pageItems.length
+          ? // SAFETY: CollectionOptions constrains cursor output to the serializable cursor contract.
+            encodeCursor(definition.cursor(pageItems[pageItems.length - 1]!) as CollectionCursorValue)
+          : null
       const transformedItems = definition.transform ? await Promise.all(pageItems.map(definition.transform)) : pageItems
       // SAFETY: The overload without transform fixes TItem to TSourceItem; the other branch ran the typed transform.
       const items = transformedItems as TItem[]
       return {
         items,
-        nextCursor:
-          hasMore && pageItems.length
-            ? // SAFETY: CollectionOptions constrains cursor output to the serializable cursor contract.
-              encodeCursor(definition.cursor(pageItems[pageItems.length - 1]!) as CollectionCursorValue)
-            : null,
+        nextCursor,
       }
     },
     async parseQuery(input) {

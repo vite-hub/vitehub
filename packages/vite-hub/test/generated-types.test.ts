@@ -348,6 +348,29 @@ describe("framework generated types", () => {
     ).rejects.toThrow('Collection name "meals" is defined in more than one server directory')
   })
 
+  it("rejects case-only Collection route-module collisions across server directories", async () => {
+    const { root } = await createNestedProject()
+    const firstServerDir = join(root, "api")
+    const secondServerDir = join(root, "admin")
+    await Promise.all([
+      mkdir(join(firstServerDir, "collections"), { recursive: true }),
+      mkdir(join(secondServerDir, "collections"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(firstServerDir, "collections/Meals.ts"), collectionModule("Meals")),
+      writeFile(join(secondServerDir, "collections/meals.ts"), collectionModule("meals")),
+    ])
+
+    await expect(
+      viteHubTypesPlugin().api.prepareTypes({
+        projectRoot: root,
+        serverDirs: [firstServerDir, secondServerDir],
+      }),
+    ).rejects.toThrow(
+      'Collection names "Meals" and "meals" generate the same route module on case-insensitive filesystems',
+    )
+  })
+
   it("preserves an explicitly empty server directory selection", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })

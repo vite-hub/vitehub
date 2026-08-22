@@ -188,12 +188,22 @@ async function discoverCollections(options: ViteHubTypesOptions): Promise<Discov
     .flat()
     .sort((left, right) => left.name.localeCompare(right.name))
 
-  for (let index = 1; index < collections.length; index++) {
-    if (collections[index - 1]!.name === collections[index]!.name) {
+  const generatedPaths = new Map<string, DiscoveredCollection>()
+  for (const collection of collections) {
+    const generatedPath = `${collection.name}.mjs`.replaceAll("\\", "/").toLowerCase()
+    const previous = generatedPaths.get(generatedPath)
+    if (previous?.name === collection.name) {
       throw new TypeError(
-        `[vitehub] Collection name ${JSON.stringify(collections[index]!.name)} is defined in more than one server directory.`,
+        `[vitehub] Collection name ${JSON.stringify(collection.name)} is defined in more than one server directory.`,
       )
     }
+    if (previous) {
+      const [firstName, secondName] = [previous.name, collection.name].sort()
+      throw new TypeError(
+        `[vitehub] Collection names ${JSON.stringify(firstName)} and ${JSON.stringify(secondName)} generate the same route module on case-insensitive filesystems.`,
+      )
+    }
+    generatedPaths.set(generatedPath, collection)
   }
   return collections
 }
