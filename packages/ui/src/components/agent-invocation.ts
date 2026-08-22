@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, type PropType, ref, Suspense } from "vue";
+import { computed, defineComponent, h, type PropType, Suspense } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
   invocationActivities,
@@ -91,18 +91,57 @@ function renderMessage(activity: InvocationActivity) {
   );
 }
 
+type ActivityIcon = "action" | "approval" | "bot" | "change" | "command" | "error" | "eye" | "search" | "tool";
+
+function activityIcon(activity: InvocationActivity): ActivityIcon {
+  if (activity.status === "failed" || activity.kind === "error") return "error";
+  const name = String(activity.attributes["tool.name"] ?? "").toLocaleLowerCase();
+  if (activity.command) return "command";
+  if (activity.kind === "change") return "change";
+  if (name.includes("read") || name.includes("image") || name.includes("view")) return "eye";
+  if (name.includes("search") || name.includes("find")) return "search";
+  if (activity.kind === "reasoning" || activity.kind === "model") return "bot";
+  if (activity.kind === "approval") return "approval";
+  if (activity.kind === "action") return "action";
+  return "tool";
+}
+
+const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
+  action: ["M13 2 3 14h9l-1 8 10-12h-9z"],
+  approval: ["M12 3v12", "m8 11 4 4 4-4", "M5 21h14"],
+  bot: ["M12 8V4H8", "M4 8h16v10H4z", "M8 12h.01", "M16 12h.01"],
+  change: ["M12 20h9", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"],
+  command: ["m4 17 6-6-6-6", "M12 19h8"],
+  error: ["M18 6 6 18", "m6 6 12 12"],
+  eye: ["M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6"],
+  search: ["m21 21-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16"],
+  tool: ["M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-2.4 2.4-2.1-2.1a4 4 0 0 0 5 5L3 18l3 3 9.3-9.3a4 4 0 0 0 5-5l-2.1 2.1-2.4-2.4z"],
+};
+
+function renderActivityIcon(activity: InvocationActivity) {
+  const icon = activityIcon(activity);
+  return h("span", { class: "vh-invocation-event__icon", "data-icon": icon, "aria-hidden": "true" }, [
+    h("svg", { fill: "none", viewBox: "0 0 24 24" }, activityIconPaths[icon].map(path => h("path", {
+      d: path,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    }))),
+  ]);
+}
+
 function renderEvent(activity: InvocationActivity) {
   const command = activity.command;
-  const tokenLabel = formatTokens(activity.reasoningTokens ?? activity.totalTokens);
-  const suffix = command?.command ? compactCommand(command.command) : tokenLabel;
-  const expanded = activity.kind === "error" || activity.kind === "reasoning";
+  const tokenLabel = activity.kind === "reasoning" || activity.kind === "model"
+    ? formatTokens(activity.reasoningTokens)
+    : undefined;
+  const suffix = activity.preview ? compactCommand(activity.preview) : tokenLabel;
   const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body);
   const summary = h(hasDetails ? "summary" : "div", { class: "vh-invocation-event__summary" }, [
-    h("span", { class: "vh-invocation-event__dot", "aria-hidden": "true" }),
+    renderActivityIcon(activity),
     h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
     hasDetails
-      ? h("span", { class: "vh-invocation-event__disclosure", "aria-hidden": "true" }, "›")
+      ? h("span", { class: "vh-invocation-event__disclosure", "aria-hidden": "true" }, "⌄")
       : null,
   ]);
   return h("li", {
@@ -113,7 +152,6 @@ function renderEvent(activity: InvocationActivity) {
   }, [
     h(hasDetails ? "details" : "div", {
       class: "vh-invocation-event",
-      ...(hasDetails ? { open: expanded } : {}),
     }, [
       summary,
       activity.patches.length
@@ -173,18 +211,9 @@ export const AgentInvocation = defineComponent({
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
   },
   setup(props, { slots }) {
-    const inspectorOpen = ref(false);
     const activities = computed(() => invocationActivities(props.invocation));
-    const metrics = computed(() => ({
-      changes: activities.value.filter(activity => activity.kind === "change").length,
-      messages: activities.value.filter(activity => activity.kind === "message").length,
-      steps: activities.value.filter(activity => activity.kind !== "message").length,
-      tokens: latestInvocationTokens(activities.value),
-    }));
 
     return () => {
-      const configuration = props.invocation.configuration;
-      const endedAt = props.invocation.completedAt ?? props.invocation.failedAt;
       return h("article", {
         class: "vh-invocation-session",
         "data-status": props.invocation.status,
@@ -202,13 +231,7 @@ export const AgentInvocation = defineComponent({
                   h("h2", slots.title?.({ invocation: props.invocation }) ?? invocationTitle(props.invocation)),
                   h("p", invocationContext(props.invocation)),
                 ]),
-                h("button", {
-                  "aria-label": "Session details",
-                  "aria-pressed": inspectorOpen.value,
-                  class: "vh-invocation-thread__details-button",
-                  onClick: () => { inspectorOpen.value = !inspectorOpen.value; },
-                  type: "button",
-                }, "Details"),
+                slots.actions?.({ invocation: props.invocation }),
               ]),
             ]),
             props.invocation.error
@@ -223,14 +246,37 @@ export const AgentInvocation = defineComponent({
             slots.footer?.({ invocation: props.invocation }),
           ]),
         ]),
-        h("aside", {
+      ]);
+    };
+  },
+});
+
+export const AgentInvocationInspector = defineComponent({
+  name: "AgentInvocationInspector",
+  props: {
+    invocation: { required: true, type: Object as PropType<AgentInvocationView> },
+  },
+  setup(props, { slots }) {
+    const activities = computed(() => invocationActivities(props.invocation));
+    const metrics = computed(() => ({
+      changes: activities.value.filter(activity => activity.kind === "change").length,
+      messages: activities.value.filter(activity => activity.kind === "message").length,
+      steps: activities.value.filter(activity => activity.kind !== "message").length,
+      tokens: latestInvocationTokens(activities.value),
+    }));
+
+    return () => {
+      const configuration = props.invocation.configuration;
+      const endedAt = props.invocation.completedAt ?? props.invocation.failedAt;
+      return h("aside", {
           "aria-label": "Session details",
           class: "vh-invocation-inspector",
-          "data-open": inspectorOpen.value ? "true" : "false",
+          "data-status": props.invocation.status,
+          "data-slot": "invocation-inspector",
         }, [
           h("header", [
             h("div", [h("h3", "Session details"), h("p", configuration?.agent?.name ?? props.invocation.agentName ?? "Agent invocation")]),
-            h("button", { "aria-label": "Close details", onClick: () => { inspectorOpen.value = false; }, type: "button" }, "×"),
+            slots.actions?.({ invocation: props.invocation }),
           ]),
           h("div", { class: "vh-invocation-inspector__content" }, [
             h("section", { class: "vh-invocation-inspector__status" }, [
@@ -247,8 +293,7 @@ export const AgentInvocation = defineComponent({
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection("Trace", h("code", { class: "vh-invocation-inspector__trace" }, props.invocation.traceId)),
           ]),
-        ]),
-      ]);
+        ]);
     };
   },
 });

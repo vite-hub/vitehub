@@ -1,196 +1,414 @@
 <script setup lang="ts">
-import { AgentInvocation } from "@vite-hub/ui"
-import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue"
-import { computed, ref, watch } from "vue"
+import { AgentInvocation, AgentInvocationInspector } from "@vite-hub/ui";
+import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import type { AgentInvocationSummary } from "vite-hub/agent"
-import type { AgentInvocationConfiguration, AgentInvocationView } from "@vite-hub/ui"
+import type { SplitterItem } from "@nuxt/ui";
+import type { AgentInvocationSummary } from "vite-hub/agent";
+import type { AgentInvocationConfiguration, AgentInvocationView } from "@vite-hub/ui";
 
 type ConsoleSession = {
-  agentName?: string
-  id: string
-  invocations: AgentInvocationSummary[]
-  updatedAt: string
-}
+  agentName?: string;
+  id: string;
+  invocations: AgentInvocationSummary[];
+  updatedAt: string;
+};
 
-const route = useRoute()
-const router = useRouter()
-const selectedInvocationId = ref<string>()
-const refreshedAt = ref<Date>()
-const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "")
-const apiBase = `${appBaseURL}/api/_vitehub/console/invocations`
+const route = useRoute();
+const router = useRouter();
+const selectedInvocationId = ref<string>();
+const lastSuccessfulPollAt = ref<Date>();
+const nowMs = ref(Date.now());
+const sessionsOpen = ref(false);
+const sessionsCollapsed = ref(false);
+const detailsOpen = ref(false);
+const isDesktop = ref(false);
+const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
+const apiBase = `${appBaseURL}/api/_vitehub/console/invocations`;
+let clock: ReturnType<typeof setInterval> | undefined;
+let media: MediaQueryList | undefined;
 
-useHead({ title: "Agents · ViteHub Console" })
+useHead({ title: "Agents · ViteHub Console" });
 
-const request = async <T,>(path: string, options: { signal?: AbortSignal }) => {
-  const response = await fetch(path, { signal: options.signal })
-  if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`)
-  return await response.json() as T
-}
+const request = async <T>(path: string, options: { signal?: AbortSignal }) => {
+  const response = await fetch(path, { signal: options.signal });
+  if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`);
+  const result = (await response.json()) as T;
+  lastSuccessfulPollAt.value = new Date();
+  return result;
+};
 
-const list = useAgentInvocations({ baseURL: apiBase, pollInterval: 5_000, request })
-const detail = useAgentInvocation(selectedInvocationId, { baseURL: apiBase, pollInterval: 3_000, request })
+const list = useAgentInvocations({ baseURL: apiBase, pollInterval: 5_000, request });
+const detail = useAgentInvocation(selectedInvocationId, {
+  baseURL: apiBase,
+  pollInterval: 3_000,
+  request,
+});
 
 const sessions = computed<ConsoleSession[]>(() => {
-  const grouped = new Map<string, ConsoleSession>()
+  const grouped = new Map<string, ConsoleSession>();
   for (const invocation of list.invocations.value) {
-    const id = invocation.threadId || invocation.id
-    const session = grouped.get(id)
-    if (session) session.invocations.push(invocation)
-    else grouped.set(id, {
-      agentName: invocation.agentName,
-      id,
-      invocations: [invocation],
-      updatedAt: invocation.updatedAt,
-    })
+    const id = invocation.threadId || invocation.id;
+    const session = grouped.get(id);
+    if (session) session.invocations.push(invocation);
+    else
+      grouped.set(id, {
+        agentName: invocation.agentName,
+        id,
+        invocations: [invocation],
+        updatedAt: invocation.updatedAt,
+      });
   }
-  return [...grouped.values()]
-})
+  return [...grouped.values()];
+});
 
 const routeSession = computed(() => {
-  const value = route.params.session
-  return Array.isArray(value) ? value[0] : value
-})
-const selectedSession = computed(() => sessions.value.find(session => session.id === routeSession.value))
+  const value = route.params.session;
+  return Array.isArray(value) ? value[0] : value;
+});
+const selectedSession = computed(() =>
+  sessions.value.find((session) => session.id === routeSession.value),
+);
 const invocationView = computed<AgentInvocationView | undefined>(() => {
-  const invocation = detail.invocation.value
-  if (!invocation) return
-  const persistedConfiguration = record(record(invocation)?.configuration)
-  const configuration = persistedConfiguration as AgentInvocationConfiguration | undefined
-    ?? observedConfiguration(detail.observations.value)
+  const invocation = detail.invocation.value;
+  if (!invocation) return;
+  const persistedConfiguration = record(record(invocation)?.configuration);
+  const configuration =
+    (persistedConfiguration as AgentInvocationConfiguration | undefined) ??
+    observedConfiguration(detail.observations.value);
   return {
     ...invocation,
     ...(configuration ? { configuration } : {}),
     observations: detail.observations.value,
-  }
-})
+  };
+});
+const splitterItems = computed<SplitterItem[]>(() =>
+  detailsOpen.value
+    ? [
+        { id: "thread", slot: "thread", minSize: 52, defaultSize: 68, class: "min-w-0" },
+        {
+          id: "details",
+          slot: "details",
+          minSize: 24,
+          maxSize: 44,
+          defaultSize: 32,
+          class: "min-w-0",
+        },
+      ]
+    : [
+        {
+          id: "thread",
+          slot: "thread",
+          minSize: 100,
+          maxSize: 100,
+          defaultSize: 100,
+          class: "min-w-0",
+        },
+      ],
+);
+const syncAgeMs = computed(() =>
+  lastSuccessfulPollAt.value ? nowMs.value - lastSuccessfulPollAt.value.valueOf() : 0,
+);
+const syncStale = computed(() => Boolean(lastSuccessfulPollAt.value) && syncAgeMs.value >= 30_000);
+const syncLabel = computed(() => {
+  if (!lastSuccessfulPollAt.value) return "Connecting";
+  if (!syncStale.value) return "Updated now";
+  return `Stale · ${relativeDuration(syncAgeMs.value)}`;
+});
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
-function observedConfiguration(entries: AgentInvocationView["observations"]): AgentInvocationConfiguration | undefined {
+function observedConfiguration(
+  entries: AgentInvocationView["observations"],
+): AgentInvocationConfiguration | undefined {
   for (const entry of entries) {
-    if (entry.name !== "vitehub.agent.configured") continue
-    const configuration = record(entry.attributes?.["vitehub.agent.configuration"])
-    if (configuration) return configuration as AgentInvocationConfiguration
+    if (entry.name !== "vitehub.agent.configured") continue;
+    const configuration = record(entry.attributes?.["vitehub.agent.configuration"]);
+    if (configuration) return configuration as AgentInvocationConfiguration;
   }
 }
 
 function errorMessage(error: unknown): string | undefined {
-  return error instanceof Error ? error.message : error ? "The console could not load this data." : undefined
+  return error instanceof Error
+    ? error.message
+    : error
+      ? "The console could not load this data."
+      : undefined;
+}
+
+function relativeDuration(elapsed: number): string {
+  if (elapsed < 60_000) return `${Math.floor(elapsed / 1_000)}s`;
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
+  return `${Math.floor(elapsed / 3_600_000)}h`;
 }
 
 function relativeTime(value?: string): string {
-  if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.valueOf())) return value
-  const elapsed = Date.now() - date.valueOf()
-  if (elapsed < 60_000) return "now"
-  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`
-  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`
-  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(date)
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  const elapsed = nowMs.value - date.valueOf();
+  if (elapsed < 60_000) return "now";
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`;
+  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(date);
 }
 
 function runLabel(invocation: AgentInvocationSummary): string {
-  const date = new Date(invocation.createdAt)
+  const date = new Date(invocation.createdAt);
   return Number.isNaN(date.valueOf())
     ? invocation.createdAt
-    : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date)
+    : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function sessionStatus(session: ConsoleSession): AgentInvocationSummary["status"] {
+  return session.invocations[0]?.status ?? "pending";
+}
+
+function statusIcon(status: AgentInvocationSummary["status"]): string {
+  if (status === "running") return "i-lucide-loader-circle";
+  if (status === "completed") return "i-lucide-check";
+  if (status === "failed") return "i-lucide-x";
+  return "i-lucide-clock-3";
+}
+
+function statusColor(status: AgentInvocationSummary["status"]): string {
+  if (status === "running") return "text-info";
+  if (status === "completed") return "text-success";
+  if (status === "failed") return "text-error";
+  return "text-dimmed";
 }
 
 async function selectSession(session: ConsoleSession): Promise<void> {
-  await router.push({ name: "vitehub-console-agents", params: { session: session.id } })
+  sessionsOpen.value = false;
+  await router.push({ name: "vitehub-console-agents", params: { session: session.id } });
 }
 
 async function refresh(): Promise<void> {
-  await Promise.all([list.refresh(), selectedInvocationId.value ? detail.refresh() : Promise.resolve()])
-  refreshedAt.value = new Date()
+  await Promise.all([
+    list.refresh(),
+    selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
+  ]);
 }
 
-watch(sessions, async (next) => {
-  if (next.length && !next.some(session => session.id === routeSession.value)) await selectSession(next[0]!)
-  refreshedAt.value = new Date()
-}, { immediate: true })
+function updateDesktop(event?: MediaQueryListEvent): void {
+  isDesktop.value = event?.matches ?? media?.matches ?? false;
+}
 
-watch(selectedSession, (session) => {
-  selectedInvocationId.value = session?.invocations.some(invocation => invocation.id === selectedInvocationId.value)
-    ? selectedInvocationId.value
-    : session?.invocations[0]?.id
-}, { immediate: true })
+watch(
+  sessions,
+  async (next) => {
+    if (next.length && !next.some((session) => session.id === routeSession.value))
+      await selectSession(next[0]!);
+  },
+  { immediate: true },
+);
+
+watch(
+  selectedSession,
+  (session) => {
+    selectedInvocationId.value = session?.invocations.some(
+      (invocation) => invocation.id === selectedInvocationId.value,
+    )
+      ? selectedInvocationId.value
+      : session?.invocations[0]?.id;
+  },
+  { immediate: true },
+);
+
+onMounted(() => {
+  media = window.matchMedia("(min-width: 1024px)");
+  updateDesktop();
+  media.addEventListener("change", updateDesktop);
+  clock = setInterval(() => {
+    nowMs.value = Date.now();
+  }, 1_000);
+});
+
+onBeforeUnmount(() => {
+  if (clock) clearInterval(clock);
+  media?.removeEventListener("change", updateDesktop);
+});
 </script>
 
 <template>
-  <div class="vh-console">
-    <aside class="vh-console__sidebar" aria-label="Agent sessions">
-      <NuxtLink class="vh-console__brand" to="/_vitehub/agents">
-        <span class="vh-console__mark" aria-hidden="true"><i /><i /><i /></span>
-        <span><small>ViteHub</small><strong>Console</strong></span>
-      </NuxtLink>
-
-      <div class="vh-console__heading">
-        <div><span>Agent activity</span><h1>Sessions</h1></div>
-        <span>{{ sessions.length }}</span>
-      </div>
-
-      <div v-if="errorMessage(list.error.value)" class="vh-console__notice" role="alert">
-        <strong>Could not load sessions</strong>
-        <p>{{ errorMessage(list.error.value) }}</p>
-      </div>
-      <div v-else-if="list.isLoading.value && !sessions.length" class="vh-console__notice">Loading sessions…</div>
-      <div v-else-if="!sessions.length" class="vh-console__notice">The first Agent Invocation will appear here.</div>
-
-      <nav v-else class="vh-console__sessions">
-        <div v-for="session in sessions" :key="session.id" class="vh-console__session-group">
-          <button
-            class="vh-console__session"
-            :class="{ 'is-selected': selectedSession?.id === session.id }"
-            type="button"
-            @click="selectSession(session)"
+  <UDashboardGroup unit="rem" storage-key="vitehub-agent-console">
+    <UDashboardSidebar
+      id="agent-sessions"
+      v-model:open="sessionsOpen"
+      v-model:collapsed="sessionsCollapsed"
+      :default-size="21"
+      :collapsed-size="4"
+      :min-size="17"
+      :max-size="28"
+      :menu="{ title: 'Agent sessions', description: 'Browse persisted Agent Invocations.' }"
+      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
+      collapsible
+      resizable
+    >
+      <template #header="{ collapsed }">
+        <NuxtLink
+          class="flex min-w-0 items-center gap-2.5 rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          to="/_vitehub/agents"
+        >
+          <span
+            class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5"
+            aria-hidden="true"
+            ><i class="h-2/3 bg-inverted" /><i class="h-full bg-primary" /><i
+              class="h-4/5 bg-inverted"
+          /></span>
+          <span v-if="!collapsed" class="grid min-w-0 leading-none"
+            ><small class="text-[10px] font-bold uppercase tracking-[.12em] text-muted"
+              >ViteHub</small
+            ><strong class="mt-1 truncate text-sm font-semibold text-highlighted"
+              >Console</strong
+            ></span
           >
-            <span class="vh-console__status" :data-status="session.invocations[0]?.status" aria-hidden="true" />
-            <span class="vh-console__session-copy">
-              <strong>{{ session.agentName || "Agent session" }}</strong>
-              <span>{{ session.invocations.length }} run{{ session.invocations.length === 1 ? "" : "s" }}</span>
-            </span>
-            <time>{{ relativeTime(session.updatedAt) }}</time>
-          </button>
+        </NuxtLink>
+      </template>
 
-          <div v-if="selectedSession?.id === session.id" class="vh-console__runs" aria-label="Session invocations">
-            <button
-              v-for="invocation in session.invocations"
-              :key="invocation.id"
-              :aria-pressed="selectedInvocationId === invocation.id"
-              type="button"
-              @click="selectedInvocationId = invocation.id"
+      <template #default="{ collapsed }">
+        <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
+          <div>
+            <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted"
+              >Agent activity</span
             >
-              <span class="vh-console__status" :data-status="invocation.status" aria-hidden="true" />
-              <span>Run {{ runLabel(invocation) }}</span>
-              <small>{{ invocation.status }}</small>
-            </button>
+            <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Sessions</h1>
           </div>
+          <span class="text-xs text-dimmed">{{ sessions.length }}</span>
         </div>
-      </nav>
-
-      <div v-if="list.cursor.value" class="vh-console__older">
-        <UButton
-          block
-          color="neutral"
-          label="Load older"
-          size="sm"
-          variant="ghost"
-          :loading="list.isLoadingMore.value"
-          @click="list.loadMore"
+        <div v-if="!collapsed && errorMessage(list.error.value)" class="px-3">
+          <UAlert
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load sessions"
+            :description="errorMessage(list.error.value)"
+          />
+        </div>
+        <div
+          v-else-if="!collapsed && list.isLoading.value && !sessions.length"
+          class="grid gap-2 px-3"
+        >
+          <USkeleton v-for="index in 4" :key="index" class="h-16 rounded-lg" />
+        </div>
+        <UEmpty
+          v-else-if="!collapsed && !sessions.length"
+          class="px-4"
+          icon="i-lucide-message-square-dashed"
+          title="No sessions yet"
+          description="The first Agent Invocation will appear here."
         />
-      </div>
 
-      <footer class="vh-console__footer">
-        <span class="vh-console__read-only"><i aria-hidden="true" /> Read-only</span>
-        <span v-if="refreshedAt">Updated {{ relativeTime(refreshedAt.toISOString()) }}</span>
-        <UTooltip text="Refresh sessions">
+        <UScrollArea v-else class="min-h-0 flex-1">
+          <nav class="space-y-1 px-2 pb-4" aria-label="Agent sessions">
+            <template v-for="session in sessions" :key="session.id">
+              <UTooltip
+                v-if="collapsed"
+                :text="session.agentName || 'Agent session'"
+                :content="{ side: 'right' }"
+                ><UButton
+                  :icon="statusIcon(sessionStatus(session))"
+                  :color="sessionStatus(session) === 'failed' ? 'error' : 'neutral'"
+                  :variant="selectedSession?.id === session.id ? 'soft' : 'ghost'"
+                  block
+                  :aria-label="session.agentName || 'Agent session'"
+                  @click="selectSession(session)"
+              /></UTooltip>
+              <div v-else>
+                <button
+                  type="button"
+                  class="group flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5 text-start outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary"
+                  :class="
+                    selectedSession?.id === session.id
+                      ? 'border-default bg-default shadow-xs'
+                      : 'border-transparent hover:bg-elevated/60'
+                  "
+                  @click="selectSession(session)"
+                >
+                  <span
+                    class="flex size-7 shrink-0 items-center justify-center rounded-md bg-elevated"
+                    ><UIcon
+                      :name="statusIcon(sessionStatus(session))"
+                      class="size-3.5"
+                      :class="[
+                        statusColor(sessionStatus(session)),
+                        sessionStatus(session) === 'running' ? 'animate-spin' : undefined,
+                      ]"
+                  /></span>
+                  <span class="min-w-0 flex-1"
+                    ><strong class="block truncate text-sm font-medium text-highlighted">{{
+                      session.agentName || "Agent session"
+                    }}</strong
+                    ><span class="mt-0.5 block truncate text-xs text-muted"
+                      >{{ session.invocations.length }} run{{
+                        session.invocations.length === 1 ? "" : "s"
+                      }}</span
+                    ></span
+                  >
+                  <time class="shrink-0 text-xs text-dimmed">{{
+                    relativeTime(session.updatedAt)
+                  }}</time>
+                </button>
+                <div
+                  v-if="selectedSession?.id === session.id"
+                  class="ml-8 mt-1 space-y-px border-l border-default pl-2"
+                  aria-label="Session invocations"
+                >
+                  <button
+                    v-for="invocation in session.invocations"
+                    :key="invocation.id"
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-xs outline-none hover:bg-elevated/60 focus-visible:ring-2 focus-visible:ring-primary"
+                    :class="
+                      selectedInvocationId === invocation.id
+                        ? 'bg-elevated text-highlighted'
+                        : 'text-muted'
+                    "
+                    :aria-pressed="selectedInvocationId === invocation.id"
+                    @click="selectedInvocationId = invocation.id"
+                  >
+                    <UIcon
+                      :name="statusIcon(invocation.status)"
+                      class="size-3"
+                      :class="[
+                        statusColor(invocation.status),
+                        invocation.status === 'running' ? 'animate-spin' : undefined,
+                      ]"
+                    /><span class="min-w-0 flex-1 truncate">Run {{ runLabel(invocation) }}</span
+                    ><small class="capitalize text-dimmed">{{ invocation.status }}</small>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </nav>
+        </UScrollArea>
+        <div v-if="!collapsed && list.cursor.value" class="px-3 pb-2">
           <UButton
+            block
+            color="neutral"
+            label="Load older"
+            size="sm"
+            variant="ghost"
+            :loading="list.isLoadingMore.value"
+            @click="list.loadMore"
+          />
+        </div>
+      </template>
+
+      <template #footer="{ collapsed, collapse }">
+        <template v-if="!collapsed"
+          ><span class="flex items-center gap-1.5 text-xs text-muted"
+            ><UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only</span
+          ><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-dimmed'">{{
+            syncLabel
+          }}</span></template
+        >
+        <UTooltip text="Refresh sessions"
+          ><UButton
             aria-label="Refresh sessions"
             color="neutral"
             icon="i-lucide-refresh-cw"
@@ -198,208 +416,114 @@ watch(selectedSession, (session) => {
             variant="ghost"
             :loading="list.isLoading.value || detail.isLoading.value"
             @click="refresh"
-          />
-        </UTooltip>
-      </footer>
-    </aside>
+        /></UTooltip>
+        <UButton
+          class="max-lg:hidden"
+          :class="collapsed ? '' : 'ml-1'"
+          :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'"
+          @click="collapse(!collapsed)"
+        />
+      </template>
+    </UDashboardSidebar>
 
-    <main class="vh-console__workspace" aria-live="polite">
-      <div v-if="!selectedSession" class="vh-console__empty">Select a session to inspect its work.</div>
-      <div v-else-if="errorMessage(detail.error.value)" class="vh-console__workspace-notice" role="alert">
-        <strong>Could not load this run</strong>
-        <p>{{ errorMessage(detail.error.value) }}</p>
-        <UButton color="neutral" label="Try again" size="sm" variant="soft" @click="refresh" />
+    <UDashboardPanel id="agent-session">
+      <div class="min-h-0 flex-1" aria-live="polite">
+        <div
+          v-if="!selectedSession"
+          class="flex h-full items-center justify-center p-8 text-sm text-muted"
+        >
+          Select a session to inspect its work.
+        </div>
+        <UEmpty
+          v-else-if="errorMessage(detail.error.value)"
+          class="h-full"
+          icon="i-lucide-cloud-off"
+          title="Could not load this run"
+          :description="errorMessage(detail.error.value)"
+          :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
+        />
+        <div
+          v-else-if="detail.isLoading.value && !invocationView"
+          class="flex h-full items-center justify-center"
+        >
+          <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+        </div>
+        <template v-else-if="invocationView">
+          <USplitter
+            v-if="isDesktop"
+            id="agent-session-layout"
+            :items="splitterItems"
+            class="h-full min-h-0"
+          >
+            <template #thread
+              ><AgentInvocation :invocation="invocationView" class="h-full"
+                ><template #title>{{ selectedSession.agentName || "Agent session" }}</template
+                ><template #actions
+                  ><UTooltip text="Session details"
+                    ><UButton
+                      icon="i-lucide-panel-right"
+                      color="neutral"
+                      :variant="detailsOpen ? 'soft' : 'ghost'"
+                      size="sm"
+                      aria-label="Session details"
+                      :aria-pressed="detailsOpen"
+                      @click="detailsOpen = !detailsOpen" /></UTooltip></template></AgentInvocation
+            ></template>
+            <template #details
+              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
+                ><template #actions
+                  ><UButton
+                    icon="i-lucide-panel-right-close"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    aria-label="Close session details"
+                    @click="detailsOpen = false" /></template></AgentInvocationInspector
+            ></template>
+          </USplitter>
+          <AgentInvocation v-else :invocation="invocationView" class="h-full"
+            ><template #title>{{ selectedSession.agentName || "Agent session" }}</template
+            ><template #actions
+              ><div class="flex items-center gap-1">
+                <UButton
+                  icon="i-lucide-panel-left"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Open sessions"
+                  @click="sessionsOpen = true"
+                /><UButton
+                  icon="i-lucide-panel-right"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Session details"
+                  @click="detailsOpen = true"
+                /></div></template
+          ></AgentInvocation>
+          <USlideover
+            v-if="!isDesktop"
+            v-model:open="detailsOpen"
+            side="right"
+            title="Session details"
+            :ui="{ content: 'w-full max-w-sm p-0' }"
+            ><template #content
+              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
+                ><template #actions
+                  ><UButton
+                    icon="i-lucide-x"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    aria-label="Close session details"
+                    @click="detailsOpen = false" /></template></AgentInvocationInspector></template
+          ></USlideover>
+        </template>
       </div>
-      <div v-else-if="detail.isLoading.value && !invocationView" class="vh-console__loading" aria-label="Loading invocation">
-        <UIcon name="i-lucide-loader-circle" />
-      </div>
-      <AgentInvocation v-else-if="invocationView" :invocation="invocationView">
-        <template #title>{{ selectedSession.agentName || "Agent session" }}</template>
-      </AgentInvocation>
-    </main>
-  </div>
+    </UDashboardPanel>
+  </UDashboardGroup>
 </template>
-
-<style scoped>
-.vh-console {
-  background: var(--ui-bg, Canvas);
-  color: var(--ui-text, CanvasText);
-  display: grid;
-  grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr);
-  height: 100dvh;
-  min-height: 32rem;
-  overflow: hidden;
-}
-
-.vh-console__sidebar {
-  background: var(--ui-bg-muted, #f7f8fa);
-  border-inline-end: 1px solid var(--ui-border, #e4e4e7);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-
-.vh-console__brand {
-  align-items: center;
-  border-block-end: 1px solid var(--ui-border, #e4e4e7);
-  color: inherit;
-  display: flex;
-  flex: none;
-  gap: .65rem;
-  min-height: 3.75rem;
-  padding: .65rem .85rem;
-  text-decoration: none;
-}
-
-.vh-console__brand > span:last-child { display: grid; }
-.vh-console__brand small {
-  color: var(--ui-text-muted, #71717a);
-  font-size: .6rem;
-  font-weight: 700;
-  letter-spacing: .12em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-.vh-console__brand strong { font-size: .8125rem; font-weight: 600; line-height: 1; margin-block-start: .2rem; }
-
-.vh-console__mark {
-  align-items: end;
-  background: var(--ui-text, #18181b);
-  border-radius: .35rem;
-  display: grid;
-  gap: .17rem;
-  grid-template-columns: repeat(3, 1fr);
-  height: 1.75rem;
-  padding: .3rem;
-  width: 1.75rem;
-}
-.vh-console__mark i { background: var(--ui-bg, #fff); display: block; height: 55%; }
-.vh-console__mark i:nth-child(2) { background: var(--ui-primary, #7c3aed); height: 100%; }
-.vh-console__mark i:nth-child(3) { height: 74%; }
-
-.vh-console__heading {
-  align-items: flex-end;
-  display: flex;
-  flex: none;
-  justify-content: space-between;
-  padding: 1.1rem 1rem .75rem;
-}
-.vh-console__heading div > span {
-  color: var(--ui-text-muted, #71717a);
-  font-size: .625rem;
-  font-weight: 650;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-.vh-console__heading h1 { font-size: 1rem; font-weight: 650; margin: .25rem 0 0; }
-.vh-console__heading > span { color: var(--ui-text-dimmed, #a1a1aa); font-size: .6875rem; }
-
-.vh-console__sessions {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  padding: 0 .65rem 1rem;
-}
-.vh-console__session-group { margin-block-end: .2rem; }
-.vh-console__session,
-.vh-console__runs button {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  text-align: start;
-  width: 100%;
-}
-.vh-console__session {
-  border-radius: .55rem;
-  display: grid;
-  gap: .65rem;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: .7rem .75rem;
-}
-.vh-console__session.is-selected { background: var(--ui-bg, #fff); border-color: var(--ui-border, #e4e4e7); }
-.vh-console__session:active,
-.vh-console__runs button:active { transform: scale(.985); }
-.vh-console__session-copy { display: grid; gap: .15rem; min-width: 0; }
-.vh-console__session-copy strong,
-.vh-console__session-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vh-console__session-copy strong { font-size: .75rem; font-weight: 600; }
-.vh-console__session-copy span,
-.vh-console__session time { color: var(--ui-text-dimmed, #a1a1aa); font-size: .625rem; }
-
-.vh-console__status {
-  background: var(--ui-text-dimmed, #a1a1aa);
-  border-radius: 999px;
-  height: .45rem;
-  margin-block-start: .35rem;
-  width: .45rem;
-}
-.vh-console__status[data-status="running"] { background: var(--ui-info, #0284c7); }
-.vh-console__status[data-status="completed"] { background: var(--ui-success, #16a34a); }
-.vh-console__status[data-status="failed"] { background: var(--ui-error, #dc2626); }
-
-.vh-console__runs { display: grid; gap: .1rem; padding: .2rem .35rem .45rem 1.45rem; }
-.vh-console__runs button {
-  align-items: center;
-  border-radius: .45rem;
-  display: grid;
-  font-size: .6875rem;
-  gap: .5rem;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: .45rem .55rem;
-}
-.vh-console__runs button[aria-pressed="true"] { background: var(--ui-bg-elevated, #f4f4f5); }
-.vh-console__runs small { color: var(--ui-text-dimmed, #a1a1aa); font-size: .6rem; text-transform: capitalize; }
-
-.vh-console__notice,
-.vh-console__workspace-notice { color: var(--ui-text-muted, #71717a); font-size: .75rem; padding: 1rem; }
-.vh-console__notice strong,
-.vh-console__workspace-notice strong { color: var(--ui-error, #dc2626); }
-.vh-console__notice p,
-.vh-console__workspace-notice p { margin: .35rem 0 .75rem; }
-.vh-console__older { padding: .25rem .75rem; }
-
-.vh-console__footer {
-  align-items: center;
-  border-block-start: 1px solid var(--ui-border, #e4e4e7);
-  color: var(--ui-text-dimmed, #a1a1aa);
-  display: grid;
-  flex: none;
-  font-size: .625rem;
-  gap: .5rem;
-  grid-template-columns: auto 1fr auto;
-  min-height: 3rem;
-  padding: .5rem .75rem;
-}
-.vh-console__read-only { align-items: center; color: var(--ui-text-muted, #71717a); display: flex; gap: .35rem; }
-.vh-console__read-only i { background: var(--ui-success, #16a34a); border-radius: 999px; height: .4rem; width: .4rem; }
-
-.vh-console__workspace { min-height: 0; min-width: 0; overflow: hidden; }
-.vh-console__workspace > :deep(.vh-invocation-session) { height: 100%; }
-.vh-console__empty,
-.vh-console__loading {
-  align-items: center;
-  color: var(--ui-text-muted, #71717a);
-  display: flex;
-  height: 100%;
-  justify-content: center;
-  padding: 2rem;
-}
-.vh-console__loading svg { animation: vh-console-spin 1s linear infinite; }
-
-@media (hover: hover) {
-  .vh-console__session:hover,
-  .vh-console__runs button:hover { background: var(--ui-bg-elevated, #f4f4f5); }
-}
-
-@media (max-width: 760px) {
-  .vh-console { grid-template-columns: 1fr; grid-template-rows: minmax(15rem, 42dvh) minmax(0, 1fr); overflow: auto; }
-  .vh-console__sidebar { border-block-end: 1px solid var(--ui-border, #e4e4e7); border-inline-end: 0; }
-}
-
-@keyframes vh-console-spin { to { transform: rotate(360deg); } }
-</style>

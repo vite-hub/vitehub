@@ -29,6 +29,8 @@ export interface InvocationActivity {
   kind: InvocationActivityKind;
   name: string;
   patches: readonly string[];
+  paths: readonly string[];
+  preview?: string;
   reasoningTokens?: number;
   role?: "assistant" | "user";
   status: "running" | "completed" | "failed";
@@ -79,7 +81,7 @@ function activityBody(attributes: Record<string, unknown>): string | undefined {
   }
 }
 
-function fileChangePatches(attributes: Record<string, unknown>): string[] {
+function fileChanges(attributes: Record<string, unknown>): { patches: string[]; paths: string[] } {
   for (const key of ["tool.output", "tool.input"]) {
     const payload = record(attributes[key]);
     const item = record(payload?.item);
@@ -87,22 +89,24 @@ function fileChangePatches(attributes: Record<string, unknown>): string[] {
       || attributes["tool.name"] === "File change"
       || attributes["tool.name"] === "Edit";
     if (!item || !fileChange || !Array.isArray(item.changes)) continue;
+    const paths: string[] = [];
     const patches = item.changes.flatMap((value) => {
       const change = record(value);
-      if (typeof change?.path !== "string" || typeof change.diff !== "string" || !change.diff) {
+      if (typeof change?.path !== "string") {
         return [];
       }
       const path = change.path.split("/workspace/").at(-1) || change.path.replace(/^\/+/, "");
+      paths.push(path);
+      if (typeof change.diff !== "string" || !change.diff) return [];
       const diff = change.diff.endsWith("\n") ? change.diff : `${change.diff}\n`;
       return [`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${diff}`];
     });
-    if (patches.length) return patches;
+    if (patches.length || paths.length) return { patches, paths };
   }
-  return [];
+  return { patches: [], paths: [] };
 }
 
 function commandDetails(attributes: Record<string, unknown>): InvocationCommand | undefined {
-  if (attributes["tool.name"] !== "Ran command") return;
   const itemFor = (key: string) => record(record(attributes[key])?.item);
   const item = itemFor("tool.output") ?? itemFor("tool.input");
   const action = Array.isArray(item?.commandActions) ? record(item.commandActions[0]) : undefined;
@@ -118,6 +122,41 @@ function commandDetails(attributes: Record<string, unknown>): InvocationCommand 
     ...(typeof item?.exitCode === "number" ? { exitCode: item.exitCode } : {}),
     ...(typeof item?.aggregatedOutput === "string" ? { output: item.aggregatedOutput } : {}),
   };
+}
+
+function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = attributes[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+}
+
+function payloadDetail(attributes: Record<string, unknown>): string | undefined {
+  for (const key of ["tool.output", "tool.input"]) {
+    const payload = record(attributes[key]);
+    const item = record(payload?.item) ?? payload;
+    const detail = item && stringAttribute(item, "detail", "output", "query", "path");
+    if (detail) return detail.split(/\r?\n/).find(Boolean)?.trim();
+  }
+  return stringAttribute(attributes, "tool.detail", "tool.output.summary", "vitehub.activity.detail");
+}
+
+function normalizedTitle(value: string): string {
+  const title = value.replace(/\s+(?:complete|completed)$/i, "").trim();
+  return title ? title[0]!.toUpperCase() + title.slice(1) : "Activity";
+}
+
+function activityPreview(
+  attributes: Record<string, unknown>,
+  command: InvocationCommand | undefined,
+  paths: readonly string[],
+  title: string,
+): string | undefined {
+  const detail = command?.command ?? payloadDetail(attributes) ?? (paths.length
+    ? `${paths[0]}${paths.length > 1 ? ` +${paths.length - 1} more` : ""}`
+    : undefined);
+  if (!detail || normalizedTitle(detail).toLocaleLowerCase() === title.toLocaleLowerCase()) return;
+  return detail;
 }
 
 function activityKey(observation: TraceEventLogEntry): string {
@@ -176,8 +215,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const sorted = observations.slice().sort((left, right) => left.sequence - right.sequence);
       const first = sorted[0]!;
       const attributes = Object.assign({}, ...sorted.map(item => item.attributes ?? {}));
-      const patches = fileChangePatches(attributes);
-      const kind = activityKind(first, attributes, patches);
+      const { patches, paths } = fileChanges(attributes);
+      const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
       const completed = sorted.some(item => /\.(finish|decision|recorded)$/.test(item.name));
       const role = attributes["message.role"] === "assistant" || attributes["result.text"]
@@ -185,14 +224,16 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         : kind === "message"
           ? "user"
           : undefined;
-      return {
+      const command = commandDetails(attributes);
+      const draft = {
         attributes,
         body: patches.join("") || activityBody(attributes),
-        command: commandDetails(attributes),
+        command,
         id,
         kind,
         name: first.name,
         patches,
+        paths,
         ...(numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") !== undefined
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
@@ -201,6 +242,11 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
           : {}),
+      } satisfies Omit<InvocationActivity, "preview">;
+      const title = invocationActivityTitle(draft);
+      return {
+        ...draft,
+        ...(activityPreview(attributes, command, paths, title) ? { preview: activityPreview(attributes, command, paths, title) } : {}),
       };
     })
     .sort((left, right) => {
@@ -218,13 +264,13 @@ export function latestInvocationTokens(activities: readonly InvocationActivity[]
 export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
-  if (activity.kind === "change") return "Edited files";
-  if (activity.kind === "tool") return String(activity.attributes["tool.name"] ?? "Used a tool");
+  if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
+  if (activity.kind === "tool") return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.attributes["tool.name"] ?? "Used a tool"));
   if (activity.kind === "approval") return String(activity.attributes["approval.name"] ?? "Requested approval");
   if (activity.kind === "reasoning") return "Thinking";
   if (activity.kind === "model") return "Thinking";
   if (activity.kind === "run") return activity.name.endsWith(".finish") ? "Finished session" : "Started session";
-  return activity.name.replace(/\.(start|finish|error|decision|recorded)$/, "").replaceAll(".", " ");
+  return normalizedTitle(activity.name.replace(/\.(start|finish|error|decision|recorded)$/, "").replaceAll(".", " "));
 }
 
 export function terminalText(value: string | undefined): string {
