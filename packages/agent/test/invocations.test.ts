@@ -727,6 +727,7 @@ describe("Agent Invocations", () => {
         runtime: false,
       })
       await runAgent(agent, runtime("durable-run", { "github.repository": "vite-hub/vitehub" }), {})
+      await runAgent(agent, runtime("unicode-search", { "github.repository": "Éclair" }), {})
 
       const restored = defineAgentInvocations({
         store: createLibsqlAgentInvocationStore({ client: readerClient }),
@@ -742,6 +743,9 @@ describe("Agent Invocations", () => {
       ])
       expect((await restored.getByRunId("durable-run"))?.observations[1]?.attributes).toMatchObject({ nan: null })
       await expect(restored.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ status: "completed" })],
+      })
+      await expect(restored.list({ search: "éclair" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
       await expect(restored.list({ search: "missing repository" })).resolves.toEqual({ invocations: [] })

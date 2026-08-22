@@ -174,18 +174,19 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         args.push(...statuses)
       }
       const search = searchValue(listOptions.search)
-      if (search) {
-        filters.push("json_remove(record, '$.observations') LIKE ? ESCAPE '\\' COLLATE NOCASE")
-        args.push(`%${search.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`)
-      }
-      args.push(limit + 1)
+      if (!search) args.push(limit + 1)
       const result = await client.execute({
         args,
-        sql: `SELECT sequence, record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`,
+        sql: `SELECT sequence, record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC${search ? "" : " LIMIT ?"}`,
       })
       const records = result.rows
         .map(row => deserialize(row.record, row.sequence))
         .filter((record): record is AgentInvocationRecord => Boolean(record))
+        .filter((record) => {
+          if (!search) return true
+          const { observations: _observations, ...summary } = record
+          return JSON.stringify(summary).toLowerCase().includes(search.toLowerCase())
+        })
       const page = records.slice(0, limit)
       return {
         ...(records.length > limit && page.length ? { cursor: page.at(-1)!.cursor } : {}),

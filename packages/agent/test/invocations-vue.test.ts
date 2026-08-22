@@ -174,7 +174,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("removes first-page records that leave an active filter", async () => {
+  it("preserves filtered records displaced from the refreshed first page", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({
@@ -189,10 +189,10 @@ describe("Agent Invocation Vue composables", () => {
     await loadMore;
 
     const refresh = resource.refresh();
-    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
     await refresh;
 
-    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-2", "inv-0"]);
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
     scope.stop();
   });
 

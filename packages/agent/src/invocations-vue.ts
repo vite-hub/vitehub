@@ -267,7 +267,6 @@ export function useAgentInvocations(
   let loadMoreController: AbortController | undefined;
   let revision = 0;
   let resetFirstPage = true;
-  let previousFirstPageIds = new Set<string>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
@@ -282,25 +281,19 @@ export function useAgentInvocations(
     apply(result) {
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
-        previousFirstPageIds = new Set(result.invocations.map(invocation => invocation.id));
         cursor.value = result.cursor;
         resetFirstPage = false;
         return;
       }
       const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
-      const query = options.query ? toValue(options.query) : undefined;
-      const removesFilteredRecords = query?.search !== undefined || query?.status !== undefined;
       const retained = invocations.value.filter(invocation =>
-        !firstPageIds.has(invocation.id)
-        && (!removesFilteredRecords || !previousFirstPageIds.has(invocation.id)),
+        !firstPageIds.has(invocation.id),
       );
       invocations.value = [...result.invocations, ...retained];
-      previousFirstPageIds = firstPageIds;
       if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
-      previousFirstPageIds = new Set();
       cursor.value = undefined;
     },
     beforeLoad() {
