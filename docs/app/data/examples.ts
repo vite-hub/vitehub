@@ -59,13 +59,14 @@ export const examples: readonly Example[] = [
     description:
       "A starter template for experimenting with a ViteHub Agent. Send a meal by text, photo, or voice; the Agent estimates calories and protein, saves the meal, and shows it in a Nuxt dashboard.",
     builtWith: ["Agent Definitions", "Channels", "Database", "Blob"],
-    kind: "project",
+    kind: "template",
     status: "published",
     action: {
-      kind: "source",
-      label: "View source",
-      to: "https://github.com/vite-hub/calories",
+      kind: "use",
+      label: "Use template",
+      to: "https://github.com/vite-hub/calories/generate",
     },
+    startPath: "server/agents/calories/agent.ts",
   },
   {
     slug: "my-pull-requests",
@@ -73,13 +74,14 @@ export const examples: readonly Example[] = [
     description:
       "A public dashboard for recent open source contributions, plus a shareable GitHub recap generated every month.",
     builtWith: ["Sources", "Collections", "Schedule", "Workflow", "KV", "Email"],
-    kind: "project",
+    kind: "template",
     status: "published",
     action: {
-      kind: "source",
-      label: "View source",
-      to: "https://github.com/vite-hub/my-pull-requests",
+      kind: "use",
+      label: "Use template",
+      to: "https://github.com/vite-hub/my-pull-requests/generate",
     },
+    startPath: "app/pages/index.vue",
   },
   {
     slug: "babysitter",

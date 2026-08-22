@@ -31,23 +31,25 @@ describe("examples catalog", () => {
       }),
       expect.objectContaining({
         name: "Calories",
-        kind: "project",
+        kind: "template",
         status: "published",
         action: {
-          kind: "source",
-          label: "View source",
-          to: "https://github.com/vite-hub/calories",
+          kind: "use",
+          label: "Use template",
+          to: "https://github.com/vite-hub/calories/generate",
         },
+        startPath: "server/agents/calories/agent.ts",
       }),
       expect.objectContaining({
         name: "My Pull Requests",
-        kind: "project",
+        kind: "template",
         status: "published",
         action: {
-          kind: "source",
-          label: "View source",
-          to: "https://github.com/vite-hub/my-pull-requests",
+          kind: "use",
+          label: "Use template",
+          to: "https://github.com/vite-hub/my-pull-requests/generate",
         },
+        startPath: "app/pages/index.vue",
       }),
       expect.objectContaining({
         name: "Babysitter",
