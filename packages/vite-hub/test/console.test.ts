@@ -18,6 +18,7 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/local-re
 type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | string | undefined>
 
 const scope = globalThis as ConsoleGlobal
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This test double only needs identity; no journal method is invoked through it.
 const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocations
 
 function event(address: string | undefined, method = "GET"): ConsoleRequestEvent {
@@ -42,8 +43,8 @@ function runtime(runId: string): AgentRuntimeContext {
 afterEach(() => {
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsRootKey]
-  delete (process as unknown as Record<symbol, unknown>)[consoleInvocationsKey]
-  delete (process as unknown as Record<symbol, unknown>)[consoleInvocationsRootKey]
+  Reflect.deleteProperty(process, consoleInvocationsKey)
+  Reflect.deleteProperty(process, consoleInvocationsRootKey)
   vi.restoreAllMocks()
 })
 
@@ -79,7 +80,7 @@ describe("Agent invocation console", () => {
 
   it("shares the installed journal through the process across module realms", () => {
     const fallback = fakeInvocations("console")
-    ;(process as unknown as Record<symbol, unknown>)[consoleInvocationsKey] = fallback
+    Reflect.set(process, consoleInvocationsKey, fallback)
 
     expect(resolveConsoleInvocations({ process })).toBe(fallback)
   })
