@@ -541,12 +541,12 @@ describe("agent public types", () => {
     defineCapability({
       // @ts-expect-error Attachments are normalized by default rather than enabled by a Capability.
       chatAttachments: { audio: true },
-      id: "legacy-audio-runtime",
+      id: "invalid-audio-runtime",
     })
 
     defineCapability({
-      id: "legacy-instructions",
-      // @ts-expect-error Capability instructions were removed from Capability definitions.
+      id: "invalid-instructions",
+      // @ts-expect-error Capability Definitions do not own Agent Driver Instructions.
       instructions: "Use inventory only for runtime data.",
     })
     const dynamicInventoryRuntime = defineCapability({
@@ -875,7 +875,7 @@ describe("agent public types", () => {
       },
     }
     access({ workspace: workspaceAccess })
-    // @ts-expect-error Workspace Scope instructions were removed.
+    // @ts-expect-error Workspace Scopes do not own Agent Driver Instructions.
     access({
       workspace: {
         scopes: {
@@ -952,7 +952,7 @@ describe("agent public types", () => {
       webhooks: { teams: { path: "/api/teams/webhook" } },
     })
     chat({
-      // @ts-expect-error adapters was removed; use defineAgent({ channels })
+      // @ts-expect-error Chat adapters belong to Agent Channels.
       adapters: () => ({ teams: teamsAdapter }),
     })
     defineAgent({

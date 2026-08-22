@@ -78,7 +78,7 @@ for libraries, focused integrations, and advanced composition.
 
 | Import path | Owner | Use |
 | --- | --- | --- |
-| `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, Agent Actor types, and legacy Agent Invoker compatibility types. |
+| `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, and trusted caller types. |
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, `inputCommands()`, and `subagents()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
@@ -172,4 +172,3 @@ composition and the owner-package paths above for advanced integration control.
 - [File conventions](/docs/reference/file-conventions)
 - [Package reference](/docs/reference)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-- [Migrate to `vite-hub`](/docs/getting-started/migration)

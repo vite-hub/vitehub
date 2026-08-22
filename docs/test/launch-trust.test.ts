@@ -70,13 +70,11 @@ describe("launch documentation trust boundaries", () => {
 
   it("documents the canonical distribution and owner-package composition", () => {
     const rootReadme = readFileSync(resolve(repoRoot, "README.md"), "utf8");
-    const migration = readFileSync(resolve(docsRoot, "getting-started/migration.md"), "utf8");
     const packageReference = readFileSync(resolve(docsRoot, "reference/index.md"), "utf8");
 
     expect(rootReadme).toMatch(/pnpm add vite-hub/);
     expect(rootReadme).toMatch(/import \{ vitehub \} from ["']vite-hub["']/);
-    expect(migration).toContain("`@vite-hub/vite` has been removed");
-    expect(migration).toMatch(/Every owner\s+package remains independently installable and supported/);
+    expect(existsSync(resolve(docsRoot, "getting-started/migration.md"))).toBe(false);
 
     for (const directory of readdirSync(resolve(repoRoot, "packages"))) {
       const manifestPath = resolve(repoRoot, "packages", directory, "package.json");
