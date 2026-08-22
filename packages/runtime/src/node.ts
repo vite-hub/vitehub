@@ -108,7 +108,8 @@ export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOption
     async inspect(): Promise<RuntimeResourceSnapshot> {
       const memory = memoryUsage()
       const usage = resourceUsage()
-      const [cgroup, linuxMeminfo] = process.platform === "linux"
+      const linux = process.platform === "linux"
+      const [cgroup, linuxMeminfo] = linux
         ? await Promise.all([cgroupObservations(readText), optionalRead(readText, "/proc/meminfo")])
         : [{ observations: [], support: { reason: "unsupported-runtime", scope: "service", source: "linux-cgroup-v2", supported: false } as const }, undefined] as const
       const host = meminfo(linuxMeminfo)
@@ -131,7 +132,7 @@ export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOption
         support: [
           { scope: "process", source: "node", supported: true },
           {
-            ...(linuxMeminfo === undefined ? { reason: "collection-failed" as const } : {}),
+            ...(linuxMeminfo === undefined ? { reason: linux ? "collection-failed" as const : "unsupported-runtime" as const } : {}),
             scope: "host",
             source: "linux-proc",
             supported: linuxMeminfo !== undefined,

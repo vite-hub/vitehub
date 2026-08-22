@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { nodeRuntimeResources } from "../src/node.ts"
 
@@ -32,5 +32,18 @@ describe("Node Runtime diagnostics", () => {
       { name: "memory.available", scope: "host", source: "linux-proc", unit: "bytes", value: 4_294_967_296 },
     ]))
     expect(snapshot.observations.some(item => item.name === "memory.high")).toBe(false)
+  })
+
+  it("reports Linux-only sources as unsupported on other platforms", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    const inspector = nodeRuntimeResources()
+
+    const snapshot = await inspector.inspect()
+
+    expect(snapshot.support).toEqual(expect.arrayContaining([
+      { reason: "unsupported-runtime", scope: "host", source: "linux-proc", supported: false },
+      { reason: "unsupported-runtime", scope: "service", source: "linux-cgroup-v2", supported: false },
+    ]))
+    platform.mockRestore()
   })
 })

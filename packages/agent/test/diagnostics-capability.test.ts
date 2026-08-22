@@ -231,6 +231,10 @@ describe("diagnostics Capability", () => {
     const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
     let startFirst: (() => void) | undefined
     const firstStarted = new Promise<void>((resolve) => { startFirst = resolve })
+    let releaseQueued: (() => void) | undefined
+    const queuedBlocked = new Promise<void>((resolve) => { releaseQueued = resolve })
+    let startQueued: (() => void) | undefined
+    const queuedStarted = new Promise<void>((resolve) => { startQueued = resolve })
     let reports = 0
     const agent = defineAgent({
       capabilities: [diagnostics({
@@ -241,6 +245,10 @@ describe("diagnostics Capability", () => {
           if (reports === 1) {
             startFirst?.()
             await firstBlocked
+          }
+          else {
+            startQueued?.()
+            await queuedBlocked
           }
           activeReporters -= 1
         },
@@ -255,6 +263,9 @@ describe("diagnostics Capability", () => {
     const second = runAgent(agent, runtime(), {})
     const third = runAgent(agent, runtime(), {})
     releaseFirst?.()
+    await queuedStarted
+    await Promise.resolve()
+    releaseQueued?.()
 
     await expect(Promise.all([first, second, third])).resolves.toEqual(["ok", "ok", "ok"])
     expect(reports).toBe(3)
