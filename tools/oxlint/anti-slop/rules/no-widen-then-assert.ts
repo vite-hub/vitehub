@@ -2,6 +2,8 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree, Variable } from "@oxlint/plugins";
 
 import {
+  classifyUnsafeDictionary,
+  classifyWideningTarget,
   createTypeEnvironment,
   typeEnvironmentAt,
 } from "../shared/dictionary-types.ts";
@@ -116,9 +118,15 @@ function isBroadRecordType(type: ESTree.TSType, environment: TypeEnvironment): b
 
 function broadTypeKind(type: ESTree.TSType, environment: TypeEnvironment): BroadTypeKind | null {
   const unwrapped = unwrapTypeParentheses(type);
-  if (unwrapped.type === "TSUnknownKeyword" || unwrapped.type === "TSAnyKeyword") return "top";
-  if (unwrapped.type === "TSObjectKeyword") return "object";
-  return isBroadRecordType(unwrapped, environment) ? "record" : null;
+  if (unwrapped.type === "TSAnyKeyword") return "top";
+  const widening = classifyWideningTarget(unwrapped, environment);
+  if (widening?.kind === "unknown") return "top";
+  if (widening?.kind === "object") return "object";
+  if (isBroadRecordType(unwrapped, environment)) return "record";
+  const dictionary = classifyUnsafeDictionary(unwrapped, environment);
+  return dictionary?.unsafeValue === "unknown" || dictionary?.unsafeValue === "any"
+    ? "record"
+    : null;
 }
 
 function assertedExpression(

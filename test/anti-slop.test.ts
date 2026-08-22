@@ -233,6 +233,15 @@ describe("anti-slop lexical type resolution", () => {
     expect(result.filter((code) => code === "anti-slop(no-module-mocking)")).toHaveLength(4);
   });
 
+  test("treats imported transparent built-ins as local type shadows", () => {
+    const result = diagnostics(`
+        import type { Promise } from "./contract";
+        function load(): Promise<unknown> { throw new Error(); }
+        void load;
+      `);
+    expect(result).not.toContain("anti-slop(no-unknown-returns)");
+  });
+
   test("keeps static-block aliases inside the static block", () => {
     const result = diagnostics(`
         type Result = unknown;
@@ -266,8 +275,21 @@ describe("anti-slop lexical type resolution", () => {
           const value: UnsafeTarget = { id: "lost" };
           return value;
         }
+        const unionWidened: unknown | string = { id: "lost" };
+        void unionWidened;
       `);
-    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(1);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(2);
+  });
+
+  test("resolves aliases when tracking widened bindings", () => {
+    const result = diagnostics(`
+        type Broad = unknown;
+        const widened: Broad = { id: "lost" };
+        // SAFETY: fixture intentionally recreates the discarded type.
+        const restored = widened as { id: string };
+        void restored;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
   });
 
   test("checks assignments to annotated class fields", () => {

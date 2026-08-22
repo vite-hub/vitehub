@@ -526,6 +526,13 @@ export function classifyWideningTarget(
 	const unwrapped = unwrapTransparentType(type);
 	if (unwrapped.type === "TSUnknownKeyword") return { kind: "unknown" };
 	if (unwrapped.type === "TSObjectKeyword") return { kind: "object" };
+	if (unwrapped.type === "TSUnionType") {
+		return unwrapped.types.some(
+			(member) => classifyWideningTarget(member, environment)?.kind === "unknown",
+		)
+			? { kind: "unknown" }
+			: null;
+	}
 	if (unwrapped.type === "TSTypeLiteral") {
 		return unwrapped.members.some((member) => member.type === "TSIndexSignature")
 			? { kind: "open dictionary" }

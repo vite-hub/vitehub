@@ -3,6 +3,9 @@ import type { ESTree } from "@oxlint/plugins";
 export type VisitorKeys = Readonly<Record<string, readonly string[]>>;
 
 export type TypeBinding =
+	| ESTree.ImportDefaultSpecifier
+	| ESTree.ImportNamespaceSpecifier
+	| ESTree.ImportSpecifier
 	| ESTree.TSTypeAliasDeclaration
 	| ESTree.TSInterfaceDeclaration
 	| ESTree.TSEnumDeclaration
@@ -15,6 +18,13 @@ function isNode(value: unknown): value is ESTree.Node {
 }
 
 export function typeBindingName(binding: TypeBinding): string | null {
+	if (
+		binding.type === "ImportDefaultSpecifier" ||
+		binding.type === "ImportNamespaceSpecifier" ||
+		binding.type === "ImportSpecifier"
+	) {
+		return binding.local.name;
+	}
 	return binding.id.type === "Identifier" ? binding.id.name : null;
 }
 
@@ -24,6 +34,9 @@ export function collectTypeBindings(
 	bindings: TypeBinding[],
 ): void {
 	if (
+		node.type === "ImportDefaultSpecifier" ||
+		node.type === "ImportNamespaceSpecifier" ||
+		node.type === "ImportSpecifier" ||
 		node.type === "TSTypeAliasDeclaration" ||
 		node.type === "TSInterfaceDeclaration" ||
 		node.type === "TSEnumDeclaration" ||
