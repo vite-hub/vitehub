@@ -2115,7 +2115,14 @@ function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!telemetry || !runtime.traceLog) return
   const task = Promise.resolve()
     .then(async () => {
-      const events = runtime.traceLog!.entries().filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
+      const events = runtime.traceLog!.entries()
+        .filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
+        .map((event) => {
+          const configuration = event.attributes?.["vitehub.agent.configuration"]
+          if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return event
+          const { instructions: _instructions, ...metadata } = configuration as Record<string, unknown>
+          return { ...event, attributes: { ...event.attributes, "vitehub.agent.configuration": metadata } }
+        })
       const runs = deriveTraceRuns(events)
       const id = runtime.run?.runId || runtime.trace?.id
       const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
@@ -4466,6 +4473,7 @@ async function traceAgentConfiguration<TRuntimeConfig extends AgentRuntimeConfig
         : {}),
       ...(inspected.instructions?.length ? { instructions: inspected.instructions } : {}),
       ...(inspected.tools?.length ? { tools: inspected.tools.map(({ name }) => ({ name })) } : {}),
+      runtime: { name: invocation.runtimeContext.runtime },
       ...(invocation.workspaceDefinition?.name
         ? {
             workspace: {

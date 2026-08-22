@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { defineAgent, otlpHttpJson, runAgent } from "../src/index.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -97,6 +98,8 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
+      instructions: "private system instructions",
+      invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }),
       name: "support",
       telemetry,
       version: "1.0.0",
@@ -139,6 +142,7 @@ describe("Agent telemetry", () => {
       }],
     })
     expect(JSON.stringify(exported.spans)).not.toContain("secret prompt")
+    expect(JSON.stringify(exported.spans)).not.toContain("private system instructions")
   })
 
   it("exports separate spans when invocations reuse a host trace and log", async () => {

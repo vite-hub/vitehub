@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsKey, consoleInvocationsRootKey, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
 
@@ -45,6 +45,7 @@ afterEach(() => {
   delete scope[consoleInvocationsRootKey]
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
+  Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   vi.restoreAllMocks()
 })
 
@@ -85,6 +86,19 @@ describe("Agent invocation console", () => {
     expect(resolveConsoleInvocations({ process })).toBe(fallback)
   })
 
+  it("keeps process-shared journals scoped to their project root", () => {
+    const first = fakeInvocations("first")
+    const second = fakeInvocations("second")
+    const firstScope = { process, [consoleInvocationsRootKey]: "/first" }
+    const secondScope = { process, [consoleInvocationsRootKey]: "/second" }
+
+    installConsoleInvocationFallback(first, "/first", firstScope)
+    installConsoleInvocationFallback(second, "/second", secondScope)
+
+    expect(resolveConsoleInvocations(firstScope)).toBe(first)
+    expect(resolveConsoleInvocations(secondScope)).toBe(second)
+  })
+
   it("anchors the durable journal to the project root and shares it between runtime instances", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-project-"))
     const unrelatedCwd = await mkdtemp(join(tmpdir(), "vitehub-console-cwd-"))
@@ -102,6 +116,7 @@ describe("Agent invocation console", () => {
           "vitehub.agent.configuration": expect.objectContaining({
             agent: { version: "1.0.0" },
             driver: { kind: "run" },
+            runtime: { name: "unknown" },
           }),
         }),
         name: "vitehub.agent.configured",

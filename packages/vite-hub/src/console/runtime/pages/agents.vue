@@ -30,12 +30,10 @@ let media: MediaQueryList | undefined;
 
 useHead({ title: "Agents · ViteHub Console" });
 
-const request = async <T>(path: string, options: { signal?: AbortSignal }, parse: (value: unknown) => T) => {
+const request = async (path: string, options: { signal?: AbortSignal }) => {
   const response = await fetch(path, { signal: options.signal });
   if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`);
-  const result = parse(await response.json());
-  lastSuccessfulPollAt.value = new Date();
-  return result;
+  return response.json();
 };
 
 const list = useAgentInvocations({ baseURL: apiBase, pollInterval: 5_000, request });
@@ -43,6 +41,10 @@ const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: apiBase,
   pollInterval: 3_000,
   request,
+});
+
+watch([list.invocations, detail.invocation], () => {
+  lastSuccessfulPollAt.value = new Date();
 });
 
 const sessions = computed<ConsoleSession[]>(() => {
@@ -317,20 +319,20 @@ onBeforeUnmount(() => {
           />
         </div>
         <div
-          v-else-if="!collapsed && list.isLoading.value && !sessions.length"
+          v-if="!collapsed && list.isLoading.value && !sessions.length"
           class="grid gap-2 px-3"
         >
           <USkeleton v-for="index in 4" :key="index" class="h-16 rounded-lg" />
         </div>
         <UEmpty
-          v-else-if="!collapsed && !sessions.length"
+          v-else-if="!collapsed && !sessions.length && !errorMessage(list.error.value)"
           class="px-4"
           icon="i-lucide-message-square-dashed"
           title="No sessions yet"
           description="The first Agent Invocation will appear here."
         />
 
-        <UScrollArea v-else class="min-h-0 flex-1">
+        <UScrollArea v-if="collapsed || sessions.length" class="min-h-0 flex-1">
           <nav class="space-y-1 px-2 pb-4" aria-label="Agent sessions">
             <template v-for="session in sessions" :key="session.id">
               <UTooltip

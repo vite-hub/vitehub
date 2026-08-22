@@ -5,7 +5,9 @@ import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { TraceEvent, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
 
-const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
+// Agent Definitions can cross Vite SSR module realms. Use the global registry so
+// a journal created by the host remains bindable in the module runner.
+const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
 
 const DEFAULT_LIST_LIMIT = 50
