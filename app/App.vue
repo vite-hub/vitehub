@@ -12,12 +12,14 @@ const selectedId = ref<string>()
 const lastSuccessfulPollAt = ref<Date>()
 const nowMs = ref(Date.now())
 const query = ref('')
+const debouncedQuery = ref('')
 const sessionsOpen = ref(false)
 const sessionsCollapsed = ref(false)
 const detailsOpen = ref(false)
 const useDesktopInspector = ref(false)
 let clock: ReturnType<typeof setInterval> | undefined
 let media: MediaQueryList | undefined
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const request = async <T,>(path: string, options: { signal?: AbortSignal }) => {
   const response = await fetch(path, { signal: options.signal })
@@ -27,7 +29,11 @@ const request = async <T,>(path: string, options: { signal?: AbortSignal }) => {
   return result
 }
 
-const list = useAgentInvocations({ pollInterval: 5_000, request })
+const listQuery = computed(() => ({
+  limit: 50,
+  ...(debouncedQuery.value ? { search: debouncedQuery.value } : {}),
+}))
+const list = useAgentInvocations({ pollInterval: 5_000, query: listQuery, request })
 const detail = useAgentInvocation(selectedId, { pollInterval: 5_000, request })
 const invocations = list.invocations
 const selected = detail.invocation
@@ -49,11 +55,6 @@ const sessionItems = computed<AgentInvocationListItem[]>(() => invocations.value
   title: invocationTitle(invocation),
   updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
 })))
-const filteredSessionItems = computed(() => {
-  const normalized = query.value.trim().toLocaleLowerCase()
-  if (!normalized) return sessionItems.value
-  return sessionItems.value.filter(item => [item.title, item.project, item.context, item.description].some(value => value?.toLocaleLowerCase().includes(normalized)))
-})
 const matchingDetail = computed(() => selected.value?.id === selectedId.value ? selected.value : undefined)
 const pullRequestUrl = computed(() => {
   const value = matchingDetail.value?.annotations?.['github.url']
@@ -119,6 +120,11 @@ watch(invocations, (next) => {
   else if (!selectedId.value || !next.some(invocation => invocation.id === selectedId.value)) selectedId.value = next[0]!.id
 }, { immediate: true })
 
+watch(query, (value) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { debouncedQuery.value = value.trim() }, 250)
+})
+
 onMounted(() => {
   media = window.matchMedia('(min-width: 1280px)')
   updateDesktop()
@@ -128,6 +134,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (clock) clearInterval(clock)
+  if (searchTimer) clearTimeout(searchTimer)
   media?.removeEventListener('change', updateDesktop)
 })
 </script>
@@ -163,16 +170,25 @@ onBeforeUnmount(() => {
           <div v-if="!collapsed && listErrorMessage" class="px-2"><UAlert color="error" variant="subtle" icon="i-lucide-cloud-off" title="Could not load sessions" :description="listErrorMessage" /></div>
           <div v-else-if="!collapsed && loadingList && invocations.length === 0" class="grid gap-px px-2"><USkeleton v-for="index in 4" :key="index" class="h-[4.875rem] rounded-md" /></div>
 
-          <UScrollArea class="min-h-0 flex-1">
-            <div v-if="collapsed" class="grid gap-1 px-2 py-1">
+          <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
+            <div class="grid gap-1 px-2 py-1">
               <UTooltip v-for="invocation in invocations" :key="invocation.id" :text="invocationTitle(invocation)" :content="{ side: 'right' }"><UButton :icon="statusIcon(invocation.status)" :color="invocation.status === 'failed' ? 'error' : 'neutral'" :variant="selectedId === invocation.id ? 'soft' : 'ghost'" block :aria-label="invocationTitle(invocation)" @click="selectInvocation(invocation.id)" /></UTooltip>
             </div>
-            <AgentInvocationList v-else class="px-1 pb-3" :items="filteredSessionItems" :now="nowMs" :selected-id="selectedId" @select="selectInvocation($event.id)">
-              <template #empty><UEmpty class="px-3" icon="i-lucide-message-square-dashed" :title="query ? 'No matching sessions' : 'No sessions yet'" :description="query ? 'Try a different search.' : 'The first Agent Invocation will appear here.'" /></template>
-              <template #harness="{ item }"><span v-if="item.agent" :title="`Agent: ${item.agent}`"><UIcon name="i-lucide-bot" class="size-3.5" /><span class="sr-only">Agent {{ item.agent }}</span></span></template>
-            </AgentInvocationList>
-          </UScrollArea>
-          <div v-if="!collapsed && listCursor" class="px-3 pb-2"><UButton block color="neutral" variant="ghost" size="sm" :loading="loadingMore" label="Load older" @click="loadOlder()" /></div>
+          </div>
+          <AgentInvocationList
+            v-else
+            class="min-h-0 flex-1 px-1 pb-3"
+            :has-more="Boolean(listCursor)"
+            :items="sessionItems"
+            :loading="loadingMore"
+            :now="nowMs"
+            :selected-id="selectedId"
+            @end-reached="loadOlder()"
+            @select="selectInvocation($event.id)"
+          >
+            <template #empty><UEmpty class="px-3" icon="i-lucide-message-square-dashed" :title="debouncedQuery ? 'No matching sessions' : 'No sessions yet'" :description="debouncedQuery ? 'Try a different search.' : 'The first Agent Invocation will appear here.'" /></template>
+            <template #harness="{ item }"><span v-if="item.agent" :title="`Agent: ${item.agent}`"><UIcon name="i-lucide-bot" class="size-3.5" /><span class="sr-only">Agent {{ item.agent }}</span></span></template>
+          </AgentInvocationList>
         </template>
 
         <template #footer="{ collapsed, collapse }">

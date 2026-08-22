@@ -5,6 +5,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 import { defaultMaxOwners } from './server/babysitter.queue.ts'
+import appConfig from './app/app.config.ts'
 
 export default defineConfig({
   env: {
@@ -22,7 +23,7 @@ export default defineConfig({
   },
   plugins: [
     vue(),
-    ...ui({ comark: false }),
+    ...ui({ comark: false, nuxtUI: appConfig }),
     vitehub({
       preset: 'node',
       agent: { providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } } },

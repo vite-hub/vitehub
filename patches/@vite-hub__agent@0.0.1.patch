@@ -15,7 +15,7 @@ index 7425836c0ead087d1c27a56eaee13ca9d844a18f..81721ab30dc1a293e964469e21a244a4
  import { a as resolveAgentUsageRecord, p as synthesizedAgentOutputSymbol, u as aggregateAgentUsageCosts } from "./agent-output-2RT4J-0R.js";
  import { a as withAgentToolStepReporting, d as agentOutputInstructions, f as agentOutputJsonSchema, h as validateAgentOutput, i as toJsonCompatibleValue, m as normalizeNativeAgentOutputError, n as applyAgentToolPolicies, o as withJsonCompatibleToolOutputs, p as nativeAgentOutputValidationFailure, r as reportWorkspaceMaterialization, u as updateAgentTelemetryConfiguration } from "./tool-runtime-HJ2lCiWp.js";
 diff --git a/dist/ai-sdk.d.ts b/dist/ai-sdk.d.ts
-index 491aafa937b84dc4c18ec7659f9cccecf3f29268..042222605156cb31449067d4f89f28ed2efe9dca 100644
+index 491aafa937b84dc4c18ec7659f9cccecf3f29268..26a9b90de81bcb9c9d6ef9a5394f011e09acddbc 100644
 --- a/dist/ai-sdk.d.ts
 +++ b/dist/ai-sdk.d.ts
 @@ -1,4 +1,4 @@
@@ -33,7 +33,7 @@ index cfffb8d7af8a8257f83d288b60996f9dccbae7aa..9320b0748103bb25ea2c0637e7322a15
 +import { n as fromAiSdkAgent, r as toAiSdkModelMessages, t as createAiSdkAdapter } from "./ai-sdk-DxK-Kngb.js";
  export { createAiSdkAdapter, fromAiSdkAgent, toAiSdkModelMessages };
 diff --git a/dist/capabilities.d.ts b/dist/capabilities.d.ts
-index 813c44752d9a667fb5a45930c1f308654ab3049a..e0785885cab6e19b275aa49a8f30dd90f4c2d5e2 100644
+index 813c44752d9a667fb5a45930c1f308654ab3049a..c7d296ffd4a4f8af51fffa5bd59571d22eae0867 100644
 --- a/dist/capabilities.d.ts
 +++ b/dist/capabilities.d.ts
 @@ -1,6 +1,6 @@
@@ -71,7 +71,6 @@ index 813c44752d9a667fb5a45930c1f308654ab3049a..e0785885cab6e19b275aa49a8f30dd90
 -export { type AccessCapabilityOptions, type AccessChatContext, type AccessChatOptions, type AccessChatResolver, type AccessDecision, type AccessInvocationContextValue, type AccessRoleName, type AccessWorkspaceOptions, type AccessWorkspaceOptionsFor, type AccessWorkspaceResolverContext, type AccessWorkspaceScopeContext, type AccessWorkspaceScopeDefinition, type AccessWorkspaceScopeGrant, type AccessWorkspaceScopeResolver, type AccessWorkspaceScopeSelection, type AccessWorkspaceScopeSelectionInput, type AccessWorkspaceSourceName, type AgentChannelContext, type AgentChannelWebhookRegistrationDefinition, type AgentChatAgentBindingOptions, type AgentChatAgentHookArgs, type AgentChatCapabilityOptions, type AgentChatCapabilityOrigin, type AgentChatContext, type AgentChatErrorHookArgs, type AgentChatEventHookArgs, type AgentChatEventHooks, type AgentChatFinishExtension, type AgentChatMessage, type AgentChatMessageHookArgs, type AgentChatMessageTriggerInput, type AgentChatOptions, type AgentChatOptionsOrigin, type AgentChatPlatformAdapter, type AgentChatPlatformResolver, type AgentChatPlatformsResolver, type AgentChatRunContext, type AgentChatSendMessage, type AgentChatSessionOptions, type AgentChatStateContext, type AgentChatStateResolver, type AgentChatTriggerHistory, type AgentScheduleCapabilityMetadata, type AgentScheduleCapabilityOptions, type AgentScheduleEntry, type AgentUsagePrice, type AgentUsagePricing, type AgentUsagePricingContext, type AsyncRecord, type BlobCapabilityOptions, type BrowserCapabilityOptions, type ChatSummaryCommandOptions, type ChatSummaryExecuteInput, type ChatSummaryExecuteResult, type ChatSummaryOptions, type CostOptions, type CreateTranscriptionOptions, type DBCapabilityOptions, type ElevenLabsScribeOptions, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type FetchCapabilityMethod, type FetchCapabilityOptions, type FetchCapabilityRequestDefinition, type FetchCapabilityRequestOptions, type FetchCapabilityResponseType, type FetchCapabilityStandardSchemaV1, type FetchCapabilityToolOptions, type FetchCapabilityToolRequest, type GitCapabilityOptions, type GitCapabilityToolPolicy, type GmailCapabilityMode, type GmailCapabilityOptions, type InputCommand, type InputCommandAgentFinishHookContext, type InputCommandAgentInputHookContext, type InputCommandCall, type InputCommandDeliveryMessage, type InputCommandHooks, type InputCommandResult, type InputCommandRunInput, type InputCommandsOptions, type JsonObject, type JsonPrimitive, type JsonValue, type KVCapabilityOptions, type LlmDecisionChoiceDefinition, type LlmDecisionChoiceMap, type LlmGateDecision, type LlmGateOptions, type LlmRouteDecision, type LlmRouteOptions, type McpCapabilityOptions, type McpClient, type McpClientConfig, type McpServerConfig, type McpToolFingerprints, type MemoryAppendRequest, type MemoryCapabilityOptions, type MemoryDeleteRequest, type MemoryExportRequest, type MemoryKind, type MemoryProvenance, type MemoryReadRequest, type MemoryRecord, type MemoryScope, type MemorySearchRequest, type MemorySearchResult, type MemoryStoreAdapter, type MemoryStoreFactory, type MemoryStoreOptions, type OpenAPICapabilityOptions, type OpenAPICliOptions, type OpenAPIHookProvidedInput, type OpenAPIHooks, type OpenAPIRequestContext, type OpenAPIRequestDraft, type OpenAPIRequestHook, type OpenAPIRequestHookOptions, type OpenAPIRequestPatch, type OpenAPIResponseContext, type OpenRouterTranscriptionModelOptions, type OtlpCapabilityOptions, type Papercut, type PapercutReportContext, type PapercutReportEvent, type PapercutSource, type PapercutsOptions, type ProgressSummaryExecuteInput, type ProgressSummaryExecuteResult, type ProgressSummaryOptions, type ProgressSummarySnapshot, type ProgressSummaryTemplate, type ProgressSummaryTemplateInput, type ProgressSummaryTemplateVariable, type PullRequestContextComment, type PullRequestContextFile, type PullRequestContextMetadata, type PullRequestContextRef, type PullRequestContextUser, type PullRequestContextValue, type RateLimitDecision, type RateLimitEvent, type RateLimitIdentity, type RateLimitIdentityResolver, type RateLimitLimiter, type RateLimitLimiterResolver, type RateLimitOptions, type RepositoryHostClient, type RepositoryHostContextCapabilityFactory, type RepositoryHostContextInput, type RepositoryHostContextOptions, type RepositoryHostContextResolver, type RepositoryHostContextTarget, type RepositoryHostContextTargetResolver, type RepositoryHostContextTargetValue, type RepositoryHostContextValue, type RepositoryHostIssueContext, type RepositoryHostOptions, type RepositoryHostProvider, type RepositoryHostReadOperation, type RepositoryHostReadRequest, type RepositoryHostTarget, type RepositoryHostTargetKind, type RepositoryHostToolPolicy, type RepositoryHostWriteOperation, type RepositoryHostWriteRequest, type RuntimeScheduleCapabilityMetadata, type RuntimeScheduleCapabilityOptions, type ScheduleCapabilityToolPolicy, type SkillsCapabilityOptions, type StorageToolPolicy, type StreamTranscriptionOptions, type StreamingTranscription, type SubagentDefinition, type SubagentToolInput, type SubagentsOptions, type TitleExecuteInput, type TitleExecuteResult, type TitleOptions, type TitleTemplate, type TitleTemplateInput, type TitleTemplateVariable, type TranscribeArtifactTemplateInput, type TranscribeArtifactsOptions, type TranscribeAudioArtifactOptions, type TranscribeExecuteInput, type TranscribeExecuteResult, type TranscribeOptions, type TranscribeTranscriptArtifactOptions, type TranscriptionClient, type TranscriptionCompletion, type TranscriptionDriver, type TranscriptionDriverCompletion, type TranscriptionDriverSubmission, type TranscriptionErrorCode, type TranscriptionErrorDetails, type TranscriptionFailedCompletion, type TranscriptionMetadata, type TranscriptionResult, type TranscriptionSource, type TranscriptionSubmission, type TranscriptionSubmitInput, type TranscriptionTranscript, type TranscriptionWord, type VercelAiGatewayPricingOptions, type WebReadResult, type WebReadToolDefinition, type WebReadToolInput, type WebSearchModelModeOptions, type WebSearchOptions, type WebSearchProvider, type WebSearchProviderInput, type WebSearchProviderOptions, type WebSearchResult, type WebSearchToolDefinition, type WebSearchToolInput, type WebSearchToolModeOptions, type WorkspaceJsonlMemoryStoreOptions, type WorkspaceShellOptions, access, agentChatContextKey, agentScheduleIdFromCron, audioBytes, blob, browser, chat, chatSummary, cost, createTranscription, db, elevenLabsScribe, email, fetch$1 as fetch, getAgentChatContext, getTranscriptionResults, git, gmail, inputCommands, kv, llmGate, llmRoute, mcp, memory, openRouterTranscriptionModel, openapi, otlp, papercuts, progressSummary, rateLimit, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, title, transcribe, usage, vercelAiGatewayPricing, webSearch, workspaceJsonlMemoryStore, workspaceShell };
 \ No newline at end of file
 +export { type AccessCapabilityOptions, type AccessChatContext, type AccessChatOptions, type AccessChatResolver, type AccessDecision, type AccessInvocationContextValue, type AccessRoleName, type AccessWorkspaceOptions, type AccessWorkspaceOptionsFor, type AccessWorkspaceResolverContext, type AccessWorkspaceScopeContext, type AccessWorkspaceScopeDefinition, type AccessWorkspaceScopeGrant, type AccessWorkspaceScopeResolver, type AccessWorkspaceScopeSelection, type AccessWorkspaceScopeSelectionInput, type AccessWorkspaceSourceName, type AgentChannelContext, type AgentChannelWebhookRegistrationDefinition, type AgentChatAgentBindingOptions, type AgentChatAgentHookArgs, type AgentChatCapabilityOptions, type AgentChatCapabilityOrigin, type AgentChatContext, type AgentChatErrorHookArgs, type AgentChatEventHookArgs, type AgentChatEventHooks, type AgentChatFinishExtension, type AgentChatMessage, type AgentChatMessageHookArgs, type AgentChatMessageTriggerInput, type AgentChatOptions, type AgentChatOptionsOrigin, type AgentChatPlatformAdapter, type AgentChatPlatformResolver, type AgentChatPlatformsResolver, type AgentChatRunContext, type AgentChatSendMessage, type AgentChatSessionOptions, type AgentChatStateContext, type AgentChatStateResolver, type AgentChatTriggerHistory, type AgentScheduleCapabilityMetadata, type AgentScheduleCapabilityOptions, type AgentScheduleEntry, type AgentUsagePrice, type AgentUsagePricing, type AgentUsagePricingContext, type AsyncRecord, type BlobCapabilityOptions, type BrowserCapabilityOptions, type ChatSummaryCommandOptions, type ChatSummaryExecuteInput, type ChatSummaryExecuteResult, type ChatSummaryOptions, type CostOptions, type CreateTranscriptionOptions, type DBCapabilityOptions, type DiagnosticsCapabilityOptions, type ElevenLabsScribeOptions, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type FetchCapabilityMethod, type FetchCapabilityOptions, type FetchCapabilityRequestDefinition, type FetchCapabilityRequestOptions, type FetchCapabilityResponseType, type FetchCapabilityStandardSchemaV1, type FetchCapabilityToolOptions, type FetchCapabilityToolRequest, type GitCapabilityOptions, type GitCapabilityToolPolicy, type GmailCapabilityMode, type GmailCapabilityOptions, type InputCommand, type InputCommandAgentFinishHookContext, type InputCommandAgentInputHookContext, type InputCommandCall, type InputCommandDeliveryMessage, type InputCommandHooks, type InputCommandResult, type InputCommandRunInput, type InputCommandsOptions, type JsonObject, type JsonPrimitive, type JsonValue, type KVCapabilityOptions, type LlmDecisionChoiceDefinition, type LlmDecisionChoiceMap, type LlmGateDecision, type LlmGateOptions, type LlmRouteDecision, type LlmRouteOptions, type McpCapabilityOptions, type McpClient, type McpClientConfig, type McpServerConfig, type McpToolFingerprints, type MemoryAppendRequest, type MemoryCapabilityOptions, type MemoryDeleteRequest, type MemoryExportRequest, type MemoryKind, type MemoryProvenance, type MemoryReadRequest, type MemoryRecord, type MemoryScope, type MemorySearchRequest, type MemorySearchResult, type MemoryStoreAdapter, type MemoryStoreFactory, type MemoryStoreOptions, type OpenAPICapabilityOptions, type OpenAPICliOptions, type OpenAPIHookProvidedInput, type OpenAPIHooks, type OpenAPIRequestContext, type OpenAPIRequestDraft, type OpenAPIRequestHook, type OpenAPIRequestHookOptions, type OpenAPIRequestPatch, type OpenAPIResponseContext, type OpenRouterTranscriptionModelOptions, type OtlpCapabilityOptions, type Papercut, type PapercutReportContext, type PapercutReportEvent, type PapercutSource, type PapercutsOptions, type ProgressSummaryExecuteInput, type ProgressSummaryExecuteResult, type ProgressSummaryOptions, type ProgressSummarySnapshot, type ProgressSummaryTemplate, type ProgressSummaryTemplateInput, type ProgressSummaryTemplateVariable, type PullRequestContextComment, type PullRequestContextFile, type PullRequestContextMetadata, type PullRequestContextRef, type PullRequestContextUser, type PullRequestContextValue, type RateLimitDecision, type RateLimitEvent, type RateLimitIdentity, type RateLimitIdentityResolver, type RateLimitLimiter, type RateLimitLimiterResolver, type RateLimitOptions, type RepositoryHostClient, type RepositoryHostContextCapabilityFactory, type RepositoryHostContextInput, type RepositoryHostContextOptions, type RepositoryHostContextResolver, type RepositoryHostContextTarget, type RepositoryHostContextTargetResolver, type RepositoryHostContextTargetValue, type RepositoryHostContextValue, type RepositoryHostIssueContext, type RepositoryHostOptions, type RepositoryHostProvider, type RepositoryHostReadOperation, type RepositoryHostReadRequest, type RepositoryHostTarget, type RepositoryHostTargetKind, type RepositoryHostToolPolicy, type RepositoryHostWriteOperation, type RepositoryHostWriteRequest, type RuntimeScheduleCapabilityMetadata, type RuntimeScheduleCapabilityOptions, type ScheduleCapabilityToolPolicy, type SkillsCapabilityOptions, type StorageToolPolicy, type StreamTranscriptionOptions, type StreamingTranscription, type SubagentDefinition, type SubagentToolInput, type SubagentsOptions, type TitleExecuteInput, type TitleExecuteResult, type TitleOptions, type TitleTemplate, type TitleTemplateInput, type TitleTemplateVariable, type TranscribeArtifactTemplateInput, type TranscribeArtifactsOptions, type TranscribeAudioArtifactOptions, type TranscribeExecuteInput, type TranscribeExecuteResult, type TranscribeOptions, type TranscribeTranscriptArtifactOptions, type TranscriptionClient, type TranscriptionCompletion, type TranscriptionDriver, type TranscriptionDriverCompletion, type TranscriptionDriverSubmission, type TranscriptionErrorCode, type TranscriptionErrorDetails, type TranscriptionFailedCompletion, type TranscriptionMetadata, type TranscriptionResult, type TranscriptionSource, type TranscriptionSubmission, type TranscriptionSubmitInput, type TranscriptionTranscript, type TranscriptionWord, type VercelAiGatewayPricingOptions, type WebReadResult, type WebReadToolDefinition, type WebReadToolInput, type WebSearchModelModeOptions, type WebSearchOptions, type WebSearchProvider, type WebSearchProviderInput, type WebSearchProviderOptions, type WebSearchResult, type WebSearchToolDefinition, type WebSearchToolInput, type WebSearchToolModeOptions, type WorkspaceJsonlMemoryStoreOptions, type WorkspaceShellOptions, access, agentChatContextKey, agentScheduleIdFromCron, audioBytes, blob, browser, chat, chatSummary, cost, createTranscription, db, diagnostics, elevenLabsScribe, email, fetch$1 as fetch, getAgentChatContext, getTranscriptionResults, git, gmail, inputCommands, kv, llmGate, llmRoute, mcp, memory, openRouterTranscriptionModel, openapi, otlp, papercuts, progressSummary, rateLimit, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, title, transcribe, usage, vercelAiGatewayPricing, webSearch, workspaceJsonlMemoryStore, workspaceShell };
-\ No newline at end of file
 diff --git a/dist/capabilities.js b/dist/capabilities.js
 index 04f77dc299a07503aad8af6c21a5eb9a33bf8b10..459f9986ff3acdef181718be493860418dfcf26c 100644
 --- a/dist/capabilities.js
@@ -358,14 +357,13 @@ index 14577f62284bcacb69c8b1f898bb2d35536d8b85..6013b477de256f29f69a233bf4daaac8
  import { t as agentWorkflowExecutionContextKey } from "./workflow-execution-B2vVyYrw.js";
  import { resolveRuntimeValue } from "@vite-hub/runtime";
 diff --git a/dist/channels.d.ts b/dist/channels.d.ts
-index 36c398a570617c818cfedb31ae16b66cf7430c07..4fd4443ccae5c2230bc6fc51db2bad3e11e61a7b 100644
+index 36c398a570617c818cfedb31ae16b66cf7430c07..41956a9fb613849a049668ed9ca7797189d6f2b4 100644
 --- a/dist/channels.d.ts
 +++ b/dist/channels.d.ts
 @@ -1,2 +1,2 @@
 -import { Ai as GitHubPullRequestRefMetadata, Bi as pullRequest, Bt as AgentDeliveryArtifact, Ci as GitHubIssueCommentPayload, Di as GitHubPullRequestFileMetadata, Ei as GitHubPullRequestCommentMetadata, Fi as discord, G as AgentChannelDeliveryEffectHandler, Gi as defineFinishEffect, H as AgentChannelDefinition, Hi as teams, Ii as github, J as AgentChannelDeliveryEffectKind, Ji as AgentDeliveryArtifactPublisher, K as AgentChannelDeliveryEffectIntent, Ki as AgentDeliveryArtifactPublishInput, Li as http, Mi as TelegramChannelOptions, Ni as channelHasCustomTitleEffect, Oi as GitHubPullRequestMetadata, Pi as defineChannel, Pn as AgentMessageChannelSettings, Qi as rewriteDeliveryArtifactMarkdown, Ri as messageChannelSupportsTitleEffect, Si as GitHubChannelOptions, Ti as GitHubPullRequestCommentEventOptions, Ui as telegram, Vi as slack, Vt as AgentDeliveryArtifactPlacement, W as AgentChannelDeliveryEffectContext, Wi as webChat, X as AgentChannelDeliveryEffects, Xi as deliveryArtifactAttachments, Y as AgentChannelDeliveryEffectPayload, Yi as PublishWorkspaceArtifactsOptions, Zi as publishWorkspaceArtifacts, _i as AgentChannelOptions, at as AgentChannelDeliveryReactionInput, bi as DiscordChannelOptions, ct as AgentChannelDeliveryReplyPayload, dt as AgentChannelDeliveryStatusInput, et as AgentChannelDeliveryFinishEffect, ft as AgentChannelDeliveryStatusPayload, gt as AgentChannelInputs, ht as AgentChannelInput, ji as GitHubPullRequestRunContext, ki as GitHubPullRequestReadInvocation, li as PublishedAgentDeliveryArtifact, lt as AgentChannelDeliveryReplyStream, mt as AgentChannelFactory, nt as AgentChannelDeliveryFinishEffectContext, ot as AgentChannelDeliveryReactionPayload, pt as AgentChannelDeliveryStatusState, q as AgentChannelDeliveryEffectIntentOptions, qi as AgentDeliveryArtifactPublishResult, rt as AgentChannelDeliveryFinishEffectResult, st as AgentChannelDeliveryReplyInput, tt as AgentChannelDeliveryFinishEffectCallback, vi as AgentWebChatChannelOptions, wi as GitHubPullRequestCommand, xi as GitHubAppOptions, yi as DiscordAdapterOptions, yt as AgentChannels, zi as messageChannelTitleSupportContextKey } from "./types-DyGh2IS8.js";
 +import { Ai as GitHubPullRequestRefMetadata, Bi as pullRequest, Bt as AgentDeliveryArtifact, Ci as GitHubIssueCommentPayload, Di as GitHubPullRequestFileMetadata, Ei as GitHubPullRequestCommentMetadata, Fi as discord, G as AgentChannelDeliveryEffectHandler, Gi as defineFinishEffect, H as AgentChannelDefinition, Hi as teams, Ii as github, J as AgentChannelDeliveryEffectKind, Ji as AgentDeliveryArtifactPublisher, K as AgentChannelDeliveryEffectIntent, Ki as AgentDeliveryArtifactPublishInput, Li as http, Mi as TelegramChannelOptions, Ni as channelHasCustomTitleEffect, Oi as GitHubPullRequestMetadata, Pi as defineChannel, Pn as AgentMessageChannelSettings, Qi as rewriteDeliveryArtifactMarkdown, Ri as messageChannelSupportsTitleEffect, Si as GitHubChannelOptions, Ti as GitHubPullRequestCommentEventOptions, Ui as telegram, Vi as slack, Vt as AgentDeliveryArtifactPlacement, W as AgentChannelDeliveryEffectContext, Wi as webChat, X as AgentChannelDeliveryEffects, Xi as deliveryArtifactAttachments, Y as AgentChannelDeliveryEffectPayload, Yi as PublishWorkspaceArtifactsOptions, Zi as publishWorkspaceArtifacts, _i as AgentChannelOptions, at as AgentChannelDeliveryReactionInput, bi as DiscordChannelOptions, ct as AgentChannelDeliveryReplyPayload, dt as AgentChannelDeliveryStatusInput, et as AgentChannelDeliveryFinishEffect, ft as AgentChannelDeliveryStatusPayload, gt as AgentChannelInputs, ht as AgentChannelInput, ji as GitHubPullRequestRunContext, ki as GitHubPullRequestReadInvocation, li as PublishedAgentDeliveryArtifact, lt as AgentChannelDeliveryReplyStream, mt as AgentChannelFactory, nt as AgentChannelDeliveryFinishEffectContext, ot as AgentChannelDeliveryReactionPayload, pt as AgentChannelDeliveryStatusState, q as AgentChannelDeliveryEffectIntentOptions, qi as AgentDeliveryArtifactPublishResult, rt as AgentChannelDeliveryFinishEffectResult, st as AgentChannelDeliveryReplyInput, tt as AgentChannelDeliveryFinishEffectCallback, vi as AgentWebChatChannelOptions, wi as GitHubPullRequestCommand, xi as GitHubAppOptions, yi as DiscordAdapterOptions, yt as AgentChannels, zi as messageChannelTitleSupportContextKey } from "./types-ChW00Cws.js";
  export { type AgentChannelDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectHandler, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectIntentOptions, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryEffectPayload, type AgentChannelDeliveryEffects, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectCallback, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDeliveryFinishEffectResult, type AgentChannelDeliveryReactionInput, type AgentChannelDeliveryReactionPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelDeliveryStatusInput, type AgentChannelDeliveryStatusPayload, type AgentChannelDeliveryStatusState, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, AgentChannelOptions, type AgentChannels, type AgentDeliveryArtifact, type AgentDeliveryArtifactPlacement, type AgentDeliveryArtifactPublishInput, type AgentDeliveryArtifactPublishResult, type AgentDeliveryArtifactPublisher, type AgentMessageChannelSettings, AgentWebChatChannelOptions, DiscordAdapterOptions, DiscordChannelOptions, GitHubAppOptions, GitHubChannelOptions, GitHubIssueCommentPayload, GitHubPullRequestCommand, GitHubPullRequestCommentEventOptions, GitHubPullRequestCommentMetadata, GitHubPullRequestFileMetadata, GitHubPullRequestMetadata, GitHubPullRequestReadInvocation, GitHubPullRequestRefMetadata, GitHubPullRequestRunContext, type PublishWorkspaceArtifactsOptions, type PublishedAgentDeliveryArtifact, TelegramChannelOptions, channelHasCustomTitleEffect, defineChannel, defineFinishEffect, deliveryArtifactAttachments, discord, github, http, messageChannelSupportsTitleEffect, messageChannelTitleSupportContextKey, publishWorkspaceArtifacts, pullRequest, rewriteDeliveryArtifactMarkdown, slack, teams, telegram, webChat };
-\ No newline at end of file
 diff --git a/dist/channels.js b/dist/channels.js
 index b2fa868198c96b9e77b598b41f972ee872d55be1..671e0df511908fb744fb259700a23caa6527ca43 100644
 --- a/dist/channels.js
@@ -376,7 +374,7 @@ index b2fa868198c96b9e77b598b41f972ee872d55be1..671e0df511908fb744fb259700a23caa
 +import { a as http, c as pullRequest, d as telegram, f as webChat, i as github, l as slack, n as defineChannel, o as messageChannelSupportsTitleEffect, r as discord, s as messageChannelTitleSupportContextKey, t as channelHasCustomTitleEffect, u as teams, z as defineFinishEffect } from "./channels-BVKqxzxk.js";
  export { channelHasCustomTitleEffect, defineChannel, defineFinishEffect, deliveryArtifactAttachments, discord, github, http, messageChannelSupportsTitleEffect, messageChannelTitleSupportContextKey, publishWorkspaceArtifacts, pullRequest, rewriteDeliveryArtifactMarkdown, slack, teams, telegram, webChat };
 diff --git a/dist/cli.d.ts b/dist/cli.d.ts
-index cbe22fb344e2071c0201ec24327ada53d83f8280..6fb74f78555adb233e77d3062bc22a93b72980ec 100644
+index cbe22fb344e2071c0201ec24327ada53d83f8280..94664660b3ea999059bf879ead1f5ba0acea212b 100644
 --- a/dist/cli.d.ts
 +++ b/dist/cli.d.ts
 @@ -1,4 +1,4 @@
@@ -416,7 +414,6 @@ index cbe22fb344e2071c0201ec24327ada53d83f8280..6fb74f78555adb233e77d3062bc22a93
 -export { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli };
 \ No newline at end of file
 +export { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli, runAgentInvocationsCli };
-\ No newline at end of file
 diff --git a/dist/cli.js b/dist/cli.js
 index 6553b9eb2dabca63f05da48ac2624c05763f5f4b..ecdada958dda45b8da7ed67b56c3d28c67cd0ea5 100644
 --- a/dist/cli.js
@@ -647,7 +644,7 @@ index 6553b9eb2dabca63f05da48ac2624c05763f5f4b..ecdada958dda45b8da7ed67b56c3d28c
 -export { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli };
 +export { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli, runAgentInvocationsCli };
 diff --git a/dist/eval.d.ts b/dist/eval.d.ts
-index ea0f5bc6a13b65ec0d0ddfaec3699a4d960d537a..f3062a6725f8a7b62038c9a0a7fbdc91400c1b09 100644
+index ea0f5bc6a13b65ec0d0ddfaec3699a4d960d537a..e03c655057b10dcd31ddc5b650b5993f59479c98 100644
 --- a/dist/eval.d.ts
 +++ b/dist/eval.d.ts
 @@ -1,4 +1,4 @@
@@ -697,7 +694,7 @@ index c98fa5b15b384e7e0963ba39b71dee387730e02e..b703d72ac45df3647bef3b813e6fbaed
  import path from "node:path";
  import { fileURLToPath } from "node:url";
 diff --git a/dist/eve.d.ts b/dist/eve.d.ts
-index c8b0ab032cebcd4fc50ea5eb480459b9bdb09aa2..f7b8dcaaa45c5c6f9a638ef341a907158a941946 100644
+index c8b0ab032cebcd4fc50ea5eb480459b9bdb09aa2..16a01dc5cda875cb02617cd754e9592503e54631 100644
 --- a/dist/eve.d.ts
 +++ b/dist/eve.d.ts
 @@ -1,4 +1,4 @@
@@ -722,7 +719,7 @@ diff --git a/dist/index-DMt13ja8.d.ts b/dist/index-CTQCW0Nr.d.ts
 similarity index 99%
 rename from dist/index-DMt13ja8.d.ts
 rename to dist/index-CTQCW0Nr.d.ts
-index 5f8f40aa4faf053d05b7e9be9dcbfe8f07300201..4c72abea119dc722682944b6b5ad53aefa155c29 100644
+index 5f8f40aa4faf053d05b7e9be9dcbfe8f07300201..d62837dfbb00ce5e0d439c0db0441ab2f9a0adc5 100644
 --- a/dist/index-DMt13ja8.d.ts
 +++ b/dist/index-CTQCW0Nr.d.ts
 @@ -1,5 +1,5 @@
@@ -734,7 +731,7 @@ index 5f8f40aa4faf053d05b7e9be9dcbfe8f07300201..4c72abea119dc722682944b6b5ad53ae
  
  //#region src/trigger-runtime.d.ts
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 06ccaf46334dee2af5feaebc26873d5b347ba243..ccce023faf16d5f0a166b392ce72fef403cde5b1 100644
+index 06ccaf46334dee2af5feaebc26873d5b347ba243..a6b6978ac65fc00bdf756cb3e354105da012c913 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
 @@ -1,4 +1,4 @@
@@ -745,7 +742,6 @@ index 06ccaf46334dee2af5feaebc26873d5b347ba243..ccce023faf16d5f0a166b392ce72fef4
 +import { A as agentInvokerContextKey, C as AgentInvocationStreamEvent, D as defineCapability, E as readAgentInvocationStream, F as ResolvedAgentTriggerInvocationResult, I as isResolvedAgentTriggerHandledInvocation, L as verifyAgentWebhookRequest, M as AgentWebhookVerificationResult, N as ResolvedAgentTriggerHandledInvocation, O as applyAgentToolPolicies, P as ResolvedAgentTriggerInvocation, S as AgentInvocationStreamErrorEvent, T as createAgentInvocationStreamResponse, _ as streamAgentInline, a as defineAgent, b as AgentDevLoopAgentSummary, c as resolveAgent, d as runAgent, f as runAgentInline, g as streamAgent, h as startAgentInvocation, i as codexDriver, j as defineAgentInvoker, k as withAgentToolStepReporting, l as resolveAgentTriggerInvocation, m as runScheduledAgent, n as agentWithColocatedInstructions, o as getAgent, p as runAgentTrigger, r as claudeCodeDriver, s as getAgentFromRegistry, t as DefineAgent, u as resolveAgentTriggers, v as streamAgentTrigger, w as agentInvocationStreamRoute, x as AgentDevLoopDiscoveryResponse, y as workflow } from "./index-CTQCW0Nr.js";
 +import { a as materializeAgentInspectionSourceMetadata, i as createAgentInspectionMetadata, l as workspaceDefinitionFromOptions, n as WorkspaceAgentDefinition, o as resolveAgentInspectionMetadata, r as WorkspaceAgentOptions, s as workspaceAgentOwnsWorkspaceDefinition, t as WorkspaceAgentDefaults } from "./workspace-agent-DBwDMiJ4.js";
  export { type AgentAccessInvocationContextValue, type AgentAccessWorkspaceScopeContext, AgentActivity, type AgentActor, type AgentAdapter, type AgentAdapterFactory, type AgentAdapterInstructions, type AgentAdapterInstructionsPart, type AgentAdapterInstructionsValue, type AgentAdapterMetadataContext, type AgentAdapterResult, type AgentAdapterRunContext, type AgentCallSettingsInstrumentation, type AgentCallSettingsInstrumentationContext, type AgentCapabilities, type AgentCapabilitiesInput, type AgentCapabilitiesList, type AgentCapabilitiesResolver, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliContribution, type AgentCapabilityCliExecutionInput, type AgentCapabilityCliExecutionResult, type AgentCapabilityCliOutputDefinition, type AgentCapabilityCliOutputFormat, type AgentCapabilityCliResolver, type AgentCapabilityCliRunContext, type AgentCapabilityCliStandardSchemaResultFailure, type AgentCapabilityCliStandardSchemaResultSuccess, type AgentCapabilityCliStandardSchemaV1, type AgentCapabilityContext, type AgentCapabilityDefinition, type AgentCapabilityHandle, type AgentCapabilityHookName, type AgentCapabilityHooks, type AgentCapabilityInput, type AgentCapabilityMode, type AgentCapabilityPhase, type AgentCapabilityRuntimeContext, type AgentChannelContext, type AgentChannelDefinition, type AgentChannelDelivery, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectHandler, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectIntentOptions, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryEffectPayload, type AgentChannelDeliveryEffects, type AgentChannelDeliveryEvent, type AgentChannelDeliveryEventInput, type AgentChannelDeliveryEventType, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectCallback, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDeliveryFinishEffectResult, type AgentChannelDeliveryInspection, type AgentChannelDeliveryReactionInput, type AgentChannelDeliveryReactionPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelDeliveryStatus, type AgentChannelDeliveryStatusInput, type AgentChannelDeliveryStatusPayload, type AgentChannelDeliveryStatusState, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentChannelTriggerContext, type AgentChannelWebhookRegistrationDefinition, type AgentChannels, type AgentChatAgentHookArgs, type AgentChatContext, AgentChatData, type AgentChatErrorHookArgs, type AgentChatEventHookArgs, type AgentChatEventHooks, type AgentChatFinishExtension, type AgentChatMessage, type AgentChatMessageHookArgs, type AgentChatOptions, type AgentChatPlatformAdapter, type AgentChatPlatformResolver, type AgentChatPlatformsResolver, type AgentChatRunContext, type AgentChatSendMessage, type AgentChatSessionOptions, type AgentChatTriggerHistory, type AgentDefinition, type AgentDefinitionCliOptions, type AgentDeliveryArtifact, type AgentDeliveryArtifactPlacement, type AgentDevLoopAgentSummary, type AgentDevLoopDiscoveryResponse, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentDriverContribution, type AgentDriverContributionKind, type AgentDriverKind, type AgentErrorHook, type AgentErrorHookEvent, type AgentExecution, type AgentFinishEvent, type AgentFinishExtensionValues, type AgentFinishExtensions, type AgentFinishHook, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserver, type AgentHookObserverEvent, type AgentHookObserverHooks, type AgentHookOutcome, type AgentHookOwner, type AgentHostIdentity, type AgentInput, type AgentInputHook, type AgentInspectionCapabilityMetadata, type AgentInspectionConfigMetadata, type AgentInspectionConfigValue, type AgentInspectionDriverMetadata, type AgentInspectionFileTreeItem, type AgentInspectionMetadata, type AgentInspectionModelExecutionMetadata, type AgentInspectionModelMetadata, type AgentInspectionProviderMetadata, type AgentInspectionToolDefinition, type AgentInspectionValue, type AgentIntegrationOption, type AgentIntegrationsOptions, type AgentInvocationAnnotationValue, type AgentInvocationContextStore, type AgentInvocationContextValues, type AgentInvocationControlOutcome, type AgentInvocationControlResult, type AgentInvocationController, type AgentInvocationExtensions, type AgentInvocationHooks, type AgentInvocationInputMode, type AgentInvocationInputSupport, type AgentInvocationInspection, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationSnapshot, type AgentInvocationStatus, type AgentInvocationStore, type AgentInvocationStreamErrorEvent, type AgentInvocationStreamEvent, type AgentInvocationSummary, type AgentInvocations, type AgentInvoker, type AgentInvokerMeta, type AgentInvokerOptions, type AgentInvokerProfile, type AgentInvokerResolveContext, type AgentMessageChannelSettings, type AgentMessageConcurrency, type AgentMessageDeliveryKind, type AgentMessageFilter, type AgentMessageFilterContext, type AgentMessageLockScope, AgentMessagePhase, type AgentModelDriver, type AgentModelExecutionInstrumentation, type AgentModelExecutionOptions, type AgentModelInput, type AgentModelInstrumentation, type AgentModelInstrumentationContext, type AgentModelResolver, type AgentModelResolverContext, type AgentModuleOptions, type AgentOutputDefinition, type AgentOutputExtensionEvent, type AgentOutputExtensionProvider, type AgentOutputExtensionValues, type AgentOutputExtensions, type AgentOutputRenderer, type AgentProviderDriverOptions, type AgentProviderPermissions, type AgentProvidersOptions, type AgentPublicError, type AgentPublicErrorCode, type AgentPublicErrorDetails, type AgentRegistry, type AgentRegistryHandlerOptions, type AgentRegistryModule, type AgentRunCallbackContext, type AgentRunContext, type AgentRunDriver, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEvents, type AgentRunHandler, type AgentRunInput, type AgentRunInputContextValues, type AgentRunMetadata, type AgentRunResult, type AgentRuntime, type AgentRuntimeBinding, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentRuntimeHooks, type AgentRuntimeName, type AgentSandboxProviderOptions, type AgentSchedulerProviderOptions, type AgentSettings, type AgentStateProviderOptions, type AgentTelemetry, type AgentTelemetryContentOptions, type AgentTelemetryExportContext, type AgentTelemetryRegistration, type AgentToolDefinition, type AgentToolPolicyContext, type AgentToolPolicyDecision, type AgentToolResolver, type AgentToolSchema, type AgentToolSet, type AgentToolStandardSchema, type AgentToolStep, type AgentToolTransform, type AgentTriggerContext, type AgentTriggerDefinition, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUIMessageStreamProjectionResolver, type AgentUsage, type AgentUsageCost, type AgentUsageCredentialSource, type AgentUsageRecord, type AgentWaitUntil, type AgentWebhookRegistrationDefinition, type AgentWebhookVerificationResult, type AgentWorkflowRuntimeBinding, ApprovalDecisionPart, ApprovalRequestPart, AttachmentData, AttachmentPart, AudioData, AudioPart, type BuiltInAgentDriver, type BuiltInAgentDriverName, type ClaudeCodeDriverOptions, type CodexDriverOptions, CreateMessageOptions, type CustomAgentDriver, DataPart, DefineAgent, type DiscoveredAgentDefinition, ErrorPart, FilePart, ImagePart, type MaybePromise, type MaybeResolvable, Message, MessageMetadata, MessagePart, MessageRole, type PublishedAgentDeliveryArtifact, type Resolvable, type ResolvedAgentModuleOptions, type ResolvedAgentRuntimeContext, type ResolvedAgentStateProviderOptions, type ResolvedAgentTriggerDefinition, type ResolvedAgentTriggerHandledInvocation, type ResolvedAgentTriggerInvocation, type ResolvedAgentTriggerInvocationResult, RunEvent, SerializedMessages, SourcePart, StreamEvent, TextPart, ToolCallPart, ToolInvocation, ToolInvocationState, ToolResultPart, type WorkspaceAgentDefaults, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, type WorkspaceAgentWorkspaceConfig, type WorkspaceAgentWorkspaceOptions, agentChatContextKey, agentInvocationStreamRoute, agentInvokerContextKey, agentWithColocatedInstructions, appendMessageText, applyAgentToolPolicies, applyStreamEvent, attachmentStringBytes, claudeCodeDriver, codexDriver, collectStreamEvents, createAgentChatData, createAgentInspectionMetadata, createAgentInvocationStreamResponse, createMessage, currentInputAttachments, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, deserializeMessages, getAgent, getAgentChatContext, getAgentFromRegistry, getMessageText, getToolInvocations, isAttachmentData, isAttachmentPart, isResolvedAgentTriggerHandledInvocation, isTextAttachmentMediaType, materializeAgentInspectionSourceMetadata, materializeMessageAttachmentData, memoizeMessageAttachmentData, readAgentInvocationStream, resolveAgent, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, resolveAttachmentData, runAgent, runAgentInline, runAgentTrigger, runScheduledAgent, serializeMessages, startAgentInvocation, streamAgent, streamAgentInline, streamAgentTrigger, validateMessage, verifyAgentWebhookRequest, withAgentToolStepReporting, workflow, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions };
-\ No newline at end of file
 diff --git a/dist/index.js b/dist/index.js
 index ebb74d0611b351d1c38910ea1d1f5fddcc473718..30e7ea9222b1e1c136931b2a979cf003ff4c092c 100644
 --- a/dist/index.js
@@ -763,7 +759,7 @@ index ebb74d0611b351d1c38910ea1d1f5fddcc473718..30e7ea9222b1e1c136931b2a979cf003
 +import { C as isResolvedAgentTriggerHandledInvocation, E as verifyAgentWebhookRequest, S as readAgentInvocationStream, _ as streamAgentTrigger, a as getAgent, b as agentInvocationStreamRoute, c as resolveAgentTriggerInvocation, d as runAgentInline, f as runAgentTrigger, g as streamAgentInline, h as streamAgent, i as defineAgent, l as resolveAgentTriggers, m as startAgentInvocation, n as claudeCodeDriver, o as getAgentFromRegistry, p as runScheduledAgent, r as codexDriver, s as resolveAgent, t as agentWithColocatedInstructions, u as runAgent, v as workflow, x as createAgentInvocationStreamResponse } from "./src-D9jQKLy8.js";
  export { agentChatContextKey, agentInvocationStreamRoute, agentInvokerContextKey, agentWithColocatedInstructions, appendMessageText, applyAgentToolPolicies, applyStreamEvent, attachmentStringBytes, claudeCodeDriver, codexDriver, collectStreamEvents, createAgentChatData, createAgentInspectionMetadata, createAgentInvocationStreamResponse, createMessage, currentInputAttachments, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, deserializeMessages, getAgent, getAgentChatContext, getAgentFromRegistry, getMessageText, getToolInvocations, isAttachmentData, isAttachmentPart, isResolvedAgentTriggerHandledInvocation, isTextAttachmentMediaType, materializeAgentInspectionSourceMetadata, materializeMessageAttachmentData, memoizeMessageAttachmentData, readAgentInvocationStream, resolveAgent, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, resolveAttachmentData, runAgent, runAgentInline, runAgentTrigger, runScheduledAgent, serializeMessages, startAgentInvocation, streamAgent, streamAgentInline, streamAgentTrigger, validateMessage, verifyAgentWebhookRequest, withAgentToolStepReporting, workflow, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions };
 diff --git a/dist/invocations/sqlite.d.ts b/dist/invocations/sqlite.d.ts
-index 2c4946c00871d0e4d8928bc35abdd3e095e3146e..05c8af5016810fee80ee1cc0858d7b9b6a867369 100644
+index 2c4946c00871d0e4d8928bc35abdd3e095e3146e..a3f0963435a56d8a6d6242590ecb98bd1b9db590 100644
 --- a/dist/invocations/sqlite.d.ts
 +++ b/dist/invocations/sqlite.d.ts
 @@ -1,4 +1,4 @@
@@ -773,7 +769,7 @@ index 2c4946c00871d0e4d8928bc35abdd3e095e3146e..05c8af5016810fee80ee1cc0858d7b9b
  
  //#region src/invocations/sqlite.d.ts
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index 6e0080a857c3107fd3b7434223042787f3e0437d..853c751916dd9bc1be78cba45237d12b3c1091fe 100644
+index 6e0080a857c3107fd3b7434223042787f3e0437d..c6515bc53f55fabfc79b63b991f0cbc77fbacd57 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
 @@ -1,4 +1,4 @@
@@ -782,11 +778,37 @@ index 6e0080a857c3107fd3b7434223042787f3e0437d..853c751916dd9bc1be78cba45237d12b
  import { createClient } from "@libsql/client";
  //#region src/invocations/sqlite.ts
  function tableName(prefix = "vitehub_agent_") {
+@@ -28,6 +28,13 @@ function listLimit(limit) {
+ 	if (!Number.isInteger(limit) || limit < 1) throw new TypeError("[vitehub] Agent Invocation list limit must be a positive integer.");
+ 	return Math.min(limit, 100);
+ }
++function searchValue(search) {
++	if (search === void 0) return;
++	if (typeof search !== "string") throw new TypeError("[vitehub] Agent Invocation search must be a string.");
++	const value = search.trim();
++	if (value.length > 256) throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.");
++	return value || void 0;
++}
+ function createLibsqlAgentInvocationStore(options = {}) {
+ 	if (!options.client && !options.url) throw new TypeError("[vitehub] SQLite Agent Invocations require url or client.");
+ 	const client = options.client || createClient({
+@@ -127,6 +134,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 				filters.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+ 				args.push(...statuses);
+ 			}
++			const search = searchValue(listOptions.search);
++			if (search) {
++				filters.push("json_remove(record, '$.observations') LIKE ? ESCAPE '\\' COLLATE NOCASE");
++				args.push(`%${search.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
++			}
+ 			args.push(limit + 1);
+ 			const records = (await client.execute({
+ 				args,
 diff --git a/dist/invocations-BA2lrQqy.js b/dist/invocations-OHN3TKHP.js
-similarity index 98%
+similarity index 94%
 rename from dist/invocations-BA2lrQqy.js
 rename to dist/invocations-OHN3TKHP.js
-index b5b1e0870a0405f078747f2b898f0e2aae7df755..32743e81cd0579cc9b13c66af028c76d4a20c770 100644
+index b5b1e0870a0405f078747f2b898f0e2aae7df755..f063d85ab09f6111d5b10335a830a0647cc07671 100644
 --- a/dist/invocations-BA2lrQqy.js
 +++ b/dist/invocations-OHN3TKHP.js
 @@ -1,6 +1,6 @@
@@ -806,7 +828,27 @@ index b5b1e0870a0405f078747f2b898f0e2aae7df755..32743e81cd0579cc9b13c66af028c76d
  		observations: record.observations.map(cloneObservation)
  	};
  }
-@@ -161,11 +161,11 @@ function assertStore(store) {
+@@ -97,6 +97,19 @@ function normalizeLimit(limit) {
+ 	if (!Number.isInteger(limit) || limit < 1) throw new TypeError("[vitehub] Agent Invocation list limit must be a positive integer.");
+ 	return Math.min(limit, MAX_LIST_LIMIT);
+ }
++function normalizeSearch(search) {
++	if (search === void 0) return;
++	if (typeof search !== "string") throw new TypeError("[vitehub] Agent Invocation search must be a string.");
++	const value = search.trim();
++	if (!value) return;
++	if (value.length > 256) throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.");
++	return value;
++}
++function matchesInvocationSearch(record, search) {
++	if (!search) return true;
++	const { observations: _observations, ...summary } = record;
++	return JSON.stringify(summary).toLowerCase().includes(search.toLowerCase());
++}
+ function normalizeBuiltInCursor(cursor) {
+ 	if (cursor === void 0) return;
+ 	const value = Number(cursor);
+@@ -161,11 +174,11 @@ function assertStore(store) {
  }
  function errorDetails(error) {
  	if (error === void 0) return;
@@ -823,7 +865,19 @@ index b5b1e0870a0405f078747f2b898f0e2aae7df755..32743e81cd0579cc9b13c66af028c76d
  }
  function terminalStatus(status) {
  	return status === "completed" || status === "failed" || status === "cancelled";
-@@ -475,8 +475,9 @@ function defineAgentInvocations(options) {
+@@ -249,9 +262,10 @@ function createMemoryAgentInvocationStore() {
+ 		list(options = {}) {
+ 			const limit = normalizeLimit(options.limit);
+ 			const cursor = normalizeBuiltInCursor(options.cursor);
++			const search = normalizeSearch(options.search);
+ 			const statuses = options.status === void 0 ? void 0 : new Set(Array.isArray(options.status) ? options.status : [options.status]);
+ 			const before = cursor === void 0 ? Number.POSITIVE_INFINITY : Number(cursor);
+-			const candidates = [...records.values()].filter((record) => Number(record.cursor) < before && (!statuses || statuses.has(record.status))).sort((a, b) => Number(b.cursor) - Number(a.cursor));
++			const candidates = [...records.values()].filter((record) => Number(record.cursor) < before && (!statuses || statuses.has(record.status)) && matchesInvocationSearch(record, search)).sort((a, b) => Number(b.cursor) - Number(a.cursor));
+ 			const page = candidates.slice(0, limit);
+ 			return {
+ 				...candidates.length > limit && page.length ? { cursor: page.at(-1).cursor } : {},
+@@ -475,8 +489,9 @@ function defineAgentInvocations(options) {
  						status: "running",
  						timestamp: (/* @__PURE__ */ new Date()).toISOString()
  					});
@@ -834,8 +888,25 @@ index b5b1e0870a0405f078747f2b898f0e2aae7df755..32743e81cd0579cc9b13c66af028c76d
  						status,
  						timestamp: (/* @__PURE__ */ new Date()).toISOString()
  					};
+@@ -546,10 +561,14 @@ function defineAgentInvocations(options) {
+ 			return await store.get(await boundedIdentity(invocationIdentity(runId, agentName)));
+ 		},
+ 		async list(options = {}) {
+-			return await store.list({
++			const search = normalizeSearch(options.search);
++			const normalized = {
+ 				...options,
+ 				limit: normalizeLimit(options.limit)
+-			});
++			};
++			if (search) normalized.search = search;
++			else delete normalized.search;
++			return await store.list(normalized);
+ 		}
+ 	};
+ }
 diff --git a/dist/mcp/stdio.d.ts b/dist/mcp/stdio.d.ts
-index b843b18875b007e1de1219f386d58ecdbde123a3..adc118dda83425072db6b8ef522ddb632c4dac16 100644
+index b843b18875b007e1de1219f386d58ecdbde123a3..21fa1a743cc58e52a7e9834c2579dba7235d6201 100644
 --- a/dist/mcp/stdio.d.ts
 +++ b/dist/mcp/stdio.d.ts
 @@ -1,4 +1,4 @@
@@ -845,7 +916,7 @@ index b843b18875b007e1de1219f386d58ecdbde123a3..adc118dda83425072db6b8ef522ddb63
  
  //#region src/mcp/stdio.d.ts
 diff --git a/dist/mcp.d.ts b/dist/mcp.d.ts
-index 42c5acc17916ad5c49687da3672934e78fa6b3c0..777f806537d109f027b130e292de2063c21ee281 100644
+index 42c5acc17916ad5c49687da3672934e78fa6b3c0..90bfcfa6554c7bd3ef6546c9a0c28606b7041ae5 100644
 --- a/dist/mcp.d.ts
 +++ b/dist/mcp.d.ts
 @@ -1,4 +1,4 @@
@@ -855,16 +926,15 @@ index 42c5acc17916ad5c49687da3672934e78fa6b3c0..777f806537d109f027b130e292de2063
  
  //#region src/mcp.d.ts
 diff --git a/dist/messages.d.ts b/dist/messages.d.ts
-index 24d3ab40428043ad164fb431ff8fd8f818569110..63f4ca30f2c694a1ef2eb3e7025676beebeefbd1 100644
+index 24d3ab40428043ad164fb431ff8fd8f818569110..35725c02d457afe6a8c79656a2b06a263b73616a 100644
 --- a/dist/messages.d.ts
 +++ b/dist/messages.d.ts
 @@ -1,2 +1,2 @@
 -import { $o as DataPart, As as memoizeMessageAttachmentData, Cs as deserializeMessages, Ds as isAttachmentPart, Es as isAttachmentData, Go as AgentMessagePhase, Jo as AttachmentData, Ko as ApprovalDecisionPart, Ms as serializeMessages, Ns as validateMessage, Os as isTextAttachmentMediaType, Qo as CreateMessageOptions, Ss as currentInputAttachments, Ts as getToolInvocations, Uo as AgentActivity, Wo as AgentChatData, Xo as AudioData, Yo as AttachmentPart, Zo as AudioPart, _s as applyStreamEvent, as as MessagePart, bs as createAgentChatData, cs as SerializedMessages, ds as TextPart, es as ErrorPart, fs as ToolCallPart, gs as appendMessageText, hs as ToolResultPart, is as MessageMetadata, js as resolveAttachmentData, ks as materializeMessageAttachmentData, ls as SourcePart, ms as ToolInvocationState, ns as ImagePart, os as MessageRole, ps as ToolInvocation, qo as ApprovalRequestPart, rs as Message, ss as RunEvent, ts as FilePart, us as StreamEvent, vs as attachmentStringBytes, ws as getMessageText, xs as createMessage, ys as collectStreamEvents } from "./types-DyGh2IS8.js";
 +import { $o as DataPart, As as memoizeMessageAttachmentData, Cs as deserializeMessages, Ds as isAttachmentPart, Es as isAttachmentData, Go as AgentMessagePhase, Jo as AttachmentData, Ko as ApprovalDecisionPart, Ms as serializeMessages, Ns as validateMessage, Os as isTextAttachmentMediaType, Qo as CreateMessageOptions, Ss as currentInputAttachments, Ts as getToolInvocations, Uo as AgentActivity, Wo as AgentChatData, Xo as AudioData, Yo as AttachmentPart, Zo as AudioPart, _s as applyStreamEvent, as as MessagePart, bs as createAgentChatData, cs as SerializedMessages, ds as TextPart, es as ErrorPart, fs as ToolCallPart, gs as appendMessageText, hs as ToolResultPart, is as MessageMetadata, js as resolveAttachmentData, ks as materializeMessageAttachmentData, ls as SourcePart, ms as ToolInvocationState, ns as ImagePart, os as MessageRole, ps as ToolInvocation, qo as ApprovalRequestPart, rs as Message, ss as RunEvent, ts as FilePart, us as StreamEvent, vs as attachmentStringBytes, ws as getMessageText, xs as createMessage, ys as collectStreamEvents } from "./types-ChW00Cws.js";
  export { AgentActivity, AgentChatData, AgentMessagePhase, ApprovalDecisionPart, ApprovalRequestPart, AttachmentData, AttachmentPart, AudioData, AudioPart, CreateMessageOptions, DataPart, ErrorPart, FilePart, ImagePart, Message, MessageMetadata, MessagePart, MessageRole, RunEvent, SerializedMessages, SourcePart, StreamEvent, TextPart, ToolCallPart, ToolInvocation, ToolInvocationState, ToolResultPart, appendMessageText, applyStreamEvent, attachmentStringBytes, collectStreamEvents, createAgentChatData, createMessage, currentInputAttachments, deserializeMessages, getMessageText, getToolInvocations, isAttachmentData, isAttachmentPart, isTextAttachmentMediaType, materializeMessageAttachmentData, memoizeMessageAttachmentData, resolveAttachmentData, serializeMessages, validateMessage };
-\ No newline at end of file
 diff --git a/dist/output.d.ts b/dist/output.d.ts
-index 7e30b8f858726cad9715b1b36226c06138a6e49b..c387c3545307fdc1598d7dd6cc50256d62a28a27 100644
+index 7e30b8f858726cad9715b1b36226c06138a6e49b..70da4fc57cd13b0549a2f5225dd20efab230ceec 100644
 --- a/dist/output.d.ts
 +++ b/dist/output.d.ts
 @@ -1,4 +1,4 @@
@@ -919,7 +989,7 @@ index bba9ee9ae384ef5c2fe4743373505acb3849b7d5..f9dcd76df431b60120548b8383aca763
  import { i as registerActiveAgentInvocation, t as activeAgentInvocation } from "./agent-invocation-control-3VAmvoDB.js";
  import { r as runWithActiveCloudflareEnv } from "./cloudflare-env-BDSIwXxl.js";
 diff --git a/dist/runtime/workflow.d.ts b/dist/runtime/workflow.d.ts
-index 626609b53dd4fe9425345e48592651f94521e457..8f46122b8e6931409441e87d4b4b5e20d87eea8e 100644
+index 626609b53dd4fe9425345e48592651f94521e457..5acc4797c2029bcd338c63966537fd02df92b46f 100644
 --- a/dist/runtime/workflow.d.ts
 +++ b/dist/runtime/workflow.d.ts
 @@ -1,5 +1,5 @@
@@ -951,7 +1021,7 @@ index 60760b5017ead0b9ad89a3b936724a3cbf9366f5..f9971a8e079615bce277a0599dd5248a
  import { t as createAgentRuntimeContext } from "../context-KghRPYRx.js";
  import { getViteHubErrorShape } from "@vite-hub/runtime";
 diff --git a/dist/server/internal.d.ts b/dist/server/internal.d.ts
-index cea19f696327142d2db7ea015f5113818137c7be..641e9a7d64433029ff3125195d4a2229741ef62c 100644
+index cea19f696327142d2db7ea015f5113818137c7be..f7de8e02fa983b6a9724fdd3ed7c1ef0941d983f 100644
 --- a/dist/server/internal.d.ts
 +++ b/dist/server/internal.d.ts
 @@ -1,4 +1,4 @@
@@ -974,7 +1044,7 @@ index 9a27f718afdc0501d3f2abee39049e24cd1cff56..e0d07f006fa389803224d135e23c5041
  function defineScheduledAgentTarget(agent, runtimeContext = {}) {
  	return {
 diff --git a/dist/server/workspace.d.ts b/dist/server/workspace.d.ts
-index c35654073fe6978794491dd932aeecaa3a1c54fd..bf4988bbd0d86e71d6db91f194f335aae85498d8 100644
+index c35654073fe6978794491dd932aeecaa3a1c54fd..f19c2c955a8548d9c7266fa85c9405684b7db99f 100644
 --- a/dist/server/workspace.d.ts
 +++ b/dist/server/workspace.d.ts
 @@ -1,5 +1,5 @@
@@ -996,14 +1066,13 @@ index fc1e335cb7da16c26ca527ceb60540fb1ed75ed3..2c8aa0422c59965ca4f1bf5c8ee42759
  //#region src/server/workspace.ts
  function registerWorkspaceAgent(agent, options = {}) {
 diff --git a/dist/server.d.ts b/dist/server.d.ts
-index 5c9b97a13186322864574eb3f1737a6d7b82f09a..e41a6a9f23ac3a86a6e7188a3344cd960cccbfc6 100644
+index 5c9b97a13186322864574eb3f1737a6d7b82f09a..18b454ae75438a9f2d0baab285f01aea4372bcd3 100644
 --- a/dist/server.d.ts
 +++ b/dist/server.d.ts
 @@ -1,2 +1,2 @@
 -import { $i as AgentChannelChatRouteAdmissionContext, Bo as AgentRunEvents, Co as defineAgentInvocations, Fo as AgentRunEventReadOptions, Ho as defineAgentRunEvents, Io as AgentRunEventStore, Lo as AgentRunEventStoreResolveContext, Mo as AgentRunEvent, No as AgentRunEventInput, Po as AgentRunEventPublisher, Ro as AgentRunEventStoreResolver, So as createMemoryAgentInvocationStore, Vo as AgentRunEventsOptions, _a as createTelegramPollingRouteHandler, _o as AgentInvocationStoreCreateResult, aa as AgentChannelChatRouteMapInputContext, bo as AgentInvocations, ca as AgentChannelChatRouteStandardSchemaResultSuccess, da as AgentChannelWebhookRouteOptions, do as AgentInvocationListOptions, ea as AgentChannelChatRouteAdmissionOptions, fa as AgentDiscordGatewayRouteOptions, fo as AgentInvocationListResult, ga as createDiscordGatewayRouteHandler, go as AgentInvocationStoreCreateInput, ho as AgentInvocationStore, ia as AgentChannelChatRouteInputOptions, la as AgentChannelChatRouteStandardSchemaV1, mo as AgentInvocationRecordStatus, na as AgentChannelChatRouteContext, oa as AgentChannelChatRouteRequestOptions, pa as AgentTelegramPollingRouteOptions, po as AgentInvocationRecord, ra as AgentChannelChatRouteHandlerOptions, sa as AgentChannelChatRouteStandardSchemaResultFailure, ta as AgentChannelChatRouteBody, ua as AgentChannelChatRouteTrustedInputField, uo as AgentInvocationAnnotationValue, vo as AgentInvocationStoreUpdateInput, xo as AgentInvocationsOptions, yo as AgentInvocationSummary, zo as AgentRunEventSubscribeOptions } from "./types-DyGh2IS8.js";
 +import { $i as AgentChannelChatRouteAdmissionContext, Bo as AgentRunEvents, Co as defineAgentInvocations, Fo as AgentRunEventReadOptions, Ho as defineAgentRunEvents, Io as AgentRunEventStore, Lo as AgentRunEventStoreResolveContext, Mo as AgentRunEvent, No as AgentRunEventInput, Po as AgentRunEventPublisher, Ro as AgentRunEventStoreResolver, So as createMemoryAgentInvocationStore, Vo as AgentRunEventsOptions, _a as createTelegramPollingRouteHandler, _o as AgentInvocationStoreCreateResult, aa as AgentChannelChatRouteMapInputContext, bo as AgentInvocations, ca as AgentChannelChatRouteStandardSchemaResultSuccess, da as AgentChannelWebhookRouteOptions, do as AgentInvocationListOptions, ea as AgentChannelChatRouteAdmissionOptions, fa as AgentDiscordGatewayRouteOptions, fo as AgentInvocationListResult, ga as createDiscordGatewayRouteHandler, go as AgentInvocationStoreCreateInput, ho as AgentInvocationStore, ia as AgentChannelChatRouteInputOptions, la as AgentChannelChatRouteStandardSchemaV1, mo as AgentInvocationRecordStatus, na as AgentChannelChatRouteContext, oa as AgentChannelChatRouteRequestOptions, pa as AgentTelegramPollingRouteOptions, po as AgentInvocationRecord, ra as AgentChannelChatRouteHandlerOptions, sa as AgentChannelChatRouteStandardSchemaResultFailure, ta as AgentChannelChatRouteBody, ua as AgentChannelChatRouteTrustedInputField, uo as AgentInvocationAnnotationValue, vo as AgentInvocationStoreUpdateInput, xo as AgentInvocationsOptions, yo as AgentInvocationSummary, zo as AgentRunEventSubscribeOptions } from "./types-ChW00Cws.js";
  export { type AgentChannelChatRouteAdmissionContext, type AgentChannelChatRouteAdmissionOptions, type AgentChannelChatRouteBody, type AgentChannelChatRouteContext, type AgentChannelChatRouteHandlerOptions, type AgentChannelChatRouteInputOptions, type AgentChannelChatRouteMapInputContext, type AgentChannelChatRouteRequestOptions, type AgentChannelChatRouteStandardSchemaResultFailure, type AgentChannelChatRouteStandardSchemaResultSuccess, type AgentChannelChatRouteStandardSchemaV1, type AgentChannelChatRouteTrustedInputField, type AgentChannelWebhookRouteOptions, type AgentDiscordGatewayRouteOptions, type AgentInvocationAnnotationValue, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationStore, type AgentInvocationStoreCreateInput, type AgentInvocationStoreCreateResult, type AgentInvocationStoreUpdateInput, type AgentInvocationSummary, type AgentInvocations, type AgentInvocationsOptions, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventReadOptions, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEventSubscribeOptions, type AgentRunEvents, type AgentRunEventsOptions, type AgentTelegramPollingRouteOptions, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents };
-\ No newline at end of file
 diff --git a/dist/server.js b/dist/server.js
 index dd5c84c0f09e3204e8ae1e348944c19a5f38a713..33ca777bd06b80511da30516972b6fa1e7edc9f1 100644
 --- a/dist/server.js
@@ -1231,7 +1300,7 @@ index d66166f70da17ee303c2dd06db788143efcd9513..34d5ff2bc782e951b223d0249621ef01
  		const workspace = workspaceName && workspaceModule ? workspaceMode === "write" ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? {
  			...workspaceUseOptions,
 diff --git a/dist/test.d.ts b/dist/test.d.ts
-index 10b53311cf43e0219a2d1b8f7f3afddd190c623b..951b83256851a8a851fbad3f079ee6e3b183afea 100644
+index 10b53311cf43e0219a2d1b8f7f3afddd190c623b..71c0879840d18b9f6d88c677764360fb1bdc39e7 100644
 --- a/dist/test.d.ts
 +++ b/dist/test.d.ts
 @@ -1,4 +1,4 @@
@@ -1255,7 +1324,7 @@ diff --git a/dist/types-B44OmE9q.d.ts b/dist/types-B02H2b3K.d.ts
 similarity index 89%
 rename from dist/types-B44OmE9q.d.ts
 rename to dist/types-B02H2b3K.d.ts
-index 17ddbadcd6c5171c02e7fc2a9103384fd215c823..46804bdb76e2fdc88cca6eb9f42deac032ae7aac 100644
+index 17ddbadcd6c5171c02e7fc2a9103384fd215c823..d40519e18c92c15b88f80114638ab60601e8b00f 100644
 --- a/dist/types-B44OmE9q.d.ts
 +++ b/dist/types-B02H2b3K.d.ts
 @@ -1,4 +1,4 @@
@@ -1268,7 +1337,7 @@ diff --git a/dist/types-DyGh2IS8.d.ts b/dist/types-ChW00Cws.d.ts
 similarity index 99%
 rename from dist/types-DyGh2IS8.d.ts
 rename to dist/types-ChW00Cws.d.ts
-index 4b3125679044d1ae3d31f0532aa5833d9ce740aa..95f92c189140bf26dca2fe03f15dc38c958718cd 100644
+index 4b3125679044d1ae3d31f0532aa5833d9ce740aa..e0570527cae0b7c8a273e30cc78f2159d8de7e41 100644
 --- a/dist/types-DyGh2IS8.d.ts
 +++ b/dist/types-ChW00Cws.d.ts
 @@ -1,4 +1,4 @@
@@ -1289,7 +1358,15 @@ index 4b3125679044d1ae3d31f0532aa5833d9ce740aa..95f92c189140bf26dca2fe03f15dc38c
    failedAt?: string;
    id: string;
    observations: readonly TraceEventLogEntry[];
-@@ -1511,10 +1508,7 @@ type AgentHookOwner = "agent" | "capability" | "channel" | "runtime" | "integrat
+@@ -340,6 +337,7 @@ interface AgentInvocationRecord {
+ interface AgentInvocationListOptions {
+   cursor?: string;
+   limit?: number;
++  search?: string;
+   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[];
+ }
+ type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">;
+@@ -1511,10 +1509,7 @@ type AgentHookOwner = "agent" | "capability" | "channel" | "runtime" | "integrat
  type AgentHookOutcome = "error" | "success";
  interface AgentHookObserverEvent {
    durationMs: number;
@@ -1302,7 +1379,7 @@ index 4b3125679044d1ae3d31f0532aa5833d9ce740aa..95f92c189140bf26dca2fe03f15dc38c
    metadata?: Record<string, unknown>;
    name: string;
 diff --git a/dist/vite.d.ts b/dist/vite.d.ts
-index 47e2a3403b8a7e8bf64be70d0080997a1a93ec99..a8f5214a68f67831d3584a44daeabad3997a736f 100644
+index 47e2a3403b8a7e8bf64be70d0080997a1a93ec99..a999ecf479b109480e05d354222331e8cefe3366 100644
 --- a/dist/vite.d.ts
 +++ b/dist/vite.d.ts
 @@ -1,4 +1,4 @@
@@ -1332,7 +1409,7 @@ index cd90ab79da651eb274518ee2869722a7964d7bb7..5a9fb6e4edcea9547e5818afabab626e
  import { createRequire } from "node:module";
  import { access, copyFile, cp, mkdir, readFile, readdir, realpath, rm, rmdir, stat, writeFile } from "node:fs/promises";
 diff --git a/dist/vue.d.ts b/dist/vue.d.ts
-index eeb163154af7ec921943b696750554a4f66e03a9..555812ce9b73b69515e286f9a9c428545c965829 100644
+index eeb163154af7ec921943b696750554a4f66e03a9..ba4049528213e88efe1697eca9080cd25099d0d6 100644
 --- a/dist/vue.d.ts
 +++ b/dist/vue.d.ts
 @@ -1,4 +1,4 @@
@@ -1341,6 +1418,50 @@ index eeb163154af7ec921943b696750554a4f66e03a9..555812ce9b73b69515e286f9a9c42854
  import { TraceEventLogEntry } from "@vite-hub/runtime";
  import { UseChatHelpers, UseChatHelpers as UseChatHelpers$1 } from "@ai-sdk/vue";
  import { ChatInit, UIMessage } from "ai";
+diff --git a/dist/vue.js b/dist/vue.js
+index 696557c9410389c4a080dbdc6135b05f2ff3ac93..da18f550b095670f80ab2afbc647a25989118b4c 100644
+--- a/dist/vue.js
++++ b/dist/vue.js
+@@ -106,17 +106,37 @@ function useAgentInvocations(options) {
+ 	const baseURL = options.baseURL ?? defaultBaseURL;
+ 	let loadMoreController;
+ 	let revision = 0;
++	let resetFirstPage = true;
++	let sourceSignature;
+ 	let stopped = false;
++	function currentSourceSignature() {
++		return JSON.stringify([toValue(baseURL), options.query ? toValue(options.query) : void 0]);
++	}
+ 	const resource = useInvocationResource({
+ 		apply(result) {
+-			invocations.value = result.invocations;
+-			cursor.value = result.cursor;
++			if (resetFirstPage || invocations.value.length === 0) {
++				invocations.value = result.invocations;
++				cursor.value = result.cursor;
++				resetFirstPage = false;
++				return;
++			}
++			const firstPageIds = new Set(result.invocations.map((invocation) => invocation.id));
++			const retained = invocations.value.filter((invocation) => !firstPageIds.has(invocation.id));
++			invocations.value = [...result.invocations, ...retained];
++			if (retained.length === 0) cursor.value = result.cursor;
+ 		},
+ 		clear() {
+ 			invocations.value = [];
+ 			cursor.value = void 0;
+ 		},
+ 		beforeLoad() {
++			const nextSignature = currentSourceSignature();
++			resetFirstPage = sourceSignature !== nextSignature;
++			sourceSignature = nextSignature;
++			if (resetFirstPage) {
++				invocations.value = [];
++				cursor.value = void 0;
++			}
+ 			revision++;
+ 			loadMoreController?.abort();
+ 			loadMoreController = void 0;
 diff --git a/dist/workspace-agent-Rd5h3tv8.js b/dist/workspace-agent-CWAXDODV.js
 similarity index 99%
 rename from dist/workspace-agent-Rd5h3tv8.js
@@ -1358,7 +1479,7 @@ diff --git a/dist/workspace-agent-DK1NhJfY.d.ts b/dist/workspace-agent-DBwDMiJ4.
 similarity index 98%
 rename from dist/workspace-agent-DK1NhJfY.d.ts
 rename to dist/workspace-agent-DBwDMiJ4.d.ts
-index 55a077382cd4b17fc43f975baf8c8ab61a3c0bb2..88d19a1cd118798cbb157f3291fc708c44f4354a 100644
+index 55a077382cd4b17fc43f975baf8c8ab61a3c0bb2..ea8f3af87f39c14c3e6e4cb61f581a75e5ec194c 100644
 --- a/dist/workspace-agent-DK1NhJfY.d.ts
 +++ b/dist/workspace-agent-DBwDMiJ4.d.ts
 @@ -1,4 +1,4 @@
