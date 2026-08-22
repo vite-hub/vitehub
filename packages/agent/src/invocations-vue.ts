@@ -1,4 +1,5 @@
 import { onScopeDispose, shallowRef, toValue, watch } from "vue";
+import * as v from "valibot";
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { MaybeRefOrGetter, ShallowRef } from "vue";
@@ -65,24 +66,57 @@ export interface UseAgentInvocationReturn {
 
 const defaultBaseURL = "/api/invocations";
 
+const invocationStatusSchema = v.picklist(["pending", "running", "completed", "failed", "cancelled"]);
+const annotationValueSchema = v.union([v.boolean(), v.number(), v.string(), v.null()]);
+const invocationSummarySchema = v.looseObject({
+  agentName: v.optional(v.string()),
+  annotations: v.optional(v.record(v.string(), annotationValueSchema)),
+  cancelledAt: v.optional(v.string()),
+  channelId: v.optional(v.string()),
+  completedAt: v.optional(v.string()),
+  createdAt: v.string(),
+  cursor: v.string(),
+  error: v.optional(v.object({ message: v.string(), name: v.optional(v.string()) })),
+  failedAt: v.optional(v.string()),
+  id: v.string(),
+  origin: v.optional(v.string()),
+  startedAt: v.optional(v.string()),
+  status: invocationStatusSchema,
+  threadId: v.optional(v.string()),
+  traceId: v.string(),
+  updatedAt: v.string(),
+});
+const traceEventLogEntrySchema = v.looseObject({
+  attributes: v.optional(v.record(v.string(), v.unknown())),
+  name: v.string(),
+  sequence: v.number(),
+  timestamp: v.string(),
+  trace: v.optional(v.object({
+    id: v.string(),
+    parentId: v.optional(v.string()),
+    sampled: v.optional(v.boolean()),
+  })),
+  type: v.picklist(["approval", "capability", "error", "lifecycle", "policy", "run"]),
+});
+const invocationListResultSchema = v.object({
+  cursor: v.optional(v.string()),
+  invocations: v.array(invocationSummarySchema),
+});
+const invocationDetailResultSchema = v.object({
+  invocation: invocationSummarySchema,
+  observations: v.array(traceEventLogEntrySchema),
+});
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
 function parseInvocationListResult(value: unknown): AgentInvocationListResult {
-  if (!(value instanceof Object) || !("invocations" in value) || !Array.isArray(value.invocations)) {
-    throw new TypeError("Invalid Agent Invocation list response.");
-  }
-  // SAFETY: The transport boundary validates the required list shape; record fields are server-owned JSON.
-  return value as AgentInvocationListResult;
+  return v.parse(invocationListResultSchema, value);
 }
 
 function parseInvocationDetailResult(value: unknown): AgentInvocationDetailResult {
-  if (!(value instanceof Object) || !("invocation" in value) || !("observations" in value) || !Array.isArray(value.observations)) {
-    throw new TypeError("Invalid Agent Invocation detail response.");
-  }
-  // SAFETY: The transport boundary validates the required detail shape; record fields are server-owned JSON.
-  return value as AgentInvocationDetailResult;
+  return v.parse(invocationDetailResultSchema, value);
 }
 
 function appendQuery(

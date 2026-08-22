@@ -210,7 +210,10 @@ function updateDesktop(event?: MediaQueryListEvent): void {
 watch(
   sessions,
   async (next) => {
-    if (next.length && !next.some((session) => session.id === routeSession.value))
+    const requestedSession = routeSession.value;
+    const requestedSessionMissing = requestedSession
+      && !next.some((session) => session.id === requestedSession);
+    if (next.length && (!requestedSession || (requestedSessionMissing && !list.cursor.value)))
       await selectSession(next[0]!);
   },
   { immediate: true },

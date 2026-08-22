@@ -19,27 +19,37 @@ interface RequestCall {
 
 function controlledRequester() {
   const calls: RequestCall[] = [];
-  // SAFETY: Controlled tests resolve each call with the response type requested by the composable.
-  const request = (<T>(path: string, options: Parameters<AgentInvocationRequester>[1]) =>
-    new Promise<T>((resolve, reject) => {
+  const request: AgentInvocationRequester = (path, options, parse) =>
+    new Promise<unknown>((resolve, reject) => {
       options.signal?.addEventListener(
         "abort",
         () => reject(new DOMException("Aborted", "AbortError")),
         { once: true },
       );
       calls.push({ options, path, reject, resolve });
-    })) as AgentInvocationRequester;
+    }).then(parse);
   return { calls, request };
 }
 
 function record(id: string): AgentInvocationRecord {
-  // SAFETY: Tests exercise list behavior and only require a stable invocation identity.
-  return { id } as AgentInvocationRecord;
+  return {
+    createdAt: "2026-08-22T00:00:00.000Z",
+    cursor: id,
+    id,
+    observations: [],
+    status: "running",
+    traceId: `trace-${id}`,
+    updatedAt: "2026-08-22T00:00:00.000Z",
+  };
 }
 
 function observation(sequence: number): TraceEventLogEntry {
-  // SAFETY: Tests exercise observation replacement and only require a stable sequence.
-  return { sequence } as TraceEventLogEntry;
+  return {
+    name: `observation-${sequence}`,
+    sequence,
+    timestamp: "2026-08-22T00:00:00.000Z",
+    type: "run",
+  };
 }
 
 async function settle() {
@@ -53,6 +63,36 @@ afterEach(() => {
 });
 
 describe("Agent Invocation Vue composables", () => {
+  it("keeps prior state when transport records are malformed", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    expect(resource.invocations.value).toEqual([record("inv-1")]);
+
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [null] });
+    await refresh;
+    expect(resource.error.value).toBeInstanceOf(Error);
+    expect(resource.invocations.value).toEqual([record("inv-1")]);
+    scope.stop();
+
+    const detailCalls = controlledRequester();
+    const detailScope = effectScope();
+    const detail = detailScope.run(() => useAgentInvocation("inv-1", { request: detailCalls.request }))!;
+    detailCalls.calls[0]!.resolve({ invocation: record("inv-1"), observations: [observation(1)] });
+    await settle();
+    const detailRefresh = detail.refresh();
+    detailCalls.calls[1]!.resolve({ invocation: {}, observations: [null] });
+    await detailRefresh;
+    expect(detail.error.value).toBeInstanceOf(Error);
+    expect(detail.invocation.value).toEqual(record("inv-1"));
+    expect(detail.observations.value).toEqual([observation(1)]);
+    detailScope.stop();
+  });
+
   it("reacts to list queries and ignores superseded requests", async () => {
     const { calls, request } = controlledRequester();
     const query = ref({ status: ["queued", "running"], limit: 20 });
