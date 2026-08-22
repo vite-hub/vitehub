@@ -3,6 +3,7 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
+    copy: [{ from: "styles.css", to: "dist" }],
     deps: {
       alwaysBundle: [/@pierre\//, "@vite-hub/runtime"],
       neverBundle: [
@@ -36,7 +37,7 @@ export default defineConfig({
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
             }),
         );
-        return { ...publicExports, "./styles.css": "./styles.css" };
+        return { ...publicExports, "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },

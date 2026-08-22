@@ -20,12 +20,11 @@
   },
   "files": [
     "dist",
-    "styles.css",
     "package.json"
   ],
   "type": "module",
   "sideEffects": [
-    "./styles.css"
+    "./dist/styles.css"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -46,7 +45,7 @@
       "import": "./dist/vite.js"
     },
     "./package.json": "./package.json",
-    "./styles.css": "./styles.css"
+    "./styles.css": "./dist/styles.css"
   },
   "scripts": {
     "build": "vp pack",

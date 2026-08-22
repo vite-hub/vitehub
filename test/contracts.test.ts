@@ -144,7 +144,7 @@ describe("package manifest contracts", () => {
 
         if (target.endsWith(".css")) {
           expect(subpath, `${packageName} ${subpath} should expose CSS through a CSS subpath`).toMatch(/\.css$/)
-          expect(target, `${packageName} ${subpath} should point to a CSS asset`).toMatch(/^\.\/(?:dist\/)?[^/].*\.css$/)
+          expect(target, `${packageName} ${subpath} should point to a built CSS asset`).toMatch(/^\.\/dist\/.+\.css$/)
           continue
         }
 
