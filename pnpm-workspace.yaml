@@ -48,6 +48,8 @@ catalogs:
     "@nuxt/ui": ^4.9.0
     docus: ^5.12.3
     nuxt: ^4.4.8
+    nuxt-schema-org: ^6.3.0
+    zod: ^4.3.6
   realtime:
     "@tiptap/core": ^3.29.2
     "@tiptap/extension-collaboration": ^3.29.2

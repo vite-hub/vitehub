@@ -3,12 +3,82 @@ import { fileURLToPath } from "node:url";
 
 export default defineNuxtConfig({
   extends: ["docus"],
-  modules: ["./modules/vitehub-docs"],
+  modules: ["./modules/vitehub-docs", "nuxt-schema-org"],
   site: {
+    description: "Portable Agents and Server Primitives for any Vite host.",
     name: "ViteHub",
     url: "https://vitehub.dev",
   },
-  llms: { domain: "https://vitehub.dev" },
+  schemaOrg: {
+    defaults: false,
+  },
+  llms: {
+    domain: "https://vitehub.dev",
+    title: "ViteHub",
+    description: "Portable Agents and Server Primitives for any Vite host.",
+    sections: [
+      {
+        title: "When to use ViteHub",
+        description: "Use ViteHub when a Vite application needs portable server storage, queues, workflows, schedules, sandboxes, or other Server Primitives; when it needs inspectable Agent Definitions with explicit Capabilities and Workspaces; or when the same runtime behavior must deploy across supported hosts without leaking provider APIs into application code.",
+        links: [
+          {
+            title: "Choose a ViteHub layer",
+            description: "Decide whether the job needs a Server Primitive, an Agent, or both.",
+            href: "https://vitehub.dev/raw/docs/getting-started.md",
+          },
+          {
+            title: "Install ViteHub",
+            description: "Install the framework distribution or a focused owner package.",
+            href: "https://vitehub.dev/raw/docs/getting-started/installation.md",
+          },
+        ],
+      },
+      {
+        title: "ViteHub developer resources",
+        description: "Use these named machine interfaces to inspect ViteHub before reading the full documentation set. ViteHub is installed into your application and does not expose a shared hosted runtime API.",
+        links: [
+          {
+            title: "ViteHub OpenAPI document",
+            description: "Discover the public machine-readable resources served by vitehub.dev.",
+            href: "https://vitehub.dev/openapi.json",
+          },
+          {
+            title: "ViteHub Agent Skill",
+            description: "Install or inspect the coding-agent instructions and routed references.",
+            href: "https://vitehub.dev/.well-known/skills/vitehub/SKILL.md",
+          },
+          {
+            title: "ViteHub MCP server",
+            description: "Connect an MCP client to the Streamable HTTP documentation endpoint.",
+            href: "https://vitehub.dev/mcp",
+          },
+          {
+            title: "ViteHub CLI on npm",
+            description: "Install the official CLI included with the vite-hub package.",
+            href: "https://www.npmjs.com/package/vite-hub",
+          },
+        ],
+      },
+      {
+        title: "Project and trust information",
+        links: [
+          { title: "About ViteHub", href: "https://vitehub.dev/raw/about.md" },
+          { title: "Contact ViteHub", href: "https://vitehub.dev/raw/contact.md" },
+          { title: "ViteHub privacy", href: "https://vitehub.dev/raw/privacy.md" },
+        ],
+      },
+    ],
+  },
+  routeRules: {
+    "/": { headers: { vary: "Accept" } },
+    "/about": { headers: { vary: "Accept" } },
+    "/blog": { headers: { vary: "Accept" } },
+    "/blog/**": { headers: { vary: "Accept" } },
+    "/contact": { headers: { vary: "Accept" } },
+    "/docs": { headers: { vary: "Accept" } },
+    "/docs/**": { headers: { vary: "Accept" } },
+    "/privacy": { headers: { vary: "Accept" } },
+  },
   app: {
     head: {
       link: [
@@ -151,6 +221,20 @@ export default defineNuxtConfig({
             custom_domain: true,
           },
         ],
+        assets: {
+          run_worker_first: [
+            "/",
+            "/about",
+            "/about/",
+            "/contact",
+            "/contact/",
+            "/docs",
+            "/docs/*",
+            "/blog/*",
+            "/privacy",
+            "/privacy/",
+          ],
+        },
         observability: {
           enabled: true,
           head_sampling_rate: 0.1,
@@ -159,6 +243,7 @@ export default defineNuxtConfig({
     },
     prerender: {
       failOnError: true,
+      routes: ["/about", "/contact", "/openapi.json", "/privacy"],
     },
   },
   future: {
