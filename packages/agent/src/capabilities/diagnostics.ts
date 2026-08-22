@@ -164,7 +164,7 @@ function createMonitor(options: {
       activeInspection = undefined
       const next = pending
       pending = undefined
-      if (next && !stopped) void drain(next)
+      if (next && (!stopped || next === "finish")) void drain(next)
     })
     return task
   }
@@ -176,7 +176,26 @@ function createMonitor(options: {
       stopped = true
       if (interval) clearInterval(interval)
       interval = undefined
-      await drain("finish")
+      if (!activeInspection) {
+        await drain("finish")
+        return
+      }
+      pending = "finish"
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const settled = await Promise.race([
+        activeInspection.then(() => true),
+        new Promise<false>((resolve) => {
+          timer = setTimeout(() => resolve(false), options.timeout)
+          timer.unref?.()
+        }),
+      ])
+      if (timer) clearTimeout(timer)
+      if (!settled) {
+        pending = undefined
+        return
+      }
+      await Promise.resolve()
+      await activeAttempt
     },
     async start() {
       await drain("start")
@@ -219,7 +238,7 @@ export function diagnostics<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
       await context.context.get<DiagnosticsMonitor>(monitorContextKey)?.stop()
     },
     async finish(event) {
-      const cancelled = event.input.abortSignal?.aborted === true
+      const cancelled = event.error !== undefined && event.input.abortSignal?.aborted === true
       await report(reporter, {
         attributes: {
           duration_ms: event.invocation.durationMs,

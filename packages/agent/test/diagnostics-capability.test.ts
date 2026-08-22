@@ -96,6 +96,39 @@ describe("diagnostics Capability", () => {
     await blocked
   })
 
+  it("takes a final sample after an active poll settles during shutdown", async () => {
+    const events: RuntimeDiagnosticEvent[] = []
+    let releasePoll: (() => void) | undefined
+    let startPoll: (() => void) | undefined
+    const pollStarted = new Promise<void>((resolve) => { startPoll = resolve })
+    const pollBlocked = new Promise<void>((resolve) => { releasePoll = resolve })
+    let inspections = 0
+    const agent = defineAgent({
+      capabilities: [diagnostics({
+        interval: 1,
+        reporter: (event) => { events.push(event) },
+        resources: { inspect: async () => {
+          inspections += 1
+          if (inspections === 2) {
+            startPoll?.()
+            await pollBlocked
+          }
+          return snapshot(inspections)
+        } },
+        timeout: 50,
+      })],
+      driver: { run: async () => {
+        await pollStarted
+        setTimeout(() => releasePoll?.(), 1)
+        return "ok"
+      } },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    expect(events.filter(event => event.name === "agent.resource.snapshot").map(event => event.attributes?.reason)).toEqual(["start", "finish"])
+    expect(inspections).toBe(3)
+  })
+
   it("reports an aborted invocation as cancelled", async () => {
     const events: RuntimeDiagnosticEvent[] = []
     const controller = new AbortController()
@@ -109,6 +142,21 @@ describe("diagnostics Capability", () => {
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { abortSignal: controller.signal })).rejects.toThrow("Cancelled.")
     expect(events.at(-1)).toMatchObject({ attributes: { outcome: "cancelled" }, level: "info", name: "agent.invocation.terminal" })
+  })
+
+  it("reports a successful invocation as completed after a late abort", async () => {
+    const events: RuntimeDiagnosticEvent[] = []
+    const controller = new AbortController()
+    const agent = defineAgent({
+      capabilities: [diagnostics({ reporter: (event) => { events.push(event) } })],
+      driver: { run: () => {
+        controller.abort(new DOMException("Too late.", "AbortError"))
+        return "ok"
+      } },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { abortSignal: controller.signal })).resolves.toBe("ok")
+    expect(events.at(-1)).toMatchObject({ attributes: { outcome: "completed" }, level: "info", name: "agent.invocation.terminal" })
   })
 
   it("rejects invalid sampling options", () => {
