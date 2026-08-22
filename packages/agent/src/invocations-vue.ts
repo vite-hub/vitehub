@@ -228,8 +228,10 @@ export function useAgentInvocations(
       const refreshed = [...first.invocations];
       let nextCursor = first.cursor;
       const boundaryId = oldestLoadedId;
+      const continuationCursor = cursor.value;
       const seenCursors = new Set<string>();
       while (boundaryId && !refreshed.some(invocation => invocation.id === boundaryId) && nextCursor && !seenCursors.has(nextCursor)) {
+        const reachedContinuation = nextCursor === continuationCursor;
         seenCursors.add(nextCursor);
         const next = await request<AgentInvocationListResult>(
           appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
@@ -238,8 +240,14 @@ export function useAgentInvocations(
         const ids = new Set(refreshed.map(invocation => invocation.id));
         refreshed.push(...next.invocations.filter(invocation => !ids.has(invocation.id)));
         nextCursor = next.cursor;
+        if (reachedContinuation) break;
       }
-      return { cursor: nextCursor, invocations: refreshed };
+      const boundaryIndex = boundaryId
+        ? refreshed.findIndex(invocation => invocation.id === boundaryId)
+        : -1;
+      return boundaryIndex === -1
+        ? { cursor: nextCursor, invocations: refreshed }
+        : { cursor: nextCursor === undefined ? undefined : continuationCursor, invocations: refreshed.slice(0, boundaryIndex + 1) };
     },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],

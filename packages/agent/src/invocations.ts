@@ -357,7 +357,13 @@ function journalTraceLog(
 ): TraceEventLog {
   return {
     async append(event: TraceEvent) {
-      const entry = await traceLog.append(event)
+      let entry: TraceEventLogEntry
+      try {
+        entry = await traceLog.append(event)
+      }
+      catch {
+        entry = await createTraceEventLog().append(event)
+      }
       try {
         const safeEntry = {
           ...await createTraceEventLog().append(entry),

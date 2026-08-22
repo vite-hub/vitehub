@@ -188,6 +188,30 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("keeps the loaded boundary and continuation when refresh pages overlap", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-4"), record("inv-3")] } satisfies AgentInvocationListResult);
+    await settle();
+    const older = resource.loadMore();
+    calls[1]!.resolve({ cursor: "continue", invocations: [record("inv-2"), record("inv-1")] } satisfies AgentInvocationListResult);
+    await older;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "refresh-2", invocations: [record("inv-6"), record("inv-5")] } satisfies AgentInvocationListResult);
+    await settle();
+    calls[3]!.resolve({ cursor: "refresh-3", invocations: [record("inv-4"), record("inv-3")] } satisfies AgentInvocationListResult);
+    await settle();
+    calls[4]!.resolve({ cursor: "older-than-loaded", invocations: [record("inv-2"), record("inv-1"), record("inv-0")] } satisfies AgentInvocationListResult);
+    await refresh;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-6", "inv-5", "inv-4", "inv-3", "inv-2", "inv-1"]);
+    expect(resource.cursor.value).toBe("continue");
+    scope.stop();
+  });
+
   it("discards loaded pages when the list source changes", async () => {
     const { calls, request } = controlledRequester();
     const query = ref({ status: ["running"] });

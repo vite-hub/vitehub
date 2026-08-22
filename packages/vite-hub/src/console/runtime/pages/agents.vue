@@ -125,7 +125,8 @@ function record(value: unknown): Record<string, unknown> | undefined {
 function observedConfiguration(
   entries: AgentInvocationView["observations"],
 ): AgentInvocationConfiguration | undefined {
-  for (const entry of entries) {
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index]!;
     if (entry.name !== "vitehub.agent.configured") continue;
     const configuration = record(entry.attributes?.["vitehub.agent.configuration"]);
     if (configuration) return configuration as AgentInvocationConfiguration;

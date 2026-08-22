@@ -9,7 +9,7 @@ import { markMessageChannelInstructionConsumer, resolveMessageChannelInstruction
 import {
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
-import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationResolvedModelContextKey } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
@@ -52,6 +52,7 @@ import type {
   AgentAttachmentExecutionOptions,
   AgentModelExecutionInstrumentation,
   AgentModelExecutionOptions,
+  AgentModelInput,
   AgentModelResolver,
   AgentModelResolverContext,
   AgentModelInstrumentationContext,
@@ -1168,7 +1169,9 @@ async function createAgent(
     ...metadataContext,
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
-  const model = await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
+  const resolvedModel = await resolveValue(options.model as never, modelContext) as AgentModelInput
+  await context.context.get<((model: AgentModelInput) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.(resolvedModel)
+  const model = await materializeAgentModel(resolvedModel, modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })

@@ -46,7 +46,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { agentInvocationCallbackContextValues, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationResolvedModelContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
@@ -108,7 +108,7 @@ import {
   streamAgentTriggerWith,
 } from "./trigger-runtime.ts"
 import {
-  createAgentInspectionMetadata,
+  createInvocationInspectionMetadata,
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
@@ -153,6 +153,7 @@ import type {
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
+  AgentModelInput,
   AgentModelDriver,
   AgentOutputDefinition,
   AgentModelResolver,
@@ -1953,6 +1954,7 @@ type AgentInvocationContext<
   workspaceInstructionBindings?: Record<string, unknown>
   workspaceMaterializationPaths: readonly string[]
   workspaceMode: AgentCapabilityMode
+  inspectionCapabilities: AgentCapabilityDefinition<TRuntimeConfig>[]
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
 }
 
@@ -2359,6 +2361,7 @@ async function createAgentInvocationContext<
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+      inspectionCapabilities: resolvedCapabilityDefinitions,
       instructions,
       invoker,
       invocationJournal,
@@ -2387,6 +2390,10 @@ async function createAgentInvocationContext<
     }
     invocationContext.set("agent.errorHook", Boolean(invocation.errorHook), { overwrite: true })
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
+    invocationContext.set(agentInvocationResolvedModelContextKey, async (model: AgentModelInput) => {
+      if (definition && invocationJournal) await traceAgentConfiguration(definition, invocation, model)
+    }, { overwrite: true })
+    if (definition && invocationJournal) await traceAgentConfiguration(definition, invocation)
     await traceAgentInvocationStart(toTraceContext(invocation))
     await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
     const startCapabilities = capabilities.start
@@ -4432,6 +4439,56 @@ async function executeAgentInvocationWithCapacityLease<
   })
 }
 
+async function traceAgentConfiguration<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
+  invocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  resolvedModel?: AgentModelInput,
+): Promise<void> {
+  try {
+    const inspected = createInvocationInspectionMetadata(
+      definition,
+      invocation.inspectionCapabilities,
+      Object.keys(invocation.tools || {}),
+      resolvedModel,
+    )
+    const driver = inspected.config?.driver
+    await invocation.runtimeContext.traceLog?.append({
+      attributes: {
+        "vitehub.agent.configuration": {
+          ...(inspected.name || inspected.version
+            ? { agent: { ...(inspected.name ? { name: inspected.name } : {}), ...(inspected.version ? { version: inspected.version } : {}) } }
+            : {}),
+          ...(inspected.capabilities?.length ? { capabilities: inspected.capabilities } : {}),
+          ...(driver
+            ? { driver: {
+                kind: driver.kind,
+                ...(driver.model ? { model: driver.model } : {}),
+                ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
+              } }
+            : {}),
+          ...(inspected.instructions?.length ? { instructions: inspected.instructions } : {}),
+          ...(inspected.tools?.length ? { tools: inspected.tools.map(({ name }) => ({ name })) } : {}),
+          ...(invocation.workspaceDefinition?.name
+            ? {
+                workspace: {
+                  mode: invocation.workspaceMode,
+                  name: invocation.workspaceDefinition.name,
+                  ...(invocation.workspaceDefinition.sources
+                    ? { sources: Object.keys(invocation.workspaceDefinition.sources) }
+                    : {}),
+                },
+              }
+            : {}),
+        },
+      },
+      name: "vitehub.agent.configured",
+      ...(invocation.runtimeContext.trace ? { trace: { ...invocation.runtimeContext.trace } } : {}),
+      type: "run",
+    })
+  }
+  catch {}
+}
+
 async function executeAgentInvocation<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -4452,34 +4509,6 @@ async function executeAgentInvocation<
     }, { agentName: (definition as AgentDefinition).name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
-  if (invocationJournal && definition) {
-    const inspected = createAgentInspectionMetadata(definition as AgentDefinition)
-    const driver = inspected.config?.driver
-    await context.traceLog?.append({
-      attributes: {
-        "vitehub.agent.configuration": {
-          ...(inspected.name || inspected.version
-            ? { agent: { ...(inspected.name ? { name: inspected.name } : {}), ...(inspected.version ? { version: inspected.version } : {}) } }
-            : {}),
-          ...(inspected.capabilities?.length ? { capabilities: inspected.capabilities } : {}),
-          ...(driver
-            ? {
-                driver: {
-                  kind: driver.kind,
-                  ...(driver.model ? { model: driver.model } : {}),
-                  ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
-                },
-              }
-            : {}),
-          ...(inspected.instructions?.length ? { instructions: inspected.instructions } : {}),
-          ...(inspected.tools?.length ? { tools: inspected.tools.map(({ name }) => ({ name })) } : {}),
-        },
-      },
-      name: "vitehub.agent.configured",
-      ...(context.trace ? { trace: { ...context.trace } } : {}),
-      type: "run",
-    })
-  }
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {

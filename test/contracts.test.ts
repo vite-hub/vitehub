@@ -79,7 +79,6 @@ describe("package manifest contracts", () => {
 
         const publishedArtifacts = new Set([
           ...Object.values(manifest.bin || {}),
-          ...Object.keys(manifest.exports || {}).filter(subpath => subpath !== "."),
           ...Object.values(manifest.exports || {})
             .map(exportTarget)
             .filter((target): target is string => Boolean(target)),

@@ -66,6 +66,27 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
   }, 5_000)
 
+  it("does not let a rejecting trace sink change Agent execution or journal completion", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const traceLog = {
+      append: vi.fn(async () => { throw new Error("sink unavailable") }),
+      entries: () => [],
+    }
+    const run = vi.fn(() => "done")
+    const agent = defineAgent({ driver: { run }, invocations, runtime: false })
+
+    await expect(runAgent(agent, { ...runtime("rejecting-trace"), traceLog }, {})).resolves.toBe("done")
+    expect(run).toHaveBeenCalledOnce()
+    await expect(invocations.getByRunId("rejecting-trace")).resolves.toMatchObject({
+      observations: [
+        expect.objectContaining({ name: "vitehub.agent.configured" }),
+        expect.objectContaining({ name: "agent.invocation.start" }),
+        expect.objectContaining({ name: "agent.invocation.finish" }),
+      ],
+      status: "completed",
+    })
+  })
+
   it("does not let malformed custom trace entries fail Agent execution", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const traceLog = {
@@ -285,6 +306,28 @@ describe("Agent Invocations", () => {
     expect(listed.invocations).toHaveLength(1)
     expect(listed.invocations[0]).not.toHaveProperty("observations")
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
+  })
+
+  it("records invocation-selected capability metadata", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const selected = defineCapability({ id: "selected" })
+    const resolveCapabilities = vi.fn(({ input }: { input: { prompt?: unknown } }) => input.prompt === "enable"
+      ? [selected]
+      : [])
+    const agent = defineAgent({
+      capabilities: resolveCapabilities,
+      driver: { run: () => "done" },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime("resolved-configuration"), { prompt: "enable" })).resolves.toBe("done")
+    expect(resolveCapabilities).toHaveBeenCalledOnce()
+    const configured = (await invocations.getByRunId("resolved-configuration"))?.observations
+      .find(event => event.name === "vitehub.agent.configured")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      capabilities: [{ id: "selected" }],
+    })
   })
 
   it("normalizes non-finite observation numbers across stores", async () => {
