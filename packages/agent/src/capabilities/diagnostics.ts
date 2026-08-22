@@ -109,8 +109,10 @@ function createMonitor(options: {
       for (const observation of peakObservations(snapshot)) {
         const key = `${observation.source}:${observation.scope}:${observation.name}`
         const previous = peaks.get(key)
-        peaks.set(key, Math.max(previous || 0, observation.value))
-        if (previous !== undefined && observation.value >= previous + options.peakStepBytes) changed.push(observation)
+        if (previous === undefined || observation.value >= previous + options.peakStepBytes) {
+          peaks.set(key, observation.value)
+          if (previous !== undefined) changed.push(observation)
+        }
       }
       if (changed.length) {
         await report(options.reporter, {
@@ -156,7 +158,10 @@ function createMonitor(options: {
     const controlledInspection = Promise.resolve().then(() => options.inspector.inspect({ signal: controller.signal }))
     const task = inspect(reason, controlledInspection, controller)
     activeAttempt = task
-    const slot = controlledInspection.then(() => undefined, () => undefined)
+    const slot = Promise.all([
+      controlledInspection.then(() => undefined, () => undefined),
+      task,
+    ]).then(() => undefined)
     activeInspection = slot
     void slot.then(() => {
       if (activeInspection !== slot) return

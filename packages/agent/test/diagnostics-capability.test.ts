@@ -49,6 +49,26 @@ describe("diagnostics Capability", () => {
     })
   })
 
+  it("reports cumulative peak growth across smaller samples", async () => {
+    const events: RuntimeDiagnosticEvent[] = []
+    const snapshots = [snapshot(64), snapshot(104), snapshot(144)]
+    const agent = defineAgent({
+      capabilities: [diagnostics({
+        interval: 1,
+        peakStepBytes: 64,
+        reporter: (event) => { events.push(event) },
+        resources: { inspect: async () => snapshots.shift() || snapshot(144) },
+      })],
+      driver: { run: async () => {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        return "ok"
+      } },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    expect(events.filter(event => event.name === "agent.resource.peak")).toHaveLength(1)
+  })
+
   it("does not let inspection or reporter failures change Agent output", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const agent = defineAgent({
@@ -126,6 +146,45 @@ describe("diagnostics Capability", () => {
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(events.filter(event => event.name === "agent.resource.snapshot").map(event => event.attributes?.reason)).toEqual(["start", "finish"])
+    expect(inspections).toBe(3)
+  })
+
+  it("does not overlap reporting between samples", async () => {
+    let activeReporters = 0
+    let inspections = 0
+    let maxReporters = 0
+    let releasePoll: (() => void) | undefined
+    let startPoll: (() => void) | undefined
+    const pollReporting = new Promise<void>((resolve) => { startPoll = resolve })
+    const pollBlocked = new Promise<void>((resolve) => { releasePoll = resolve })
+    const agent = defineAgent({
+      capabilities: [diagnostics({
+        heartbeat: 1,
+        interval: 1,
+        reporter: async (event) => {
+          activeReporters += 1
+          maxReporters = Math.max(maxReporters, activeReporters)
+          if (event.attributes?.reason === "poll") {
+            startPoll?.()
+            await pollBlocked
+          }
+          activeReporters -= 1
+        },
+        resources: { inspect: async () => {
+          inspections += 1
+          return snapshot(inspections)
+        } },
+        timeout: 50,
+      })],
+      driver: { run: async () => {
+        await pollReporting
+        setTimeout(() => releasePoll?.(), 1)
+        return "ok"
+      } },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    expect(maxReporters).toBe(1)
     expect(inspections).toBe(3)
   })
 
