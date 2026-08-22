@@ -107,9 +107,6 @@ catalogs:
     nuxt-schema-org:
       specifier: ^6.3.0
       version: 6.3.0
-    zod:
-      specifier: ^4.3.6
-      version: 4.4.3
   realtime:
     '@tiptap/core':
       specifier: ^3.29.2
@@ -540,9 +537,6 @@ importers:
       nuxt-schema-org:
         specifier: catalog:nuxt
         version: 6.3.0(c5dfbd944d197e5699b7f24ed66869bc)
-      zod:
-        specifier: catalog:nuxt
-        version: 4.4.3
     devDependencies:
       '@iconify-json/lucide':
         specifier: catalog:ui
