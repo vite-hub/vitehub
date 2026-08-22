@@ -94,7 +94,7 @@ function isExcludedBoxPath(path: string, excluded: readonly string[]) {
     const excludedPath = posix.normalize(item);
     return (
       normalized === excludedPath ||
-      (excludedPath === "/" && normalized.startsWith("/")) ||
+      excludedPath === "/" ||
       normalized.startsWith(`${excludedPath}/`)
     );
   });

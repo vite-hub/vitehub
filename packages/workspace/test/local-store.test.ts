@@ -101,6 +101,15 @@ describe("local workspace store", () => {
     expect(readdir).not.toHaveBeenCalledWith(join(root, ".git"), { withFileTypes: true })
   })
 
+  it("treats normalized root exclusions as the whole Workspace", async () => {
+    const store = await createStore()
+
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+
+    await expect(store.list("", { exclude: [""], recursive: true })).resolves.toEqual([])
+    await expect(store.list("", { exclude: ["/"], recursive: true })).resolves.toEqual([])
+  })
+
   it("does not rewrite local files when the content digest is unchanged", async () => {
     const store = await createStore()
     const content = new Uint8Array([0, 1, 2, 3])

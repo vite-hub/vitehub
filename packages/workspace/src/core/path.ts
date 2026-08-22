@@ -14,7 +14,9 @@ export function isExcludedWorkspacePath(path: string, excluded: readonly string[
   const normalized = normalizeWorkspacePath(path)
   return excluded.some((item) => {
     const excludedPath = normalizeWorkspacePath(item)
-    return normalized === excludedPath || normalized.startsWith(`${excludedPath}/`)
+    return excludedPath === ""
+      || normalized === excludedPath
+      || normalized.startsWith(`${excludedPath}/`)
   })
 }
 

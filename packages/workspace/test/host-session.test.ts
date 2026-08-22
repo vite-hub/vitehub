@@ -754,6 +754,11 @@ describe("workspace host sessions", () => {
     inspected.length = 0
     await expect(session.list("private", { exclude: ["private"], recursive: true })).resolves.toEqual([])
     expect(inspected).toEqual([])
+    for (const root of ["", "/"]) {
+      inspected.length = 0
+      await expect(session.list("", { exclude: [root], recursive: true })).resolves.toEqual([])
+      expect(inspected).toEqual([])
+    }
     await session.close()
   })
 
