@@ -17,9 +17,8 @@ Application code uses documented ViteHub imports instead of generated files.
 | `.vitehub/types/env.d.ts` | Env Package | Generated Public Env and Server Env types. |
 | `.vitehub/types/browser.d.ts` | Browser Package | Generated Browser Definition names and input/result module types. |
 | `.vitehub/types/email.d.ts` | Email Package | Exact module declarations for discovered `#vitehub/emails/<name>` imports. |
-| `.vitehub/types/templates.d.ts` | Markdown Template Package | Generated `TemplateName` union and `#vitehub/templates` module types. |
+| `.vitehub/types/markdown-template.d.ts` | Markdown Template Package | Generated module type for direct `*.template.md` imports. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Generated Workspace name types. |
-| `.vitehub/markdown-template/templates.mjs` | Markdown Template Package | Bundled named-template registry used by Workspace and Provider builds. |
 | `.vitehub/email/templates/*.mjs` | Email Package | Bundled Markdown email templates used by provider builds. |
 | `.vitehub/rate-limit/manifest.json` | Rate Limit Package | Sorted Rate Limit IDs, resolved providers, and inspectable driver capabilities. |
 | `.vitehub/nitro/realtime/registry.mjs` | Realtime Package | Generated registry for discovered Realtime Definitions. |

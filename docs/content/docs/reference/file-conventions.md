@@ -78,9 +78,9 @@ This convention needs no `skills()` Capability declaration. Use [`skills()`](/do
 
 ## Markdown templates
 
-Ordinary Markdown files under `server/templates` form the application template catalog. ViteHub removes the directory prefix and `.md` extension to produce each typed template name, so `server/templates/pull-request.md` becomes `pull-request` and `server/templates/review/pull-request.md` becomes `review/pull-request`.
+Place a `*.template.md` file beside the TypeScript or JavaScript module that renders it, then import the generated render function directly. For example, `server/agents/review/agent.ts` can import `./reply.template.md`.
 
-Use a `.template.md` suffix only when a private template belongs beside its caller and is imported directly. ViteHub excludes `.template.md` files from the named catalog. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
+When one caller owns several templates, you can group them in a local directory such as `server/agents/review/templates/`. The directory has no discovery behavior; keep the `.template.md` suffix and import each file explicitly. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
 
 ## Email templates
 

@@ -85,7 +85,6 @@ const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
   "\0#vitehub/env/server",
   "\0#vitehub/schedule/registry",
-  "\0#vitehub/templates",
   "\0virtual:vitehub-agent-cloudflare-state-exports",
 ])
 
