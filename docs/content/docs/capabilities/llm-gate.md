@@ -10,24 +10,17 @@ icon: i-lucide-shield-alert
 `llmGate()` adds a pre-invocation model decision that classifies a request into allow or reject categories.
 It can stop the Agent Invocation before the main Agent Driver runs.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability asks a model to choose one configured allow or reject category.
 It records the decision as an Agent Invocation Context Value, exposes it as a finish extension, and throws `ViteHubError` with code `LLM_GATE_REJECTED` when the selected category is rejected.
 
-## Configuration
+## Configure the gate
 
 Define allow and reject categories with stable keys.
-Use the message option when the host should return a product-specific rejection message.
+Set `message` to return a product-specific rejection message from the host.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { llmGate } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { llmGate } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -44,12 +37,12 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How the gate works
 
 `llmGate()` runs during the input phase.
 It resolves a model, renders a classifier prompt from the latest user text and configured categories, validates the structured output, and stores the decision in invocation context.
 
-When the decision rejects the request, ViteHub throws `ViteHubError` with code `LLM_GATE_REJECTED`; the HTTP boundary maps that code to `403`.
+When the decision rejects the request, ViteHub throws `ViteHubError` with code `LLM_GATE_REJECTED`; the HTTP handler maps that code to `403`.
 
 ## Requirements
 
@@ -66,7 +59,7 @@ The Capability requires either an explicit model option or an Agent model resolv
 | Provider-backed | Runs the pre-invocation gate before provider execution when a model resolver is available. |
 | Custom-run-backed | Runs before `driver.run`; rejected requests do not reach custom code. |
 
-## Inspect and verify
+## Verify the gate
 
 Run one allowed and one rejected invocation.
 Inspect the context value for `llm-gate` or your custom id, then verify rejected requests stop with code `LLM_GATE_REJECTED`.
@@ -86,8 +79,7 @@ It records a decision; later behavior must read that decision explicitly.
 | `model` | `AgentModelResolver` | Agent model | Model used for the pre-invocation decision. |
 | `prompt` | `string` | generated | Additional classifier prompt text. |
 
-## Reference
+## Related pages
 
 - [llmRoute()](/docs/capabilities/llm-route)
 - [rateLimit()](/docs/capabilities/rate-limit)
-- Source: `packages/agent/src/capabilities/llm-gate.ts`

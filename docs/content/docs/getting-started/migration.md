@@ -83,7 +83,7 @@ the boundary that now owns their behavior:
 | Global skills | Put Agent-owned Skills in a colocated `skills/` directory, or mount Workspace and external Skills with the `skills()` Capability. |
 
 Built-in coding-provider Drivers require a local Node.js host with the matching
-CLI and credentials available to the process. Provider Workspaces additionally
+CLI and credentials available to the process. Provider Workspaces also
 require a POSIX host. Follow-up and steering are unsupported; respond to pending
 approvals and provider questions with Agent Invocation input mode `respond`.
 
@@ -97,7 +97,7 @@ not resolve MCP, local glob, or unrelated runtime code.
 
 Source MCP request, resource, client, and transport types are now ViteHub-owned
 structural contracts. Existing MCP SDK clients and transports remain assignable,
-but code that needs SDK-specific members should import those types from the SDK.
+but code that needs SDK-specific members imports those types from the SDK.
 
 ## Verify the migration
 

@@ -10,24 +10,17 @@ icon: i-lucide-audio-lines
 `transcribe()` is an input-phase Official Capability for audio.
 It turns audio message parts into transcript text before the Agent Driver receives the final input.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability finds audio parts in input messages, transcribes them, appends transcript text to the message, and records transcription results in invocation context.
 It can also persist transcript and source-audio artifacts into a writable Workspace.
 
-## Configuration
+## Configure transcription
 
 Provide either an AI SDK transcription model configuration or an `execute()` function.
 The example keeps artifacts off, so it does not require a writable Workspace.
 
 ```ts [server/agents/voice.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { transcribe } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { transcribe } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -44,11 +37,11 @@ export default defineAgent({
 Use `openRouterTranscriptionModel()` to keep OpenRouter authentication, audio encoding, request shape, and provider errors behind the AI SDK transcription model interface.
 
 ```ts [server/agents/voice.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 import {
   openRouterTranscriptionModel,
   transcribe,
-} from '@vite-hub/agent/capabilities'
+} from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -67,14 +60,14 @@ The adapter uses OpenRouter's base64 JSON request with `response_format: 'json'`
 
 AI SDK `providerOptions.openrouter` values for `language`, `temperature`, and `provider` routing are forwarded to OpenRouter. Unsupported OpenRouter transcription options fail explicitly instead of being silently ignored.
 
-## Runtime behavior
+## How transcription works
 
 `transcribe()` runs before model execution.
 It enforces the configured maximum audio size, resolves audio data from direct data, `fetchData`, or URL, and replaces the consumed audio parts with transcript text in the user message.
 
 When artifacts are enabled, it writes sanitized transcript and optional audio files to the Agent's writable Workspace and exposes results as a finish extension.
 
-Use `artifacts.directory` when the transcript and source audio should stay together.
+Use `artifacts.directory` to keep the transcript and source audio together.
 The generated paths share a sanitized timestamp/message stem.
 
 ```ts
@@ -92,8 +85,8 @@ transcribe({
 Use `streamTranscription()` for live raw audio. It wraps AI SDK streaming transcription and exposes `textStream`, an append-only text stream that can be passed directly to `event.reply()`.
 
 ```ts
-import type { AgentFinishHookEvent } from '@vite-hub/agent'
-import { streamTranscription } from '@vite-hub/agent/capabilities'
+import type { AgentFinishHookEvent } from 'vite-hub/agent'
+import { streamTranscription } from 'vite-hub/agent/capabilities'
 
 export async function liveTranscriptReply(
   event: AgentFinishHookEvent,
@@ -118,14 +111,14 @@ Return the reply intent without awaiting `transcription.text`; consuming the rep
 
 ## Asynchronous remote transcription
 
-Use `createTranscription()` when a durable workflow should submit a private remote object and resume after the provider completes it.
+Use `createTranscription()` to submit a private remote object from a durable workflow and resume after the provider completes it.
 The client returns the provider operation ID used for acknowledgement and idempotency, then normalizes an authenticated completion payload into a provider-neutral transcript or failure.
 
 ```ts
 import {
   createTranscription,
   elevenLabsScribe,
-} from '@vite-hub/agent/capabilities'
+} from 'vite-hub/agent/capabilities'
 
 const transcription = createTranscription({
   driver: elevenLabsScribe({
@@ -180,10 +173,10 @@ Artifact paths must stay inside the Workspace and cannot target reserved `.git` 
 
 Asynchronous transcription is independent of the Agent Driver because the caller composes its submitted operation and completion result into a durable Workflow.
 
-## Inspect and verify
+## Verify transcription
 
 Run an invocation with one audio part and inspect the final message text.
-The transcript should appear before the Agent Driver runs.
+Confirm that the transcript appears before the Agent Driver runs.
 
 When artifacts are enabled, inspect the Workspace for transcript files and the finish extension for transcription metadata.
 
@@ -229,9 +222,8 @@ Import these helpers from `@vite-hub/agent/capabilities` when custom hooks or ex
 
 Each `TranscriptionResult` contains `createdAt`, `date`, `messageId`, `stem`, and `transcript`, plus `audioPath` or `transcriptPath` when those artifacts were written.
 
-## Reference
+## Related pages
 
 - [AI Gateway streaming transcription](https://vercel.com/changelog/ai-gateway-now-supports-streaming-transcription)
 - [Workspace primitive](/docs/server-primitives/workspace)
 - [Agent invocations](/docs/agents/invocations)
-- Source: `packages/agent/src/capabilities/transcribe.ts`

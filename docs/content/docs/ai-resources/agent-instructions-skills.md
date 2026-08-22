@@ -41,12 +41,12 @@ State the result you want and include any host or runtime constraint.
 The skill selects one primary product lane, reads only matching references and the smallest live docs pages, checks installed exports and types, and reports the proof for each requested behavior.
 When documentation and an installed version differ, the installed contract controls the implementation and the agent reports the mismatch.
 
-## Keep the instruction surfaces distinct
+## Keep instruction sources distinct
 
-ViteHub uses several instruction surfaces for different actors.
+ViteHub uses several instruction sources for different actors.
 Keeping them separate prevents repository guidance from leaking into runtime Agent behavior.
 
-| Surface | Audience | Purpose |
+| Source | Audience | Purpose |
 | --- | --- | --- |
 | Public ViteHub skill | Coding agents building a ViteHub application | Routes project patterns through live docs, installed contracts, explicit authority, and runtime proof. |
 | Repository `AGENTS.md` | Coding agents contributing to a repository | Defines local development rules and project boundaries. |

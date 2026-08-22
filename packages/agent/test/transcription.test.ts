@@ -157,6 +157,11 @@ describe("agent transcription", () => {
       mediaType: "audio/ogg",
       type: "audio",
     })).resolves.toEqual(new Uint8Array([1, 2]))
+    await expect(audioBytes({
+      data: "data:audio/ogg,%FF%D8%FF",
+      mediaType: "audio/ogg",
+      type: "audio",
+    })).resolves.toEqual(new Uint8Array([255, 216, 255]))
   })
 
   it("sends OpenRouter transcription models namespaced model ids with normal JSON output", async () => {
@@ -674,6 +679,76 @@ describe("agent transcription", () => {
         model: "mock-transcription-model",
       }))
       expect(context.messages.at(-1)?.parts.at(-1)).toMatchObject({ text: "voice transcript", type: "text" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("decodes Workflow audio data URLs before AI SDK transcription", async () => {
+    const aiTranscribe = vi.fn(async () => ({ text: "voice transcript" }))
+    vi.doMock("ai", () => ({
+      createDownload: vi.fn(() => vi.fn()),
+      transcribe: aiTranscribe,
+    }))
+    try {
+      const capability = transcribe({ model: "mock-transcription-model" })
+      const context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+
+      await capability.input?.(context.context as never)
+
+      expect(aiTranscribe).toHaveBeenCalledWith(expect.objectContaining({
+        audio: new Uint8Array([79, 103, 103, 83, 1, 2, 3]),
+        model: "mock-transcription-model",
+      }))
+
+      const rawBase64Context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+      await capability.input?.(rawBase64Context.context as never)
+      expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({ audio: "T2dnUwECAw==" }))
+
+      const percentEncodedContext = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "data:audio/ogg,%FF%D8%FF", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+      await capability.input?.(percentEncodedContext.context as never)
+      expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({
+        audio: new Uint8Array([255, 216, 255]),
+      }))
+
+      const lazyDataUrlContext = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ fetchData: () => "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+      await transcribe({ maxBytes: 7, model: "mock-transcription-model" }).input?.(lazyDataUrlContext.context as never)
+      expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({
+        audio: new Uint8Array([79, 103, 103, 83, 1, 2, 3]),
+      }))
+
+      const oversized = transcribe({ maxBytes: 6, model: "mock-transcription-model" })
+      const decode = vi.spyOn(globalThis, "atob")
+      await expect(oversized.input?.(createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: "data:audio/ogg;base64,T2dnUwECAw==", mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ]).context as never)).rejects.toThrow("exceeds maxBytes")
+      expect(decode).not.toHaveBeenCalled()
+      decode.mockRestore()
+      expect(aiTranscribe).toHaveBeenCalledTimes(4)
     }
     finally {
       vi.doUnmock("ai")

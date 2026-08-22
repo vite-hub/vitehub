@@ -10,25 +10,18 @@ icon: i-lucide-terminal-square
 `inputCommands()` adds command parsing for explicit user input before the main Agent Invocation runs.
 Use it for commands that transform or enrich the user's prompt, not for host UI state or shell execution.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability scans the latest prompt or user message for configured Input Commands.
 Each command can replace text, update the Agent Run Input, or add invocation context before model execution.
-Commands that should produce model-facing text must return it explicitly; accepting without handler text removes the matched command text.
+Commands that produce model-facing text must return it. Accepting a command without handler text removes the matched text.
 
-## Configuration
+## Configure input commands
 
-Define lowercase stable command names. Add a description when CLI inspection and other inspectors should explain the command.
+Define lowercase command names. Add a description to include the command's purpose in CLI and inspection output.
 The default trigger is `/`.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { inputCommands } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { inputCommands } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -45,7 +38,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How input commands work
 
 `inputCommands()` runs during the input phase.
 It finds command invocations in the latest user text, calls the matching command handler, and updates the Agent Run Input before other model-facing behavior consumes it.
@@ -72,7 +65,7 @@ Host Commands that change chat, session, UI, or product state belong outside thi
 | Provider-backed | Receives the transformed Agent Run Input before provider execution. |
 | Custom-run-backed | Receives the transformed Agent Run Input; `driver.run` decides how to use context values. |
 
-## Inspect and verify
+## Verify input commands
 
 Run an invocation with the configured command text.
 Inspect the final Agent Run Input and confirm the command text was replaced or the expected context value was added before the Agent Driver ran.
@@ -92,8 +85,7 @@ Check Agent inspection metadata for the `inputCommands` Capability and its comma
 | `commands.*.channels` | `string[]` | all channels | Optional configured Channel ID allowlist. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery primitives. |
 
-## Reference
+## Related pages
 
 - [chatSummary()](/docs/capabilities/chat-summary)
 - [Agent invocations](/docs/agents/invocations)
-- Source: `packages/agent/src/capabilities/input-commands.ts`

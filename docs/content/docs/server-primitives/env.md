@@ -5,9 +5,9 @@ navigation.order: 2
 icon: i-lucide-key-round
 ---
 
-Env models environment values without mixing browser-safe config, build replacements, and server-only Runtime Env. ViteHub owns Env Declarations, generated Public Env and Server Env access, diagnostics, and Secret Env redaction.
+Use Env to declare browser-safe values, build replacements, server-only values, and secrets without mixing their access rules. ViteHub generates typed imports for browser and server code and redacts Secret Env values by default.
 
-Env does not store secrets for a host. The host still supplies variables, and server code performs Secret Unseal only at the boundary that needs the raw value.
+Your host still stores and supplies secrets. Server code calls `unseal()` only where it needs the raw value.
 
 ## Quick start
 
@@ -16,7 +16,7 @@ Env does not store secrets for a host. The host still supplies variables, and se
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/env
+pnpm add @vite-hub/env @vite-hub/runtime
 ```
 
 ### Configure
@@ -121,7 +121,7 @@ Pass Integration Options to `hubEnv()`.
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
 | `type` | `string` | Inferred | Overrides the generated type label. |
 
-## Env Sources
+## Env sources
 
 | Source helper | Description |
 | --- | --- |
@@ -185,7 +185,7 @@ Each code owns a fixed public message and bounded details. Source details use id
 
 ## Provider output
 
-`hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. App code should import `#vitehub/env/public` and `#vitehub/env/server`, not generated file paths or integration virtual modules.
+`hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `#vitehub/env/public` and `#vitehub/env/server` from application code, not generated file paths or integration virtual modules.
 
 Add the generated type directory to `tsconfig.json` when the app wants field-level types for generated Env access.
 
@@ -199,13 +199,13 @@ Add the generated type directory to `tsconfig.json` when the app wants field-lev
 }
 ```
 
-## Connect it to Agents
+## Use Env with Agents
 
-Agent callbacks and Capability callbacks should read app-owned Runtime Env through Server Env. Do not pass secrets through Agent Invocation metadata or model-facing instructions.
+Read application secrets through Server Env inside Agent and Capability callbacks. Don't pass secrets through Agent Invocation metadata or model-facing instructions.
 
 Env is usually not an agent-facing Capability. Other Capabilities consume Server Env when they need credentials, provider tokens, or app-owned configuration.
 
-## Production boundaries
+## Production checks
 
 Public Env and Vite define values are visible to built client code. Put secrets only in Server Env with `secret: true`.
 

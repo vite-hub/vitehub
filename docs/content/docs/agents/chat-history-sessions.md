@@ -19,8 +19,8 @@ Chat History is the ordered set of prior messages eligible for one chat invocati
 Configure history on the Chat Capability:
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { chat } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { chat } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: {
@@ -47,7 +47,7 @@ The window limits messages supplied to the next invocation; it does not delete p
 Use a session when the product has a stable conversation id that is independent of the current provider thread.
 
 ```ts [server/agents/support.ts]
-import { chat } from '@vite-hub/agent/capabilities'
+import { chat } from 'vite-hub/agent/capabilities'
 
 export const supportChat = chat({
   sessions: {
@@ -62,9 +62,9 @@ export const supportChat = chat({
 })
 ```
 
-Use `strategy: 'manual'` when a trusted host passes explicit session ids, `idle-timeout` when inactivity should start a conversation, or `hybrid` for both. The `chat.message` input selects a manual session with `session: { action: 'switch', id }`.
+Use `strategy: 'manual'` when a trusted host passes explicit session IDs, `idle-timeout` when inactivity starts a conversation, or `hybrid` for both. The `chat.message` input selects a manual session with `session: { action: 'switch', id }`.
 
-The authenticated route or Channel should supply that id. Do not accept an arbitrary session id from an untrusted request, because that can expose another conversation's history.
+The authenticated route or Channel supplies that ID. Do not accept an arbitrary session ID from an untrusted request, because that can expose another conversation's history.
 
 ## Partition transcripts
 
@@ -74,4 +74,4 @@ History selection and persistence are separate decisions. The Chat Capability ca
 
 ## Inspect the result
 
-Run two messages through the same thread or session, then inspect the second invocation in the [CLI](/docs/development/cli). The prepared input should contain the bounded prior messages plus the current message. A different thread or session should start without that history.
+Run two messages through the same thread or session, then inspect the second invocation in the [CLI](/docs/development/cli). The prepared input contains the bounded prior messages plus the current message. A different thread or session starts without that history.

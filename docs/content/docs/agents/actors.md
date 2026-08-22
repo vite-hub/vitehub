@@ -15,7 +15,7 @@ The current public fields retain the name `invoker`: configure Actors with `defi
 Authenticate at the application boundary, then pass only validated identity facts.
 
 ```ts [server/api/support.post.ts]
-import { runAgent } from '@vite-hub/agent'
+import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from '../runtime-context'
 
@@ -54,7 +54,7 @@ ViteHub trusts this server-owned value. Never copy unverified request fields int
 Profiles provide known Actors for local development, schedules, CLI use, and trusted routes.
 
 ```ts [server/agents/support.ts]
-import { defineAgent, defineAgentInvoker } from '@vite-hub/agent'
+import { defineAgent, defineAgentInvoker } from 'vite-hub/agent'
 
 export default defineAgent({
   invoker: defineAgentInvoker({
@@ -82,7 +82,7 @@ Select a profile with `context.invokerProfileId` for direct invocation or top-le
 Use `invoker.resolve` to normalize or reject the trusted input before Capabilities run:
 
 ```ts [server/agents/support-actor.ts]
-import { defineAgentInvoker } from '@vite-hub/agent'
+import { defineAgentInvoker } from 'vite-hub/agent'
 
 export const supportActor = defineAgentInvoker({
   resolve({ context, defaultInvoker, selectedProfile }) {
@@ -103,8 +103,8 @@ Resolution happens before Capabilities and the Driver run.
 Actor metadata can select a Workspace Scope, but authorization must remain deterministic.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { access } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { access } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [

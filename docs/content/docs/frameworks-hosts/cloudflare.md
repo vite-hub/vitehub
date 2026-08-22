@@ -6,7 +6,7 @@ icon: i-simple-icons-cloudflare
 ---
 
 Cloudflare is a Provider Selection for packages that can generate Workers, bindings, queues, workflows, schedules, storage, or sandbox output.
-The Definition and Runtime Helper should stay host-neutral; Cloudflare details belong in Integration Options and Provider Output.
+Keep the Definition and Runtime Helper host-neutral. Put Cloudflare details in Integration Options and Provider Output.
 
 ## Cloudflare boundaries
 
@@ -75,7 +75,7 @@ pnpm build
 find dist -maxdepth 4 -type f | sort
 ```
 
-Agent routes should come from generated Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
+Generate Agent routes through Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
 
 Required secret Server Env declarations with one exact Env Source are written to `secrets.required` in the generated Wrangler configuration, including each configured named Wrangler environment because secrets are not inherited. Wrangler reuses an existing Worker secret and stops deployment when that binding is absent; ViteHub records only the binding name and never resolves or writes its value during build. Optional secrets, non-secret values, defaults, and alternative source lists remain runtime-only because Wrangler's required list cannot express fallback names.
 
@@ -150,9 +150,9 @@ ViteHub writes the generated `browser` binding, a compatible default `compatibil
 
 ### Cloudflare Computer Boxes
 
-Cloudflare Computer is an optional preview runtime for [Boxes](/docs/agents/boxes#choose-a-runtime). The application owns its `withWorkspace()` Durable Object, execution backends, Worker Loader or Container bindings, migrations, compatibility flags, and deployment lifecycle. ViteHub accepts that configured Durable Object namespace through `{ kind: 'cloudflare-computer' }`; current Provider Output does not create or modify Computer infrastructure.
+Cloudflare Computer is an optional preview runtime for [Boxes](/docs/agents/boxes). The application configures its `withWorkspace()` Durable Object, execution backends, Worker Loader or Container bindings, migrations, compatibility flags, and deployment lifecycle. Pass the configured Durable Object namespace to ViteHub with `{ kind: 'cloudflare-computer' }`. ViteHub does not create or modify Computer infrastructure.
 
-Keep the Computer filesystem and backend configuration at the Cloudflare boundary. Box callers should supply inputs and select a registered backend ID without importing Computer filesystem or execution APIs.
+Keep the Computer filesystem and backend configuration in the Cloudflare integration. Box callers supply inputs and select a registered backend ID without importing Computer filesystem or execution APIs.
 
 ## Production notes
 

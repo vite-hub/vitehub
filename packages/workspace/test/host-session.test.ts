@@ -1220,6 +1220,42 @@ describe("workspace host sessions", () => {
     expect(maximum).toBeLessThanOrEqual(16)
   })
 
+  it("uses host-reported executable modes without spawning probes", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const list = host.files.list.bind(host.files)
+    const exec = host.exec.bind(host)
+    let probes = 0
+    let runExecutable = true
+    host.files.list = async (path, options) => (await list(path, options)).map(entry => entry.type === "file"
+      ? { ...entry, executable: entry.path.endsWith("/scripts/run.sh") ? runExecutable : host.isExecutable(entry.path) }
+      : entry)
+    host.exec = async (command, args, options) => {
+      if (command === "test" && args?.[0] === "-x") probes++
+      return await exec(command, args, options)
+    }
+    await docs.writeFile("README.md", "docs")
+    await docs.writeFile("scripts/run.sh", "#!/bin/sh\n", { metadata: { gitMode: "100755" } })
+    await docs.snapshot({ name: "baseline" })
+
+    const session = await docs.startSession({ host })
+    await expect(session.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: undefined, path: "README.md" }),
+      expect.objectContaining({ metadata: { gitMode: "100755" }, path: "scripts/run.sh" }),
+    ]))
+    runExecutable = false
+    await expect(session.diff()).resolves.toMatchObject({ entries: [expect.objectContaining({
+      after: expect.objectContaining({ metadata: undefined }),
+      before: expect.objectContaining({ metadata: { gitMode: "100755" } }),
+      path: "scripts/run.sh",
+      type: "modified",
+    })] })
+    await session.close()
+
+    expect(probes).toBe(0)
+    expect(host.isExecutable("/workspace/scripts/run.sh")).toBe(true)
+  })
+
   it("keeps unsafe symlinks inert and rejects writes through symlink parents", async () => {
     const docs = workspace()
     const host = memoryHost()

@@ -12,8 +12,8 @@ Add `cost()` when an application needs exact USD for arithmetic and a ready-to-r
 ## Add cost
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { cost } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { cost } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model: 'zai/glm-5v-turbo' },
@@ -32,8 +32,8 @@ Pricing is best-effort. A missing model match, unavailable catalog, timeout, inv
 Finish Hooks read the canonical record from `event.invocation.usage`. Use `cost.usd` for arithmetic or persistence and `cost.display` for UI; consumers do not need to format the value themselves. The Capability's typed `cost` finish extension returns the same record.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { cost } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { cost } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model: 'zai/glm-5v-turbo' },
@@ -78,8 +78,8 @@ For streams, ViteHub waits to resolve pricing until the usage record becomes ava
 Pass `pricing` when the application owns its catalog or provider mapping. Return exact USD as a decimal string; ViteHub derives the display value.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { cost, type AgentUsagePricing } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { cost, type AgentUsagePricing } from 'vite-hub/agent/capabilities'
 
 const pricing: AgentUsagePricing = ({ model }) => {
   if (model !== 'internal/support-model') return
@@ -102,7 +102,7 @@ Return `undefined` when pricing is unavailable. Custom pricing receives the mode
 Import `vercelAiGatewayPricing()` when application-owned work adds usage after the Capability runs and must reprice the record with the same catalog behavior.
 
 ```ts
-import { vercelAiGatewayPricing } from '@vite-hub/agent/capabilities'
+import { vercelAiGatewayPricing } from 'vite-hub/agent/capabilities'
 
 const pricing = vercelAiGatewayPricing()
 ```
