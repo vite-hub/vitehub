@@ -2534,6 +2534,8 @@ interface DurableSteerQueueMessage {
 }
 
 interface DurableSteerQueueEntry {
+  enqueuedAt?: number
+  expiresAt?: number
   message?: DurableSteerQueueMessage
 }
 
@@ -2572,21 +2574,26 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
     queued.push(entry)
   }
   const newer = queued.shift()
-  const sameInvoker = newer?.message?.input && durableSteerInvokerKey(previous) === durableSteerInvokerKey(newer.message)
-  const restored: DurableSteerQueueEntry = {
-    enqueuedAt: Date.now(),
-    expiresAt: Number.MAX_SAFE_INTEGER,
-    message: sameInvoker ? {
+  const newerMessage = newer?.message
+  const sameInvoker = Boolean(newerMessage?.input && durableSteerInvokerKey(previous) === durableSteerInvokerKey(newerMessage))
+  let restoredMessage = previous
+  if (newerMessage?.input && sameInvoker) {
+    restoredMessage = {
       ...previous,
       deliveryIds: [...new Set([
         ...durableSteerDeliveryIds(previous),
-        ...durableSteerDeliveryIds(newer.message),
+        ...durableSteerDeliveryIds(newerMessage),
       ])],
-      input: mergeDurableSteerInput(previous.input, newer.message.input),
-      capabilities: newer.message.capabilities ?? previous.capabilities,
-      resolvedInvoker: newer.message.resolvedInvoker ?? previous.resolvedInvoker,
-      run: newer.message.run ?? previous.run,
-    } : previous,
+      input: mergeDurableSteerInput(previous.input, newerMessage.input),
+      capabilities: newerMessage.capabilities ?? previous.capabilities,
+      resolvedInvoker: newerMessage.resolvedInvoker ?? previous.resolvedInvoker,
+      run: newerMessage.run ?? previous.run,
+    }
+  }
+  const restored: DurableSteerQueueEntry = {
+    enqueuedAt: Date.now(),
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    message: restoredMessage,
   }
   const restoredQueue = sameInvoker ? [restored, ...queued] : [restored, ...(newer ? [newer] : []), ...queued]
   for (const entry of restoredQueue) {
