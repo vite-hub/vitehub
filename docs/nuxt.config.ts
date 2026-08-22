@@ -69,16 +69,6 @@ export default defineNuxtConfig({
       },
     ],
   },
-  routeRules: {
-    "/": { headers: { vary: "Accept" } },
-    "/about": { headers: { vary: "Accept" } },
-    "/blog": { headers: { vary: "Accept" } },
-    "/blog/**": { headers: { vary: "Accept" } },
-    "/contact": { headers: { vary: "Accept" } },
-    "/docs": { headers: { vary: "Accept" } },
-    "/docs/**": { headers: { vary: "Accept" } },
-    "/privacy": { headers: { vary: "Accept" } },
-  },
   app: {
     head: {
       link: [
@@ -221,20 +211,6 @@ export default defineNuxtConfig({
             custom_domain: true,
           },
         ],
-        assets: {
-          run_worker_first: [
-            "/",
-            "/about",
-            "/about/",
-            "/contact",
-            "/contact/",
-            "/docs",
-            "/docs/*",
-            "/blog/*",
-            "/privacy",
-            "/privacy/",
-          ],
-        },
         observability: {
           enabled: true,
           head_sampling_rate: 0.1,

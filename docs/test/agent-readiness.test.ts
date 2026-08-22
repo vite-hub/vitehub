@@ -4,8 +4,6 @@ import { describe, expect, it } from "vitest";
 import { viteHubOpenApi } from "../server/utils/openapi";
 import {
   acceptsAgentFriendlyError,
-  acceptsMarkdown,
-  markdownRouteForPath,
   notFoundMarkdown,
   withVary,
 } from "../server/utils/markdown-negotiation";
@@ -14,14 +12,7 @@ const docsRoot = resolve(import.meta.dirname, "..");
 const trustPages = ["about", "contact", "privacy"];
 
 describe("agent-ready HTTP contracts", () => {
-  it("negotiates only explicit Markdown requests", () => {
-    expect(acceptsMarkdown("text/markdown")).toBe(true);
-    expect(acceptsMarkdown("text/html, text/markdown;q=0.8")).toBe(true);
-    expect(acceptsMarkdown("TEXT/MARKDOWN; charset=utf-8")).toBe(true);
-    expect(acceptsMarkdown("text/markdown;q=0")).toBe(false);
-    expect(acceptsMarkdown("text/html, */*")).toBe(false);
-    expect(acceptsMarkdown(undefined)).toBe(false);
-
+  it("selects agent-friendly 404 responses from the Accept header", () => {
     expect(acceptsAgentFriendlyError(undefined)).toBe(true);
     expect(acceptsAgentFriendlyError("*/*")).toBe(true);
     expect(acceptsAgentFriendlyError("text/markdown")).toBe(true);
@@ -31,24 +22,13 @@ describe("agent-ready HTTP contracts", () => {
     expect(acceptsAgentFriendlyError("application/json, */*")).toBe(false);
   });
 
-  it("maps rendered pages to their canonical raw Markdown resources", () => {
-    expect(markdownRouteForPath("/")).toBe("/llms.txt");
-    expect(markdownRouteForPath("/docs")).toBe("/raw/docs.md");
-    expect(markdownRouteForPath("/docs/agents/")).toBe("/raw/docs/agents.md");
-    expect(markdownRouteForPath("/blog/agents")).toBe("/raw/blog/agents.md");
-    expect(markdownRouteForPath("/about")).toBe("/raw/about.md");
-    expect(markdownRouteForPath("/examples")).toBeUndefined();
-  });
-
-  it("runs negotiable prerendered pages through the Cloudflare Worker", () => {
+  it("uses the Docus preview package for Markdown negotiation", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const middleware = readFileSync(resolve(docsRoot, "server/middleware/markdown-negotiation.ts"), "utf8");
+    const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
 
-    expect(config).toContain("run_worker_first");
-    expect(config).toContain('"/docs/*"');
-    expect(config).toContain('"/blog/*"');
-    expect(config).not.toContain('run_worker_first: true');
-    expect(middleware).toContain('event.method !== "HEAD"');
+    expect(workspace).toContain("docus: https://pkg.pr.new/docus@116b335");
+    expect(config).not.toContain("routeRules:");
+    expect(config).not.toContain("run_worker_first");
   });
 
   it("adds Accept to Vary once and gives missing routes recovery links", () => {

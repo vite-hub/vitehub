@@ -10,6 +10,7 @@ const knownDocusDiagnostics = new Set([
   "app/error.vue:39:25:TS2571",
   "app/plugins/i18n.ts:52:77:TS2339",
   "modules/assistant/runtime/components/AssistantPanel.vue:162:12:TS2322",
+  "modules/assistant/runtime/components/AssistantPanel.vue:196:10:TS2322",
   "modules/assistant/runtime/components/AssistantPanel.vue:204:39:TS2345",
   "modules/assistant/runtime/components/AssistantPanel.vue:216:47:TS2345",
   "modules/assistant/runtime/components/AssistantPanel.vue:231:39:TS2345",
