@@ -190,6 +190,7 @@
     "dropbox": "catalog:storage",
     "files-sdk": "catalog:storage",
     "google-auth-library": "catalog:storage",
+    "mlly": "catalog:unjs",
     "uploadthing": "catalog:storage",
     "workflow": "catalog:workflow"
   },

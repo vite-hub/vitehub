@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { findExportNames } from "mlly"
 
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -58,7 +59,7 @@ async function discoverCollections(options: ViteHubTypesOptions): Promise<Discov
   const collections = (await Promise.all(serverDirs.map(async (serverDir) => {
     const collectionsDirectory = resolve(serverDir, "collections")
     const files = (await collectCollectionFiles(collectionsDirectory)).sort()
-    return files.map((file) => {
+    return await Promise.all(files.map(async (file) => {
       const extension = extname(file)
       const exportName = basename(file, extension)
       if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
@@ -69,8 +70,14 @@ async function discoverCollections(options: ViteHubTypesOptions): Promise<Discov
       const name = relative(collectionsDirectory, file)
         .slice(0, -extension.length)
         .replaceAll("\\", "/")
+      const source = await readFile(file, "utf8")
+      if (!findExportNames(source).includes(exportName)) {
+        throw new TypeError(
+          `[vitehub] Collection file ${JSON.stringify(relative(projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.`,
+        )
+      }
       return { exportName, file, name }
-    })
+    }))
   }))).flat().sort((left, right) => left.name.localeCompare(right.name))
 
   for (let index = 1; index < collections.length; index++) {

@@ -150,6 +150,22 @@ describe("framework generated types", () => {
     ].join("\n"))
   })
 
+  it.each([
+    "export const publicMeals = {}\n",
+    "export type meals = {}\nexport const publicMeals = {}\n",
+  ])("rejects a Collection module without its filename-matching runtime export", async (source) => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), source)
+
+    const plugin = viteHubTypesPlugin()
+    await expect(plugin.api.prepareTypes(root)).rejects.toThrow(
+      'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
+    )
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+  })
+
   it("discovers Collections from configured server directories", async () => {
     const { root } = await createNestedProject()
     const firstServerDir = join(root, "api")
