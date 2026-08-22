@@ -389,6 +389,41 @@ describe("Agent telemetry", () => {
     expect(historyRoles(all, "input.prompt")).toEqual(["user", "system", "assistant", "tool"])
     expect(historyRoles(none, "input.prompt")).toBeUndefined()
     expect(messages).toEqual(originalMessages)
+
+    const staticInstructions = vi.fn()
+    const staticAgent = defineAgent({
+      capabilities: [defineCapability({
+        id: "static-instruction-history",
+        telemetry: { content: { instructions: true }, exporter: staticInstructions },
+      })],
+      driver: { run: () => "Current output" },
+    })
+    await runAgent(staticAgent, {
+      memo: vi.fn(),
+      run: { runId: "run-static-instruction-policy" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { messages })
+    await Promise.all(tasks)
+    expect(historyRoles(staticInstructions)).toEqual(["system"])
+
+    const resolvedInstructions = vi.fn()
+    const resolvedAgent = defineAgent({
+      capabilities: async () => [defineCapability({
+        id: "resolved-instruction-history",
+        telemetry: { content: { instructions: true }, exporter: resolvedInstructions },
+      })],
+      driver: { run: () => "Current output" },
+    })
+    await runAgent(resolvedAgent, {
+      memo: vi.fn(),
+      run: { runId: "run-resolved-instruction-policy" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { messages })
+    await Promise.all(tasks)
+    expect(historyRoles(resolvedInstructions)).toEqual(["system"])
+    expect(messages).toEqual(originalMessages)
   })
 
   it("correlates trace events emitted by a resolver that discovers telemetry", async () => {

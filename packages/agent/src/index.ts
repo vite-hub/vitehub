@@ -2287,6 +2287,12 @@ function agentCapabilityTelemetry(
     : [])
 }
 
+function agentTelemetryUsesContent(registration: { content?: AgentTelemetryContentOptions }): boolean {
+  return registration.content?.inputs === true
+    || registration.content?.instructions === true
+    || registration.content?.outputs === true
+}
+
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
@@ -2457,11 +2463,12 @@ async function exportAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   const metadataSpans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" })
   let contentSpans: OpenTelemetrySpanView[] | undefined
   const exports = await Promise.allSettled(telemetry.map(async ({ capabilityId, registration }) => {
-    const selectedSpans = registration.content?.inputs || registration.content?.instructions || registration.content?.outputs
+    const contentPolicy = registration.content
+    const selectedSpans = contentPolicy && agentTelemetryUsesContent(registration)
       ? withAgentTelemetryContent(
           metadataSpans,
           contentSpans ||= traceEventsToOpenTelemetrySpans(run.events, { content: "content" }),
-          registration.content,
+          contentPolicy,
         )
       : metadataSpans
     const baseSpans = selectedSpans.map((span, index) => index
@@ -2661,7 +2668,7 @@ async function createAgentInvocationContext<
   const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
   const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
   const initialTelemetry = agentCapabilityTelemetry(definition?.capabilities)
-  const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)
+  const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
   const mayResolveContentTelemetry = capabilitiesResolver !== undefined
   const baseTraceLog = tracedRuntimeContextBase.traceLog || createTraceEventLog()
   const telemetryTraceLogWrapped = initialTelemetry.length > 0 || mayResolveContentTelemetry
@@ -2731,7 +2738,7 @@ async function createAgentInvocationContext<
       ...channelCapabilities,
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     failureTelemetry = agentCapabilityTelemetry(resolvedCapabilityDefinitions)
-    const resolvedTelemetryUsesContent = failureTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)
+    const resolvedTelemetryUsesContent = failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
     if (mayResolveContentTelemetry && !resolvedTelemetryUsesContent) {
       runtimeContext = { ...runtimeContext, traceLog: correlatedTraceLog }
     }
@@ -2803,7 +2810,7 @@ async function createAgentInvocationContext<
     if (!telemetryTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.length) {
       runtimeContext = { ...runtimeContext, traceLog: agentInvocationTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId, telemetryChanged) }
     }
-    if (!telemetryContentTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)) {
+    if (!telemetryContentTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))) {
       runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId) }
     }
     callbackContext = createAgentCallbackContext(runtimeContext)
