@@ -2432,6 +2432,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     const stopExecutionHeartbeat = startWebhookLockHeartbeat(resolved.state, executionLock, executionTtlMs, loseOwnership)
     let pending: DurableSteerQueueEntry | null
     try {
+      const ownerExtensionStartedAt = Date.now()
       if (!await resolved.state.extendLock(lock, ttlMs)) {
         const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
         try {
@@ -2448,6 +2449,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         }
         throw new Error("[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started.")
       }
+      lock.expiresAt = ownerExtensionStartedAt + ttlMs
       pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
       if (!pending?.message?.input) {
         throw new Error("[vitehub] Durable steered Channel delivery could not claim its persisted Agent Workflow input.")
@@ -3785,6 +3787,7 @@ async function handleChatSdkMessage(
       let workflowClaimId: string | undefined
       let reclaimedMessage: DurableSteerQueueMessage | undefined
       let reclaimedEntry: DurableSteerQueueEntry | null = null
+      let reclaimingDeliveryQueued = false
       try {
         steerLock = steerKey === undefined ? undefined : await state.state.acquireLock(steerKey, steerTtlMs) ?? undefined
         if (steerLock && steerQueue) {
@@ -3866,6 +3869,7 @@ async function handleChatSdkMessage(
                 run: workflowRun,
               },
             } as never, durableSteerQueueMaximum)
+            reclaimingDeliveryQueued = true
             reclaimedMessage = previous.message
             reclaimedEntry = previous
             workflowInput = previous.message.input
@@ -3970,6 +3974,12 @@ async function handleChatSdkMessage(
           }
         }
         if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)
+        if (reclaimingDeliveryQueued) {
+          durableHandoff = true
+          await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+          detachAgentChannelDelivery(delivery)
+          return
+        }
         throw error
       }
       finally {

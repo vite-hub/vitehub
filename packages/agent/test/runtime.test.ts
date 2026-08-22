@@ -5256,6 +5256,58 @@ describe("agent message protocol", () => {
     await expect(useWorkspace(workspaceName, { mode: "write" }).diff()).resolves.toMatchObject({ entries: [] })
   })
 
+  it("fences finish delivery and workspace commits after invocation ownership aborts", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const abort = new AbortController()
+    const delivered = vi.fn()
+    const snapshot = vi.fn()
+    const finishEffect: AgentChannelDeliveryFinishEffectCallback = vi.fn(context => context.reply("stale reply"))
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "ownership-fenced-finish",
+          prepare(context) {
+            context.delivery.finishEffect(finishEffect)
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: delivered },
+          messages: false,
+        }),
+      },
+      driver: { run: async ({ workspace }) => {
+          const writable = workspace as WritableWorkspaceFacade
+          const originalSnapshot = writable.snapshot.bind(writable)
+          vi.spyOn(writable, "snapshot").mockImplementation(async (...args) => {
+            snapshot(...args)
+            return await originalSnapshot(...args)
+          })
+          await writable.fs.writeFile("notes.md", "stale")
+          abort.abort(new Error("lost execution ownership"))
+          return { text: "stale" }
+        } },
+      workspace: {
+        commit: true,
+        mode: "write",
+        store: { provider: "memory" },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { channelId: "portal", runId: "stale-run" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { abortSignal: abort.signal })).resolves.toEqual({ text: "stale" })
+
+    expect(finishEffect).not.toHaveBeenCalled()
+    expect(delivered).not.toHaveBeenCalled()
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
   it("does not rerun finish lifecycle when a finish hook fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finishError = new Error("finish failed")

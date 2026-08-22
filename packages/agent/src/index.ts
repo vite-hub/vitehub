@@ -3159,6 +3159,17 @@ async function finishAgentInvocation<
   let runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   let text = runResult?.text
   let closeError: unknown
+  const cancelIfAborted = () => {
+    if (failed || !context.input.abortSignal?.aborted) return
+    failed = true
+    result = undefined
+    usage = undefined
+    runResult = undefined
+    text = undefined
+    error = context.input.abortSignal.reason instanceof Error
+      ? context.input.abortSignal.reason
+      : new Error("[vitehub] Agent invocation aborted.")
+  }
   try {
     await context.startTask
     try {
@@ -3174,6 +3185,7 @@ async function finishAgentInvocation<
         error = cleanupError
       }
     }
+    cancelIfAborted()
     let resultKind: string | undefined
     if (failed) usage = undefined
     if (!failed) {
@@ -3185,7 +3197,7 @@ async function finishAgentInvocation<
         // Invocation data must not change Agent output or mask the original failure.
       }
     }
-    if (hasFinishWork(context)) {
+    if (!context.input.abortSignal?.aborted && hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
         ...(failed ? { error } : {}),
@@ -3275,6 +3287,7 @@ async function finishAgentInvocation<
         }
       }
     }
+    cancelIfAborted()
     if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
