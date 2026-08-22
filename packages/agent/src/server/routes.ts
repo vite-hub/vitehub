@@ -2569,7 +2569,21 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           : null
         if (successorStartAttempted) {
           if (!pendingQueue || !successorPending?.message?.input) return
-          await failDurableSteerQueue(resolved.state, queue, pendingQueue, successorPending, error)
+          await failDurableSteerQueue(
+            resolved.state,
+            queue,
+            pendingQueue,
+            successorPending,
+            error,
+            async (message, failure) => await postDurableSteerErrorFallbacks(
+              agent as AgentInput<ViteAgentRouteRuntimeContext>,
+              context as ViteAgentRouteRuntimeContext,
+              registration,
+              resolved.state,
+              message,
+              failure,
+            ),
+          )
           await resolved.state.releaseLock(lock).catch(() => undefined)
           return
         }
@@ -2652,12 +2666,23 @@ interface DurableSteerQueueMessage {
   capabilities: Record<string, false>
   claimId?: string
   deliveryIds?: string[]
+  errorDeliveries?: DurableSteerErrorDelivery[]
   input?: AgentRunInput
   invokerKey?: string
   ownerToken?: string
   resolvedInvoker?: boolean
   run?: AgentRunMetadata
   settlementStatus?: "completed" | "failed"
+}
+
+interface DurableSteerErrorDelivery {
+  input: AgentRunInput
+  message: {
+    id?: string
+    text: string
+    threadId: string
+  }
+  run?: AgentRunMetadata
 }
 
 interface DurableSteerQueueEntry {
@@ -2702,7 +2727,53 @@ function durableSteerMergedDeliveryIds(message: DurableSteerQueueMessage | undef
   return [...new Set(message?.deliveryIds ?? [])].filter(deliveryId => deliveryId !== primaryDeliveryId)
 }
 
-async function failDurableSteerMessage(state: StateAdapter, message: DurableSteerQueueMessage, error: unknown): Promise<void> {
+function mergeDurableSteerErrorDeliveries(...deliveries: Array<DurableSteerErrorDelivery[] | undefined>): DurableSteerErrorDelivery[] {
+  const merged = new Map<string, DurableSteerErrorDelivery>()
+  for (const delivery of deliveries.flatMap(item => item ?? [])) {
+    const key = `${delivery.message.threadId}:${delivery.message.id ?? delivery.run?.runId ?? ""}`
+    merged.set(key, delivery)
+  }
+  return [...merged.values()]
+}
+
+async function postDurableSteerErrorFallbacks(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  state: StateAdapter,
+  message: DurableSteerQueueMessage,
+  error: unknown,
+): Promise<void> {
+  if (!message.errorDeliveries?.length) return
+  const baseOptions = getAgentChatOptions(agent)
+  const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
+  const adapters = await resolveChatAdapters(baseOptions, context)
+  const adapterName = resolveChatAdapterName(adapters, registration)
+  const adapter = adapterName ? adapters[adapterName] : undefined
+  if (!adapterName || !adapter) {
+    throw new Error("[vitehub] Durable steered Channel error delivery could not resolve its configured Chat adapter.")
+  }
+  const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, options))
+  for (const delivery of message.errorDeliveries) {
+    await postChatErrorFallback(
+      error,
+      chat.thread(delivery.message.threadId),
+      delivery.message as ChatSdkMessage,
+      options,
+      delivery.input as AgentChatMessageTriggerInput,
+      delivery.run,
+      [],
+    )
+  }
+}
+
+async function failDurableSteerMessage(
+  state: StateAdapter,
+  message: DurableSteerQueueMessage,
+  error: unknown,
+  deliverErrorFallback: (message: DurableSteerQueueMessage, error: unknown) => Promise<void>,
+): Promise<void> {
+  await deliverErrorFallback(message, error)
   for (const deliveryId of durableSteerDeliveryIds(message)) {
     const delivery = await resumeAgentChannelDelivery(state, deliveryId)
     if (!delivery) throw new Error(`[vitehub] Durable steered Channel delivery ${JSON.stringify(deliveryId)} could not be resumed for terminal settlement.`)
@@ -2718,9 +2789,10 @@ async function failDurableSteerQueue(
   pendingQueue: string,
   failed: DurableSteerQueueEntry,
   error: unknown,
+  deliverErrorFallback: (message: DurableSteerQueueMessage, error: unknown) => Promise<void>,
 ): Promise<void> {
   if (!failed.message) return
-  await failDurableSteerMessage(state, failed.message, error)
+  await failDurableSteerMessage(state, failed.message, error, deliverErrorFallback)
   if (!await acknowledgeDurableSteerPending(state, pendingQueue, failed)) {
     throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during terminal settlement.")
   }
@@ -2728,7 +2800,7 @@ async function failDurableSteerQueue(
   for (;;) {
     const queued = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
     if (!queued) break
-    if (queued.message) await failDurableSteerMessage(state, queued.message, error)
+    if (queued.message) await failDurableSteerMessage(state, queued.message, error, deliverErrorFallback)
     if (!await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum)) {
       throw new Error("[vitehub] Durable steered Channel delivery queue changed during terminal settlement.")
     }
@@ -2756,6 +2828,7 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
         ...durableSteerDeliveryIds(previous),
         ...durableSteerDeliveryIds(newerMessage),
       ])].filter(deliveryId => deliveryId !== restoredPrimaryDeliveryId),
+      errorDeliveries: mergeDurableSteerErrorDeliveries(previous.errorDeliveries, newerMessage.errorDeliveries),
       input: restoredInput,
       capabilities: newerMessage.capabilities ?? previous.capabilities,
       resolvedInvoker: newerMessage.resolvedInvoker ?? previous.resolvedInvoker,
@@ -3839,6 +3912,16 @@ async function handleChatSdkMessage(
       let workflowRunContext = runContext
       let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
       if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
+      const currentErrorDelivery: DurableSteerErrorDelivery = {
+        input: workflowInput,
+        message: {
+          ...(message.id ? { id: message.id } : {}),
+          text: message.text,
+          threadId: message.threadId,
+        },
+        ...(run ? { run } : {}),
+      }
+      let workflowErrorDeliveries = [currentErrorDelivery]
       const handoffTimeout = maximumInvocationDeadline === undefined
         ? undefined
         : AbortSignal.timeout(Math.max(0, maximumInvocationDeadline - Date.now()))
@@ -3881,6 +3964,9 @@ async function handleChatSdkMessage(
             message: {
               capabilities: workflowCapabilities,
               deliveryIds: sameInvoker ? deliveryIds : [],
+              errorDeliveries: sameInvoker
+                ? mergeDurableSteerErrorDeliveries(previous?.message?.errorDeliveries, [currentErrorDelivery])
+                : [currentErrorDelivery],
               input: workflowInput,
               invokerKey: workflowInvokerKey,
               resolvedInvoker: workflowInputHasResolvedInvoker,
@@ -3923,6 +4009,7 @@ async function handleChatSdkMessage(
           if (sameInvoker) {
             reclaimedMessage = previous?.message
             workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
+            workflowErrorDeliveries = mergeDurableSteerErrorDeliveries(previous?.message?.errorDeliveries, [currentErrorDelivery])
             reclaimedEntry = previous
           }
           else if (previous?.message?.input) {
@@ -3932,6 +4019,7 @@ async function handleChatSdkMessage(
               message: {
                 capabilities: workflowCapabilities,
                 deliveryIds: [],
+                errorDeliveries: [currentErrorDelivery],
                 input: workflowInput,
                 invokerKey: workflowInvokerKey,
                 resolvedInvoker: workflowInputHasResolvedInvoker,
@@ -3945,6 +4033,7 @@ async function handleChatSdkMessage(
             workflowInputHasResolvedInvoker = previous.message.resolvedInvoker === true
             workflowInvokerKey = durableSteerInvokerKey(previous.message)
             workflowCapabilities = previous.message.capabilities
+            workflowErrorDeliveries = previous.message.errorDeliveries ?? []
             workflowRun = previous.message.run
             workflowSettlementStatus = previous.message.settlementStatus
             workflowRunContext = {
@@ -4002,6 +4091,7 @@ async function handleChatSdkMessage(
               capabilities: workflowCapabilities,
               claimId: workflowClaimId,
               deliveryIds: Array.isArray(workflowSteer?.deliveryIds) ? workflowSteer.deliveryIds as string[] : [],
+              errorDeliveries: workflowErrorDeliveries,
               input: workflowInput,
               invokerKey: workflowInvokerKey,
               ownerToken: steerLock.token,
@@ -4039,7 +4129,21 @@ async function handleChatSdkMessage(
         if (steerQueue && steerPending && !steerStartOwnershipLost) {
           const pendingQueue = durableSteerPendingQueue(steerQueue)
           if (reclaimingDeliveryQueued) {
-            await failDurableSteerQueue(state.state, steerQueue, pendingQueue, steerPending, error)
+            await failDurableSteerQueue(
+              state.state,
+              steerQueue,
+              pendingQueue,
+              steerPending,
+              error,
+              async (message, failure) => await postDurableSteerErrorFallbacks(
+                agent,
+                context,
+                registration,
+                state.state,
+                message,
+                failure,
+              ),
+            )
           }
           else {
             if (!await acknowledgeDurableSteerPending(state.state, pendingQueue, steerPending)) {

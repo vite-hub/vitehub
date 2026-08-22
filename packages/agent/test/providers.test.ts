@@ -10766,11 +10766,12 @@ describe("server helpers", () => {
       if (createBatch.mock.calls.length > 1) throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
+    const errorFallbackText = vi.fn(() => "Could not process message.")
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
-          messages: { concurrency: "steer", delivery: "manual", state },
+          messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
         }),
       },
       driver: { run: () => "unused" },
@@ -10806,6 +10807,10 @@ describe("server helpers", () => {
       const queue = `${ownershipKey}:queue`
       expect(await state.queueDepth(queue)).toBe(0)
       expect(await state.queueDepth(`${queue}:pending`)).toBe(0)
+      expect(errorFallbackText).toHaveBeenCalledTimes(2)
+      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
 
       const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", runtime)
       for (const runId of ["telegram:91146", "telegram:91147"]) {
@@ -11181,7 +11186,12 @@ describe("server helpers", () => {
       channels: {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
-          messages: { concurrency: "steer", delivery: "manual", state },
+          messages: {
+            concurrency: "steer",
+            delivery: "manual",
+            errorFallbackText: "Queued delivery failed.",
+            state,
+          },
         }),
       },
       driver: { run: () => "internal output" },
@@ -11215,6 +11225,7 @@ describe("server helpers", () => {
         expect.objectContaining({ error: "Workflow provider operation failed.", type: "invocation.failed" }),
         expect.objectContaining({ error: "Workflow provider operation failed.", type: "failed" }),
       ]))
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Queued delivery failed.")
     }
     finally {
       setActiveCloudflareEnv(undefined)
