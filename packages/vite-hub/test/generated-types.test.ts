@@ -222,6 +222,32 @@ describe("framework generated types", () => {
     )
   })
 
+  it.each([
+    ["meals.mjs", "meals.d.mts"],
+    ["meals.cjs", "meals.d.cts"],
+  ])("ignores declaration files next to %s Collections", async (moduleFile, declarationFile) => {
+    const { root } = await createNestedProject()
+    const collectionsDirectory = join(root, "server/collections")
+    await mkdir(collectionsDirectory, { recursive: true })
+    await Promise.all([
+      writeFile(join(collectionsDirectory, moduleFile), collectionModule("meals")),
+      writeFile(join(collectionsDirectory, declarationFile), "export declare const meals: object\n"),
+    ])
+
+    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
+    const collectionTypes = await readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")
+
+    expect(handlers).toEqual([
+      {
+        handler: join(root, ".vitehub/source/routes/meals.mjs"),
+        method: "get",
+        route: "/api/meals",
+      },
+    ])
+    expect(collectionTypes).toContain(JSON.stringify(join(collectionsDirectory, moduleFile)))
+    expect(collectionTypes).not.toContain(declarationFile)
+  })
+
   it("loads a generated Collection handler through its normalized module specifier", async () => {
     const { root } = await createNestedProject()
     await Promise.all([

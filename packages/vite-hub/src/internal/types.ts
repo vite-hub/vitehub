@@ -145,7 +145,7 @@ async function collectCollectionFiles(directory: string): Promise<string[]> {
     const path = join(directory, entry.name)
     if (entry.isDirectory()) {
       files.push(...(await collectCollectionFiles(path)))
-    } else if (entry.isFile() && /\.(?:[cm]?[jt]s)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+    } else if (entry.isFile() && /\.(?:[cm]?[jt]s)$/.test(entry.name) && !/\.d\.[cm]?ts$/.test(entry.name)) {
       files.push(path)
     }
   }
