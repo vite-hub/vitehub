@@ -1,5 +1,6 @@
 import type { AgentInvocationListResult, AgentInvocationRecord } from "../invocations.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
+import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -108,8 +109,15 @@ async function request<T>(url: URL, fetchImpl: typeof fetch, timeout: number): P
   return await response.json() as T
 }
 
+function formatError(error: RuntimeDiagnosticError, indent = ""): string {
+  const lines = [`${indent}${error.name || "Error"}: ${error.message}`]
+  if (error.cause) lines.push(formatError(error.cause, `${indent}  caused by `))
+  for (const nested of error.errors || []) lines.push(formatError(nested, `${indent}  `))
+  return lines.join("\n")
+}
+
 function summary(record: AgentInvocationRecord | AgentInvocationListResult["invocations"][number]): string {
-  const error = record.error ? ` ${record.error.name || "Error"}: ${record.error.message}` : ""
+  const error = record.error ? ` ${formatError(record.error)}` : ""
   return `${record.id} ${record.status} ${record.updatedAt}${error}`
 }
 
@@ -168,7 +176,7 @@ export async function runAgentInvocationsCli(
         context.stdout.write(parsed.json ? `${JSON.stringify(observation)}\n` : `${observation.sequence} ${observation.timestamp} ${observation.name}\n`)
       }
       if (record.status === "completed" || record.status === "failed" || record.status === "cancelled") {
-        if (record.error) context.stderr.write(`${record.error.name || "Error"}: ${record.error.message}\n`)
+        if (record.error) context.stderr.write(`${formatError(record.error)}\n`)
         return record.status === "completed" ? 0 : 1
       }
       await sleep(parsed.interval)

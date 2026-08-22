@@ -57,7 +57,7 @@ Unsupported sources are recorded in `support`. Unlimited cgroup values are omitt
 
 ## Sampling behavior
 
-Sampling is bounded to one active inspection and one coalesced pending reason. A slow inspector cannot create an unbounded polling backlog. Finish supersedes a stale poll and waits for the final observation before the Capability closes.
+Sampling is bounded to one active inspection and one coalesced pending reason. Reporter delivery is ordered and bounded by `timeout`. A slow inspector or reporter cannot create an unbounded polling backlog. Finish supersedes a stale poll and waits for the final observation before the Capability closes.
 
 `diagnostics()` is separate from `otlp()`: diagnostics records operator health and resource pressure, while OTLP exports the Agent Invocation trace. Keeping the lanes separate prevents a broken telemetry receiver from recursively hiding its own delivery failure.
 
@@ -67,10 +67,10 @@ Sampling is bounded to one active inspection and one coalesced pending reason. A
 | --- | --- | --- | --- |
 | `reporter` | `RuntimeDiagnosticReporter` | Structured console output | Receives operational events. |
 | `resources` | `RuntimeResourceInspector` | None | Enables scoped resource sampling. |
-| `interval` | `number` | `10000` | Resource polling interval in milliseconds. |
+| `interval` | `number` | `10000` | Resource polling interval in milliseconds. Must not exceed `heartbeat`. |
 | `heartbeat` | `number` | `60000` | Maximum interval between snapshot events in milliseconds. |
 | `peakStepBytes` | `number` | `67108864` | Minimum peak increase before a peak event. |
-| `timeout` | `number` | `1000` | Maximum duration of one resource inspection in milliseconds. |
+| `timeout` | `number` | `1000` | Maximum duration of one resource inspection or reporter delivery in milliseconds. |
 
 ## Related
 

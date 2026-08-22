@@ -50,22 +50,46 @@ function defaultReporter(event: RuntimeDiagnosticEvent): void {
   else console.info(output)
 }
 
-async function report(reporter: RuntimeDiagnosticReporter, event: RuntimeDiagnosticEvent): Promise<void> {
-  try {
-    await reporter(event)
+function boundedReporter(reporter: RuntimeDiagnosticReporter, timeout: number): RuntimeDiagnosticReporter {
+  let active: Promise<void> | undefined
+  const wait = async (delivery: Promise<void>): Promise<boolean> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new DOMException("Diagnostic reporting timed out.", "TimeoutError")), timeout)
+    timer.unref?.()
+    try {
+      await Promise.race([
+        delivery,
+        new Promise<never>((_resolve, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true })),
+      ])
+      return true
+    }
+    catch (error) {
+      console.warn({
+        component: "@vite-hub/agent",
+        error: normalizeRuntimeDiagnosticError(error, { includeStack: true }),
+        event: "agent.diagnostics.report.failed",
+        timestamp: new Date().toISOString(),
+      })
+      return false
+    }
+    finally {
+      clearTimeout(timer)
+    }
   }
-  catch (error) {
-    console.warn({
-      component: "@vite-hub/agent",
-      error: normalizeRuntimeDiagnosticError(error, { includeStack: true }),
-      event: "agent.diagnostics.report.failed",
-      timestamp: new Date().toISOString(),
+  return async (event) => {
+    if (active && !await wait(active)) return
+    const delivery = Promise.resolve().then(() => reporter(event))
+    const slot = delivery.then(() => undefined, () => undefined)
+    active = slot
+    void slot.then(() => {
+      if (active === slot) active = undefined
     })
+    await wait(delivery)
   }
 }
 
 function peakObservations(snapshot: RuntimeResourceSnapshot): RuntimeResourceObservation[] {
-  return snapshot.observations.filter(observation => observation.name.endsWith(".peak") || observation.name === "memory.max_rss")
+  return snapshot.observations.filter(observation => observation.unit === "bytes" && (observation.name.endsWith(".peak") || observation.name === "memory.max_rss"))
 }
 
 function createMonitor(options: {
@@ -85,7 +109,7 @@ function createMonitor(options: {
   let pending: "finish" | "poll" | "start" | undefined
   let stopped = false
 
-  const emit = async (name: string, snapshot: RuntimeResourceSnapshot, reason: string) => await report(options.reporter, {
+  const emit = async (name: string, snapshot: RuntimeResourceSnapshot, reason: string) => await options.reporter({
     attributes: {
       reason,
       ...(options.runId ? { run_id: options.runId } : {}),
@@ -115,7 +139,7 @@ function createMonitor(options: {
         }
       }
       if (changed.length) {
-        await report(options.reporter, {
+        await options.reporter({
           attributes: {
             ...(options.runId ? { run_id: options.runId } : {}),
             peaks: changed,
@@ -135,7 +159,7 @@ function createMonitor(options: {
       }
     }
     catch (error) {
-      await report(options.reporter, {
+      await options.reporter({
         attributes: { reason, ...(options.runId ? { run_id: options.runId } : {}) },
         component: "@vite-hub/agent",
         error: normalizeRuntimeDiagnosticError(error, { includeStack: true }),
@@ -217,8 +241,9 @@ export function diagnostics<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   const heartbeat = positiveDuration(options.heartbeat, 60_000, "heartbeat")
   const interval = positiveDuration(options.interval, 10_000, "interval")
   const peakStepBytes = positiveBytes(options.peakStepBytes, 64 * 1024 * 1024)
-  const reporter = options.reporter || defaultReporter
   const timeout = positiveDuration(options.timeout, 1_000, "timeout")
+  if (interval > heartbeat) throw new TypeError("[vitehub] diagnostics({ interval }) cannot exceed diagnostics({ heartbeat }).")
+  const reporter = boundedReporter(options.reporter || defaultReporter, timeout)
   const capability = defineCapability<TRuntimeConfig>({
     id: "diagnostics",
     metadata: {
@@ -244,7 +269,7 @@ export function diagnostics<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
     },
     async finish(event) {
       const cancelled = event.error !== undefined && event.input.abortSignal?.aborted === true
-      await report(reporter, {
+      await reporter({
         attributes: {
           duration_ms: event.invocation.durationMs,
           outcome: cancelled ? "cancelled" : event.error ? "failed" : "completed",

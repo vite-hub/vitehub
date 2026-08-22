@@ -1418,7 +1418,12 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(1)
     expect(stdout.output().trim().split("\n").map(line => JSON.parse(line).sequence)).toEqual([1, 2])
-    expect(stderr.output()).toBe("AggregateError: Workspace failed\n")
+    expect(stderr.output()).toBe([
+      "AggregateError: Workspace failed",
+      "  Error: Checkout failed",
+      "  Error: Restore failed",
+      "",
+    ].join("\n"))
   })
 
   it("prints unknown execution authority without inferring restrictions", async () => {

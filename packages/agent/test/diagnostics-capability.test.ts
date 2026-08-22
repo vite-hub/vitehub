@@ -69,6 +69,23 @@ describe("diagnostics Capability", () => {
     expect(events.filter(event => event.name === "agent.resource.peak")).toHaveLength(1)
   })
 
+  it("does not apply byte peak thresholds to other units", async () => {
+    const events: RuntimeDiagnosticEvent[] = []
+    const agent = defineAgent({
+      capabilities: [diagnostics({
+        reporter: (event) => { events.push(event) },
+        resources: { inspect: async () => ({
+          observedAt: new Date().toISOString(),
+          observations: [{ name: "requests.peak", scope: "service", source: "custom", unit: "count", value: 100_000_000 }],
+        }) },
+      })],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    expect(events.some(event => event.name === "agent.resource.peak")).toBe(false)
+  })
+
   it("does not let inspection or reporter failures change Agent output", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const agent = defineAgent({
@@ -85,6 +102,20 @@ describe("diagnostics Capability", () => {
       runtime: "unknown",
       waitUntil: vi.fn(),
     }, {})).resolves.toBe("ok")
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "agent.diagnostics.report.failed" }))
+    warn.mockRestore()
+  })
+
+  it("does not let a non-settling reporter own the invocation lifecycle", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [diagnostics({ reporter: () => new Promise<void>(() => {}), timeout: 5 })],
+      driver: { run },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    expect(run).toHaveBeenCalledOnce()
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "agent.diagnostics.report.failed" }))
     warn.mockRestore()
   })
@@ -150,6 +181,7 @@ describe("diagnostics Capability", () => {
   })
 
   it("does not overlap reporting between samples", async () => {
+    const delivered: string[] = []
     let activeReporters = 0
     let inspections = 0
     let maxReporters = 0
@@ -164,6 +196,7 @@ describe("diagnostics Capability", () => {
         reporter: async (event) => {
           activeReporters += 1
           maxReporters = Math.max(maxReporters, activeReporters)
+          delivered.push(`${event.name}:${event.attributes?.reason || "terminal"}`)
           if (event.attributes?.reason === "poll") {
             startPoll?.()
             await pollBlocked
@@ -174,11 +207,11 @@ describe("diagnostics Capability", () => {
           inspections += 1
           return snapshot(inspections)
         } },
-        timeout: 50,
+        timeout: 5,
       })],
       driver: { run: async () => {
         await pollReporting
-        setTimeout(() => releasePoll?.(), 1)
+        setTimeout(() => releasePoll?.(), 10)
         return "ok"
       } },
     })
@@ -186,6 +219,9 @@ describe("diagnostics Capability", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(maxReporters).toBe(1)
     expect(inspections).toBe(3)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(delivered.at(-2)).toBe("agent.resource.snapshot:finish")
+    expect(delivered.at(-1)).toBe("agent.invocation.terminal:terminal")
   })
 
   it("reports an aborted invocation as cancelled", async () => {
@@ -220,6 +256,7 @@ describe("diagnostics Capability", () => {
 
   it("rejects invalid sampling options", () => {
     expect(() => diagnostics({ interval: 0 })).toThrow("diagnostics({ interval })")
+    expect(() => diagnostics({ heartbeat: 10, interval: 11 })).toThrow("cannot exceed")
     expect(() => diagnostics({ peakStepBytes: 0 })).toThrow("diagnostics({ peakStepBytes })")
   })
 })
