@@ -175,7 +175,8 @@ describe("Agent Invocation Vue composables", () => {
     await settle();
     expect(calls[4]!.path).toBe("/api/invocations?cursor=oldest");
     calls[4]!.resolve({
-      invocations: [{ ...record("inv-1"), status: "failed" }],
+      cursor: "ancient",
+      invocations: [{ ...record("inv-1"), status: "failed" }, record("inv-0")],
     } satisfies AgentInvocationListResult);
     await refresh;
 
@@ -184,7 +185,7 @@ describe("Agent Invocation Vue composables", () => {
       { ...record("inv-2"), status: "completed" },
       { ...record("inv-1"), status: "failed" },
     ]);
-    expect(resource.cursor.value).toBeUndefined();
+    expect(resource.cursor.value).toBe("oldest");
     scope.stop();
   });
 
