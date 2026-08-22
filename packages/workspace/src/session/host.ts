@@ -3,7 +3,7 @@ import { posix } from "node:path"
 import { normalizeExecutionAuthority } from "@vite-hub/runtime"
 
 import { workspaceConflict, workspaceError } from "../core/errors.ts"
-import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentToBytes, decodeFile, isExcludedWorkspacePath, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 import { withWorkspaceProgress } from "./progress.ts"
@@ -818,6 +818,7 @@ export async function createHostedWorkspaceSession(
     async list(path = "", listOptions = {}) {
       assertOpen()
       return filterSessionEntries(await listHostEntries(host, root, path, listOptions.recursive), sessionPaths)
+        .filter(entry => !isExcludedWorkspacePath(entry.path, listOptions.exclude))
     },
     async glob(pattern, globOptions) {
       assertOpen()

@@ -267,18 +267,35 @@ describe("workspace host sessions", () => {
       await Promise.all(excluded.map(path => chmod(path, 0)))
     }
     const docs = createWorkspace({
-      ...defineWorkspace({ store: { provider: "local", root: source } }),
+      ...defineWorkspace({
+        sources: {
+          request: fetchSource({ url: "https://status.example.com/request" }),
+        },
+        store: { provider: "local", root: source },
+      }),
       name: "local-docs",
     })
 
     try {
       const session = await docs.startSession({ host: localHost(), target })
       await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
+      await expect(session.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
       await expect(stat(join(target, ".agent-runs"))).rejects.toThrow()
       await expect(stat(join(target, ".git"))).rejects.toThrow()
       await expect(stat(join(target, ".vitehub", "meta"))).rejects.toThrow()
       await expect(stat(join(target, "docs", ".Git"))).rejects.toThrow()
       await session.close()
+
+      const scoped = await docs.startSession({
+        host: localHost(),
+        paths: [".vitehub"],
+        target: join(targetParent, "scoped"),
+      })
+      await expect(scoped.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+      await expect(scoped.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ".vitehub/meta" }),
+      ]))
+      await scoped.close()
     }
     finally {
       if (process.platform !== "win32") {
@@ -694,6 +711,19 @@ describe("workspace host sessions", () => {
     ]))
     await scoped.close()
     vi.restoreAllMocks()
+  })
+
+  it("honors list exclusions in hosted Sessions", async () => {
+    const docs = workspace()
+    await docs.writeFile("public/readme.md", "public")
+    await docs.writeFile("private/secret.txt", "private")
+    const session = await docs.startSession({ host: memoryHost() })
+
+    await expect(session.list("", { exclude: ["private"], recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "public", type: "directory" }),
+      expect.objectContaining({ path: "public/readme.md", type: "file" }),
+    ])
+    await session.close()
   })
 
   it("rejects one concurrent publication after its pinned revision becomes stale", async () => {
