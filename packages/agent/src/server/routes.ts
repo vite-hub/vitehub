@@ -26,6 +26,7 @@ import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, agentChannelDeliverySourceValue, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, setAgentChannelDeliveryWorkflowOwnershipResolver, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
@@ -2395,22 +2396,21 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     await resolved.state.connect()
     const { lock, queue, ttlMs } = binding.steer
     if (!await resolved.state.extendLock(lock, ttlMs)) {
-      const pending = binding.steer.pendingQueue
-        ? await resolved.state.dequeue(binding.steer.pendingQueue) as DurableSteerQueueEntry | null
-        : null
-      if (pending?.message?.input) {
-        const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
-        try {
+      const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
+      try {
+        const pending = await takeDurableSteerPending(resolved.state, binding.steer.pendingQueue, lock.token)
+        if (pending?.message?.input) {
           await restoreDurableSteerQueue(resolved.state, queue, pending.message)
         }
-        finally {
-          await resolved.state.releaseLock(recoveryLock).catch(() => undefined)
-        }
+      }
+      finally {
+        await resolved.state.releaseLock(recoveryLock).catch(() => undefined)
       }
       throw new Error("[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started.")
     }
-    if (binding.steer.pendingQueue) {
-      await resolved.state.dequeue(binding.steer.pendingQueue)
+    const pending = await takeDurableSteerPending(resolved.state, binding.steer.pendingQueue, lock.token)
+    if (!pending?.message?.input) {
+      throw new Error("[vitehub] Durable steered Channel delivery could not claim its persisted Agent Workflow input.")
     }
     let ownershipLost = false
     const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, () => { ownershipLost = true })
@@ -2419,6 +2419,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       let stopHandoffHeartbeat: () => void = () => undefined
       let queued: DurableSteerQueueEntry | null = null
       let pendingQueue: string | undefined
+      let pendingPersisted = false
       try {
         for (const deliveryId of binding.steer?.deliveryIds ?? []) {
           const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
@@ -2435,12 +2436,13 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           await resolved.state.releaseLock(lock)
           return
         }
-        pendingQueue = `${queue}:pending:${lock.token}`
+        pendingQueue = durableSteerPendingQueue(queue)
         await resolved.state.enqueue(pendingQueue, {
           enqueuedAt: Date.now(),
           expiresAt: Number.MAX_SAFE_INTEGER,
-          message: queued.message,
+          message: { ...queued.message, ownerToken: lock.token },
         } as never, 1)
+        pendingPersisted = true
         let queuedInput = queued.message.input
         if (queued.message.resolvedInvoker) {
           const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
@@ -2449,7 +2451,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         const queuedDelivery = queuedInput.context?.[agentChannelDeliveryWorkflowContextKey]
         await runAgent(agent as never, {
           ...context,
-          ...(queued.message.capabilities ? { capabilities: queued.message.capabilities } : {}),
+          capabilities: queued.message.capabilities,
           ...(queued.message.run ? { run: queued.message.run } : {}),
         } as never, {
           ...queuedInput,
@@ -2473,8 +2475,12 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
           stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => undefined)
         }
-        if (pendingQueue) await resolved.state.dequeue(pendingQueue).catch(() => null)
-        if (queued?.message?.input) await restoreDurableSteerQueue(resolved.state, queue, queued.message)
+        const pending = pendingQueue && pendingPersisted
+          ? await takeDurableSteerPending(resolved.state, pendingQueue, lock.token).catch(() => null)
+          : null
+        if (queued?.message?.input && (!pendingPersisted || pending?.message?.input)) {
+          await restoreDurableSteerQueue(resolved.state, queue, queued.message)
+        }
         await resolved.state.releaseLock(lock).catch(() => undefined)
         throw error
       }
@@ -2518,10 +2524,11 @@ function mergeDurableSteerInput(previous: AgentRunInput | undefined, current: Ag
 }
 
 interface DurableSteerQueueMessage {
-  capabilities?: ViteAgentRouteRuntimeContext["capabilities"]
+  capabilities: Record<string, false>
   deliveryIds?: string[]
   input?: AgentRunInput
   invokerKey?: string
+  ownerToken?: string
   resolvedInvoker?: boolean
   run?: AgentRunMetadata
 }
@@ -2530,39 +2537,61 @@ interface DurableSteerQueueEntry {
   message?: DurableSteerQueueMessage
 }
 
+const durableSteerQueueMaximum = Number.MAX_SAFE_INTEGER
+
+function durableSteerPendingQueue(queue: string): string {
+  return `${queue}:pending`
+}
+
+async function takeDurableSteerPending(state: StateAdapter, queue: string, ownerToken: string): Promise<DurableSteerQueueEntry | null> {
+  const pending = await state.dequeue(queue) as DurableSteerQueueEntry | null
+  if (!pending || pending.message?.ownerToken === ownerToken) return pending
+  await state.enqueue(queue, pending as never, 1)
+  return null
+}
+
 function durableSteerInvokerKey(message: DurableSteerQueueMessage | undefined): string {
   return message?.invokerKey ?? JSON.stringify(resolveInputAgentInvoker(message?.input?.context) ?? null)
 }
 
+function durableSteerDeliveryIds(message: DurableSteerQueueMessage | undefined): string[] {
+  const binding = message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
+  const deliveryId = isRecord(binding) && typeof binding.deliveryId === "string" ? binding.deliveryId : undefined
+  return [...new Set([
+    ...message?.deliveryIds ?? [],
+    ...(deliveryId ? [deliveryId] : []),
+  ])]
+}
+
 async function restoreDurableSteerQueue(state: StateAdapter, queue: string, previous: DurableSteerQueueMessage): Promise<void> {
   if (!previous.input) return
-  const newer = await state.dequeue(queue) as DurableSteerQueueEntry | null
-  if (newer?.message?.input && durableSteerInvokerKey(previous) !== durableSteerInvokerKey(newer.message)) {
-    await state.enqueue(queue, {
-      enqueuedAt: Date.now(),
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      message: previous,
-    } as never, 0)
-    await state.enqueue(queue, newer as never, 0)
-    return
+  const queued: DurableSteerQueueEntry[] = []
+  for (;;) {
+    const entry = await state.dequeue(queue) as DurableSteerQueueEntry | null
+    if (!entry) break
+    queued.push(entry)
   }
-  const newerBinding = newer?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
-  const newerDeliveryId = isRecord(newerBinding) && typeof newerBinding.deliveryId === "string" ? newerBinding.deliveryId : undefined
-  await state.enqueue(queue, {
+  const newer = queued.shift()
+  const sameInvoker = newer?.message?.input && durableSteerInvokerKey(previous) === durableSteerInvokerKey(newer.message)
+  const restored: DurableSteerQueueEntry = {
     enqueuedAt: Date.now(),
     expiresAt: Number.MAX_SAFE_INTEGER,
-    message: {
+    message: sameInvoker ? {
       ...previous,
-      deliveryIds: [
-        ...previous.deliveryIds ?? [],
-        ...newer?.message?.deliveryIds ?? [],
-        ...(newerDeliveryId ? [newerDeliveryId] : []),
-      ],
-      input: mergeDurableSteerInput(previous.input, newer?.message?.input ?? previous.input),
-      resolvedInvoker: newer?.message?.resolvedInvoker ?? previous.resolvedInvoker,
-      run: newer?.message?.run ?? previous.run,
-    },
-  } as never, 1)
+      deliveryIds: [...new Set([
+        ...durableSteerDeliveryIds(previous),
+        ...durableSteerDeliveryIds(newer.message),
+      ])],
+      input: mergeDurableSteerInput(previous.input, newer.message.input),
+      capabilities: newer.message.capabilities ?? previous.capabilities,
+      resolvedInvoker: newer.message.resolvedInvoker ?? previous.resolvedInvoker,
+      run: newer.message.run ?? previous.run,
+    } : previous,
+  }
+  const restoredQueue = sameInvoker ? [restored, ...queued] : [restored, ...(newer ? [newer] : []), ...queued]
+  for (const entry of restoredQueue) {
+    await state.enqueue(queue, entry as never, durableSteerQueueMaximum)
+  }
 }
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {
@@ -3625,7 +3654,7 @@ async function handleChatSdkMessage(
       }, invoker) as AgentRunInput
       const workflowInputHasResolvedInvoker = hasResolvedAgentInvokerInput(workflowInput)
       const workflowInvokerKey = JSON.stringify(resolveInputAgentInvoker(workflowInput.context) ?? null)
-      const workflowCapabilities = context.capabilities
+      const workflowCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
       if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
       const handoffTimeout = maximumInvocationDeadline === undefined
         ? undefined
@@ -3641,14 +3670,17 @@ async function handleChatSdkMessage(
         if (steerLock && steerQueue) {
           workflowInput.context![agentChannelDeliveryWorkflowContextKey] = {
             ...workflowBinding,
-            steer: { lock: steerLock, queue: steerQueue, ttlMs: steerTtlMs },
+            steer: {
+              lock: steerLock,
+              pendingQueue: durableSteerPendingQueue(steerQueue),
+              queue: steerQueue,
+              ttlMs: steerTtlMs,
+            },
           }
         }
         if (steerKey && steerQueue && !steerLock) {
           const previous = await state.state.dequeue(steerQueue) as DurableSteerQueueEntry | null
-          const previousBinding = previous?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
-          const previousDeliveryId = isRecord(previousBinding) && typeof previousBinding.deliveryId === "string" ? previousBinding.deliveryId : undefined
-          const deliveryIds = [...previous?.message?.deliveryIds ?? [], ...(previousDeliveryId ? [previousDeliveryId] : [])]
+          const deliveryIds = durableSteerDeliveryIds(previous?.message)
           const sameInvoker = !previous?.message?.input || durableSteerInvokerKey(previous.message) === workflowInvokerKey
           if (sameInvoker) workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
           else if (previous) {
@@ -3656,7 +3688,7 @@ async function handleChatSdkMessage(
               enqueuedAt: Date.now(),
               expiresAt: Number.MAX_SAFE_INTEGER,
               message: previous.message,
-            } as never, 0)
+            } as never, durableSteerQueueMaximum)
             reclaimedMessage = undefined
           }
           try {
@@ -3671,7 +3703,7 @@ async function handleChatSdkMessage(
                 resolvedInvoker: workflowInputHasResolvedInvoker,
                 run,
               },
-            } as never, sameInvoker ? 1 : 0)
+            } as never, sameInvoker ? 1 : durableSteerQueueMaximum)
           }
           catch (error) {
             if (sameInvoker && previous?.message?.input) {
@@ -3693,24 +3725,24 @@ async function handleChatSdkMessage(
         // Workflow abandoned an expired lease. Preserve that accepted input and
         // its delivery records when the current message reclaims the scope.
         if (steerLock && steerQueue) {
+          const pending = await state.state.dequeue(durableSteerPendingQueue(steerQueue)) as DurableSteerQueueEntry | null
+          if (pending?.message?.input) await restoreDurableSteerQueue(state.state, steerQueue, pending.message)
           const previous = await state.state.dequeue(steerQueue) as { message?: typeof reclaimedMessage } | null
           reclaimedMessage = previous?.message
-          const previousBinding = previous?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey]
-          const previousDeliveryId = isRecord(previousBinding) && typeof previousBinding.deliveryId === "string" ? previousBinding.deliveryId : undefined
-          const deliveryIds = [...previous?.message?.deliveryIds ?? [], ...(previousDeliveryId ? [previousDeliveryId] : [])]
+          const deliveryIds = durableSteerDeliveryIds(previous?.message)
           const sameInvoker = !previous?.message?.input || durableSteerInvokerKey(previous.message) === workflowInvokerKey
           if (sameInvoker) workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
           else if (previous) await state.state.enqueue(steerQueue, {
             enqueuedAt: Date.now(),
             expiresAt: Number.MAX_SAFE_INTEGER,
             message: previous.message,
-          } as never, 0)
+          } as never, durableSteerQueueMaximum)
           workflowInput.context![agentChannelDeliveryWorkflowContextKey] = {
             ...workflowBinding,
             steer: {
-              capabilities: workflowCapabilities,
               lock: steerLock,
               queue: steerQueue,
+              pendingQueue: durableSteerPendingQueue(steerQueue),
               ttlMs: steerTtlMs,
               deliveryIds: sameInvoker ? deliveryIds : [],
             },
@@ -3734,6 +3766,25 @@ async function handleChatSdkMessage(
         () => { steerStartOwnershipLost = true },
       ))
       try {
+        if (steerLock && steerQueue) {
+          const workflowDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+          const workflowSteer = isRecord(workflowDelivery) && isRecord(workflowDelivery.steer)
+            ? workflowDelivery.steer
+            : undefined
+          await state.state.enqueue(durableSteerPendingQueue(steerQueue), {
+            enqueuedAt: Date.now(),
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            message: {
+              capabilities: workflowCapabilities,
+              deliveryIds: Array.isArray(workflowSteer?.deliveryIds) ? workflowSteer.deliveryIds as string[] : [],
+              input: workflowInput,
+              invokerKey: workflowInvokerKey,
+              ownerToken: steerLock.token,
+              resolvedInvoker: workflowInputHasResolvedInvoker,
+              run,
+            },
+          } as never, 1)
+        }
         await runAgent(agent as never, runContext as never, workflowInput as never)
         durableHandoff = true
         if (steerStartOwnershipLost) {
@@ -3743,14 +3794,10 @@ async function handleChatSdkMessage(
       catch (error) {
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
-        if (reclaimedMessage?.input && steerQueue) {
-          if (steerHandoffLock) await state.state.releaseLock(steerHandoffLock).catch(() => undefined)
-          const recoveryLock = await acquireRequiredStateLock(state.state, `${steerKey}:handoff`, steerTtlMs, handoffAbort)
-          try {
+        if (steerQueue && !steerStartOwnershipLost) {
+          await state.state.dequeue(durableSteerPendingQueue(steerQueue)).catch(() => null)
+          if (reclaimedMessage?.input) {
             await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
-          }
-          finally {
-            await state.state.releaseLock(recoveryLock).catch(() => undefined)
           }
         }
         if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)

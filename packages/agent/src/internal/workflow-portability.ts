@@ -6,6 +6,12 @@ export function workflowBytesToBase64(data: Uint8Array): string {
   return btoa(binary)
 }
 
+export function portableWorkflowCapabilityOverrides(capabilities: Record<string, unknown> | undefined): Record<string, false> {
+  return Object.fromEntries(
+    Object.entries(capabilities || {}).filter(([, capability]) => capability === false),
+  ) as Record<string, false>
+}
+
 const omittedWorkflowValue = Symbol("vitehub.agent.omitted-workflow-value")
 
 export function cloneWorkflowJsonValue(value: unknown, options: { omitUndefinedObjectProperties?: boolean } = {}): unknown {

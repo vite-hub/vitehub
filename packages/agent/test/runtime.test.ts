@@ -12383,6 +12383,56 @@ describe("agent message protocol", () => {
       }, async () => result)).resolves.toEqual({ score: 1 })
     })
 
+    it("does not replace a completed Workflow result with a steer settlement failure", async () => {
+      const {
+        agentChannelDeliveryWorkflowContextKey,
+        setAgentChannelDeliveryWorkflowOwnershipResolver,
+        setAgentChannelDeliveryWorkflowResolver,
+      } = await import("../src/internal/channel-delivery.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const settlement = vi.fn(async () => {
+        throw new Error("successor handoff failed")
+      })
+      setAgentChannelDeliveryWorkflowResolver(async () => ({
+        claimed: true,
+        delivery: {},
+        duplicate: false,
+        event: async (input: unknown) => input,
+      }) as never)
+      setAgentChannelDeliveryWorkflowOwnershipResolver(async () => settlement)
+
+      try {
+        await expect(runAgentWorkflowDefinition({} as never, {
+          id: "completed-before-settlement",
+          name: "completed-before-settlement",
+          payload: {
+            input: {
+              context: {
+                [agentChannelDeliveryWorkflowContextKey]: {
+                  channelId: "telegram",
+                  deliveryId: "delivery-1",
+                  provider: "telegram",
+                  state: "chat",
+                  steer: {
+                    lock: { expiresAt: Date.now() + 60_000, threadId: "scope", token: "owner" },
+                    pendingQueue: "scope:queue:pending",
+                    queue: "scope:queue",
+                    ttlMs: 60_000,
+                  },
+                },
+              },
+            },
+          },
+          provider: "vercel",
+        }, async () => "completed")).resolves.toBe("completed")
+        expect(settlement).toHaveBeenCalledWith("completed")
+      }
+      finally {
+        const { installAgentChannelDeliveryWorkflowResolver } = await import("../src/server/routes.ts")
+        installAgentChannelDeliveryWorkflowResolver()
+      }
+    })
+
     it("rejects undefined array entries that JSON would change", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       await expect(runAgentWorkflowDefinition({} as never, {

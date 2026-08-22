@@ -357,7 +357,7 @@ export async function runAgentWorkflowDefinition<
     while (backgroundTasks.length) {
       await Promise.allSettled(backgroundTasks.splice(0))
     }
-    await settleChannelOwnership?.(channelDeliveryStatus)
+    await settleChannelOwnership?.(channelDeliveryStatus).catch(() => undefined)
   }
 }
 
