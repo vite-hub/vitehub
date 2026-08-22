@@ -4,6 +4,7 @@ import type {
   AgentHookObserverHooks,
   MaybePromise,
 } from "./types.ts"
+import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 function observerList(hooks?: AgentHookObserverHooks): AgentHookObserver[] {
   const observers = hooks?.["hook:observe"]
@@ -12,9 +13,7 @@ function observerList(hooks?: AgentHookObserverHooks): AgentHookObserver[] {
 }
 
 function errorMetadata(error: unknown): AgentHookObserverEvent["error"] {
-  return error instanceof Error
-    ? { message: error.message, name: error.name }
-    : { message: String(error) }
+  return normalizeRuntimeDiagnosticError(error, { maxDepth: 4, maxErrors: 8, maxStringLength: 512 })
 }
 
 export async function notifyAgentHookObservers(

@@ -766,6 +766,36 @@ describe("Agent Invocations", () => {
     expect(errorObservation?.attributes?.["error.message"]).toHaveLength(512)
   })
 
+  it("preserves bounded causes and AggregateError children in durable failures", async () => {
+    const checkout = Object.assign(new Error("Checkout failed", {
+      cause: Object.assign(new Error("Git authentication failed"), { code: "EAUTH" }),
+    }), { status: 128 })
+    const restore = new Error("Excluded state restoration failed")
+    const failure = new AggregateError([checkout, restore], "Workspace Session setup and restoration failed")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ driver: { run: () => { throw failure } }, invocations, runtime: false })
+
+    await expect(runAgent(agent, runtime("aggregate-failure"), {})).rejects.toBe(failure)
+
+    expect((await invocations.getByRunId("aggregate-failure"))?.error).toEqual({
+      errors: [{
+        cause: {
+          code: "EAUTH",
+          message: "Git authentication failed",
+          name: "Error",
+        },
+        message: "Checkout failed",
+        name: "Error",
+        status: 128,
+      }, {
+        message: "Excluded state restoration failed",
+        name: "Error",
+      }],
+      message: "Workspace Session setup and restoration failed",
+      name: "AggregateError",
+    })
+  })
+
   it("keeps digest-shaped and oversized source ids independently inspectable", async () => {
     const oversized = "x".repeat(700)
     const oversizedDigest = `sha256_${[...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(oversized)))]

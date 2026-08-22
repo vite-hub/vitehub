@@ -1,6 +1,21 @@
 import { ViteHubError } from "./errors.ts"
 
 export {
+  normalizeRuntimeDiagnosticError,
+  type RuntimeDiagnosticError,
+  type RuntimeDiagnosticErrorOptions,
+  type RuntimeDiagnosticEvent,
+  type RuntimeDiagnosticLevel,
+  type RuntimeDiagnosticReporter,
+  type RuntimeResourceInspector,
+  type RuntimeResourceObservation,
+  type RuntimeResourceScope,
+  type RuntimeResourceSnapshot,
+  type RuntimeResourceSupport,
+  type RuntimeResourceUnit,
+} from "./diagnostics.ts"
+
+export {
   getViteHubErrorShape,
   isViteHubError,
   ViteHubError,

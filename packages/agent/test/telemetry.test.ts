@@ -335,6 +335,114 @@ describe("Agent telemetry", () => {
     expect(telemetry.mock.calls.at(-1)?.[0].spans[0].status).toEqual({ code: "OK" })
   })
 
+  it("coalesces live changes behind one blocked export and sends terminal telemetry next", async () => {
+    vi.useFakeTimers()
+    try {
+      let releaseDriver!: () => void
+      let releaseExport!: () => void
+      let runtimeTraceLog: { append(event: { name: string, type: "run" }): unknown } | undefined
+      const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+      const tasks: Promise<unknown>[] = []
+      const telemetry = vi.fn(async (_context: unknown) => {
+        if (telemetry.mock.calls.length === 1) await exportGate
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "live-telemetry",
+          telemetry: { exporter: telemetry, live: true },
+        })],
+        driver: {
+          async run(context) {
+            runtimeTraceLog = context.traceLog
+            await driverGate
+            return "ok"
+          },
+        },
+      })
+
+      const active = runAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: "run-coalesced-live" },
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})
+      await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
+      for (let index = 0; index < 6; index += 1) {
+        await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
+        await vi.advanceTimersByTimeAsync(1_000)
+      }
+      expect(telemetry).toHaveBeenCalledTimes(1)
+
+      releaseDriver()
+      await active
+      releaseExport()
+      await vi.runAllTimersAsync()
+      await Promise.all(tasks)
+
+      expect(telemetry).toHaveBeenCalledTimes(2)
+      expect((telemetry.mock.calls[1]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("waits for every live exporter to settle before starting the terminal export", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      let releaseDriver!: () => void
+      let releaseExport!: () => void
+      let runtimeTraceLog: { append(event: { name: string, type: "run" }): unknown } | undefined
+      const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+      const tasks: Promise<unknown>[] = []
+      const failing = vi.fn(async () => { throw new Error("receiver failed") })
+      const blocked = vi.fn(async () => {
+        if (blocked.mock.calls.length === 1) await exportGate
+      })
+      const agent = defineAgent({
+        capabilities: [
+          defineCapability({ id: "failing", telemetry: { exporter: failing, live: true } }),
+          defineCapability({ id: "blocked", telemetry: { exporter: blocked, live: true } }),
+        ],
+        driver: {
+          async run(context) {
+            runtimeTraceLog = context.traceLog
+            await driverGate
+            return "ok"
+          },
+        },
+      })
+
+      const active = runAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: "run-multiple-exporters" },
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})
+      await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
+      await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress", type: "run" }))
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.waitFor(() => expect(blocked).toHaveBeenCalledTimes(1))
+
+      releaseDriver()
+      await active
+      expect(failing).toHaveBeenCalledTimes(1)
+      expect(blocked).toHaveBeenCalledTimes(1)
+
+      releaseExport()
+      await vi.waitFor(() => expect(blocked).toHaveBeenCalledTimes(2))
+      await Promise.all(tasks)
+      expect(failing).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("exports separate spans when invocations reuse a host trace and log", async () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()
@@ -480,7 +588,19 @@ describe("Agent telemetry", () => {
     }, {})).resolves.toBe("ok")
     await Promise.all(tasks)
 
-    expect(error).toHaveBeenCalledWith("[vitehub] Agent telemetry export failed.")
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      agent: {},
+      component: "@vite-hub/agent",
+      error: expect.objectContaining({
+        message: "Console unavailable",
+        name: "Error",
+      }),
+      event: "agent.telemetry.export.failed",
+      invocation_id: expect.any(String),
+      phase: "terminal",
+      run_id: "run-export-failure",
+      runtime: "unknown",
+    }))
     error.mockRestore()
   })
 

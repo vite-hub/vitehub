@@ -19,7 +19,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -2202,7 +2202,7 @@ async function exportAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   const provider = model?.provider || configuration?.value.driver.provider
   const metadataSpans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" })
   let contentSpans: OpenTelemetrySpanView[] | undefined
-  await Promise.all(telemetry.map(async ({ registration }) => {
+  const exports = await Promise.allSettled(telemetry.map(async ({ capabilityId, registration }) => {
     const selectedSpans = registration.content?.inputs || registration.content?.outputs
       ? withAgentTelemetryContent(
           metadataSpans,
@@ -2246,8 +2246,53 @@ async function exportAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
             ],
           })
       : baseSpans
-    await registration.exporter({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans })
+    try {
+      await registration.exporter({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans })
+    }
+    catch (error) {
+      throw new AgentTelemetryCapabilityError(capabilityId, error)
+    }
   }))
+  const failures = exports.flatMap(result => result.status === "rejected" ? [result.reason] : [])
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, "Multiple Agent telemetry exports failed.")
+}
+
+class AgentTelemetryCapabilityError extends Error {
+  readonly capabilityId: string
+
+  constructor(capabilityId: string, cause: unknown) {
+    super(`[vitehub] Capability "${capabilityId}" telemetry export failed.`, { cause })
+    this.name = "AgentTelemetryCapabilityError"
+    this.capabilityId = capabilityId
+  }
+}
+
+function reportAgentTelemetryFailure<TRuntimeConfig extends AgentRuntimeConfig>(
+  error: unknown,
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  agent: { name?: string, version?: string },
+  invocationId: string,
+  phase: "live" | "terminal",
+): void {
+  const failure = error instanceof AgentTelemetryCapabilityError ? error.cause : error
+  const name = runtime.agentIdentity?.name || agent.name
+  const capabilityIds = error instanceof AggregateError
+    ? error.errors.flatMap(item => item instanceof AgentTelemetryCapabilityError ? [item.capabilityId] : [])
+    : []
+  console.error({
+    agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) },
+    ...(error instanceof AgentTelemetryCapabilityError ? { capability_id: error.capabilityId } : {}),
+    ...(capabilityIds.length ? { capability_ids: capabilityIds } : {}),
+    component: "@vite-hub/agent",
+    error: normalizeRuntimeDiagnosticError(failure, { includeStack: true }),
+    event: "agent.telemetry.export.failed",
+    invocation_id: invocationId,
+    phase,
+    ...(runtime.run?.runId ? { run_id: runtime.run.runId } : {}),
+    runtime: runtime.runtime,
+    timestamp: new Date().toISOString(),
+  })
 }
 
 function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2261,7 +2306,7 @@ function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!telemetry.length || !runtime.traceLog) return
   const task = Promise.resolve()
     .then(() => exportAgentTelemetry(telemetry, runtime, context, agent, invocationId, includeRunning))
-    .catch(() => console.error("[vitehub] Agent telemetry export failed."))
+    .catch(error => reportAgentTelemetryFailure(error, runtime, agent, invocationId, includeRunning ? "live" : "terminal"))
   Object.defineProperty(task, agentTelemetryTask, { value: true })
   registerAgentBackgroundTask(runtime, task)
   return task
@@ -2282,21 +2327,36 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
   const liveTelemetry = telemetry.filter(({ registration }) => registration.live === true)
   let finished = false
   let timer: ReturnType<typeof setTimeout> | undefined
-  let exports = Promise.resolve()
-  const queue = (selected: AgentCapabilityRegistries["telemetry"], includeRunning: boolean) => {
+  let dirty = false
+  let terminalPending = false
+  let active: Promise<void> | undefined
+  const drain = () => {
+    if (active) return
+    const terminal = terminalPending
+    const selected = terminal ? telemetry : dirty ? liveTelemetry : []
     if (!selected.length) return
-    exports = exports
-      .then(() => exportAgentTelemetry(selected, runtime, context, agent, invocationId, includeRunning))
-      .catch(() => console.error("[vitehub] Agent telemetry export failed."))
-    Object.defineProperty(exports, agentTelemetryTask, { value: true })
-    registerAgentBackgroundTask(runtime, exports)
+    terminalPending = false
+    dirty = false
+    const task = Promise.resolve()
+      .then(() => exportAgentTelemetry(selected, runtime, context, agent, invocationId, !terminal))
+      .catch(error => reportAgentTelemetryFailure(error, runtime, agent, invocationId, terminal ? "terminal" : "live"))
+    active = task
+    Object.defineProperty(task, agentTelemetryTask, { value: true })
+    registerAgentBackgroundTask(runtime, task)
+    void task.then(() => {
+      if (active !== task) return
+      active = undefined
+      drain()
+    })
   }
   return {
     changed() {
-      if (finished || timer || !liveTelemetry.length) return
+      if (finished || !liveTelemetry.length) return
+      dirty = true
+      if (active || timer) return
       timer = setTimeout(() => {
         timer = undefined
-        if (!finished) queue(liveTelemetry, true)
+        if (!finished) drain()
       }, 1_000)
       const unref = (timer as unknown as { unref?: () => void }).unref
       if (unref) unref.call(timer)
@@ -2306,7 +2366,9 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
       finished = true
       if (timer) clearTimeout(timer)
       timer = undefined
-      queue(telemetry, false)
+      dirty = false
+      terminalPending = true
+      drain()
     },
   }
 }

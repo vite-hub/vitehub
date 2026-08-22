@@ -13,6 +13,7 @@ import type {
   Resolvable,
   RuntimeCapabilities,
   RuntimeCapabilityHandle,
+  RuntimeDiagnosticError,
   RuntimeHostContext,
   RuntimeWaitUntil,
   OpenTelemetrySpanView,
@@ -682,10 +683,7 @@ export type AgentHookOutcome = "error" | "success"
 
 export interface AgentHookObserverEvent {
   durationMs: number
-  error?: {
-    message: string
-    name?: string
-  }
+  error?: RuntimeDiagnosticError
   ids?: Record<string, string | undefined>
   metadata?: Record<string, unknown>
   name: string

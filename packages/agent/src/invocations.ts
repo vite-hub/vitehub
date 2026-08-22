@@ -1,10 +1,10 @@
-import { createTraceEventLog, isTraceContentAttributeKey } from "@vite-hub/runtime"
+import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
-import type { TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
 
 const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
@@ -40,10 +40,7 @@ export interface AgentInvocationRecord {
   completedAt?: string
   createdAt: string
   cursor: string
-  error?: {
-    message: string
-    name?: string
-  }
+  error?: RuntimeDiagnosticError
   failedAt?: string
   id: string
   observations: readonly TraceEventLogEntry[]
@@ -128,7 +125,7 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
   return {
     ...record,
     ...(record.annotations ? { annotations: { ...record.annotations } } : {}),
-    ...(record.error ? { error: { ...record.error } } : {}),
+    ...(record.error ? { error: structuredClone(record.error) } : {}),
     observations: record.observations.map(cloneObservation),
   }
 }
@@ -279,11 +276,7 @@ function assertStore(store: AgentInvocationStore | undefined): asserts store is 
 
 function errorDetails(error: unknown): AgentInvocationRecord["error"] | undefined {
   if (error === undefined) return
-  if (error instanceof Error) return {
-    message: boundedString(error.message || error.name)!,
-    ...(error.name ? { name: boundedString(error.name) } : {}),
-  }
-  return { message: boundedString(typeof error === "string" ? error : "Agent Invocation failed.")! }
+  return normalizeRuntimeDiagnosticError(error, { maxDepth: 4, maxErrors: 8, maxStringLength: MAX_METADATA_STRING_LENGTH })
 }
 
 function terminalStatus(status: AgentInvocationRecordStatus): boolean {
@@ -617,10 +610,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
           }
+          const failure = errorDetails(error)
           const finishInput: AgentInvocationStoreUpdateInput = {
-              ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
-              status,
-              timestamp: new Date().toISOString(),
+            ...(failure ? { error: failure } : {}),
+            status,
+            timestamp: new Date().toISOString(),
           }
           const finishOnce = async () => {
             if (finished || !await update(finishInput, bindOptions.terminalTakeover)) return false
