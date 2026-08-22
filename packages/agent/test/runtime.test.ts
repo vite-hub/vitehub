@@ -12414,6 +12414,7 @@ describe("agent message protocol", () => {
                   provider: "telegram",
                   state: "chat",
                   steer: {
+                    claimId: "claim-1",
                     lock: { expiresAt: Date.now() + 60_000, threadId: "scope", token: "owner" },
                     pendingQueue: "scope:queue:pending",
                     queue: "scope:queue",
