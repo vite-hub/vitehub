@@ -352,7 +352,6 @@ describe("ViteHub Nuxt integration", () => {
           alias: {
             "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
             "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
-            "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
             "~": "/tmp/vitehub-nuxt/app",
           },
         },
@@ -374,7 +373,6 @@ describe("ViteHub Nuxt integration", () => {
       alias: {
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
         "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
-        "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
       },
       cloudflare: {
         wrangler: {
@@ -625,14 +623,13 @@ describe("ViteHub Nuxt integration", () => {
     })
     expect(nuxt.options.alias).toMatchObject({
       "#vitehub/env/server": "/tmp/vitehub-nuxt/apps/api/.vitehub/env/server.mjs",
-      "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
     })
 
-    const nitroConfig = { alias: { "#vitehub/templates": "./custom-templates.mjs" } }
+    const nitroConfig = { alias: { "#custom": "./custom.mjs" } }
     await runNitroConfigHook(nitroConfig)
     expect(nitroConfig.alias).toMatchObject({
       "#vitehub/env/server": "/tmp/vitehub-nuxt/apps/api/.vitehub/env/server.mjs",
-      "#vitehub/templates": "./custom-templates.mjs",
+      "#custom": "./custom.mjs",
     })
   })
 
@@ -767,14 +764,13 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
-  it("keeps Env runtime aliases disabled while retaining Markdown templates", async () => {
+  it("keeps Env runtime aliases disabled", async () => {
     const { nuxt } = createNuxt()
 
     await viteHubNuxtModule({ env: false, preset: "node" }, nuxt)
 
     const alias = nuxt.options.alias as Record<string, string>
     expect(alias).not.toHaveProperty("#vitehub/env/server")
-    expect(alias["#vitehub/templates"]).toBe("/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs")
   })
 
   it("includes generated types from every configured integration project root", async () => {
@@ -1004,9 +1000,7 @@ describe("ViteHub Nuxt integration", () => {
     }
     expect(options.imports.imports).toHaveLength(5)
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
-    expect(options.nitro.alias).toEqual({
-      "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
-    })
+    expect(options.nitro.alias).toEqual({})
     expect(options.nitro).not.toHaveProperty("plugins")
   })
 
