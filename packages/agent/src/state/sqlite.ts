@@ -374,6 +374,37 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
+  async queuePeek(threadId: string): Promise<QueueEntry | null> {
+    await this.cleanupExpiredStateIfDue()
+    return await this.transaction(async (tx) => {
+      await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, Date.now()])
+      const queue = await execute(tx, `SELECT value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC LIMIT 1`, [threadId])
+      return typeof queue[0]?.value === "string" ? JSON.parse(queue[0].value) as QueueEntry : null
+    })
+  }
+
+  async queueReplaceHead(threadId: string, expected: QueueEntry | null, replacement: QueueEntry[], maxSize: number): Promise<boolean> {
+    await this.cleanupExpiredStateIfDue()
+    return await this.transaction(async (tx) => {
+      await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, Date.now()])
+      const queue = await execute(tx, `SELECT id, value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC`, [threadId])
+      const current = typeof queue[0]?.value === "string" ? queue[0].value : null
+      if (current !== (expected === null ? null : JSON.stringify(expected))) return false
+      const retained = queue.slice(expected === null ? 0 : 1)
+        .flatMap(row => typeof row.value === "string" ? [JSON.parse(row.value) as QueueEntry] : [])
+      const next = maxSize > 0 ? [...replacement, ...retained].slice(-maxSize) : [...replacement, ...retained]
+      await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ?`, [threadId])
+      for (const entry of next) {
+        await execute(
+          tx,
+          `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)`,
+          [threadId, JSON.stringify(entry), entry.enqueuedAt, entry.expiresAt],
+        )
+      }
+      return true
+    })
+  }
+
   async extendLock(lock: Lock, ttlMs: number): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {

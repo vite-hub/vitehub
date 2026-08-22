@@ -129,6 +129,39 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
     return result
   }
 
+  queuePeek(threadId: string): string | null {
+    return this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?", threadId, Date.now())
+      const row = this.sql.exec("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC LIMIT 1", threadId).toArray()[0]
+      return typeof row?.value === "string" ? row.value : null
+    })
+  }
+
+  queueReplaceHead(threadId: string, expected: string | null, replacement: string[], maxSize: number): boolean {
+    const replaced = this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?", threadId, Date.now())
+      const queue = this.sql.exec("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC", threadId).toArray()
+      const current = typeof queue[0]?.value === "string" ? queue[0].value : null
+      if (current !== expected) return false
+      const retained = queue.slice(expected === null ? 0 : 1).flatMap(row => typeof row.value === "string" ? [row.value] : [])
+      const next = maxSize > 0 ? [...replacement, ...retained].slice(-maxSize) : [...replacement, ...retained]
+      this.sql.exec("DELETE FROM queue WHERE thread_id = ?", threadId)
+      for (const value of next) {
+        const entry = JSON.parse(value) as { enqueuedAt: number, expiresAt: number }
+        this.sql.exec(
+          "INSERT INTO queue (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)",
+          threadId,
+          value,
+          entry.enqueuedAt,
+          entry.expiresAt,
+        )
+      }
+      return true
+    })
+    if (replaced) this.scheduleCleanupIfNeeded()
+    return replaced
+  }
+
   extendLock(threadId: string, token: string, ttlMs: number): boolean {
     return this.ctx.storage.transactionSync(() => {
       const now = Date.now()

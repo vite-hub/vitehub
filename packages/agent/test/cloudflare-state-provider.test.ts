@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import type { AtomicAgentStateQueueAdapter } from "../src/internal/state-queue.ts"
 import { createCloudflareAgentState } from "../src/state/providers/cloudflare.ts"
 
 import type { Lock, QueueEntry } from "chat"
@@ -27,6 +28,13 @@ interface FakeListRow {
   value: string
 }
 
+interface FakeQueueRow {
+  expires_at: number
+  id: number
+  thread_id: string
+  value: string
+}
+
 function sqlCursor(rows: Array<Record<string, unknown>> = []): FakeSqlCursor {
   return {
     one: () => rows[0] || {},
@@ -34,8 +42,17 @@ function sqlCursor(rows: Array<Record<string, unknown>> = []): FakeSqlCursor {
   }
 }
 
+function queueEntry(text: string): QueueEntry {
+  return {
+    enqueuedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    message: { author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" }, formatted: { children: [], type: "root" }, id: text, raw: {}, text, threadId: "thread" } as never,
+  }
+}
+
 function createFakeDurableObjectState() {
   const lists: FakeListRow[] = []
+  const queues: FakeQueueRow[] = []
   let nextId = 0
   const sql = {
     exec(query: string, ...bindings: unknown[]): FakeSqlCursor {
@@ -86,6 +103,41 @@ function createFakeDurableObjectState() {
           .filter((expiresAt): expiresAt is number => typeof expiresAt === "number" && expiresAt > now)
           .sort((a, b) => a - b)[0] ?? null
         return sqlCursor([{ next_expiry: next }])
+      }
+      if (normalized.startsWith("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?")) {
+        const [threadId, now] = bindings
+        for (let index = queues.length - 1; index >= 0; index--) {
+          if (queues[index]!.thread_id === threadId && queues[index]!.expires_at <= Number(now)) queues.splice(index, 1)
+        }
+        return sqlCursor()
+      }
+      if (normalized.startsWith("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC")) {
+        const [threadId] = bindings
+        const matches = queues.filter(row => row.thread_id === threadId).sort((a, b) => a.id - b.id)
+        const selected = normalized.endsWith("LIMIT 1") ? matches.slice(0, 1) : matches
+        return sqlCursor(selected.map(row => ({ value: row.value })))
+      }
+      if (normalized.startsWith("SELECT id, value FROM queue WHERE thread_id = ? ORDER BY id ASC LIMIT 1")) {
+        const [threadId] = bindings
+        return sqlCursor(queues.filter(row => row.thread_id === threadId).sort((a, b) => a.id - b.id).slice(0, 1).map(row => ({ ...row })))
+      }
+      if (normalized.startsWith("DELETE FROM queue WHERE thread_id = ?")) {
+        const [threadId] = bindings
+        for (let index = queues.length - 1; index >= 0; index--) {
+          if (queues[index]!.thread_id === threadId) queues.splice(index, 1)
+        }
+        return sqlCursor()
+      }
+      if (normalized.startsWith("DELETE FROM queue WHERE id = ?")) {
+        const [id] = bindings
+        const index = queues.findIndex(row => row.id === id)
+        if (index >= 0) queues.splice(index, 1)
+        return sqlCursor()
+      }
+      if (normalized.startsWith("INSERT INTO queue")) {
+        const [threadId, value, , expiresAt] = bindings
+        queues.push({ expires_at: Number(expiresAt), id: ++nextId, thread_id: String(threadId), value: String(value) })
+        return sqlCursor()
       }
       throw new Error(`Unhandled fake SQL query: ${normalized}`)
     },
@@ -172,6 +224,17 @@ function createFakeCloudflareStateNamespace(): ViteHubAgentStateDurableObjectNam
     queueDepth(threadId) {
       return queues.get(threadId)?.length || 0
     },
+    queuePeek(threadId) {
+      return queues.get(threadId)?.[0] || null
+    },
+    queueReplaceHead(threadId, expected, replacement, maxSize) {
+      const queue = queues.get(threadId) || []
+      if ((queue[0] || null) !== expected) return false
+      const next = [...replacement, ...queue.slice(expected === null ? 0 : 1)].slice(-maxSize)
+      if (next.length) queues.set(threadId, next)
+      else queues.delete(threadId)
+      return true
+    },
     releaseLock(threadId, token) {
       if (locks.get(threadId)?.token === token) locks.delete(threadId)
     },
@@ -220,6 +283,17 @@ describe("Cloudflare Agent State Provider", () => {
     await expect(state.enqueue("thread", entry, 10)).resolves.toBe(1)
     await expect(state.dequeue("thread")).resolves.toEqual(entry)
 
+    const original = { ...entry, message: { ...entry.message, text: "original" } } as QueueEntry
+    const tail = { ...entry, message: { ...entry.message, text: "tail" } } as QueueEntry
+    const restored = { ...entry, message: { ...entry.message, text: "restored" } } as QueueEntry
+    await state.enqueue("thread", original, 10)
+    await state.enqueue("thread", tail, 10)
+    const atomicQueue = state as AtomicAgentStateQueueAdapter
+    await expect(atomicQueue.queuePeek("thread")).resolves.toEqual(original)
+    await expect(atomicQueue.queueReplaceHead("thread", original, [restored], 10)).resolves.toBe(true)
+    await expect(state.dequeue("thread")).resolves.toEqual(restored)
+    await expect(state.dequeue("thread")).resolves.toEqual(tail)
+
     const lock = await state.acquireLock("thread", 30_000)
     expect(lock).toMatchObject({ threadId: "thread" })
     await expect(state.acquireLock("thread", 30_000)).resolves.toBeNull()
@@ -245,5 +319,22 @@ describe("Cloudflare Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-05-31T10:00:00.200Z"))
 
     expect(state.listGet("history")).toEqual(["one", "two"])
+  })
+
+  it("atomically replaces a durable queue head", async () => {
+    const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
+    const { ctx } = createFakeDurableObjectState()
+    const state = new ViteHubAgentStateDO(ctx as never, {})
+    const original = JSON.stringify(queueEntry("original"))
+    const tail = JSON.stringify(queueEntry("tail"))
+    const restored = JSON.stringify(queueEntry("restored"))
+
+    expect(state.queueReplaceHead("thread", null, [original, tail], 10)).toBe(true)
+    expect(state.queuePeek("thread")).toBe(original)
+    expect(state.queueReplaceHead("thread", tail, [restored], 10)).toBe(false)
+    expect(state.queuePeek("thread")).toBe(original)
+    expect(state.queueReplaceHead("thread", original, [restored], 10)).toBe(true)
+    expect(state.dequeue("thread")).toBe(restored)
+    expect(state.dequeue("thread")).toBe(tail)
   })
 })

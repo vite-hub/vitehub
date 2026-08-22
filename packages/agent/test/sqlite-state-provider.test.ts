@@ -74,6 +74,22 @@ describe("SQLite Agent State Provider", () => {
     await expect(state.queueDepth("thread")).resolves.toBe(1)
     await expect(state.dequeue("thread")).resolves.toMatchObject({ message: { text: "two" } })
 
+    const atomicQueue = state as ViteHubSqliteAgentStateAdapter
+    const original = queueEntry("original")
+    await state.enqueue("thread", original, 10)
+    await state.enqueue("thread", queueEntry("tail"), 10)
+    await expect(atomicQueue.queuePeek("thread")).resolves.toEqual(original)
+    const failureClient = createClient({ url })
+    await failureClient.execute(`CREATE TRIGGER fail_queue_rebuild BEFORE INSERT ON test_agent_state_queue BEGIN SELECT RAISE(FAIL, 'forced queue insert failure'); END`)
+    await expect(atomicQueue.queueReplaceHead("thread", original, [queueEntry("restored")], 10)).rejects.toThrow("forced queue insert failure")
+    await expect(atomicQueue.queuePeek("thread")).resolves.toEqual(original)
+    await expect(state.queueDepth("thread")).resolves.toBe(2)
+    await failureClient.execute("DROP TRIGGER fail_queue_rebuild")
+    failureClient.close()
+    await expect(atomicQueue.queueReplaceHead("thread", original, [queueEntry("restored")], 10)).resolves.toBe(true)
+    await expect(state.dequeue("thread")).resolves.toMatchObject({ message: { text: "restored" } })
+    await expect(state.dequeue("thread")).resolves.toMatchObject({ message: { text: "tail" } })
+
     await state.subscribe("thread")
     await expect(state.isSubscribed("thread")).resolves.toBe(true)
     await state.unsubscribe("thread")

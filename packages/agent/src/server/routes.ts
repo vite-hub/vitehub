@@ -25,6 +25,7 @@ import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation 
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
@@ -2187,6 +2188,20 @@ class ViteHubInMemoryChatStateAdapter implements StateAdapter {
     return trimmed.length
   }
 
+  async queuePeek(threadId: string): Promise<QueueEntry | null> {
+    this.ensureConnected()
+    return (this.queues.get(threadId) || []).find(entry => !isExpired(entry.expiresAt)) || null
+  }
+
+  async queueReplaceHead(threadId: string, expected: QueueEntry | null, replacement: QueueEntry[], maxSize: number): Promise<boolean> {
+    this.ensureConnected()
+    const queue = (this.queues.get(threadId) || []).filter(entry => !isExpired(entry.expiresAt))
+    if (JSON.stringify(queue[0] || null) !== JSON.stringify(expected)) return false
+    const next = [...replacement, ...queue.slice(expected === null ? 0 : 1)]
+    this.queues.set(threadId, maxSize > 0 ? next.slice(-maxSize) : next)
+    return true
+  }
+
   async extendLock(lock: Lock, ttlMs: number): Promise<boolean> {
     this.ensureConnected()
     const existing = this.locks.get(lock.threadId)
@@ -2279,7 +2294,7 @@ function getInMemoryChatState(key: string): StateAdapter {
 function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPrefix: string): StateAdapter {
   const key = (value: string) => `${value.startsWith("transcripts:user:") ? agentPrefix : channelPrefix}${value}`
   const lock = (value: Lock) => ({ ...value, threadId: key(value.threadId) })
-  return {
+  const scoped: StateAdapter = {
     async acquireLock(threadId, ttlMs) {
       const acquired = await state.acquireLock(key(threadId), ttlMs)
       return acquired ? { ...acquired, threadId } : null
@@ -2304,6 +2319,15 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
     subscribe: threadId => state.subscribe(key(threadId)),
     unsubscribe: threadId => state.unsubscribe(key(threadId)),
   }
+  const atomic = state as Partial<ReturnType<typeof requireAtomicAgentStateQueue>>
+  if (typeof atomic.queuePeek === "function" && typeof atomic.queueReplaceHead === "function") {
+    Object.assign(scoped, {
+      queuePeek: (threadId: string) => atomic.queuePeek!.call(state, key(threadId)),
+      queueReplaceHead: (threadId: string, expected: QueueEntry | null, replacement: QueueEntry[], maxSize: number) =>
+        atomic.queueReplaceHead!.call(state, key(threadId), expected, replacement, maxSize),
+    })
+  }
+  return scoped
 }
 
 function stateResolverOwnsScope(state: unknown): boolean {
@@ -2394,6 +2418,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       handlerOptions,
     )
     await resolved.state.connect()
+    requireAtomicAgentStateQueue(resolved.state)
     const { lock, queue, ttlMs } = binding.steer
     if (!await resolved.state.extendLock(lock, ttlMs)) {
       const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
@@ -2567,13 +2592,8 @@ function durableSteerDeliveryIds(message: DurableSteerQueueMessage | undefined):
 
 async function restoreDurableSteerQueue(state: StateAdapter, queue: string, previous: DurableSteerQueueMessage): Promise<void> {
   if (!previous.input) return
-  const queued: DurableSteerQueueEntry[] = []
-  for (;;) {
-    const entry = await state.dequeue(queue) as DurableSteerQueueEntry | null
-    if (!entry) break
-    queued.push(entry)
-  }
-  const newer = queued.shift()
+  const atomicQueue = requireAtomicAgentStateQueue(state)
+  const newer = await atomicQueue.queuePeek(queue) as DurableSteerQueueEntry | null
   const newerMessage = newer?.message
   const sameInvoker = Boolean(newerMessage?.input && durableSteerInvokerKey(previous) === durableSteerInvokerKey(newerMessage))
   let restoredMessage = previous
@@ -2595,9 +2615,9 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
     expiresAt: Number.MAX_SAFE_INTEGER,
     message: restoredMessage,
   }
-  const restoredQueue = sameInvoker ? [restored, ...queued] : [restored, ...(newer ? [newer] : []), ...queued]
-  for (const entry of restoredQueue) {
-    await state.enqueue(queue, entry as never, durableSteerQueueMaximum)
+  const replacement = sameInvoker ? [restored] : [restored, ...(newer ? [newer] : [])]
+  if (!await atomicQueue.queueReplaceHead(queue, newer as never, replacement as never, durableSteerQueueMaximum)) {
+    throw new Error("[vitehub] Durable steered Channel delivery queue changed while its Agent Workflow input was being restored.")
   }
 }
 
@@ -3644,6 +3664,7 @@ async function handleChatSdkMessage(
       const steerTtlMs = 5 * 60 * 1000
       const steerKey = durableSteerScope === undefined ? undefined : `${state.keyPrefix}durable-steer:${durableSteerScope}`
       const steerQueue = steerKey === undefined ? undefined : `${steerKey}:queue`
+      if (steerKey) requireAtomicAgentStateQueue(state.state)
       const workflowBinding = {
         channelId: registration.channelId,
         deliveryId: delivery.delivery.id,

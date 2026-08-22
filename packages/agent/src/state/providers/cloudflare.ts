@@ -13,6 +13,8 @@ export interface ViteHubAgentStateDurableObjectStub {
   isSubscribed(threadId: string): Promise<boolean> | boolean
   listAppend(key: string, value: string, maxLength?: number, ttlMs?: number): Promise<void> | void
   listGet(key: string): Promise<string[]> | string[]
+  queuePeek(threadId: string): Promise<string | null> | string | null
+  queueReplaceHead(threadId: string, expected: string | null, replacement: string[], maxSize: number): Promise<boolean> | boolean
   queueDepth(threadId: string): Promise<number> | number
   releaseLock(threadId: string, token: string): Promise<void> | void
   subscribe(threadId: string): Promise<void> | void
@@ -75,6 +77,20 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
 
   async enqueue(threadId: string, entry: QueueEntry, maxSize: number): Promise<number> {
     return await this.stub(threadId).enqueue(threadId, JSON.stringify(entry), maxSize)
+  }
+
+  async queuePeek(threadId: string): Promise<QueueEntry | null> {
+    const raw = await this.stub(threadId).queuePeek(threadId)
+    return raw === null ? null : JSON.parse(raw) as QueueEntry
+  }
+
+  async queueReplaceHead(threadId: string, expected: QueueEntry | null, replacement: QueueEntry[], maxSize: number): Promise<boolean> {
+    return await this.stub(threadId).queueReplaceHead(
+      threadId,
+      expected === null ? null : JSON.stringify(expected),
+      replacement.map(entry => JSON.stringify(entry)),
+      maxSize,
+    )
   }
 
   async extendLock(lock: Lock, ttlMs: number): Promise<boolean> {
