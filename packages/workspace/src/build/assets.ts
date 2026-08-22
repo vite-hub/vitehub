@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
 import { createImportPath } from "@vite-hub/internal/build/paths"
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
-import { markdownTemplateRegistryId, markdownTemplateRegistryPath, parseMarkdownTemplateRequest } from "@vite-hub/markdown-template/internal/vite"
+import { parseMarkdownTemplateRequest } from "@vite-hub/markdown-template/internal/vite"
 import { resolveModulePath } from "exsolve"
 import { createJiti } from "jiti"
 
@@ -50,8 +50,6 @@ function generatedViteHubImportAliases(rootDir: string) {
   for (const [id, path] of Object.entries(createViteHubEnvImportAliases(rootDir))) {
     if (existsSync(path)) aliases[id] = path
   }
-  const templates = resolve(rootDir, markdownTemplateRegistryPath)
-  if (existsSync(templates)) aliases[markdownTemplateRegistryId] = templates
   return aliases
 }
 
