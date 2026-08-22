@@ -53,14 +53,29 @@ describe("defineCollectionHandler", () => {
   })
 
   it("serializes Collection items before clients consume them", async () => {
-    const collection = defineCollection(async () => [{ at: new Date("2026-08-22T00:00:00.000Z") }], {
-      cursor: item => item.at.toISOString(),
-      cursorSchema: v.string(),
-    })
+    const collection = defineCollection(
+      async () => [
+        {
+          at: new Date("2026-08-22T00:00:00.000Z"),
+          custom: { toJSON: () => ({ id: "custom" }) },
+          url: new URL("https://vitehub.dev/collections"),
+        },
+      ],
+      {
+        cursor: item => item.at.toISOString(),
+        cursorSchema: v.string(),
+      },
+    )
     const response = await new H3().get("/events", defineCollectionHandler(collection)).request("/events")
 
     expect(await response.json()).toEqual({
-      items: [{ at: "2026-08-22T00:00:00.000Z" }],
+      items: [
+        {
+          at: "2026-08-22T00:00:00.000Z",
+          custom: { id: "custom" },
+          url: "https://vitehub.dev/collections",
+        },
+      ],
       nextCursor: null,
     })
   })
@@ -120,7 +135,15 @@ describe("defineCollectionHandler", () => {
     expect(response.status).toBe(500)
   })
 
-  it.each([new Map([["id", 1]]), new NonPlainItem()])("rejects non-plain Collection item objects", async item => {
+  it.each([
+    new Map([["id", 1]]),
+    new Set([1]),
+    new WeakMap([[{}, 1]]),
+    new WeakSet([{}]),
+    /collection/,
+    new Error("collection"),
+    new NonPlainItem(),
+  ])("rejects non-plain Collection item objects", async item => {
     const collection = defineCollection(async () => [item], {
       cursor: () => "done",
       cursorSchema: v.string(),

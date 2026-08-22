@@ -50,6 +50,16 @@ export type CollectionItem<TCollection extends AnyCollection> =
 
 type JSONOmitted = undefined | ((...args: any[]) => any) | symbol
 
+// TypeScript cannot structurally distinguish every class instance from a POJO interface. The handler rejects
+// non-plain prototypes at runtime; these built-ins are the unsupported object shapes it can also identify statically.
+type JSONUnsupportedObject =
+  | Error
+  | ReadonlyMap<unknown, unknown>
+  | ReadonlySet<unknown>
+  | RegExp
+  | WeakMap<object, unknown>
+  | WeakSet<object>
+
 type JSONOmittedBranch<T> = T extends { toJSON(): infer TJSON }
   ? JSONOmittedBranch<TJSON>
   : T extends JSONOmitted
@@ -66,9 +76,11 @@ type JSONSerialized<T> = T extends { toJSON(): infer TJSON }
         ? T
         : T extends readonly (infer TItem)[]
           ? Array<JSONSerializedArrayItem<TItem>>
-          : T extends Record<string, unknown>
-            ? JSONSerializedObject<T>
-            : never
+          : T extends JSONUnsupportedObject
+            ? never
+            : T extends object
+              ? JSONSerializedObject<T>
+              : never
 
 type JSONSerializedArrayItem<T> = T extends { toJSON(): infer TJSON }
   ? JSONSerializedArrayValue<TJSON>

@@ -6,8 +6,21 @@ import { useCollection } from "../src/client.ts"
 
 import type { CollectionQuery } from "../src/index.ts"
 
+interface Article {
+  id: number
+  title: string
+}
+
+type JSONValueRow = {
+  array: Array<number | undefined | (() => void) | symbol>
+  omitted: undefined
+  optional: string | undefined
+  toJSONOmitted: { toJSON(): undefined }
+  value: number
+}
+
 // SAFETY: This type-only fixture declares the rows its loader would return.
-const articles = defineCollection(async () => [] as Array<{ id: number; title: string }>, {
+const articles = defineCollection(async () => [] as Article[], {
   cursor: article => article.id,
   cursorSchema: v.number(),
   querySchema: v.object({ author: v.optional(v.string()) }),
@@ -23,13 +36,7 @@ const events = defineCollection(async () => [] as Array<{ at: Date; id: bigint }
 const jsonValues = defineCollection(
   async () => {
     // SAFETY: This type-only fixture declares the JSON-shaped rows its loader would return.
-    return [] as Array<{
-      array: Array<number | undefined | (() => void) | symbol>
-      omitted: undefined
-      optional: string | undefined
-      toJSONOmitted: { toJSON(): undefined }
-      value: number
-    }>
+    return [] as JSONValueRow[]
   },
   {
     cursor: () => "done",
@@ -43,10 +50,10 @@ const toJSONOmittedItems = defineCollection(async () => [] as Array<{ toJSON(): 
   cursorSchema: v.string(),
 })
 
-const nonPlainItems = defineCollection(
+const toJSONValues = defineCollection(
   async () => {
-    // SAFETY: This type-only fixture declares unsupported Map rows for client projection coverage.
-    return [] as Array<Map<string, number>>
+    // SAFETY: This type-only fixture declares built-in and custom toJSON() rows for client projection coverage.
+    return [] as Array<{ custom: { toJSON(): { id: string } }; url: URL }>
   },
   {
     cursor: () => "done",
@@ -54,20 +61,22 @@ const nonPlainItems = defineCollection(
   },
 )
 
-class NonPlainItem {
-  get id(): number {
-    return 1
-  }
-}
+type UnsupportedItem =
+  | Error
+  | Map<string, number>
+  | RegExp
+  | Set<number>
+  | WeakMap<object, number>
+  | WeakSet<object>
 
-const nonPlainClassItems = defineCollection(
+const nonPlainItems = defineCollection(
   async () => {
-    // SAFETY: This type-only fixture declares class-instance rows for client projection coverage.
-    return [] as NonPlainItem[]
+    // SAFETY: This type-only fixture declares statically detectable unsupported rows for client projection coverage.
+    return [] as UnsupportedItem[]
   },
   {
-    cursor: item => item.id,
-    cursorSchema: v.number(),
+    cursor: () => "done",
+    cursorSchema: v.string(),
   },
 )
 
@@ -92,10 +101,10 @@ declare global {
     events: typeof events
     jsonValues: typeof jsonValues
     toJSONOmittedItems: typeof toJSONOmittedItems
+    toJSONValues: typeof toJSONValues
     transformedQuery: typeof transformedQuery
     nonWireQuery: typeof nonWireQuery
     nonPlainItems: typeof nonPlainItems
-    nonPlainClassItems: typeof nonPlainClassItems
   }
 }
 
@@ -111,8 +120,10 @@ describe("useCollection types", () => {
     }
     expectTypeOf(useCollection("jsonValues").items.value).toEqualTypeOf<JSONValue[]>()
     expectTypeOf(useCollection("toJSONOmittedItems").items.value).toMatchTypeOf<null[]>()
+    expectTypeOf(useCollection("toJSONValues").items.value).toEqualTypeOf<
+      Array<{ custom: { id: string }; url: string }>
+    >()
     expectTypeOf(useCollection("nonPlainItems").items.value).toEqualTypeOf<never[]>()
-    expectTypeOf(useCollection("nonPlainClassItems").items.value).toEqualTypeOf<never[]>()
     expectTypeOf<CollectionQuery<typeof nonWireQuery>>().toEqualTypeOf<never>()
     useCollection("transformedQuery", { filter: { q: "Ada" } })
 
