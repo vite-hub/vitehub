@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, type PropType, Suspense } from "vue";
+import { computed, defineComponent, h, onBeforeUnmount, ref, type PropType, Suspense } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
   invocationActivities,
@@ -201,6 +201,15 @@ function inspectorRow(label: string, value: string | number | undefined, code = 
   return h("div", [h("dt", label), h("dd", code ? [h("code", String(value))] : String(value))]);
 }
 
+function copyIcon(copied: boolean) {
+  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, copied
+    ? [h("path", { d: "m5 12 4 4L19 6", "stroke-linecap": "round", "stroke-linejoin": "round" })]
+    : [
+        h("rect", { height: "13", rx: "2", width: "13", x: "8", y: "8" }),
+        h("path", { d: "M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3", "stroke-linecap": "round", "stroke-linejoin": "round" }),
+      ]);
+}
+
 function renderConfiguration(configuration: AgentInvocationConfiguration) {
   const driver = configurationLabel(configuration);
   const workspace = workspaceLabel(configuration);
@@ -281,12 +290,40 @@ export const AgentInvocationInspector = defineComponent({
   },
   setup(props, { slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
+    const copied = ref<"invocation" | "trace">();
+    let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
       changes: activities.value.filter(activity => activity.kind === "change").length,
       messages: activities.value.filter(activity => activity.kind === "message").length,
       steps: activities.value.filter(activity => activity.kind !== "message").length,
       tokens: latestInvocationTokens(activities.value),
     }));
+
+    async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
+      if (!value || !("navigator" in globalThis) || !navigator.clipboard) return;
+      await navigator.clipboard.writeText(value);
+      copied.value = kind;
+      if (copyTimer) clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => { copied.value = undefined; }, 1_600);
+    }
+
+    function copyAction(kind: "invocation" | "trace", label: string, value: string | undefined) {
+      if (!value) return null;
+      const didCopy = copied.value === kind;
+      return h("button", {
+        "aria-label": `Copy ${label}`,
+        class: "vh-invocation-inspector__copy",
+        onClick: () => void copyIdentifier(kind, value),
+        type: "button",
+      }, [
+        h("span", { class: "vh-invocation-inspector__copy-icon" }, [copyIcon(didCopy)]),
+        h("span", didCopy ? "Copied" : `Copy ${label}`),
+      ]);
+    }
+
+    onBeforeUnmount(() => {
+      if (copyTimer) clearTimeout(copyTimer);
+    });
 
     return () => {
       const configuration = props.invocation.configuration;
@@ -309,7 +346,9 @@ export const AgentInvocationInspector = defineComponent({
                 h("small", formatDuration(props.invocation.startedAt, endedAt) ?? "In progress"),
               ]),
               h("h4", invocationTitle(props.invocation)),
-              h("p", invocationContext(props.invocation)),
+              invocationContext(props.invocation) !== props.invocation.id
+                ? h("p", invocationContext(props.invocation))
+                : null,
             ]),
             inspectorSection("Run", h("dl", { class: "vh-invocation-inspector__list" }, [
               inspectorRow("Agent", configuration?.agent?.name ?? props.invocation.agentName),
@@ -320,9 +359,9 @@ export const AgentInvocationInspector = defineComponent({
             ])),
             ...(configuration ? renderConfiguration(configuration) : []),
             slots.metadata?.({ invocation: props.invocation }),
-            inspectorSection("Trace", h("dl", { class: "vh-invocation-inspector__list" }, [
-              inspectorRow("Trace ID", props.invocation.traceId, true),
-              inspectorRow("Invocation ID", props.invocation.id, true),
+            inspectorSection("Identifiers", h("div", { class: "vh-invocation-inspector__copy-list" }, [
+              copyAction("trace", "Trace ID", props.invocation.traceId),
+              copyAction("invocation", "Invocation ID", props.invocation.id),
             ])),
           ]),
         ]);

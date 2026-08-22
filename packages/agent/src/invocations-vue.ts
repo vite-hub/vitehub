@@ -213,7 +213,16 @@ export function useAgentInvocations(
   let loadedPageCount = 1;
   let oldestLoadedId: string | undefined;
   let revision = 0;
+  let resetFirstPage = true;
+  let sourceSignature: string | undefined;
   let stopped = false;
+
+  function currentSourceSignature() {
+    return JSON.stringify([
+      toValue(baseURL),
+      options.query ? toValue(options.query) : undefined,
+    ]);
+  }
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
@@ -228,6 +237,13 @@ export function useAgentInvocations(
       cursor.value = undefined;
     },
     beforeLoad() {
+      const nextSignature = currentSourceSignature();
+      resetFirstPage = sourceSignature !== nextSignature;
+      sourceSignature = nextSignature;
+      if (resetFirstPage) {
+        invocations.value = [];
+        cursor.value = undefined;
+      }
       revision++;
       loadMoreController?.abort();
       loadMoreController = undefined;

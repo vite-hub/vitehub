@@ -53,6 +53,14 @@ function listLimit(limit: number | undefined): number {
   return Math.min(limit, 100)
 }
 
+function searchValue(search: string | undefined): string | undefined {
+  if (search === undefined) return
+  if (typeof search !== "string") throw new TypeError("[vitehub] Agent Invocation search must be a string.")
+  const value = search.trim()
+  if (value.length > 256) throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.")
+  return value || undefined
+}
+
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): AgentInvocationStore {
   if (!options.client && !options.url) {
     throw new TypeError("[vitehub] SQLite Agent Invocations require url or client.")
@@ -146,6 +154,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       if (statuses.length) {
         filters.push(`status IN (${statuses.map(() => "?").join(", ")})`)
         args.push(...statuses)
+      }
+      const search = searchValue(listOptions.search)
+      if (search) {
+        filters.push("json_remove(record, '$.observations') LIKE ? ESCAPE '\\' COLLATE NOCASE")
+        args.push(`%${search.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`)
       }
       args.push(limit + 1)
       const result = await client.execute({
