@@ -2756,6 +2756,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   resolved.state,
                   delivery,
                   failure,
+                  Date.now(),
                 ),
             )
           } catch (settlementError) {
@@ -2884,7 +2885,7 @@ interface DurableSteerQueueMessage {
 
 interface DurableSteerErrorDelivery {
   capabilities?: Record<string, false>
-  fallbackAttempted?: true
+  fallbackStatus?: "delivered" | "reserved"
   input: AgentRunInput
   message: {
     id?: string
@@ -2945,7 +2946,11 @@ function mergeDurableSteerErrorDeliveries(...deliveries: Array<DurableSteerError
     merged.set(key, {
       ...previous,
       ...delivery,
-      ...(previous?.fallbackAttempted || delivery.fallbackAttempted ? { fallbackAttempted: true } : {}),
+      ...(previous?.fallbackStatus === "delivered" || delivery.fallbackStatus === "delivered"
+        ? { fallbackStatus: "delivered" as const }
+        : previous?.fallbackStatus === "reserved" || delivery.fallbackStatus === "reserved"
+          ? { fallbackStatus: "reserved" as const }
+          : {}),
     })
   }
   return [...merged.values()]
@@ -2958,6 +2963,7 @@ async function postDurableSteerErrorFallback(
   state: StateAdapter,
   delivery: DurableSteerErrorDelivery,
   error: unknown,
+  maximumInvocationDeadline: number,
 ): Promise<void> {
   const baseOptions = getAgentChatOptions(agent)
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
@@ -2974,7 +2980,7 @@ async function postDurableSteerErrorFallback(
     throw new Error("[vitehub] Durable steered Channel error delivery could not resolve its configured Chat adapter.")
   }
   const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, options))
-  await postChatErrorFallback(
+  const delivered = await postChatErrorFallback(
     error,
     chat.thread(delivery.message.threadId),
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -2985,10 +2991,39 @@ async function postDurableSteerErrorFallback(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     delivery.run,
     [],
+    undefined,
+    maximumInvocationDeadline,
   )
+  if (!delivered) throw new Error("[vitehub] Durable steered Channel error fallback was not delivered before its deadline.")
 }
 
-async function deliverDurableSteerErrorFallbacks(
+async function recordDurableSteerFallbackStatus(
+  state: StateAdapter,
+  queue: string,
+  entry: DurableSteerQueueEntry,
+  index: number,
+  fallbackStatus: DurableSteerErrorDelivery["fallbackStatus"],
+): Promise<DurableSteerQueueEntry | null> {
+  const delivery = entry.message?.errorDeliveries?.[index]
+  if (!delivery) return entry
+  const errorDeliveries = [...entry.message!.errorDeliveries!]
+  errorDeliveries[index] = { ...delivery, fallbackStatus }
+  const updated: DurableSteerQueueEntry = {
+    ...entry,
+    message: { ...entry.message!, errorDeliveries },
+  }
+  for (let attempt = 0; attempt < durableSteerFallbackProgressWriteAttempts; attempt++) {
+    try {
+      // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+      if (await requireAtomicAgentStateQueue(state).queueReplaceHead(queue, entry as never, [updated as never], durableSteerQueueMaximum)) return updated
+    } catch {
+      // A later attempt can still persist the same monotonic progress transition.
+    }
+  }
+  return null
+}
+
+export async function deliverDurableSteerErrorFallbacks(
   state: StateAdapter,
   queue: string,
   entry: DurableSteerQueueEntry,
@@ -2997,38 +3032,24 @@ async function deliverDurableSteerErrorFallbacks(
 ): Promise<DurableSteerQueueEntry> {
   let active = entry
   for (let index = 0; index < (active.message?.errorDeliveries?.length ?? 0); index++) {
-    const delivery = active.message?.errorDeliveries?.[index]
-    if (!delivery || delivery.fallbackAttempted) continue
-    const errorDeliveries = [...active.message!.errorDeliveries!]
-    errorDeliveries[index] = { ...delivery, fallbackAttempted: true }
-    const updated: DurableSteerQueueEntry = {
-      ...active,
-      message: { ...active.message!, errorDeliveries },
-    }
-    let progressError: unknown
-    for (let attempt = 0; attempt < durableSteerFallbackProgressWriteAttempts; attempt++) {
-      try {
-        // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-        if (await requireAtomicAgentStateQueue(state).queueReplaceHead(queue, active as never, [updated as never], durableSteerQueueMaximum)) {
-          progressError = undefined
-          break
-        }
-        progressError = new Error("[vitehub] Durable steered Channel delivery queue changed while error fallback progress was being recorded.")
-      } catch (error) {
-        progressError = error
+    let delivery = active.message?.errorDeliveries?.[index]
+    if (!delivery || delivery.fallbackStatus === "delivered") continue
+    if (delivery.fallbackStatus !== "reserved") {
+      const reserved = await recordDurableSteerFallbackStatus(state, queue, active, index, "reserved")
+      if (!reserved) {
+        console.error({
+          component: "@vite-hub/agent",
+          error: serializeErrorForLog(new Error("[vitehub] Durable steered Channel error fallback reservation could not be persisted.")),
+          event: "chat.message.error_fallback.progress_failed",
+          message_id: delivery.message.id,
+          thread_id: delivery.message.threadId,
+        })
+        continue
       }
+      active = reserved
+      delivery = active.message?.errorDeliveries?.[index]
+      if (!delivery) continue
     }
-    if (progressError) {
-      console.error({
-        component: "@vite-hub/agent",
-        error: serializeErrorForLog(progressError),
-        event: "chat.message.error_fallback.progress_failed",
-        message_id: delivery.message.id,
-        thread_id: delivery.message.threadId,
-      })
-      continue
-    }
-    active = updated
     try {
       await deliverErrorFallback(delivery, error)
     } catch (deliveryError) {
@@ -3039,7 +3060,16 @@ async function deliverDurableSteerErrorFallbacks(
         message_id: delivery.message.id,
         thread_id: delivery.message.threadId,
       })
+      throw deliveryError
     }
+    // The adapter boundary has at-least-once semantics: a worker can stop after
+    // the external post succeeds but before this checkpoint. Recovery retries a
+    // reserved delivery because adapters do not expose a transactional idempotency key.
+    const delivered = await recordDurableSteerFallbackStatus(state, queue, active, index, "delivered")
+    if (!delivered) {
+      throw new Error("[vitehub] Durable steered Channel error fallback delivery could not be checkpointed.")
+    }
+    active = delivered
   }
   return active
 }
@@ -3864,7 +3894,7 @@ const cloudflareChatFallbackTimeoutMs = 2_000
 const cloudflareChatInvocationTimeoutMs = cloudflareChatBackgroundTimeoutMs - cloudflareChatFallbackTimeoutMs
 const chatFallbackDeliveryReserveMs = 1_000
 
-async function postChatErrorFallback(
+export async function postChatErrorFallback(
   error: unknown,
   thread: Thread,
   message: ChatSdkMessage,
@@ -3874,7 +3904,7 @@ async function postChatErrorFallback(
   toolResults: AgentToolStepItem[],
   manualDelivery?: ManualChatDeliveryState,
   maximumInvocationDeadline?: number,
-): Promise<void> {
+): Promise<boolean> {
   console.error({
     component: "@vite-hub/agent",
     error: serializeErrorForLog(error),
@@ -3918,28 +3948,27 @@ async function postChatErrorFallback(
   }
   const fallbackPlaceholder = manualDelivery?.placeholderCleanup ? undefined : manualDelivery?.placeholder
   const fallbackDeliveryAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
-  const fallbackDelivery = (async () => {
+  const fallbackDelivery = (async (): Promise<boolean> => {
     if (!fallback) {
       if (fallbackPlaceholder) await deleteManualDeliveryPlaceholder(fallbackPlaceholder)
-      return
+      return true
     }
-    if (await deliverToManualDeliveryPlaceholder(fallbackPlaceholder, fallback)) return
+    if (await deliverToManualDeliveryPlaceholder(fallbackPlaceholder, fallback)) return true
     fallbackDeliveryAbort?.signal.throwIfAborted()
     const sent = await thread.post(fallback).catch(() => undefined)
-    if (!sent) return
+    if (!sent) return false
     if (fallbackDeliveryAbort?.signal.aborted) {
       await deleteManualDeliveryPlaceholder(sent)
       fallbackDeliveryAbort.signal.throwIfAborted()
     }
+    return true
   })()
-  if (maximumInvocationDeadline === undefined) await fallbackDelivery
-  else {
-    await enforceChatInvocationTimeout(
-      fallbackDelivery,
-      Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - Date.now()),
-      fallbackDeliveryAbort,
-    ).catch(() => undefined)
-  }
+  if (maximumInvocationDeadline === undefined) return await fallbackDelivery
+  return await enforceChatInvocationTimeout(
+    fallbackDelivery,
+    Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - Date.now()),
+    fallbackDeliveryAbort,
+  ).catch(() => false)
 }
 
 function createChatFinishExtension(input: AgentChatMessageTriggerInput, registration: AgentWebhookRegistrationDefinition): AgentChatQueuedFinishExtension {
@@ -4498,7 +4527,8 @@ async function handleChatSdkMessage(
                 pendingQueue,
                 steerPending,
                 error,
-                async (delivery, failure) => await postDurableSteerErrorFallback(agent, context, registration, state.state, delivery, failure),
+                async (delivery, failure) =>
+                  await postDurableSteerErrorFallback(agent, context, registration, state.state, delivery, failure, maximumInvocationDeadline ?? Date.now()),
               )
             } else {
               if (!(await acknowledgeDurableSteerPending(state.state, pendingQueue, steerPending))) {

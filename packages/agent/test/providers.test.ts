@@ -12955,11 +12955,15 @@ describe("server helpers", () => {
       let rejectFallbackProgress = true
       const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
         // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-        const current = args[1] as { message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } } | null
+        const current = args[1] as {
+          message?: { errorDeliveries?: Array<{ fallbackStatus?: "delivered" | "reserved" }> }
+        } | null
         // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-        const replacement = args[2] as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>
-        const currentProgress = current?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
-        const replacementProgress = replacement[0]?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
+        const replacement = args[2] as Array<{
+          message?: { errorDeliveries?: Array<{ fallbackStatus?: "delivered" | "reserved" }> }
+        }>
+        const currentProgress = current?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
+        const replacementProgress = replacement[0]?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
         if (rejectFallbackProgress && replacementProgress > currentProgress) {
           if (!persistentProgressFailure) rejectFallbackProgress = false
           return false
@@ -13052,7 +13056,7 @@ describe("server helpers", () => {
           [
             expect.objectContaining({
               message: expect.objectContaining({
-                errorDeliveries: expect.arrayContaining([expect.objectContaining({ fallbackAttempted: true })]),
+                errorDeliveries: expect.arrayContaining([expect.objectContaining({ fallbackStatus: "reserved" })]),
               }),
             }),
           ],
@@ -13061,11 +13065,15 @@ describe("server helpers", () => {
         expect(
           queueReplaceHead.mock.calls.filter(([, current, replacement]) => {
             // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-            const currentEntry = current as { message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } } | null
+            const currentEntry = current as {
+              message?: { errorDeliveries?: Array<{ fallbackStatus?: "delivered" | "reserved" }> }
+            } | null
             // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-            const replacementEntries = replacement as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>
-            const currentProgress = currentEntry?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
-            const replacementProgress = replacementEntries[0]?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
+            const replacementEntries = replacement as Array<{
+              message?: { errorDeliveries?: Array<{ fallbackStatus?: "delivered" | "reserved" }> }
+            }>
+            const currentProgress = currentEntry?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
+            const replacementProgress = replacementEntries[0]?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
             return replacementProgress > currentProgress
           }),
         ).toHaveLength(persistentProgressFailure ? 4 : 3)
@@ -13085,6 +13093,193 @@ describe("server helpers", () => {
     },
     10_000,
   )
+
+  it.each([
+    {
+      boundary: "reserved",
+      deliveryFailure: undefined,
+      firstDeliveryCount: 0,
+      finalDeliveryCount: 1,
+      title: "retries a persisted fallback reservation when execution has not started",
+    },
+    {
+      boundary: "delivered",
+      deliveryFailure: undefined,
+      firstDeliveryCount: 1,
+      finalDeliveryCount: 2,
+      title: "retries fallback delivery after a post without a delivered checkpoint",
+    },
+    {
+      boundary: undefined,
+      deliveryFailure: "rejection",
+      firstDeliveryCount: 1,
+      finalDeliveryCount: 2,
+      title: "keeps a rejected fallback post reserved for retry",
+    },
+    {
+      boundary: undefined,
+      deliveryFailure: "timeout",
+      firstDeliveryCount: 1,
+      finalDeliveryCount: 2,
+      title: "keeps a fallback post that resolves after its deadline reserved for retry",
+    },
+    {
+      boundary: undefined,
+      deliveryFailure: "never",
+      firstDeliveryCount: 1,
+      finalDeliveryCount: 2,
+      title: "bounds a fallback post that never settles and keeps it reserved for retry",
+    },
+  ] as const)("$title", async ({ boundary, deliveryFailure, firstDeliveryCount, finalDeliveryCount }) => {
+    const { deliverDurableSteerErrorFallbacks, postChatErrorFallback } = await import("../src/server/routes.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-fallback-recovery-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const queue = "durable-steer-fallback-recovery"
+    const entry = {
+      enqueuedAt: Date.now(),
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      message: {
+        errorDeliveries: [
+          {
+            input: {},
+            message: { id: "fallback-message", text: "Retry me", threadId: "telegram:456" },
+          },
+        ],
+      },
+    }
+    const lateDeliveryDelete = vi.fn(async () => undefined)
+    const deliver = vi.fn(async () => {
+      if (!deliveryFailure) return
+      const firstAttempt = deliver.mock.calls.length === 1
+      const post = vi.fn(async () => {
+        if (firstAttempt && deliveryFailure === "rejection") throw new Error("adapter rejected fallback")
+        if (firstAttempt && deliveryFailure === "never") return await new Promise<never>(() => undefined)
+        if (firstAttempt && deliveryFailure === "timeout") {
+          await new Promise((resolve) => setTimeout(resolve, 25))
+          return {
+            delete: lateDeliveryDelete,
+            id: "late-fallback",
+            raw: {},
+            threadId: "telegram:456",
+          }
+        }
+        return { id: "fallback", raw: {}, threadId: "telegram:456" }
+      })
+      const delivered = await postChatErrorFallback(
+        new Error("failed"),
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        { post } as never,
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        entry.message.errorDeliveries[0]!.message as never,
+        { errorFallbackText: "Fallback" },
+        undefined,
+        undefined,
+        [],
+        undefined,
+        firstAttempt && deliveryFailure === "timeout" ? Date.now() - 1_990 : Date.now(),
+      )
+      if (!delivered) throw new Error("fallback was not delivered")
+    })
+
+    try {
+      await state.connect()
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      await state.enqueue(queue, entry as never, 1)
+      const replaceQueueHead = state.queueReplaceHead.bind(state)
+      let interruptReservedWrite = boundary === "reserved"
+      let rejectDeliveredWrites = boundary === "delivered" ? 2 : 0
+      const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
+        // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+        const current = args[1] as {
+          message?: { errorDeliveries?: Array<{ fallbackStatus?: "delivered" | "reserved" }> }
+        }
+        // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+        const replacement = args[2] as Array<{
+          message?: { errorDeliveries?: Array<{ fallbackStatus?: "delivered" | "reserved" }> }
+        }>
+        const currentStatus = current.message?.errorDeliveries?.[0]?.fallbackStatus
+        const replacementStatus = replacement[0]?.message?.errorDeliveries?.[0]?.fallbackStatus
+        if (interruptReservedWrite && currentStatus === undefined && replacementStatus === "reserved") {
+          interruptReservedWrite = false
+          await replaceQueueHead(...args)
+          throw new Error("worker stopped after persisting the reservation")
+        }
+        if (rejectDeliveredWrites > 0 && currentStatus === "reserved" && replacementStatus === "delivered") {
+          rejectDeliveredWrites--
+          return false
+        }
+        return await replaceQueueHead(...args)
+      })
+
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      await deliverDurableSteerErrorFallbacks(state, queue, entry as never, new Error("failed"), deliver as never).catch(() => undefined)
+      expect(deliver).toHaveBeenCalledTimes(firstDeliveryCount)
+      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+      const reserved = (await state.queuePeek(queue)) as {
+        message?: { errorDeliveries?: Array<{ fallbackStatus?: string }> }
+      }
+      expect(reserved.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("reserved")
+      if (deliveryFailure === "timeout") {
+        await vi.waitFor(() => expect(lateDeliveryDelete).toHaveBeenCalledOnce())
+      }
+
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      await deliverDurableSteerErrorFallbacks(state, queue, reserved as never, new Error("failed"), deliver as never)
+      expect(deliver).toHaveBeenCalledTimes(finalDeliveryCount)
+      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+      const delivered = (await state.queuePeek(queue)) as {
+        message?: { errorDeliveries?: Array<{ fallbackStatus?: string }> }
+      }
+      expect(delivered.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("delivered")
+      queueReplaceHead.mockRestore()
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { completion: "disabled", title: "completes an intentionally disabled durable fallback" },
+    { completion: "callback", title: "completes a durable fallback posted by its callback" },
+    { completion: "placeholder", title: "completes a durable fallback delivered through its placeholder" },
+  ] as const)("$title", async ({ completion }) => {
+    const { postChatErrorFallback } = await import("../src/server/routes.ts")
+    const post = vi.fn(async () => ({ id: "fallback", raw: {}, threadId: "telegram:456" }))
+    const edit = vi.fn(async () => undefined)
+    const options =
+      completion === "disabled"
+        ? { errorFallbackText: null }
+        : completion === "callback"
+          ? {
+              errorFallbackText: async ({ thread }: { thread: { post: (message: string) => Promise<void> } }) => {
+                await thread.post("Callback fallback")
+              },
+            }
+          : { errorFallbackText: "Placeholder fallback" }
+    const completed = await postChatErrorFallback(
+      new Error("failed"),
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      { adapter: {}, post } as never,
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      { id: "fallback-message", text: "Retry me", threadId: "telegram:456" } as never,
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      options as never,
+      undefined,
+      undefined,
+      [],
+      completion === "placeholder" ? { placeholder: { edit } } : undefined,
+      Date.now(),
+    )
+
+    expect(completed).toBe(true)
+    if (completion === "disabled") expect(post).not.toHaveBeenCalled()
+    if (completion === "callback") expect(post).toHaveBeenCalledWith("Callback fallback")
+    if (completion === "placeholder") {
+      expect(edit).toHaveBeenCalledWith("Placeholder fallback")
+      expect(post).not.toHaveBeenCalled()
+    }
+  })
 
   it("does not settle merged steer deliveries after ownership is reclaimed", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -13458,8 +13653,18 @@ describe("server helpers", () => {
     }
   })
 
-  it("terminally settles queued steer deliveries when successor Workflow startup fails", async () => {
+  it.each([
+    {
+      stalledFallback: undefined,
+      title: "terminally settles queued steer deliveries when successor Workflow startup fails",
+    },
+    {
+      stalledFallback: "resolution",
+      title: "bounds stalled durable fallback resolution before terminal steer settlement",
+    },
+  ] as const)("$title", async ({ stalledFallback }) => {
     const { defineAgent } = await import("../src/index.ts")
+    const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { telegram } = await import("../src/channels.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -13478,6 +13683,10 @@ describe("server helpers", () => {
       }
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
+    const errorFallbackText = vi.fn(async () => {
+      if (stalledFallback === "resolution") return await new Promise<string>(() => undefined)
+      return "Queued delivery failed."
+    })
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -13486,7 +13695,7 @@ describe("server helpers", () => {
           messages: {
             concurrency: "steer",
             delivery: "manual",
-            errorFallbackText: "Queued delivery failed.",
+            errorFallbackText,
             state,
           },
         }),
@@ -13506,6 +13715,11 @@ describe("server helpers", () => {
       await handler(chatWebhookRequest(91_140), "telegram", runtime)
       await handler(chatWebhookRequest(91_141), "telegram", runtime)
       expect(createBatch).toHaveBeenCalledOnce()
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const binding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
+        | { steer?: { pendingQueue: string; queue: string } }
+        | undefined
+      expect(binding?.steer).toBeDefined()
 
       setActiveCloudflareEnv(env)
       await expect(
@@ -13538,7 +13752,12 @@ describe("server helpers", () => {
           expect.objectContaining({ error: "Workflow provider operation failed.", type: "failed" }),
         ]),
       )
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Queued delivery failed.")
+      expect(errorFallbackText).toHaveBeenCalledOnce()
+      if (stalledFallback === "resolution") {
+        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Sorry, I couldn't process that message.")
+      } else expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Queued delivery failed.")
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
+      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
     } finally {
       setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
