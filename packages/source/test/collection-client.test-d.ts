@@ -4,6 +4,8 @@ import * as v from "valibot"
 import { defineCollection } from "../src/index.ts"
 import { useCollection } from "../src/client.ts"
 
+import type { CollectionQuery } from "../src/index.ts"
+
 // SAFETY: This type-only fixture declares the rows its loader would return.
 const articles = defineCollection(async () => [] as Array<{ id: number; title: string }>, {
   cursor: article => article.id,
@@ -50,6 +52,12 @@ const transformedQuery = defineCollection(async ({ query }) => [{ id: query.sear
   ),
 })
 
+const nonWireQuery = defineCollection(async ({ query }) => [{ id: query.page }], {
+  cursor: item => item.id,
+  cursorSchema: v.number(),
+  querySchema: v.object({ page: v.number() }),
+})
+
 declare global {
   interface ViteHubCollectionMap {
     articles: typeof articles
@@ -57,6 +65,7 @@ declare global {
     jsonValues: typeof jsonValues
     toJSONOmittedItems: typeof toJSONOmittedItems
     transformedQuery: typeof transformedQuery
+    nonWireQuery: typeof nonWireQuery
   }
 }
 
@@ -72,6 +81,7 @@ describe("useCollection types", () => {
     }
     expectTypeOf(useCollection("jsonValues").items.value).toEqualTypeOf<JSONValue[]>()
     expectTypeOf(useCollection("toJSONOmittedItems").items.value).toMatchTypeOf<null[]>()
+    expectTypeOf<CollectionQuery<typeof nonWireQuery>>().toEqualTypeOf<never>()
     useCollection("transformedQuery", { filter: { q: "Ada" } })
 
     // @ts-expect-error Collection names come from ViteHubCollectionMap
@@ -80,5 +90,7 @@ describe("useCollection types", () => {
     useCollection("articles", { filter: { author: 42 } })
     // @ts-expect-error Filters use the query schema input rather than its transformed output
     useCollection("transformedQuery", { filter: { search: "Ada" } })
+    // @ts-expect-error Collection filters only accept values representable by a GET query string
+    useCollection("nonWireQuery", { filter: { page: 2 } })
   })
 })

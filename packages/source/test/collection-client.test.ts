@@ -101,25 +101,28 @@ describe("useCollection", () => {
     }
   })
 
-  it.each(["", "./", "../"])("anchors the relative application base %j at the deployment root", async baseURL => {
-    vi.stubGlobal("__VITEHUB_APP_BASE_URL__", baseURL)
-    try {
-      const { calls, request } = controlledRequester()
-      const scope = effectScope()
-      let collection!: UseCollectionReturn<typeof definition>
-      scope.run(() => {
-        collection = useCollection("items", { immediate: false, request })
-      })
+  it.each(["", "./", "../", "https://cdn.example.com/", "//cdn.example.com/"])(
+    "anchors the non-root-relative application base %j at the deployment root",
+    async baseURL => {
+      vi.stubGlobal("__VITEHUB_APP_BASE_URL__", baseURL)
+      try {
+        const { calls, request } = controlledRequester()
+        const scope = effectScope()
+        let collection!: UseCollectionReturn<typeof definition>
+        scope.run(() => {
+          collection = useCollection("items", { immediate: false, request })
+        })
 
-      const refresh = collection.refresh()
-      expect(calls[0]!.endpoint).toBe("/api/items")
-      calls[0]!.resolve(page([], null))
-      await refresh
-      scope.stop()
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
+        const refresh = collection.refresh()
+        expect(calls[0]!.endpoint).toBe("/api/items")
+        calls[0]!.resolve(page([], null))
+        await refresh
+        scope.stop()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    },
+  )
 
   it("loads every cursor page with one stable filter", async () => {
     const { calls, request } = controlledRequester()

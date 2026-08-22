@@ -96,16 +96,19 @@ describe("framework generated types", () => {
     })
   })
 
-  it("preserves an empty relative Vite base for runtime endpoint normalization", async () => {
-    const { viteRoot } = await createNestedProject()
-    const viteConfig = { base: "", root: viteRoot }
+  it.each([undefined, "", "./", "../", "https://cdn.example.com/", "//cdn.example.com/"])(
+    "normalizes the non-root-relative Vite base %j to the application origin",
+    async base => {
+      const { viteRoot } = await createNestedProject()
+      const viteConfig = { base, root: viteRoot }
 
-    await config(viteHubTypesPlugin())(viteConfig)
+      await config(viteHubTypesPlugin())(viteConfig)
 
-    expect(viteConfig).toMatchObject({
-      define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("") },
-    })
-  })
+      expect(viteConfig).toMatchObject({
+        define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") },
+      })
+    },
+  )
 
   it("normalizes POSIX and Windows Collection files to ESM file URLs", () => {
     expect(toRuntimeModuleSpecifier("/repo/server/collections/meals.ts")).toBe(

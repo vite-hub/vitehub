@@ -138,7 +138,9 @@ type CursorOutput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferOut
   ? StandardSchemaV1.InferOutput<TSchema>
   : never
 
-type QueryInput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferInput<TSchema>] extends [object]
+type QueryInput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferInput<TSchema>] extends [
+  CollectionRequestQuery,
+]
   ? StandardSchemaV1.InferInput<TSchema>
   : never
 

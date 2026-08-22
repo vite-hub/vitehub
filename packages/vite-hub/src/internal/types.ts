@@ -286,6 +286,10 @@ function isString(value: unknown): value is string {
   return String(value) === value
 }
 
+function applicationBaseURL(base: string | undefined): string {
+  return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
+}
+
 async function writeViteHubTypes(input: string | ViteHubTypesOptions): Promise<GeneratedCollectionHandler[]> {
   const options = isString(input) ? { projectRoot: input } : input
   const handlers = await writeCollectionArtifacts(options)
@@ -325,7 +329,7 @@ export function viteHubTypesPlugin(): Plugin &
       const handlers = await writeViteHubTypes({ projectRoot, serverDirs })
       viteConfig.define = {
         ...viteConfig.define,
-        __VITEHUB_APP_BASE_URL__: JSON.stringify(viteConfig.base ?? "/"),
+        __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)),
       }
       viteConfig.nitro = mergeGeneratedCollectionNitroConfig(viteConfig.nitro, handlers)
     },
