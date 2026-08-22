@@ -73,7 +73,21 @@ describe("package manifest contracts", () => {
       expect(manifest.name).toBe(packageInfo(packageName).packageName)
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
-      expect(manifest.sideEffects).toEqual(packageName === "vite-hub" ? ["./dist/bin.js"] : false)
+      if (manifest.sideEffects !== false) {
+        expect(manifest.sideEffects, `${packageName} side effects should name published artifacts`)
+          .toEqual(expect.arrayContaining([expect.any(String)]))
+
+        const publishedArtifacts = new Set([
+          ...Object.values(manifest.bin || {}),
+          ...Object.values(manifest.exports || {})
+            .map(exportTarget)
+            .filter((target): target is string => Boolean(target)),
+        ])
+        for (const sideEffect of manifest.sideEffects as string[]) {
+          expect(publishedArtifacts, `${packageName} side effect ${sideEffect} should be exported or executable`)
+            .toContain(sideEffect)
+        }
+      }
       expect(manifest.type).toBe("module")
       expect(manifest.types).toBe("./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
@@ -108,7 +122,7 @@ describe("package manifest contracts", () => {
     }
   })
 
-  it("keeps export targets under dist except package.json", () => {
+  it("keeps code exports under dist and publishes static asset exports explicitly", () => {
     for (const packageName of packageNames) {
       const manifest = readPackageManifest(packageName)
 
@@ -125,6 +139,12 @@ describe("package manifest contracts", () => {
         if (packageName === "vite-hub" && subpath === "./tsconfig") {
           expect(target).toBe("./tsconfig.json")
           expect(existsSync(exportTargetPath(packageName, target))).toBe(true)
+          continue
+        }
+
+        if (target.endsWith(".css")) {
+          expect(subpath, `${packageName} ${subpath} should expose CSS through a CSS subpath`).toMatch(/\.css$/)
+          expect(target, `${packageName} ${subpath} should point to a CSS asset`).toMatch(/^\.\/(?:dist\/)?[^/].*\.css$/)
           continue
         }
 
