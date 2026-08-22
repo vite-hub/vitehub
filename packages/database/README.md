@@ -7,7 +7,7 @@
   <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
 </p>
 
-`@vite-hub/database` turns a colocated Drizzle schema into generated `db` and `schema` imports for server code.
+`@vite-hub/database` turns a colocated Drizzle schema into a generated `useDatabase()` lookup for server code.
 
 ## Install
 
@@ -35,10 +35,11 @@ export default defineDatabase({
 
 ```ts
 // server/api/notes.get.ts
-import { db, schema } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database/drizzle"
 import { defineEventHandler } from "h3"
 
 export default defineEventHandler(() => {
+  const { db, schema } = useDatabase("default")
   return db.select().from(schema.notes)
 })
 ```
@@ -59,7 +60,7 @@ Use `src/database.ts` or `server/databases/config.ts` for one default database. 
 
 `@vite-hub/database/drizzle` is resolved by the Vite integration for server code and provider output. Plain `node` execution of files that import it is not a supported local runtime path.
 
-`defineDatabase()` also returns the typed Drizzle database, so application code can import a definition directly and query it without another runtime factory.
+Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database.
 
 ## Remote D1 development
 

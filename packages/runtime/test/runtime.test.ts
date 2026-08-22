@@ -138,6 +138,7 @@ describe("@vite-hub/runtime", () => {
     })
 
     for (const details of [accessor, cyclic, { count: 1n }, { count: Number.POSITIVE_INFINITY }, hostile, new Date()]) {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       expect(() => new ViteHubError("PROVIDER_FAILED", "The provider request failed.", { details } as never))
         .toThrow("[vitehub] ViteHubError requires a valid public error contract.")
     }
@@ -150,6 +151,7 @@ describe("@vite-hub/runtime", () => {
       code: "STRUCTURAL_FAILURE",
       details: { provider: "fixture" },
       message: "The structural operation failed.",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       name: "ViteHubError" as const,
       toJSON: ViteHubError.prototype.toJSON,
     }
@@ -168,6 +170,7 @@ describe("@vite-hub/runtime", () => {
   it("binds a subclass serializer without leaving it shadowable", () => {
     class SpecializedError extends ViteHubError<"SPECIALIZED_FAILURE"> {
       override toJSON() {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { ...super.toJSON(), specialized: true as const }
       }
     }
@@ -592,6 +595,7 @@ describe("@vite-hub/runtime", () => {
   })
 
   it("recursively redacts traversable non-plain attribute objects", async () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const details = Object.assign(Object.create(null) as Record<string, unknown>, {
       nested: { prompt: "secret prompt", safe: true },
     })
@@ -626,8 +630,11 @@ describe("@vite-hub/runtime", () => {
 
   it("derives child span ids from the invocation-specific root", async () => {
     const event = (invocationId: string, sequence: number) => [
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.start", sequence, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "host-trace" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "agent.invocation.id": invocationId, "step.id": "model" }, name: "agent.model.finish", sequence: sequence + 1, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "host-trace" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.finish", sequence: sequence + 2, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "host-trace" }, type: "run" as const },
     ]
 
@@ -639,9 +646,13 @@ describe("@vite-hub/runtime", () => {
 
   it("keeps provider activity open through progress and fails terminal task errors", () => {
     const events = [
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "step.id": "task-1" }, name: "agent.task.started", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "step.id": "task-1" }, name: "agent.task.progress", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "step.id": "task-1", "error.message": "task failed" }, name: "agent.task.failed", sequence: 3, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { name: "agent.invocation.error", sequence: 4, timestamp: "2026-01-01T00:00:00.030Z", trace: { id: "run-1" }, type: "error" as const },
     ]
 
@@ -656,8 +667,11 @@ describe("@vite-hub/runtime", () => {
 
   it("keeps streamed tool output open so an aborted run fails the child span", () => {
     const events = [
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "step.id": "tool-1" }, name: "agent.tool.start", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "step.id": "tool-1", "tool.output": "still running\n" }, name: "agent.tool.output", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "error.message": "cancelled" }, name: "agent.invocation.error", sequence: 3, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "error" as const },
     ]
 
@@ -678,6 +692,7 @@ describe("@vite-hub/runtime", () => {
       sequence: index + 1,
       timestamp: new Date(index).toISOString(),
       trace: { id: "run-1" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       type: "run" as const,
     }))
 
@@ -699,6 +714,7 @@ describe("@vite-hub/runtime", () => {
       sequence: index + 1,
       timestamp: new Date(index).toISOString(),
       trace: { id: "run-1" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       type: index === 1_000 ? "error" as const : "run" as const,
     }))
 
@@ -715,6 +731,7 @@ describe("@vite-hub/runtime", () => {
       sequence: index + 1,
       timestamp: new Date(index).toISOString(),
       trace: { id: "run-1" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       type: index === 1_000 || index === 1_500 ? "error" as const : "run" as const,
     }))
 
@@ -731,6 +748,7 @@ describe("@vite-hub/runtime", () => {
       sequence: runIndex * 2_000 + index + 1,
       timestamp: new Date(runIndex * 2_000 + index).toISOString(),
       trace: { id: "shared-trace" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       type: "run" as const,
     })))
 

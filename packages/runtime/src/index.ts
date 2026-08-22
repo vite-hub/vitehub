@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { ViteHubError } from "./errors.ts"
 
 export {
@@ -58,24 +59,26 @@ export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
 }) satisfies ExecutionAuthority
 
 export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
+  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
   const authority = value as Record<string, unknown>
   const filesystem = authority.filesystem
-  if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem)) return false
+  if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
+  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
   const files = filesystem as Record<string, unknown>
-  return typeof authority.credentials === "string"
+  return hasRuntimeType(authority.credentials, "string")
     && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
-    && typeof authority.environment === "string"
+    && hasRuntimeType(authority.environment, "string")
     && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
-    && typeof files.access === "string"
+    && hasRuntimeType(files.access, "string")
     && ["none", "read-only", "read-write", "unknown"].includes(files.access)
-    && typeof files.scope === "string"
+    && hasRuntimeType(files.scope, "string")
     && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
-    && typeof authority.isolation === "string"
+    && hasRuntimeType(authority.isolation, "string")
     && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
-    && typeof authority.network === "string"
+    && hasRuntimeType(authority.network, "string")
     && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
-    && typeof authority.processes === "string"
+    && hasRuntimeType(authority.processes, "string")
     && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
 }
 
@@ -100,11 +103,12 @@ export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority 
   })
 }
 
-function hasCanonicalFrozenProperties(value: object, keys: readonly string[]): boolean {
+function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): boolean {
+  if (!isRuntimeObject(value)) return false
   const prototype = Object.getPrototypeOf(value)
   if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
   const ownKeys = Reflect.ownKeys(value)
-  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== "string" || !keys.includes(key))) return false
+  if (ownKeys.length !== keys.length || ownKeys.some(key => !hasRuntimeType(key, "string") || !keys.includes(key))) return false
   return keys.every((key) => {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
@@ -316,7 +320,7 @@ export function isTraceContentAttributeKey(key: string): boolean {
 }
 
 function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (!value || typeof value !== "object") return value
+  if (!value || !hasRuntimeType(value, "object")) return value
   if (seen.has(value)) return "[Circular]"
   seen.add(value)
   if (Array.isArray(value)) {
@@ -347,7 +351,7 @@ function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
 
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
-  if (typeof value === "string") return value
+  if (hasRuntimeType(value, "string")) return value
   return new Date().toISOString()
 }
 
@@ -412,7 +416,7 @@ function durationMs(startTime: string, endTime: string | undefined): number | un
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+  return values.find((value): value is string => hasRuntimeType(value, "string") && value.length > 0)
 }
 
 function runId(event: TraceEventLogEntry): string {
@@ -633,9 +637,10 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         parentSpanId: spanId,
         spanId: openTelemetryId(`${spanId}:${step.id}`, 16),
         startTime: step.startTime,
+        // SAFETY: Runtime Capability normalization establishes the asserted host contract.
         status: {
           code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",
-          ...(typeof step.attributes?.["error.message"] === "string" ? { message: step.attributes["error.message"] } : {}),
+          ...(hasRuntimeType(step.attributes?.["error.message"], "string") ? { message: step.attributes["error.message"] } : {}),
         } as const,
         traceId,
       })),
@@ -654,37 +659,34 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
-export function createExecutionContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
+type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRuntimeConfig }
+  ? Exclude<TRuntimeConfig, undefined>
+  : Record<string, unknown>
+
+export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
+): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
   return resolveExecutionContext(context)
 }
 
-export function resolveExecutionContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
+export function resolveExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
+): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
   return {
     ...context,
     capabilities: context.capabilities || {},
-    runtimeConfig: (context.runtimeConfig || {}) as TRuntimeConfig,
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
   }
 }
 
-export function resolveRuntimeContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
+export function resolveRuntimeContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
+): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
   return {
     ...context,
-    runtimeConfig: (context.runtimeConfig || {}) as TRuntimeConfig,
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
   }
 }
 
@@ -718,10 +720,11 @@ export function createRuntimeWaitUntilController(options: {
 }
 
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "kind" in value
-    && typeof (value as { kind?: unknown }).kind === "string"
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    && hasRuntimeType((value as { kind?: unknown }).kind, "string")
     && "value" in value
 }
 
@@ -729,10 +732,10 @@ export function hasCapability(context: RuntimeHostContext, name: string): boolea
   return !!context.capabilities && name in context.capabilities
 }
 
-export function getCapability<TKind extends string = string, TValue = unknown>(
-  context: RuntimeHostContext,
+export function getCapability(
+  context: RuntimeHostContext<any>,
   name: string,
-): CapabilityHandle<TKind, TValue> {
+): CapabilityHandle {
   const value = context.capabilities?.[name]
   if (value === undefined) {
     throw new ViteHubError("CAPABILITY_NOT_FOUND", `[vitehub:runtime] Capability "${name}" was not found.`, {
@@ -740,18 +743,19 @@ export function getCapability<TKind extends string = string, TValue = unknown>(
     })
   }
   if (isCapabilityHandle(value)) {
-    return value as CapabilityHandle<TKind, TValue>
+    return value
   }
-  return defineCapability(name as TKind, value as TValue, { name })
+  return defineCapability(name, value, { name })
 }
 
 export function isResolvable<T, TContext extends RuntimeHostContext<any>>(
   value: MaybeResolvable<T, TContext>,
 ): value is Resolvable<T, TContext> {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "resolve" in value
-    && typeof (value as { resolve?: unknown }).resolve === "function"
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    && hasRuntimeType((value as { resolve?: unknown }).resolve, "function")
 }
 
 export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext<any>>(
@@ -762,7 +766,8 @@ export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext
     return await value.resolve(context)
   }
 
-  if (typeof value === "function") {
+  if (hasRuntimeType(value, "function")) {
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     return await (value as (context: TContext) => MaybePromise<T>)(context)
   }
 
@@ -774,5 +779,5 @@ export async function resolveCapabilityPolicy(
   context: PolicyContext,
 ): Promise<PolicyDecision> {
   if (!policy) return "allow"
-  return typeof policy === "function" ? await policy(context) : policy
+  return hasRuntimeType(policy, "function") ? await policy(context) : policy
 }

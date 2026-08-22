@@ -1,7 +1,8 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 
-import type { AgentCapabilityDefinition, AgentRuntimeConfig } from "../types.ts"
+import type { AgentCapabilityDefinition } from "../types.ts"
 import type {
   RuntimeDiagnosticEvent,
   RuntimeDiagnosticReporter,
@@ -25,6 +26,12 @@ interface DiagnosticsMonitor {
   sample(reason: "finish" | "poll" | "start"): Promise<void>
   start(): Promise<void>
   stop(): Promise<void>
+}
+
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    "vitehub.diagnostics.monitor": DiagnosticsMonitor
+  }
 }
 
 function positiveDuration(value: number | undefined, fallback: number, label: string): number {
@@ -235,17 +242,17 @@ function createMonitor(options: {
   }
 }
 
-export function diagnostics<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+export function diagnostics(
   options: DiagnosticsCapabilityOptions = {},
-): AgentCapabilityDefinition<TRuntimeConfig> {
-  if (!options || typeof options !== "object") throw new TypeError("[vitehub] diagnostics() requires an options object when provided.")
+): AgentCapabilityDefinition {
+  if (!options || !hasRuntimeType(options, "object")) throw new TypeError("[vitehub] diagnostics() requires an options object when provided.")
   const heartbeat = positiveDuration(options.heartbeat, 60_000, "heartbeat")
   const interval = positiveDuration(options.interval, 10_000, "interval")
   const peakStepBytes = positiveBytes(options.peakStepBytes, 64 * 1024 * 1024)
   const timeout = positiveDuration(options.timeout, 1_000, "timeout")
   if (interval > heartbeat) throw new TypeError("[vitehub] diagnostics({ interval }) cannot exceed diagnostics({ heartbeat }).")
   const reporter = boundedReporter(options.reporter || defaultReporter, timeout)
-  const capability = defineCapability<TRuntimeConfig>({
+  const capability = defineCapability({
     id: "diagnostics",
     metadata: {
       ...(options.resources ? { resources: true } : {}),
@@ -266,7 +273,7 @@ export function diagnostics<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
       await monitor.start()
     },
     async close(context) {
-      await context.context.get<DiagnosticsMonitor>(monitorContextKey)?.stop()
+      await context.context.get(monitorContextKey)?.stop()
     },
     async finish(event) {
       const cancelled = event.error !== undefined && event.input.abortSignal?.aborted === true

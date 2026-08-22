@@ -109,7 +109,22 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 }
 
 declare global {
-  interface ViteHubAgentInvocationContextValues {}
+  interface ViteHubAgentInvocationContextValues {
+    "agent.channels": string[]
+    "agent.colocatedSkills": Record<string, WorkspaceSourceInput>
+    "agent.invocation.traceId": string
+    "agent.name": string
+    "agent.output.eventObserver": (event: StreamEvent) => void
+    "agent.output.progressSummary": boolean
+    "agent.schedule.turn": boolean
+    "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
+    "channel.delivery.titleDelivered": boolean
+    "chat.channelState": { keyPrefix: string, state: StateAdapter }
+    "chat.finish": AgentChatFinishExtension
+    "vitehub.channel.final-output": boolean
+    "vitehub.title.response-fallback": boolean
+    "workspace.sourceResolution.definition": WorkspaceDefinition
+  }
   interface ViteHubAgentFinishExtensions {}
   interface ViteHubAgentOutputExtensions {}
 }
@@ -144,7 +159,7 @@ export interface AgentInvocationContextStore<TValues extends object = AgentInvoc
   entries: () => IterableIterator<[string, unknown]>
   get: {
     <TKey extends keyof TValues & string>(id: TKey): TValues[TKey] | undefined
-    <T = unknown>(id: string): T | undefined
+    (id: string): unknown
   }
   has: (id: string) => boolean
   set: {
@@ -590,8 +605,8 @@ export interface AgentInvocationExtensions<TValues extends object = Record<strin
     capabilityId: TKey,
     key: TField
   ): NonNullable<TValues[TKey]>[TField] | undefined
-  get<T = unknown>(capabilityId: string): T | undefined
-  get<T = unknown>(capabilityId: string, key: string): T | undefined
+  get(capabilityId: string): unknown
+  get(capabilityId: string, key: string): unknown
   toJSON: () => Record<string, unknown>
 }
 
@@ -1315,8 +1330,12 @@ export interface AgentDefinition<
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
-export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext, TOutput = unknown> =
-  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, any, any, any, TOutput>
+export type AgentInput<
+  TContext extends AgentRuntimeContext<any> = AgentRuntimeContext,
+  TOutput = unknown,
+  CALL_OPTIONS = any,
+  TInvokerProfile extends AgentInvokerProfile = any,
+> = AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, CALL_OPTIONS, TInvokerProfile, any, TOutput>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }

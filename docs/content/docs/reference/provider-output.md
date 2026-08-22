@@ -1,12 +1,12 @@
 ---
 title: Provider output
 description: Reference generated deployment and runtime artifacts owned by ViteHub package integrations.
-navigation.order: 54
+navigation.order: 56
 icon: i-lucide-cloud-upload
 ---
 
 Provider Output is generated deployment or runtime artifacts required by a provider.
-It belongs to the package that owns the primitive and should not become application authoring surface.
+It belongs to the package that owns the primitive. Application code does not edit or import it.
 
 ## Output families
 
@@ -57,7 +57,7 @@ pnpm --filter @vite-hub/workflow test
 
 ## Public boundary
 
-Application code should import Runtime Helpers and stable handlers.
+Application code imports Runtime Helpers and documented handlers.
 Generated Provider Output may import generated files, virtual modules, or provider runtime packages internally.
 
 Netlify Agent output is Provider Output, not an app import: there is no stable `@vite-hub/agent/netlify` import. Inspect `.netlify/v1/functions/vitehub-agent.mjs` and `.vitehub/agent/netlify-function.mjs` during deployment debugging instead of importing them from application code.

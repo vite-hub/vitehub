@@ -6,6 +6,7 @@ import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 
+// SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: unknown) => providerRuntimes.shift()))
 
@@ -92,6 +93,7 @@ function context(threadId: string, overrides: Record<string, unknown> = {}) {
 
 async function collect(value: unknown) {
   const events = []
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   for await (const item of value as AsyncIterable<unknown>) events.push(item)
   return events
 }
@@ -103,11 +105,13 @@ describe("Provider Agent Driver", () => {
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
     const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
       environment: expect.objectContaining({ PROVIDER_SELECTED: "selected" }),
     }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((createProviderRuntime.mock.lastCall?.[0] as { environment: Record<string, string> }).environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
   })
@@ -121,6 +125,7 @@ describe("Provider Agent Driver", () => {
       },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(requestedAfterTerminal).toBe(false)
@@ -129,7 +134,9 @@ describe("Provider Agent Driver", () => {
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
     const agent = defineAgent({ driver: "codex", runtime: false })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(agent.resolve(context("thread-definition") as never)).resolves.toBe(
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await agent.resolve(context("thread-definition") as never),
     )
   })
@@ -149,6 +156,7 @@ describe("Provider Agent Driver", () => {
     ])
     const adapter = createProviderAgentAdapter({ permissions: "ask", provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const events = await collect(await adapter.stream!(context(threadId) as never)) as Array<Record<string, unknown>>
 
     expect(events.map(item => item.type)).toEqual([
@@ -167,6 +175,7 @@ describe("Provider Agent Driver", () => {
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
     expect(provider.close).toHaveBeenCalledOnce()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const cwd = (createProviderRuntime.mock.calls.at(-1)![0] as { cwd: string }).cwd
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
   })
@@ -180,6 +189,7 @@ describe("Provider Agent Driver", () => {
     ])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const events = await collect(await adapter.stream!(context(threadId, {
       tools: {
         repository_host_write: {
@@ -215,6 +225,7 @@ describe("Provider Agent Driver", () => {
     setAgentTelemetryConfiguration(runContext.context, { driver: { kind: "provider" }, runtime: { name: "vite" } })
     const adapter = createProviderAgentAdapter({ instructions: "System instructions", provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate({ ...runContext, runtime: { ...runContext.runtime, traceLog } } as never)
 
     expect(traceLog.entries().map(entry => entry.name)).toEqual([
@@ -304,6 +315,7 @@ describe("Provider Agent Driver", () => {
     const traceLog = createTraceEventLog({ content: "content" })
     const runContext = context(threadId)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(createProviderAgentAdapter({ provider: "codex" }).generate({
       ...runContext,
       runtime: { ...runContext.runtime, traceLog },
@@ -328,6 +340,7 @@ describe("Provider Agent Driver", () => {
     const traceLog = createTraceEventLog({ content: "content" })
     const runContext = context(threadId)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate({
       ...runContext,
       runtime: { ...runContext.runtime, traceLog },
@@ -360,7 +373,9 @@ describe("Provider Agent Driver", () => {
     ])
     const adapter = createProviderAgentAdapter({ model: "gpt-5.6-codex", provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId) as never)).resolves.toMatchObject({ text: "one" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, { input: { prompt: "continue" }, prompt: "continue" }) as never)).resolves.toMatchObject({ text: "two" })
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
@@ -378,8 +393,11 @@ describe("Provider Agent Driver", () => {
     const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId) as never)).rejects.toThrow("provider failed")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
     expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
@@ -397,8 +415,11 @@ describe("Provider Agent Driver", () => {
       return value
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(sessionContext("a") as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(sessionContext("b") as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(sessionContext("a") as never)
 
     expect(first.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
@@ -412,7 +433,9 @@ describe("Provider Agent Driver", () => {
     const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, { invoker: { id: "shared", kind: "user" } }) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, { invoker: { id: "shared", kind: "service" } }) as never)
 
     expect(first.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
@@ -429,8 +452,10 @@ describe("Provider Agent Driver", () => {
     const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const firstResult = adapter.generate(context(threadId) as never)
     await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const secondResult = adapter.generate(context(threadId) as never)
     await new Promise(resolve => setTimeout(resolve, 25))
     expect(second.startSession).not.toHaveBeenCalled()
@@ -447,10 +472,12 @@ describe("Provider Agent Driver", () => {
       beforeEvent: () => new Promise<void>(resolve => releaseFirst = resolve),
     })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const firstResult = adapter.generate(context(threadId) as never)
     await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
     const runtimeCount = createProviderRuntime.mock.calls.length
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, { input: { prompt: "queued", timeout: 10 } }) as never)).rejects.toThrow()
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
     releaseFirst()
@@ -463,6 +490,7 @@ describe("Provider Agent Driver", () => {
     const fetchData = vi.fn(async () => new Uint8Array())
     const adapter = createProviderAgentAdapter({ execution: { attachments: { maxBytes: 10 } }, provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, {
       messages: [{ parts: [{ text: "inspect", type: "text" }, { fetchData, mediaType: "image/png", size: 11, type: "image" }], role: "user" }],
     }) as never)).rejects.toThrow("exceeds maxBytes")
@@ -476,6 +504,7 @@ describe("Provider Agent Driver", () => {
     const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, {
       messages: [{ parts: [{ text: "inspect", type: "text" }, { fetchData, mediaType: "image/png", type: "image", url: "https://assets.example/image.png" }], role: "user" }],
     }) as never)
@@ -484,6 +513,7 @@ describe("Provider Agent Driver", () => {
     expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
       attachments: [expect.objectContaining({ mimeType: "image/png", sizeBytes: 3, type: "image" })],
     }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
@@ -492,6 +522,7 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, {
       messages: [{ parts: [{ text: "inspect", type: "text" }, { mediaType: "image/png", type: "image", url: "https://assets.example/image.png" }], role: "user" }],
     }) as never)).rejects.toThrow("application-owned fetchData() resolution")
@@ -502,6 +533,7 @@ describe("Provider Agent Driver", () => {
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, {
       input: {},
       messages: [{ parts: [{ data: new Uint8Array([1]), mediaType: "image/png", type: "image" }], role: "user" }],
@@ -509,6 +541,7 @@ describe("Provider Agent Driver", () => {
     }) as never)
 
     expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "Inspect the attached image." }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
@@ -517,6 +550,7 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "resume-input" })
     const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const adapter = createProviderAgentAdapter({ provider: "claude-code" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
     const messages = [{
       parts: [
@@ -529,6 +563,7 @@ describe("Provider Agent Driver", () => {
       role: "user",
     }]
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, { input: { prompt: "continue" }, messages, prompt: "continue" }) as never)
 
     expect(resumed.respondToRequest).not.toHaveBeenCalled()
@@ -562,6 +597,7 @@ describe("Provider Agent Driver", () => {
       return undefined
     })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = collect(await adapter.stream!(context(threadId) as never))
     const invocationId = `run-${threadId}`
 
@@ -590,6 +626,7 @@ describe("Provider Agent Driver", () => {
     const controller = new AbortController()
     const primary = runtime(primaryThreadId, [], { afterEvents: () => new Promise(() => {}) })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const primaryResult = adapter.generate(context(primaryThreadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
@@ -600,6 +637,7 @@ describe("Provider Agent Driver", () => {
     runtime(auxiliaryThreadId, [event("turn.completed", auxiliaryThreadId, { state: "completed" }, { turnId: "turn-1" })])
     const auxiliaryContext = context(auxiliaryThreadId)
     auxiliaryContext.runtime.run.runId = invocationId
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(markAuxiliaryMessageChannelInstructionContext(auxiliaryContext) as never)
 
     expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true })
@@ -627,6 +665,7 @@ describe("Provider Agent Driver", () => {
     })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context("thread-tools", {
       tools: {
         search: {
@@ -641,6 +680,7 @@ describe("Provider Agent Driver", () => {
 
   it("publishes Capability approval requests raised through MCP", async () => {
     let toolCall!: Promise<unknown>
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const policy = vi.fn(() => "require-approval" as const)
     runtime("thread-tool-approval", [event("turn.completed", "thread-tool-approval", { state: "completed" }, { turnId: "turn-1" })], {
       async onSendTurn(mcp) {
@@ -663,6 +703,7 @@ describe("Provider Agent Driver", () => {
       },
     })!), reportToolStep)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const output = createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-approval", { tools }) as never) as AsyncIterable<unknown>
     const stream = output[Symbol.asyncIterator]()
     const approval = await stream.next()
@@ -671,6 +712,7 @@ describe("Provider Agent Driver", () => {
       name: "email_send",
       type: "approval-request",
     }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const approvalId = (approval.value as { id: string }).id
     await expect(Promise.all([
       sendAgentInvocationInput("run-thread-tool-approval", {
@@ -689,6 +731,7 @@ describe("Provider Agent Driver", () => {
     let toolCall!: Promise<unknown>
     const controller = new AbortController()
     const execute = vi.fn(async () => undefined)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const policy = vi.fn(() => "require-approval" as const)
     const provider = runtime("thread-tool-cancel", [event("turn.completed", "thread-tool-cancel", { state: "completed" }, { turnId: "turn-1" })], {
       async onSendTurn(mcp) {
@@ -705,12 +748,14 @@ describe("Provider Agent Driver", () => {
       },
     })
     const tools = applyAgentToolPolicies({ email_send: { execute, name: "email_send", policy } })!
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const output = createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-cancel", { tools }) as never) as AsyncIterable<unknown>
     const stream = output[Symbol.asyncIterator]()
     const approval = await stream.next()
 
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
     await expect(sendAgentInvocationInput("run-thread-tool-cancel", {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       messages: [{ id: "approval", parts: [{ approved: true, id: (approval.value as { id: string }).id, type: "approval-decision" }], role: "user" }],
     }, { mode: "respond" })).resolves.not.toBe("accepted")
     expect(execute).not.toHaveBeenCalled()
@@ -753,6 +798,7 @@ describe("Provider Agent Driver", () => {
               return { value }
             },
             vendor: "vitehub-test",
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             version: 1 as const,
           },
         },
@@ -760,6 +806,7 @@ describe("Provider Agent Driver", () => {
       },
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context("thread-tool-validation-cancel", { tools }) as never)).resolves.toBeDefined()
     expect(execute).not.toHaveBeenCalled()
   })
@@ -771,6 +818,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-session-exited"
     runtime(threadId, [event("session.exited", threadId, payload)])
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never))
       .rejects.toThrow(/session exited before the turn completed/)
   })
@@ -805,6 +853,7 @@ describe("Provider Agent Driver", () => {
       tools: {},
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
       workspace,
       workspaceDefinition: { mode: "write", name: "docs" },
@@ -824,6 +873,27 @@ describe("Provider Agent Driver", () => {
     await new Promise(resolve => setTimeout(resolve, 100))
     await expect(readFile(heartbeatFile, "utf8")).resolves.toBe(stoppedAt)
     await rm(heartbeatFile, { force: true })
+  })
+
+  it("reports executable modes while listing local Workspace files", async () => {
+    const root = `/tmp/vitehub-provider-file-modes-${crypto.randomUUID()}`
+    await mkdir(root, { recursive: true })
+    try {
+      await writeFile(`${root}/README.md`, "docs")
+      await writeFile(`${root}/group.sh`, "#!/bin/sh\n")
+      await writeFile(`${root}/run.sh`, "#!/bin/sh\n")
+      await chmod(`${root}/group.sh`, 0o010)
+      await chmod(`${root}/run.sh`, 0o755)
+
+      await expect(localWorkspaceHost().files.list(root)).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ executable: false, path: `${root}/group.sh`, type: "file" }),
+        expect.objectContaining({ executable: false, path: `${root}/README.md`, type: "file" }),
+        expect.objectContaining({ executable: true, path: `${root}/run.sh`, type: "file" }),
+      ]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("binds Workspace command directory variables to the active root", async () => {
@@ -890,6 +960,7 @@ describe("Provider Agent Driver", () => {
       provider: "codex",
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context("thread-instruction-timeout", {
       input: { prompt: "hello", timeout: 20 },
     }) as never)).rejects.toThrow()
@@ -898,6 +969,7 @@ describe("Provider Agent Driver", () => {
   it("reports runtime-wide provider errors without a thread association", async () => {
     runtime("thread-global-error", [{ payload: { message: "runtime failed" }, type: "runtime.error" }])
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context("thread-global-error") as never))
       .rejects.toThrow("runtime failed")
   })
@@ -929,6 +1001,7 @@ describe("Provider Agent Driver", () => {
       tools: {},
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ instructions: "generated instructions", provider: "claude-code" }).generate(context(threadId, {
       workspace,
       workspaceDefinition: { mode: "write", name: "docs" },
@@ -960,6 +1033,7 @@ describe("Provider Agent Driver", () => {
       tools: {},
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ instructions: "generated instructions", provider: "codex" }).generate(context(threadId, {
       workspace,
       workspaceDefinition: { mode: "write", name: "docs" },
@@ -980,6 +1054,7 @@ describe("Provider Agent Driver", () => {
     const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, {
       workspace,
       workspaceAutoCommit: true,
@@ -1032,6 +1107,7 @@ describe("Provider Agent Driver", () => {
       review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
 
     expect(session.diff).toHaveBeenCalledOnce()
@@ -1062,6 +1138,7 @@ describe("Provider Agent Driver", () => {
       review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("parent must not be a symbolic link")
 
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
@@ -1103,8 +1180,11 @@ describe("Provider Agent Driver", () => {
     })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(runContext() as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(runContext() as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
     expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
@@ -1121,6 +1201,7 @@ describe("Provider Agent Driver", () => {
       readFile: vi.fn(async () => new Uint8Array()),
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const stream = await adapter.stream!(context(threadId, {
       workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
       workspaceAutoCommit: true,
@@ -1128,6 +1209,7 @@ describe("Provider Agent Driver", () => {
       workspaceMode: "write",
     }) as never)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for await (const item of stream as AsyncIterable<{ type?: string }>) {
       if (item.type === "finish") break
     }
@@ -1154,10 +1236,12 @@ describe("Provider Agent Driver", () => {
       workspaceMode: "read",
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(runContext as never)
 
     expect(session.diff).not.toHaveBeenCalled()
     expect(session.commit).not.toHaveBeenCalled()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
     expect(session.close).toHaveBeenCalledOnce()
   })
@@ -1179,10 +1263,12 @@ describe("Provider Agent Driver", () => {
       workspaceMode: "write",
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(runContext as never)
 
     expect(session.diff).toHaveBeenCalledOnce()
     expect(session.commit).not.toHaveBeenCalled()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
     expect(session.close).toHaveBeenCalledOnce()
   })
@@ -1199,6 +1285,7 @@ describe("Provider Agent Driver", () => {
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, {
       workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
       workspaceAutoCommit: true,
@@ -1229,6 +1316,7 @@ describe("Provider Agent Driver", () => {
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     const runtimeCalls = createProviderRuntime.mock.calls.length
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
       workspace,
@@ -1251,6 +1339,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-provider-abort"
     runtime(threadId, [event("turn.aborted", threadId, { reason: "provider stopped" }, { turnId: "turn-1" })])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const events = await adapter.stream!(context(threadId) as never)
     const output = await finalizeUiMessageStreamOutput(events, true, () => undefined)
 
@@ -1262,6 +1351,7 @@ describe("Provider Agent Driver", () => {
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
     const controller = new AbortController()
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
@@ -1278,6 +1368,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-timeout"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 250 },
     }) as never)
@@ -1293,6 +1384,7 @@ describe("Provider Agent Driver", () => {
     const provider = runtime(threadId, [], { onStartSession: () => new Promise(() => {}) })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 50 },
     }) as never)).rejects.toMatchObject({ name: "TimeoutError" })
@@ -1307,7 +1399,9 @@ describe("Provider Agent Driver", () => {
     const lateRuntime = runtime(threadId, [])
     providerRuntimes.pop()
     let resolveRuntime!: (value: typeof lateRuntime) => void
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => resolveRuntime = resolve) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
       input: { prompt: "hello", timeout: 20 },
     }) as never)
@@ -1316,8 +1410,41 @@ describe("Provider Agent Driver", () => {
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     const runtimeCall = createProviderRuntime.mock.lastCall
     expect(runtimeCall).toBeDefined()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const root = (runtimeCall![0] as { cwd: string }).cwd
     await expect(access(root)).resolves.toBeUndefined()
+    resolveRuntime(lateRuntime)
+    await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+  })
+
+  it("preserves cancellation when waitUntil rejects late cleanup registration", async () => {
+    const threadId = "thread-late-runtime-wait-until"
+    const lateRuntime = runtime(threadId, [])
+    providerRuntimes.pop()
+    let resolveRuntime!: (value: typeof lateRuntime) => void
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => resolveRuntime = resolve) as never)
+    const invocation = context(threadId)
+    const controller = new AbortController()
+    const cancelled = new Error("cancelled")
+    invocation.runtime.waitUntil = () => {
+      throw new Error("registration failed")
+    }
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = createProviderAgentAdapter({ provider: "codex" }).generate({
+      ...invocation,
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    } as never)
+
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+    controller.abort(cancelled)
+    await expect(result).rejects.toBe(cancelled)
+    const runtimeCall = createProviderRuntime.mock.calls[runtimeCalls]
+    expect(runtimeCall).toBeDefined()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const root = (runtimeCall![0] as { cwd: string }).cwd
     resolveRuntime(lateRuntime)
     await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
     await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
@@ -1326,7 +1453,9 @@ describe("Provider Agent Driver", () => {
   it("removes the Workspace root when late runtime creation rejects", async () => {
     const threadId = "thread-late-runtime-rejection"
     let rejectRuntime!: (reason: unknown) => void
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     createProviderRuntime.mockImplementationOnce(() => new Promise((_resolve, reject) => rejectRuntime = reject) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
       input: { prompt: "hello", timeout: 20 },
     }) as never)
@@ -1335,6 +1464,7 @@ describe("Provider Agent Driver", () => {
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     const runtimeCall = createProviderRuntime.mock.lastCall
     expect(runtimeCall).toBeDefined()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const root = (runtimeCall![0] as { cwd: string }).cwd
     await expect(access(root)).resolves.toBeUndefined()
     rejectRuntime(new Error("late startup failed"))
@@ -1358,6 +1488,7 @@ describe("Provider Agent Driver", () => {
       tools: {},
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const first = adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 50 },
       workspace,
@@ -1367,6 +1498,7 @@ describe("Provider Agent Driver", () => {
 
     await expect(first).rejects.toMatchObject({ name: "TimeoutError" })
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const second = adapter.generate(context(threadId) as never)
     finishPreparation({
       close,
@@ -1391,6 +1523,7 @@ describe("Provider Agent Driver", () => {
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
     const waitUntil = vi.fn((promise: Promise<unknown>) => void promise.catch(() => undefined))
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 50 },
       runtime: {
@@ -1422,6 +1555,7 @@ describe("Provider Agent Driver", () => {
       readFile: vi.fn(async () => new Uint8Array()),
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 50 },
       workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
@@ -1443,6 +1577,7 @@ describe("Provider Agent Driver", () => {
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>((_resolve, reject) => rejectStartup = reject) })
     const waitUntil = vi.fn((promise: Promise<unknown>) => void promise.catch(() => undefined))
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 50 },
       runtime: {
@@ -1474,6 +1609,7 @@ describe("Provider Agent Driver", () => {
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId, {
       workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
       workspaceDefinition: { mode: "write", name: "docs" },

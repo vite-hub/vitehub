@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
@@ -21,19 +22,19 @@ type OtlpAnyValue =
 const retryableStatuses = new Set([429, 502, 503, 504])
 
 function otlpAnyValue(value: unknown): OtlpAnyValue {
-  if (typeof value === "boolean") return { boolValue: value }
-  if (typeof value === "number") {
+  if (hasRuntimeType(value, "boolean")) return { boolValue: value }
+  if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
     return Number.isSafeInteger(value) ? { intValue: String(value) } : { doubleValue: value }
   }
-  if (typeof value === "bigint") {
+  if (hasRuntimeType(value, "bigint")) {
     return value >= -(2n ** 63n) && value <= 2n ** 63n - 1n
       ? { intValue: String(value) }
       : { stringValue: String(value) }
   }
-  if (typeof value === "string") return { stringValue: value }
+  if (hasRuntimeType(value, "string")) return { stringValue: value }
   if (Array.isArray(value)) return { arrayValue: { values: value.map(otlpAnyValue) } }
-  if (value && typeof value === "object") {
+  if (value && hasRuntimeType(value, "object")) {
     return {
       kvlistValue: {
         values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child) }]),
@@ -123,8 +124,8 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
   return async (context) => {
     if (!context.spans.length) return
     const [configuredHeaders, configuredResource] = await Promise.all([
-      typeof options.headers === "function" ? options.headers(context) : options.headers,
-      typeof options.resource === "function" ? options.resource(context) : options.resource,
+      hasRuntimeType(options.headers, "function") ? options.headers(context) : options.headers,
+      hasRuntimeType(options.resource, "function") ? options.resource(context) : options.resource,
     ])
     const headers = new Headers(configuredHeaders)
     headers.set("content-type", "application/json")

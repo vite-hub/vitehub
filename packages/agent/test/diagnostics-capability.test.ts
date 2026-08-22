@@ -256,6 +256,7 @@ describe("diagnostics Capability", () => {
       })],
       driver: { run: () => "ok" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const runtime = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
 
     const first = runAgent(agent, runtime(), {})

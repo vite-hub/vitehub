@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { agentErrorDetails } from "./agent-error.ts"
@@ -15,6 +16,7 @@ import type { Telemetry } from "ai"
 import type { TraceEvent } from "@vite-hub/runtime"
 
 export const agentInvocationJournalTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalTraceLog")
+export const agentInvocationJournalContentTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalContentTraceLog")
 const MAX_TRACE_TEXT_EVENT_LENGTH = 64 * 1024
 
 export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -124,15 +126,17 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
 
 function streamTitle(event: StreamEvent): string | undefined {
   if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
-  if (!event.data || typeof event.data !== "object") return
+  if (!event.data || !hasRuntimeType(event.data, "object")) return
+  // SAFETY: Trace normalization establishes the asserted telemetry event contract.
   const data = event.data as { title?: unknown, type?: unknown }
-  return data.type === "title" && typeof data.title === "string" && data.title.trim()
+  return data.type === "title" && hasRuntimeType(data.title, "string") && data.title.trim()
     ? data.title.trim()
     : undefined
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+  // SAFETY: Trace normalization establishes the asserted telemetry event contract.
+  return value && hasRuntimeType(value, "object") && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
 function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
@@ -162,7 +166,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
   }
   if (event.type !== "data-agent-event") return
   const data = record(event.data)
-  const kind = typeof data?.kind === "string" ? data.kind : undefined
+  const kind = hasRuntimeType(data?.kind, "string") ? data.kind : undefined
   const value = record(data?.value)
   if (kind === "content.delta" && value?.streamKind === "command_output") {
     return {
@@ -194,7 +198,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
     }
   }
   if (kind?.startsWith("task.")) {
-    const status = typeof value?.status === "string" ? value.status : undefined
+    const status = hasRuntimeType(value?.status, "string") ? value.status : undefined
     const outcome = kind === "task.completed"
       ? status === "failed"
         ? "task.failed"
@@ -204,7 +208,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
       : kind
     return {
       attributes: {
-        "error.message": outcome === "task.failed" && typeof value?.summary === "string" ? value.summary : undefined,
+        "error.message": outcome === "task.failed" && hasRuntimeType(value?.summary, "string") ? value.summary : undefined,
         "step.id": event.id,
         "task.status": status,
         "vitehub.activity.body": data?.value,
@@ -222,7 +226,7 @@ export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>
   event: TraceEvent,
 ): Promise<void> {
   try {
-    const invocationId = context.context.get<string>(agentInvocationTraceIdContextKey)
+    const invocationId = context.context.get(agentInvocationTraceIdContextKey)
     const attributes = {
       ...(invocationId ? { "agent.invocation.id": invocationId } : {}),
       ...(context.run?.runId ? { "agent.run.id": context.run.runId } : {}),
@@ -295,7 +299,9 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
   context: AgentTraceContext<TRuntimeConfig>,
   event: unknown,
 ): Promise<void> {
-  if (!event || typeof event !== "object" || typeof (event as { type?: unknown }).type !== "string") return
+  // SAFETY: Trace normalization establishes the asserted telemetry event contract.
+  if (!event || !hasRuntimeType(event, "object") || !hasRuntimeType((event as { type?: unknown }).type, "string")) return
+  // SAFETY: Trace normalization establishes the asserted telemetry event contract.
   const streamEvent = event as StreamEvent
   const title = streamTitle(streamEvent)
   if (title) {
@@ -311,6 +317,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     await traceAgentEvent(context, dataEvent)
     return
   }
+  // SAFETY: Trace normalization establishes the asserted telemetry event contract.
   const names = {
     "approval-decision": "agent.approval.decision",
     "approval-request": "agent.approval.request",
@@ -322,6 +329,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     "text-delta": streamEvent.type === "text-delta" && streamEvent.phase === "commentary" ? "agent.reasoning" : "agent.message",
     usage: "agent.usage.recorded",
   } as const
+  // SAFETY: Trace normalization establishes the asserted telemetry event contract.
   const name = streamEvent.type in names ? names[streamEvent.type as keyof typeof names] : undefined
   if (!name) return
 
@@ -345,7 +353,7 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
   return {
     flush,
     async write(event: StreamEvent) {
-      if (event.type !== "text-delta" || typeof event.text !== "string") {
+      if (event.type !== "text-delta" || !hasRuntimeType(event.text, "string")) {
         await flush()
         await traceAgentStreamEvent(context, event)
         return
@@ -385,6 +393,7 @@ export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig
   return (async function* () {
     for await (const event of events) {
       await traceAgentStreamEvent(context, event)
+      // SAFETY: Trace normalization establishes the asserted telemetry event contract.
       yield event as StreamEvent
     }
   })()
@@ -393,14 +402,15 @@ export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig
 function valueFromPath(value: unknown, path: string[]): unknown {
   let current = value
   for (const key of path) {
-    if (!current || typeof current !== "object") return undefined
+    if (!current || !hasRuntimeType(current, "object")) return undefined
+    // SAFETY: Trace normalization establishes the asserted telemetry event contract.
     current = (current as Record<string, unknown>)[key]
   }
   return current
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+  return values.find((value): value is string => hasRuntimeType(value, "string") && value.length > 0)
 }
 
 export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -446,7 +456,7 @@ export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeCon
       await traceAgentEvent(context, {
         attributes: {
           ...toolAttributes(event),
-          "error.message": error instanceof Error ? error.message : typeof error === "string" ? error : undefined,
+          "error.message": error instanceof Error ? error.message : hasRuntimeType(error, "string") ? error : undefined,
         },
         name: failed ? "agent.tool.error" : "agent.tool.finish",
         type: failed ? "error" : "run",

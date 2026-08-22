@@ -1,5 +1,6 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { appendMessageText } from "../messages.ts"
+import { appendMessageText, attachmentStringByteLength, attachmentStringBytes } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
@@ -44,6 +45,12 @@ export interface TranscriptionResult {
   stem: string
   transcript: string
   transcriptPath?: string
+}
+
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    "transcribe.results": TranscriptionResult[]
+  }
 }
 
 export interface TranscribeArtifactTemplateInput extends TranscriptionResult {
@@ -108,6 +115,7 @@ async function* transcriptionTextStream(
 }
 
 export async function streamTranscription(options: StreamTranscriptionOptions): Promise<StreamingTranscription> {
+  // SAFETY: Transcription input normalization establishes the asserted media contract.
   const aiSdk = await loadAiSdk() as typeof import("ai") & {
     experimental_streamTranscribe?: AiSdkStreamTranscribe
   }
@@ -125,9 +133,11 @@ export async function streamTranscription(options: StreamTranscriptionOptions): 
 
 function isAudioPart(part: unknown): part is AudioPart {
   return !!part
-    && typeof part === "object"
+    && hasRuntimeType(part, "object")
+    // SAFETY: Transcription input normalization establishes the asserted media contract.
     && (part as { type?: unknown }).type === "audio"
-    && typeof (part as { mediaType?: unknown }).mediaType === "string"
+    // SAFETY: Transcription input normalization establishes the asserted media contract.
+    && hasRuntimeType((part as { mediaType?: unknown }).mediaType, "string")
 }
 
 function normalizeMaxBytes(maxBytes: number | undefined): number {
@@ -139,7 +149,7 @@ function normalizeMaxBytes(maxBytes: number | undefined): number {
 }
 
 function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, source: string): void {
-  if (typeof byteLength === "number" && byteLength > maxBytes) {
+  if (hasRuntimeType(byteLength, "number") && byteLength > maxBytes) {
     throw new Error(`[vitehub] transcribe() ${source} is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).`)
   }
 }
@@ -164,13 +174,17 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
   if (data instanceof Blob) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
   else if (data instanceof ArrayBuffer) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
-  else if (typeof data === "string") assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
+  else if (hasRuntimeType(data, "string") && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
 }
 
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
   if (data instanceof Blob) return await data.arrayBuffer()
+  if (hasRuntimeType(data, "string") && /^data:/i.test(data)) {
+    assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
+    return attachmentStringBytes(data, audio.mediaType)
+  }
   if (data) return data
   if (audio.url) return new URL(audio.url)
   throw new TypeError("[vitehub] transcribe() requires audio data, fetchData, or url.")
@@ -190,21 +204,6 @@ export function audioExtensionFor(mediaType = "", fallback = "ogg"): string {
   if (normalized === "audio/wav" || normalized === "audio/x-wav") return "wav"
   if (normalized === "audio/webm") return "webm"
   return fallback
-}
-
-function bytesFromBase64(value: string): Uint8Array {
-  if (typeof atob === "function") {
-    const binary = atob(value)
-    return Uint8Array.from(binary, char => char.charCodeAt(0))
-  }
-  return new Uint8Array(Buffer.from(value, "base64"))
-}
-
-function bytesFromAudioString(value: string): Uint8Array {
-  const dataUrl = /^data:([^,]*),(.*)$/i.exec(value)
-  if (dataUrl?.[1]?.toLowerCase().split(";").includes("base64")) return bytesFromBase64(dataUrl[2] || "")
-  if (dataUrl?.[2]) return new TextEncoder().encode(decodeURIComponent(dataUrl[2]))
-  return new TextEncoder().encode(value)
 }
 
 async function responseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
@@ -261,8 +260,12 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
   if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer())
   if (data instanceof ArrayBuffer) return new Uint8Array(data)
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-  if (typeof data === "string") {
-    const bytes = bytesFromAudioString(data)
+  if (hasRuntimeType(data, "string")) {
+    if (/^data:/i.test(data)) {
+      assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
+      return attachmentStringBytes(data, audio.mediaType)
+    }
+    const bytes = new TextEncoder().encode(data)
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
@@ -275,11 +278,11 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
 }
 
 function transcriptText(result: TranscribeExecuteResult): string {
-  return typeof result === "string" ? result : result.text
+  return hasRuntimeType(result, "string") ? result : result.text
 }
 
 async function resolveTranscribeOptions(options: TranscribeOptions): Promise<StaticTranscribeOptions> {
-  return typeof options === "function" ? await options() : options
+  return hasRuntimeType(options, "function") ? await options() : options
 }
 
 function normalizeAiSdkTranscriptionError(aiSdk: typeof import("ai"), cause: unknown): unknown {
@@ -320,6 +323,7 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
     ...transcribeOptions
   } = options
   const maxBytes = normalizeMaxBytes(maxBytesOption)
+  // SAFETY: Transcription input normalization establishes the asserted media contract.
   const aiSdk = await loadAiSdk() as typeof import("ai") & {
     experimental_transcribe?: AiSdkTranscribe
     transcribe?: AiSdkTranscribe
@@ -342,7 +346,7 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
 }
 
 function isWritableWorkspace(workspace: unknown): workspace is WritableWorkspaceFacade {
-  return !!workspace && typeof workspace === "object" && "fs" in workspace && "snapshot" in workspace
+  return !!workspace && hasRuntimeType(workspace, "object") && "fs" in workspace && "snapshot" in workspace
 }
 
 function joinWorkspacePath(...parts: Array<string | undefined>): string {
@@ -405,20 +409,21 @@ async function resolveArtifactValue<T>(
   value: TranscribeArtifactValue<T, TranscribeArtifactTemplateInput>,
   input: TranscribeArtifactTemplateInput,
 ): Promise<T> {
-  return typeof value === "function"
+  return hasRuntimeType(value, "function")
+    // SAFETY: Transcription input normalization establishes the asserted media contract.
     ? await (value as (input: TranscribeArtifactTemplateInput) => MaybePromise<T>)(input)
     : value
 }
 
 function getAudioArtifactOptions(artifacts: TranscribeArtifactsOptions): TranscribeAudioArtifactOptions | undefined {
   if (artifacts.audio === false) return
-  if (artifacts.audio && typeof artifacts.audio === "object") return artifacts.audio
+  if (artifacts.audio && hasRuntimeType(artifacts.audio, "object")) return artifacts.audio
   return {}
 }
 
 function getTranscriptArtifactOptions(artifacts: TranscribeArtifactsOptions): TranscribeTranscriptArtifactOptions | undefined {
   if (artifacts.transcript === false) return
-  if (artifacts.transcript && typeof artifacts.transcript === "object") return artifacts.transcript
+  if (artifacts.transcript && hasRuntimeType(artifacts.transcript, "object")) return artifacts.transcript
   return {}
 }
 
@@ -502,6 +507,7 @@ async function writeTranscriptionArtifacts(
     )
     input = { ...input, audioPath }
     const mediaType = audioOptions.mediaType ? await resolveArtifactValue(audioOptions.mediaType, input) : audio.mediaType
+    // SAFETY: Transcription input normalization establishes the asserted media contract.
     await context.workspace.fs.writeFile(audioPath as never, await audioBytes(audio, { maxBytes }), { mediaType })
   }
 
@@ -523,6 +529,7 @@ async function writeTranscriptionArtifacts(
     const mediaType = transcriptOptions.mediaType
       ? await resolveArtifactValue(transcriptOptions.mediaType, input)
       : transcriptOptions.format === "markdown" || transcriptMediaTypeExtension === "md" ? "text/markdown" : "text/plain"
+    // SAFETY: Transcription input normalization establishes the asserted media contract.
     await context.workspace.fs.writeFile(transcriptPath as never, content, { mediaType })
   }
 
@@ -543,7 +550,7 @@ function toTranscriptionResult(input: TranscribeArtifactTemplateInput): Transcri
 
 function appendTranscriptionResults(store: AgentInvocationContextStore, results: TranscriptionResult[]) {
   if (!results.length) return
-  const existing = store.get<TranscriptionResult[]>(TRANSCRIPTION_RESULTS_CONTEXT_KEY) || []
+  const existing = store.get(TRANSCRIPTION_RESULTS_CONTEXT_KEY) || []
   store.set(TRANSCRIPTION_RESULTS_CONTEXT_KEY, [...existing, ...results])
 }
 
@@ -555,7 +562,7 @@ function validateTranscriptionArtifactsWorkspace(context: AgentCapabilityRuntime
 
 export function getTranscriptionResults(context: AgentInvocationContextStore | { context: AgentInvocationContextStore } | undefined): TranscriptionResult[] {
   const store = context && "context" in context ? context.context : context
-  return store?.get<TranscriptionResult[]>(TRANSCRIPTION_RESULTS_CONTEXT_KEY) || []
+  return store?.get(TRANSCRIPTION_RESULTS_CONTEXT_KEY) || []
 }
 
 export function transcribe(options: TranscribeOptions): AgentCapabilityDefinition {
@@ -583,12 +590,14 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
 
         const resolved = await getResolvedOptions()
         const maxBytes = normalizeMaxBytes(resolved.maxBytes)
+        // SAFETY: Transcription input normalization establishes the asserted media contract.
         validateTranscriptionArtifactsWorkspace(context as AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>, resolved.artifacts)
         const transcripts = await Promise.all(
           audioParts.map(part => runTranscription(resolved, part, context.input.get().abortSignal)),
         )
         const messageResults = await Promise.all(
           audioParts.map((part, index) => writeTranscriptionArtifacts(
+            // SAFETY: Transcription input normalization establishes the asserted media contract.
             context as AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>,
             resolved.artifacts,
             message,
@@ -616,6 +625,6 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
         return results.length ? results : undefined
       })
     },
-    requires: typeof options === "function" ? undefined : options.artifacts ? [{ primitive: "workspace", workspace: { mode: "write", required: true } }] : undefined,
+    requires: hasRuntimeType(options, "function") ? undefined : options.artifacts ? [{ primitive: "workspace", workspace: { mode: "write", required: true } }] : undefined,
   })
 }

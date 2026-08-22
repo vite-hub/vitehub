@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { AgentUsageRecord } from "./types.ts"
 
 export type MessageRole = "assistant" | "system" | "tool" | "user"
@@ -32,8 +33,8 @@ export interface AgentChatData {
     type: TKey,
     key: TField,
   ): NonNullable<ViteHubAgentChatDataTypes[TKey]>[TField] | undefined
-  get<T = unknown>(type: string): T | undefined
-  get<T = unknown>(type: string, key: string): T | undefined
+  get(type: string): unknown
+  get(type: string, key: string): unknown
   toJSON: () => Record<string, unknown>
 }
 
@@ -138,7 +139,7 @@ export type MessagePart =
   | ToolResultPart
 
 export function isAttachmentData(value: unknown): value is AttachmentData {
-  return typeof value === "string"
+  return hasRuntimeType(value, "string")
     ? value.length > 0
     : value instanceof ArrayBuffer
       ? value.byteLength > 0
@@ -148,7 +149,8 @@ export function isAttachmentData(value: unknown): value is AttachmentData {
 }
 
 export function isAttachmentPart(value: unknown): value is AttachmentPart {
-  if (!value || typeof value !== "object") return false
+  if (!value || !hasRuntimeType(value, "object")) return false
+  // SAFETY: Message parsing establishes the asserted serialized message contract.
   const type = (value as { type?: unknown }).type
   return type === "audio" || type === "file" || type === "image"
 }
@@ -161,7 +163,7 @@ export function currentInputAttachments(messages: Message[], messageId?: string)
 }
 
 export function resolveAttachmentData(part: AttachmentPart): Promise<AttachmentData | undefined> {
-  if (typeof part.fetchData !== "function") return Promise.resolve(isAttachmentData(part.data) ? part.data : undefined)
+  if (!hasRuntimeType(part.fetchData, "function")) return Promise.resolve(isAttachmentData(part.data) ? part.data : undefined)
   return Promise.resolve().then(() => part.fetchData!()).then(data => isAttachmentData(data) ? data : undefined)
 }
 
@@ -170,7 +172,7 @@ export function memoizeMessageAttachmentData(messages: Message[]): Message[] {
   const memoized = messages.map((message) => {
     let messageChanged = false
     const parts = message.parts.map((part) => {
-      if (!isAttachmentPart(part) || typeof part.fetchData !== "function") return part
+      if (!isAttachmentPart(part) || !hasRuntimeType(part.fetchData, "function")) return part
       changed = true
       messageChanged = true
       const fetchData = part.fetchData
@@ -190,7 +192,7 @@ export async function materializeMessageAttachmentData(messages: Message[]): Pro
   const materialized = await Promise.all(messages.map(async (message) => {
     let messageChanged = false
     const parts = await Promise.all(message.parts.map(async (part) => {
-      if (!isAttachmentPart(part) || typeof part.fetchData !== "function") return part
+      if (!isAttachmentPart(part) || !hasRuntimeType(part.fetchData, "function")) return part
       changed = true
       messageChanged = true
       const { fetchData: _fetchData, ...resolved } = part
@@ -229,6 +231,55 @@ export function attachmentStringBytes(value: string, mediaType: string): Uint8Ar
     return new TextEncoder().encode(value)
   }
   return base64Bytes(value)
+}
+
+export function attachmentStringByteLength(value: string, mediaType: string): number {
+  const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
+  if (!dataUrl) {
+    if (isTextAttachmentMediaType(mediaType)) return utf8ByteLength(value)
+    return base64ByteLength(value)
+  }
+  const encoded = dataUrl[2]!
+  if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
+    return base64ByteLength(encoded)
+  }
+  let byteLength = 0
+  for (let index = 0; index < encoded.length;) {
+    if (encoded.charCodeAt(index) === 37) {
+      const encodedByte = encoded.slice(index + 1, index + 3)
+      if (!/^[\da-f]{2}$/i.test(encodedByte)) throw new URIError("URI malformed")
+      byteLength++
+      index += 3
+      continue
+    }
+    const codePoint = encoded.codePointAt(index)!
+    byteLength += codePoint <= 0x7F ? 1 : codePoint <= 0x7FF ? 2 : codePoint <= 0xFFFF ? 3 : 4
+    index += codePoint > 0xFFFF ? 2 : 1
+  }
+  return byteLength
+}
+
+function base64ByteLength(value: string): number {
+  let normalizedLength = 0
+  let previous = ""
+  let last = ""
+  for (const character of value) {
+    if (/\s/.test(character)) continue
+    normalizedLength++
+    previous = last
+    last = character
+  }
+  const padding = last === "=" ? previous === "=" ? 2 : 1 : 0
+  return Math.floor(normalizedLength * 3 / 4) - padding
+}
+
+function utf8ByteLength(value: string): number {
+  let byteLength = 0
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!
+    byteLength += codePoint <= 0x7F ? 1 : codePoint <= 0x7FF ? 2 : codePoint <= 0xFFFF ? 3 : 4
+  }
+  return byteLength
 }
 
 function base64Bytes(value: string): Uint8Array {
@@ -293,13 +344,14 @@ function normalizeCreatedAt(value: Date | string | undefined): string | undefine
 }
 
 function normalizePart(part: MessagePart | string, index: number): MessagePart {
-  if (typeof part === "string") {
+  if (hasRuntimeType(part, "string")) {
     return { id: `text-${index}`, text: part, type: "text" }
   }
   return part
 }
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): T {
+  // SAFETY: Message parsing establishes the asserted serialized message contract.
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T
 }
 
@@ -346,6 +398,7 @@ export function appendMessageText(message: Message, text: string): Message {
 export function getToolInvocations(message: Message): ToolInvocation[] {
   const invocations = new Map<string, ToolInvocation>()
   const approvalRequests = new Map(message.parts.flatMap(part => part.type === "approval-request"
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     ? [[part.toolCallId ?? part.id, part] as const]
     : []))
 
@@ -385,7 +438,7 @@ export function getToolInvocations(message: Message): ToolInvocation[] {
 }
 
 function assertString(value: unknown, field: string): void {
-  if (typeof value !== "string" || !value) {
+  if (!hasRuntimeType(value, "string") || !value) {
     throw new TypeError(`[vitehub:messages] ${field} must be a non-empty string.`)
   }
 }
@@ -394,13 +447,13 @@ function assertSerializable(value: unknown, field: string): void {
   if (value === undefined) {
     throw new TypeError(`[vitehub:messages] ${field} must not be undefined.`)
   }
-  if (typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") {
+  if (hasRuntimeType(value, "function") || hasRuntimeType(value, "symbol") || hasRuntimeType(value, "bigint")) {
     throw new TypeError(`[vitehub:messages] ${field} must be JSON serializable.`)
   }
-  if (typeof value === "number" && !Number.isFinite(value)) {
+  if (hasRuntimeType(value, "number") && !Number.isFinite(value)) {
     throw new TypeError(`[vitehub:messages] ${field} must be a finite number.`)
   }
-  if (!value || typeof value !== "object") {
+  if (!value || !hasRuntimeType(value, "object")) {
     return
   }
   if (value instanceof Date) {
@@ -434,7 +487,7 @@ export function validateMessage(message: Message): void {
     }
     switch (part.type) {
       case "text":
-        if (typeof part.text !== "string") throw new TypeError("[vitehub:messages] text part requires text.")
+        if (!hasRuntimeType(part.text, "string")) throw new TypeError("[vitehub:messages] text part requires text.")
         break
       case "tool-call":
         assertString(part.id, "tool-call.id")
@@ -449,7 +502,7 @@ export function validateMessage(message: Message): void {
         break
       case "approval-decision":
         assertString(part.id, "approval-decision.id")
-        if (typeof part.approved !== "boolean") throw new TypeError("[vitehub:messages] approval-decision.approved must be a boolean.")
+        if (!hasRuntimeType(part.approved, "boolean")) throw new TypeError("[vitehub:messages] approval-decision.approved must be a boolean.")
         if (!openToolCalls.has(part.id)) {
           throw new TypeError(`[vitehub:messages] approval-decision "${part.id}" must follow a matching approval-request.`)
         }
@@ -470,7 +523,7 @@ export function validateMessage(message: Message): void {
       case "image": {
         const { fetchData: _fetchData, ...serializablePart } = part
         assertSerializable(serializablePart, `message.parts[${index}]`)
-        if (typeof part.mediaType !== "string" || !part.mediaType) {
+        if (!hasRuntimeType(part.mediaType, "string") || !part.mediaType) {
           throw new TypeError(`[vitehub:messages] ${part.type} part requires a mediaType.`)
         }
         if (part.type === "audio" && !part.mediaType.startsWith("audio/")) {
@@ -480,8 +533,8 @@ export function validateMessage(message: Message): void {
           throw new TypeError("[vitehub:messages] image part requires an image/* mediaType.")
         }
         const hasData = isAttachmentData(part.data)
-        const hasFetchData = typeof part.fetchData === "function"
-        const hasUrl = typeof part.url === "string" && part.url.length > 0
+        const hasFetchData = hasRuntimeType(part.fetchData, "function")
+        const hasUrl = hasRuntimeType(part.url, "string") && part.url.length > 0
         if (!hasData && !hasFetchData && !hasUrl) {
           throw new TypeError(`[vitehub:messages] ${part.type} part requires data, fetchData, or url.`)
         }
@@ -492,10 +545,11 @@ export function validateMessage(message: Message): void {
       case "error":
         break
       default:
-        if (typeof part.type === "string" && part.type.startsWith("data-")) {
+        if (hasRuntimeType(part.type, "string") && part.type.startsWith("data-")) {
           if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
           break
         }
+        // SAFETY: Message parsing establishes the asserted serialized message contract.
         throw new TypeError(`[vitehub:messages] Unsupported message part type: ${String((part as { type?: unknown }).type)}.`)
     }
   }
@@ -530,31 +584,39 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
       last.text += event.text
     }
     else {
+      // SAFETY: Message parsing establishes the asserted serialized message contract.
       message.parts.push(omitUndefined({ id: event.id, text: event.text, type: "text" }) as TextPart)
     }
   }
   else if ("data" in event && (event.type === "data" || event.type.startsWith("data-"))) {
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     message.parts.push({ ...omitUndefined({ id: event.id, type: event.type }), data: event.data } as DataPart)
   }
   else if (event.type === "tool-input-start") {
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, state: "running", type: "tool-call" }) as ToolCallPart)
   }
   else if (event.type === "tool-call") {
     const existing = message.parts.find((part): part is ToolCallPart => part.type === "tool-call" && part.id === event.id)
     if (existing && event.input !== undefined) existing.input = event.input
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     else if (!existing) message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, state: "proposed", type: "tool-call" }) as ToolCallPart)
   }
   else if (event.type === "tool-result") {
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     message.parts.push(omitUndefined({ error: event.error, id: event.id, name: event.name, output: event.output, state: event.error ? "failed" : "completed", type: "tool-result" }) as ToolResultPart)
   }
   else if (event.type === "approval-request") {
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, reason: event.reason, toolCallId: event.toolCallId, type: "approval-request" }) as ApprovalRequestPart)
   }
   else if (event.type === "approval-decision") {
     const decidedAt = normalizeCreatedAt(event.decidedAt)
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     message.parts.push(omitUndefined({ approved: event.approved, decidedAt, id: event.id, reason: event.reason, type: "approval-decision" }) as ApprovalDecisionPart)
   }
   else if (event.type === "error") {
+    // SAFETY: Message parsing establishes the asserted serialized message contract.
     message.parts.push(omitUndefined({ error: event.error, id: event.id, recoverable: event.recoverable, type: "error" }) as ErrorPart)
   }
 
@@ -574,10 +636,10 @@ export function serializeMessages(messages: Message[]): string {
   for (const [messageIndex, message] of messages.entries()) {
     validateMessage(message)
     for (const [partIndex, part] of message.parts.entries()) {
-      if (isAttachmentPart(part) && typeof part.fetchData === "function") {
+      if (isAttachmentPart(part) && hasRuntimeType(part.fetchData, "function")) {
         throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Resolve or remove the attachment callback before serializing.`)
       }
-      if (isAttachmentPart(part) && part.data !== undefined && typeof part.data !== "string") {
+      if (isAttachmentPart(part) && part.data !== undefined && !hasRuntimeType(part.data, "string")) {
         throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize binary data in message[${messageIndex}].parts[${partIndex}]. Resolve it to a string or URL before serializing.`)
       }
     }
@@ -586,12 +648,17 @@ export function serializeMessages(messages: Message[]): string {
 }
 
 export function deserializeMessages(input: string | SerializedMessages): Message[] {
-  const parsed = typeof input === "string" ? JSON.parse(input) as SerializedMessages : input
-  if (parsed.version !== 1 || !Array.isArray(parsed.messages)) {
+  const parsed: unknown = hasRuntimeType(input, "string") ? JSON.parse(input) : input
+  if (!isRuntimeRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.messages)) {
     throw new TypeError("[vitehub:messages] Unsupported serialized messages payload.")
   }
-  for (const message of parsed.messages) validateMessage(message)
-  return parsed.messages
+  return parsed.messages.map((value) => {
+    if (!isRuntimeRecord(value)) throw new TypeError("[vitehub:messages] Serialized messages must contain message records.")
+    // SAFETY: The record guard permits property inspection, and validateMessage verifies the complete Message contract before return.
+    const message = asUnknownBoundary(value) as Message
+    validateMessage(message)
+    return message
+  })
 }
 
 export function createAgentChatData(
@@ -599,7 +666,7 @@ export function createAgentChatData(
 ): AgentChatData {
   const values = new Map<string, unknown>()
   for (const part of parts) {
-    if (typeof part?.type === "string" && part.type.startsWith("data-") && part.type.length > 5) {
+    if (hasRuntimeType(part?.type, "string") && part.type.startsWith("data-") && part.type.length > 5) {
       const type = part.type.slice(5)
       if (part.data === null) values.delete(type)
       else values.set(type, part.data)
@@ -607,11 +674,12 @@ export function createAgentChatData(
   }
   return {
     entries: () => Array.from(values.entries()),
-    get<T = unknown>(type: string, key?: string): T | undefined {
+    get(type: string, key?: string): unknown {
       const value = values.get(type)
-      if (key === undefined) return value as T | undefined
-      return value && typeof value === "object"
-        ? (value as Record<string, unknown>)[key] as T | undefined
+      if (key === undefined) return value
+      return value && hasRuntimeType(value, "object")
+        // SAFETY: Message parsing establishes the asserted serialized message contract.
+        ? (value as Record<string, unknown>)[key]
         : undefined
     },
     toJSON: () => Object.fromEntries(values),

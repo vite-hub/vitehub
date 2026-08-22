@@ -11,27 +11,20 @@ icon: i-lucide-scroll-text
 
 For an Agent-owned Skill, use a folder Agent Definition whose entry file is named `agent.ts`, `agent.js`, `index.ts`, or `index.js`, including their `c` and `m` variants, then place `skills/` beside that entry file. ViteHub discovers and materializes those files automatically, so local Skills do not need a Capability declaration. Flat files such as `server/agents/support.ts` do not discover sibling Skills.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })` when the Skill is supplied by a Workspace or external Source.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability records the configured Skill path in metadata and requires the Workspace path to exist.
 When `shellExecution` is set, model-backed Agents receive the normal Workspace Shell tools in the requested mode.
 When `source` is set, ViteHub adds that source to the Agent Workspace at definition time and mounts it at the skill path.
 
 Model-facing guidance for a Skill belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Agent inspection metadata warns when `skills()` makes a Skill available but no explicit instruction coverage names it.
 
-## Configuration
+## Configure a Skill
 
 The default path is `skills/SKILL.md`.
 Pass a custom path when the Workspace stores the skill somewhere else.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { skills } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { skills } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -42,12 +35,12 @@ export default defineAgent({
 })
 ```
 
-Mount a remote skill source when the Agent should not carry the skill file in the local project:
+Mount a remote skill source when the skill file lives outside the local project:
 
 ```ts [server/agents/review/browser.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { skills } from '@vite-hub/agent/capabilities'
-import { github } from '@vite-hub/workspace'
+import { defineAgent } from 'vite-hub/agent'
+import { skills } from 'vite-hub/agent/capabilities'
+import { github } from 'vite-hub/workspace'
 
 export default defineAgent({
   driver: { model },
@@ -67,7 +60,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How Skills are loaded
 
 ViteHub validates the Workspace read requirement before the Agent Driver runs.
 The Capability metadata includes the directory path and the resolved `SKILL.md` path.
@@ -91,10 +84,10 @@ File Sources are single-file and root-confined. Use a directory-capable `github(
 | Provider-backed | Mounts Skills into the Provider Workspace session. |
 | Custom-run-backed | Validates the skill file requirement before `driver.run`. |
 
-## Inspect and verify
+## Verify the Skill
 
 Run the Agent with the configured Workspace.
-A missing skill file should fail before model execution with a Workspace path requirement error.
+Confirm that a missing skill file fails before model execution with a Workspace path requirement error.
 
 Inspect Capability metadata for the normalized `path` and `skillPath` values.
 Agent inspection metadata warns when a configured Skill lacks explicit instruction coverage.
@@ -111,8 +104,7 @@ The warning clears when Agent Driver Instructions or a deterministic imported in
 
 Cover Skill usage guidance in Agent Driver Instructions with explicit Skill coverage blocks. Keep tool descriptions with Workspace Shell tools because they are structured tool contracts.
 
-## Reference
+## Related pages
 
 - [Workspace primitive](/docs/server-primitives/workspace)
 - [Agent instructions](/docs/agents/instructions)
-- Source: `packages/agent/src/capabilities/skills.ts`

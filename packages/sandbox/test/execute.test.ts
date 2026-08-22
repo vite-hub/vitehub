@@ -275,15 +275,15 @@ describe("executeSandboxDefinition", () => {
         entry: "definition.mjs",
         execution: "module",
         modules: {
-          "definition.mjs": "await Promise.resolve(); export default { ok: true }",
+          "definition.mjs": "await Promise.resolve(); export default async () => ({ ok: true })",
         },
       },
     )).resolves.toEqual({ ok: true })
 
     const launch = execCalls.find(call => call.cmd === "node")!
     const entry = await sandbox.readFile(launch.args[2]!)
-    expect(entry).toContain("const callable = typeof exported === 'function'")
-    expect(entry).toContain("const result = callable ? await exported(input.payload, input.context) : exported")
+    expect(entry).toContain("if (typeof exported !== 'function')")
+    expect(entry).toContain("const result = await exported(input.payload, input.context)")
     expect(entry).not.toContain("definition.run")
   })
 

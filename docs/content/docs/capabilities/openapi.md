@@ -8,18 +8,18 @@ icon: i-lucide-route
 ---
 
 `openapi()` turns selected OpenAPI `operationId`s into bounded HTTP operations.
-Use it when an Agent should call a known API contract instead of a hand-written `fetch()` tool for each endpoint.
+Use it to generate Agent tools from a known API contract instead of writing one `fetch()` tool per endpoint.
 
 Attaching the Capability is the opt-in.
 Channel, customer, or tenant admission belongs in `access()`, Agent Trigger routing, or separate Agent Definitions, not in `openapi()`.
 
-## Installation
+## Configure an OpenAPI Capability
 
-Import the Capability factory from `@vite-hub/agent/capabilities`. Add it to `defineAgent({ capabilities })` when every invocation needs it, or to one [Channel's capabilities](/docs/agents/channels#scope-abilities-to-one-channel) when only that Channel should receive it.
+Add `openapi()` to the Agent when every invocation needs the API, or to one [Channel's capabilities](/docs/agents/channels#scope-abilities-to-one-channel) when only that Channel needs it.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { access, openapi } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { access, openapi } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -38,8 +38,6 @@ export default defineAgent({
   ],
 })
 ```
-
-## What it adds
 
 By default, `openapi()` creates one model-facing tool per selected operation.
 Each tool uses the OpenAPI request path, query parameters, request body schema, operation summary, and response parser.
@@ -121,7 +119,7 @@ openapi({
 
 ## Generate a Capability CLI
 
-Use `cli` when agents and developers should call the same operation catalog through a command-shaped surface.
+Use `cli` to give agents and developers the same operation catalog as commands.
 
 ```ts [server/agents/support.ts]
 openapi({
@@ -152,7 +150,7 @@ openapi({
 Treat Channel metadata as an availability hint, not authorization. Check trusted request, Agent Actor, or `access()` evidence before privileged API calls.
 
 Run the generated CLI through the Agent Dev Loop.
-Agents expose generated Capability CLI Contributions by default; use `defineAgent({ cli: { capabilities: false } })` to attach the OpenAPI Capability without exposing its CLI surface.
+Agents expose generated Capability CLI Contributions by default. Use `defineAgent({ cli: { capabilities: false } })` to attach the OpenAPI Capability without exposing its CLI.
 
 ```bash [Terminal]
 pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli billing -- list-customers --json
@@ -200,10 +198,9 @@ openapi({
 | `specHeaders` | `Record<string, string>` | none | Headers used only when fetching the OpenAPI document. |
 | `timeout` | `number` | none | Default request timeout in milliseconds. |
 
-## Reference
+## Related pages
 
 - [Fetch](/docs/capabilities/fetch)
 - [Access](/docs/capabilities/access)
 - [Custom capabilities](/docs/capabilities/custom-capabilities)
 - [CLI](/docs/development/cli)
-- Source: `packages/agent/src/capabilities/openapi.ts`

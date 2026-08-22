@@ -5,9 +5,9 @@ navigation.order: 22
 icon: i-lucide-shield-alert
 ---
 
-Runtime policy decides whether an operation can continue. An Approval Request pauses it until a trusted actor responds. A Trace Event records what happened while the runtime prepared, ran, or completed the operation.
+Runtime policy decides whether an operation can run. An Approval Request pauses it until a trusted actor responds. A Trace Event records what happened before, during, and after the operation.
 
-These records explain one runtime decision. They do not replace application logs, Agent Memory, or the final Agent output.
+Use these records to explain a runtime decision. They don't replace application logs, Agent Memory, or the final Agent output.
 
 ## Each record answers a different question
 
@@ -18,11 +18,11 @@ These records explain one runtime decision. They do not replace application logs
 | Trace Event | Which runtime action or transition occurred? |
 | Lease or wait state | Which work remains active while execution waits or continues in the background? |
 
-Runtime Context carries these records so packages can make decisions without hiding them in provider-specific code.
+Runtime Context passes these records between packages and the host.
 
 ## Put approval beside the action
 
-A Capability can request approval for a tool or primitive operation. The invocation stream and runtime events expose the request and its result, so a host can display or handle the decision without parsing model text.
+A Capability can request approval for a tool or Server Primitive operation. The Invocation stream and runtime events include the request and result, so the host does not need to parse model text.
 
 If the host cannot satisfy an approval requirement, the operation stays pending or fails according to the package contract.
 

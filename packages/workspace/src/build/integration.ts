@@ -1,4 +1,3 @@
-import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -26,13 +25,6 @@ export function workspaceAmbientTypesPath(root: string) {
   return resolve(root, ".vitehub", "types", "workspace.d.ts")
 }
 
-function legacyWorkspaceAmbientTypesPaths(root: string) {
-  return [
-    resolve(root, "vitehub-workspace.d.ts"),
-    resolve(root, "src", "vitehub-workspace.d.ts"),
-  ]
-}
-
 export async function createWorkspaceBuildState(definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {
   return {
     manifest: await createWorkspaceManifest(definitions),
@@ -41,10 +33,7 @@ export async function createWorkspaceBuildState(definitions: DiscoveredWorkspace
 }
 
 export async function refreshWorkspaceAmbientTypes(root: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<void> {
-  await Promise.all([
-    writeFileIfChanged(workspaceAmbientTypesPath(root), createWorkspaceTypeAugmentation(definitions)),
-    ...legacyWorkspaceAmbientTypesPaths(root).map(path => rm(path, { force: true })),
-  ])
+  await writeFileIfChanged(workspaceAmbientTypesPath(root), createWorkspaceTypeAugmentation(definitions))
 }
 
 export async function refreshWorkspaceBuildState(root: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {

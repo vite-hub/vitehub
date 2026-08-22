@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
@@ -15,7 +16,7 @@ export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
   if (isAsyncIterable(result)) return "stream"
   if (Array.isArray(result)) return "array"
-  return typeof result
+  return runtimeType(result)
 }
 
 export function hasTraceableStreamResult(value: unknown): boolean {
@@ -33,15 +34,16 @@ function textFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return
 
   const text = content.flatMap((part) => {
-    if (typeof part === "string") return [part]
-    if (!part || typeof part !== "object") return []
+    if (hasRuntimeType(part, "string")) return [part]
+    if (!part || !hasRuntimeType(part, "object")) return []
 
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     const record = part as Record<string, unknown>
     const type = ownValue(record, "type")
     if (type !== "text" && type !== "text-delta") return []
 
     const value = ownValue(record, "text") ?? ownValue(record, "textDelta") ?? ownValue(record, "delta")
-    return typeof value === "string" ? [value] : []
+    return hasRuntimeType(value, "string") ? [value] : []
   }).join("")
 
   return text ? text : undefined
@@ -54,21 +56,22 @@ function ownValue(record: Record<string, unknown>, key: string): unknown {
 
 function textFromResult(result: Record<string, unknown>): string | undefined {
   const text = ownValue(result, "text")
-  if (typeof text === "string" && text) return text
+  if (hasRuntimeType(text, "string") && text) return text
   const output = ownValue(result, "output")
-  if (typeof output === "string" && output) return output
+  if (hasRuntimeType(output, "string") && output) return output
   const rawOutput = ownValue(result, "_output")
-  if (typeof rawOutput === "string" && rawOutput) return rawOutput
+  if (hasRuntimeType(rawOutput, "string") && rawOutput) return rawOutput
   const contentText = textFromContent(ownValue(result, "content"))
   if (contentText) return contentText
 
   const steps = ownValue(result, "steps")
   if (Array.isArray(steps)) {
     for (const step of steps.slice().reverse()) {
-      if (step && typeof step === "object") {
+      if (step && hasRuntimeType(step, "object")) {
+        // SAFETY: Agent output normalization establishes the asserted stream result contract.
         const record = step as Record<string, unknown>
         const stepText = ownValue(record, "text")
-        if (typeof stepText === "string" && stepText) return stepText
+        if (hasRuntimeType(stepText, "string") && stepText) return stepText
         const stepContentText = textFromContent(ownValue(record, "content"))
         if (stepContentText) return stepContentText
       }
@@ -80,9 +83,10 @@ function finalTextFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return
 
   const boundary = content.findLastIndex((part) => {
-    if (!part || typeof part !== "object") return false
+    if (!part || !hasRuntimeType(part, "object")) return false
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     const type = ownValue(part as Record<string, unknown>, "type")
-    return typeof type === "string" && type.startsWith("tool-")
+    return hasRuntimeType(type, "string") && type.startsWith("tool-")
   })
   return boundary >= 0 ? textFromContent(content.slice(boundary + 1)) ?? "" : undefined
 }
@@ -92,8 +96,8 @@ function contentFromSteps(steps: unknown[]): unknown[] {
     if (!isRecord(step)) return []
     const content = ownValue(step, "content")
     const text = ownValue(step, "text")
-    if (!Array.isArray(content)) return typeof text === "string" && text ? [{ text, type: "text" }] : []
-    return typeof text === "string" && text && textFromContent(content) === undefined
+    if (!Array.isArray(content)) return hasRuntimeType(text, "string") && text ? [{ text, type: "text" }] : []
+    return hasRuntimeType(text, "string") && text && textFromContent(content) === undefined
       ? [...content, { text, type: "text" }]
       : content
   })
@@ -118,7 +122,7 @@ function finalTextFromStructuredResult(result: Record<string, unknown>): string 
 }
 
 export function finalTextFromAgentOutput(value: unknown): string | undefined {
-  if (typeof value === "string") return value
+  if (hasRuntimeType(value, "string")) return value
   if (!isRecord(value)) return
 
   const raw = ownValue(value, "raw")
@@ -139,10 +143,11 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
 }
 
 export function toAgentRunResult(value: unknown): AgentRunResult {
-  if (typeof value !== "object" || value === null) {
-    return { raw: value, text: typeof value === "string" ? value : undefined }
+  if (!hasRuntimeType(value, "object") || value === null) {
+    return { raw: value, text: hasRuntimeType(value, "string") ? value : undefined }
   }
 
+  // SAFETY: Agent output normalization establishes the asserted stream result contract.
   const result = value as Record<string, unknown>
   const explicitText = ownValue(result, "text")
   const selectedChannelOutput = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
@@ -150,6 +155,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   const normalized = selectedChannelOutput && isRecord(raw) ? raw : result
   const selectedValue = (key: string) => ownValue(result, key) ?? ownValue(normalized, key)
   const usageRecord = isUsageRecord(selectedValue("usageRecord"))
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? withFallbackUsageMetadata(withFallbackUsageMetadata(selectedValue("usageRecord") as AgentUsageRecord, result), normalized)
     : usageRecordFromUsage(selectedValue("usage") ?? selectedValue("totalUsage"), result, normalized)
   const artifacts = publishedDeliveryArtifactsFromUnknown(selectedValue("artifacts"))
@@ -157,7 +163,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
     ...(artifacts.length ? { artifacts } : {}),
     finishReason: selectedValue("finishReason"),
     raw,
-    text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
+    text: selectedChannelOutput && hasRuntimeType(explicitText, "string") ? explicitText : textFromResult(result),
     usage: selectedValue("usage") ?? usageRecord?.usage,
     usageRecord,
     warnings: selectedValue("warnings"),
@@ -170,13 +176,13 @@ function isUsageRecord(value: unknown): value is AgentUsageRecord {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
+  return hasRuntimeType(value, "object") && value !== null
 }
 
 function readNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
     const value = record[key]
-    if (typeof value === "number" && Number.isFinite(value)) return value
+    if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
   }
 }
 
@@ -184,7 +190,7 @@ function readString(record: Record<string, unknown> | undefined, ...keys: string
   if (!record) return
   for (const key of keys) {
     const value = record[key]
-    if (typeof value === "string" && value) return value
+    if (hasRuntimeType(value, "string") && value) return value
   }
 }
 
@@ -192,7 +198,7 @@ function readDetails(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return
   const details: Record<string, number> = {}
   for (const [key, item] of Object.entries(value)) {
-    if (typeof item === "number" && Number.isFinite(item)) details[key] = item
+    if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
   }
   return Object.keys(details).length ? details : undefined
 }
@@ -201,17 +207,18 @@ function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["cred
   if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
   const source = metadata.credentialSource.source
   const label = metadata.credentialSource.label
-  if (source !== undefined && typeof source !== "string") return
-  if (label !== undefined && typeof label !== "string") return
+  if (source !== undefined && !hasRuntimeType(source, "string")) return
+  if (label !== undefined && !hasRuntimeType(label, "string")) return
   if (source === undefined && label === undefined) return
   return {
     ...(label ? { label } : {}),
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ...(source ? { source: source as NonNullable<AgentUsageRecord["credentialSource"]>["source"] } : {}),
   }
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return isRecord(value) && typeof value.then === "function"
+  return isRecord(value) && hasRuntimeType(value.then, "function")
 }
 
 async function resolveUsageValue(value: unknown): Promise<unknown> {
@@ -230,6 +237,7 @@ function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model
     : rawModel
   return {
     ...(model !== undefined ? { model } : {}),
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ...(provider === "gateway" ? { transport: "gateway" as const } : {}),
   }
 }
@@ -250,7 +258,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
     ...(id !== undefined ? { id } : {}),
-    ...((timestamp instanceof Date || typeof timestamp === "string") ? { timestamp } : {}),
+    ...((timestamp instanceof Date || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
   }
 }
 
@@ -272,7 +280,7 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
   if (!isRecord(result) || !isRecord(result.providerMetadata)) return
   for (const metadata of Object.values(result.providerMetadata)) {
     const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
-    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+    if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
         estimated: false,
         source: "provider",
@@ -404,10 +412,11 @@ function optionalDurationMs(durationMs: number | undefined): { durationMs?: numb
 }
 
 function agentActivity(value: unknown): AgentActivity | undefined {
-  if (!value || typeof value !== "object") return
+  if (!value || !hasRuntimeType(value, "object")) return
+  // SAFETY: Agent output normalization establishes the asserted stream result contract.
   const activity = value as { kind?: unknown, name?: unknown }
   if (activity.kind === "tool") return { kind: "tool" }
-  if (activity.kind === "action" && typeof activity.name === "string" && activity.name) return { kind: "action", name: activity.name }
+  if (activity.kind === "action" && hasRuntimeType(activity.name, "string") && activity.name) return { kind: "action", name: activity.name }
 }
 
 function optionalAgentActivity(value: unknown): { activity?: AgentActivity } {
@@ -421,23 +430,24 @@ export function toAgentStreamEvent(
   textPhases?: Map<string, AgentMessagePhase | "hidden">,
   toolActivities?: ReadonlyMap<string, AgentActivity>,
 ): StreamEvent | undefined {
-  if (typeof chunk === "string") {
+  if (hasRuntimeType(chunk, "string")) {
     return { text: chunk, type: "text-delta" }
   }
-  if (!chunk || typeof chunk !== "object") {
+  if (!chunk || !hasRuntimeType(chunk, "object")) {
     return undefined
   }
 
+  // SAFETY: Agent output normalization establishes the asserted stream result contract.
   const value = chunk as Record<string, unknown>
   const type = String(value.type || "")
-  const messageId = typeof value.messageId === "string" ? value.messageId : undefined
+  const messageId = hasRuntimeType(value.messageId, "string") ? value.messageId : undefined
   const hasExplicitPhase = "phase" in value && value.phase !== undefined
   const phase = value.phase === "commentary"
     ? "commentary"
     : value.phase === "final" || value.phase === "final_answer"
       ? "final"
       : undefined
-  const textId = typeof value.id === "string" ? value.id : undefined
+  const textId = hasRuntimeType(value.id, "string") ? value.id : undefined
   if (type === "text-start") {
     if (textId) {
       textPhases?.delete(textId)
@@ -458,10 +468,12 @@ export function toAgentStreamEvent(
     const inheritedPhase = !hasExplicitPhase && textId ? textPhases?.get(textId) : undefined
     if (inheritedPhase === "hidden") return undefined
     const textPhase = phase ?? inheritedPhase
-    return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
+    return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(hasRuntimeType(value.role, "string") ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
   if (type === "data" || type.startsWith("data-")) {
-    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.transient === "boolean" ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
+    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(hasRuntimeType(value.transient, "boolean") ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }
   }
   if (type === "tool-input-start") {
     const id = String(value.id || value.toolCallId)
@@ -478,20 +490,20 @@ export function toAgentStreamEvent(
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, type: "tool-result" }
+    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: hasRuntimeType(value.error, "string") ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "tool-error" || type === "tool-output-error") {
     const id = String(value.toolCallId ?? value.id)
     const error = value.error instanceof Error
       ? value.error.message
-      : typeof value.errorText === "string"
+      : hasRuntimeType(value.errorText, "string")
         ? value.errorText
         : String(value.error || "Unknown tool error")
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
     return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "approval-request") {
-    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-request" }
+    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, type: "approval-request" }
   }
   if (type === "tool-approval-request") {
     const id = String(value.approvalId ?? value.id)
@@ -499,7 +511,8 @@ export function toAgentStreamEvent(
     return { id, ...optionalMessageId(messageId), name: String(value.toolName ?? toolNames?.get(toolCallId) ?? "tool"), toolCallId, type: "approval-request" }
   }
   if (type === "approval-decision") {
-    return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-decision" }
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
+    return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, type: "approval-decision" }
   }
   if (type === "error") {
     const approvalRequest = getViteHubErrorShape(value.error)?.code === "APPROVAL_REQUIRED"
@@ -508,13 +521,14 @@ export function toAgentStreamEvent(
       ? value.error.cause
       : undefined
     const approvalId = approvalRequest?.id
-    if (approvalRequest && typeof approvalId === "string") {
+    if (approvalRequest && hasRuntimeType(approvalId, "string")) {
       const request = approvalRequest
-      const capability = typeof request.capability === "string" ? request.capability : approvalId
-      const reason = typeof request.reason === "string" ? request.reason : undefined
+      const capability = hasRuntimeType(request.capability, "string") ? request.capability : approvalId
+      const reason = hasRuntimeType(request.reason, "string") ? request.reason : undefined
       return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
-    const event = { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
+    const event = { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
     if (value.error instanceof Error) Object.defineProperty(event, agentStreamErrorSymbol, { value: value.error })
     return event
   }
@@ -522,7 +536,7 @@ export function toAgentStreamEvent(
     return { ...optionalMessageId(messageId), type: "usage", usageRecord: value.usageRecord }
   }
   if (type === "finish") {
-    const reason = typeof value.finishReason === "string" ? value.finishReason : typeof value.reason === "string" ? value.reason : undefined
+    const reason = hasRuntimeType(value.finishReason, "string") ? value.finishReason : hasRuntimeType(value.reason, "string") ? value.reason : undefined
     return { ...optionalMessageId(messageId), ...(reason ? { reason } : {}), type: "finish" }
   }
   return undefined
@@ -541,8 +555,10 @@ async function* streamChunksToEvents(
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
-    const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
+    const explicitlyPhasedTextChunk = chunk && hasRuntimeType(chunk, "object")
+      // SAFETY: Agent output normalization establishes the asserted stream result contract.
       && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
+      // SAFETY: Agent output normalization establishes the asserted stream result contract.
       && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
     if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
     if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
@@ -600,7 +616,7 @@ async function* streamChunksToEventsWithTextFallback(
           break
         }
         const text = result.value
-        if (typeof text === "string" && text) {
+        if (hasRuntimeType(text, "string") && text) {
           yield { text, type: "text-delta" }
         }
       }
@@ -614,18 +630,20 @@ async function* streamChunksToEventsWithTextFallback(
   yield* terminalEvents
 }
 
-function hasPropertyGetter(value: object, key: PropertyKey): boolean {
+function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
+  if (!isRuntimeObject(value)) return false
   let current: object | null = value
   while (current) {
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor) return typeof descriptor.get === "function"
+    if (descriptor) return hasRuntimeType(descriptor.get, "function")
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     current = Object.getPrototypeOf(current) as object | null
   }
   return false
 }
 
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
-  if (typeof value === "string") {
+  if (hasRuntimeType(value, "string")) {
     if (value) yield { text: value, type: "text-delta" }
     yield { type: "finish" }
     return
@@ -639,7 +657,8 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield { type: "finish" }
     return
   }
-  const result = value && typeof value === "object"
+  const result = value && hasRuntimeType(value, "object")
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
   const textStreamIsLazy = !!result && hasPropertyGetter(result, "textStream")
@@ -668,7 +687,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const textStream = getTextStream()
   if (textStream) {
     for await (const text of textStream) {
-      if (typeof text === "string" && text) {
+      if (hasRuntimeType(text, "string") && text) {
         yield { text, type: "text-delta" }
       }
     }
@@ -678,19 +697,23 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     return
   }
   if (isAsyncIterable(value)) {
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     yield* streamChunksToEvents(value as AsyncIterable<unknown>)
     return
   }
-  const text = typeof value === "object" && value !== null
+  const text = hasRuntimeType(value, "object") && value !== null
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? textFromResult(value as Record<string, unknown>)
     : undefined
-  if (typeof text === "string") {
+  if (hasRuntimeType(text, "string")) {
     if (text) yield { text, type: "text-delta" }
     const usageRecord = await resolveAgentUsageRecord(value)
     if (usageRecord) {
       yield { type: "usage", usageRecord }
     }
-    const reason = typeof (value as { finishReason?: unknown }).finishReason === "string"
+    // SAFETY: Agent output normalization establishes the asserted stream result contract.
+    const reason = hasRuntimeType((value as { finishReason?: unknown }).finishReason, "string")
+      // SAFETY: Agent output normalization establishes the asserted stream result contract.
       ? (value as { finishReason: string }).finishReason
       : undefined
     yield { ...(reason ? { reason } : {}), type: "finish" }

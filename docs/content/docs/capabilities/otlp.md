@@ -7,7 +7,7 @@ navigation.group: External context
 icon: i-lucide-activity
 ---
 
-`otlp()` exports completed Agent Invocation traces using OTLP/HTTP JSON. It is a transport Capability, so the same Agent Definition works with a ViteHub session viewer, a general OpenTelemetry backend, or another product that understands the OpenTelemetry generative-AI conventions.
+`otlp()` exports completed Agent Invocation traces using OTLP/HTTP JSON by default. Set `live: true` only for receivers that can update repeated snapshots of a running span. It is a transport Capability, so the same Agent Definition works with a ViteHub session viewer, a general OpenTelemetry backend, or another product that understands the OpenTelemetry generative-AI conventions.
 
 ## Configuration
 
@@ -78,7 +78,7 @@ This contribution belongs to the Capability's entry in the configuration event. 
 
 The exporter retries transient HTTP failures and honors `Retry-After`. Export is best effort and runs through the host's `waitUntil()` boundary; an unavailable receiver does not change Agent output. Receiver failures produce a bounded structured local error with the Capability ID, invocation ID, run ID, and export phase.
 
-Set `live: true` when the receiver should see trace state while the invocation runs. Live delivery permits one request in flight and coalesces additional changes into one latest snapshot. It cannot build an unbounded request or memory backlog when the receiver is slow. The terminal snapshot supersedes stale live work and is always attempted after the active request settles. Receivers should deduplicate by trace ID and span ID because a retried or live request can contain spans seen previously.
+Set `live: true` when the receiver should see trace state while the invocation runs. Live delivery reuses stable trace and span IDs for repeated running-span snapshots, so the collector must upsert evolving spans instead of treating each snapshot as a new span. ViteHub permits one request in flight and coalesces additional changes into one latest snapshot. It cannot build an unbounded request or memory backlog when the receiver is slow. The ordered terminal snapshot supersedes stale live work and is attempted after the active request settles. Receivers should deduplicate by trace ID and span ID because retries can repeat a snapshot.
 
 Streaming command output remains trace activity, not a log drain. Provider command start, output deltas, and completion use the same tool-call ID so a session UI can group them without inspecting terminal escape sequences.
 

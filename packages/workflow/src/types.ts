@@ -172,9 +172,9 @@ export interface WorkflowDefinition<TPayload = unknown, TResult = unknown> {
 }
 
 export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
-  cancel: (id: string) => Promise<WorkflowRun<TPayload, TResult>>
+  cancel: (id: string) => Promise<WorkflowRun<unknown, unknown>>
   defer: (payload?: TPayload, options?: WorkflowStartOptions) => Promise<WorkflowRun<TPayload>>
-  getRun: (id: string) => Promise<WorkflowRun<TPayload, TResult>>
+  getRun: (id: string) => Promise<WorkflowRun<unknown, unknown>>
   name: string
   run: (payload?: TPayload, options?: WorkflowStartOptions) => Promise<WorkflowRun<TPayload, TResult>>
 }

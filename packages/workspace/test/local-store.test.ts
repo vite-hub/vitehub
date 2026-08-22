@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -12,6 +12,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     readFile: vi.fn(actual.readFile),
+    readdir: vi.fn(actual.readdir),
     writeFile: vi.fn(actual.writeFile),
   }
 })
@@ -83,6 +84,30 @@ describe("local workspace store", () => {
     ]))
     await expect(store.stat("assets/blob.bin")).resolves.toMatchObject({ digest })
     expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("does not traverse excluded directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createLocalWorkspaceStore(root)
+
+    await store.writeFile(".git/objects/pack/data", { path: ".git/objects/pack/data", content: "ignored" })
+    await store.writeFile("README.md", { path: "README.md", content: "included" })
+    vi.mocked(readdir).mockClear()
+
+    await expect(store.list("", { exclude: [".git"], recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+    ])
+    expect(readdir).not.toHaveBeenCalledWith(join(root, ".git"), { withFileTypes: true })
+  })
+
+  it("treats normalized root exclusions as the whole Workspace", async () => {
+    const store = await createStore()
+
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+
+    await expect(store.list("", { exclude: [""], recursive: true })).resolves.toEqual([])
+    await expect(store.list("", { exclude: ["/"], recursive: true })).resolves.toEqual([])
   })
 
   it("does not rewrite local files when the content digest is unchanged", async () => {

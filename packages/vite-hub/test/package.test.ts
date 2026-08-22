@@ -29,13 +29,27 @@ import { distributionBinEntries, distributionEntriesFromManifest } from "../vite
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
-const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+const manifestValue: unknown = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
+if (!isRecord(manifestValue) || !isRecord(manifestValue.bin) || !isRecord(manifestValue.dependencies) || !isRecord(manifestValue.exports)) {
+  throw new TypeError("Expected the vite-hub package manifest to contain bin, dependencies, and exports records.")
+}
+// SAFETY: The package manifest boundary validates each record consumed by these publication tests.
+const manifest = manifestValue as {
   bin: Record<string, string>
   dependencies: Record<string, string>
   exports: Record<string, string | { import: string, types?: string }>
 }
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
+
+function isString(value: unknown): value is string {
+  return Object(value) !== value && Object.prototype.toString.call(value) === "[object String]"
+}
 
 const consolidatedOwnerExports = new Set([
   "@vite-hub/blob/ensure",
@@ -176,7 +190,13 @@ describe("framework package contract", () => {
       .filter(({ source }) => !exportedForwarders.has(source))
       .map(({ subpath }) => subpath)
       .sort(),
-    ).toEqual([".", "./_internal/database/runtime/state", "./_internal/kv/runtime/disabled-upstash", "./nuxt"])
+    ).toEqual([
+      ".",
+      "./_internal/database/runtime/state",
+      "./_internal/kv/runtime/disabled-upstash",
+      "./database/drizzle",
+      "./nuxt",
+    ])
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
@@ -191,11 +211,11 @@ describe("framework package contract", () => {
 
     for (const packageName of Object.keys(manifest.dependencies).filter(name => name.startsWith("@vite-hub/"))) {
       const packageDirectory = packageName.slice("@vite-hub/".length)
-      const ownerManifest = JSON.parse(readFileSync(`${repoRoot}/packages/${packageDirectory}/package.json`, "utf8")) as {
-        exports?: Record<string, unknown>
-      }
+      const ownerManifest: unknown = JSON.parse(readFileSync(`${repoRoot}/packages/${packageDirectory}/package.json`, "utf8"))
+      if (!isRecord(ownerManifest)) throw new TypeError(`Expected ${packageName} to have a package manifest record.`)
+      const ownerExports = isRecord(ownerManifest.exports) ? ownerManifest.exports : undefined
 
-      for (const subpath of Object.keys(ownerManifest.exports || {})) {
+      for (const subpath of Object.keys(ownerExports || {})) {
         if (manifest.exports[distributionSubpath(packageName, subpath)]) continue
         if (ownerOnlyReason(packageName, subpath)) continue
         unclassified.push(ownerSpecifier(packageName, subpath))
@@ -213,7 +233,7 @@ describe("framework package contract", () => {
     })
 
     for (const value of Object.values(manifest.exports)) {
-      const target = typeof value === "string" ? value : value.import
+      const target = isString(value) ? value : value.import
       if (target === "./package.json") continue
       expect(existsSync(`${packageRoot}/${target}`), target).toBe(true)
     }

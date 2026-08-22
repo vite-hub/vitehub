@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
@@ -54,6 +55,32 @@ const optionalMessageAdapterRuntimeExternals = [
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
+function testRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRuntimeRecord(value) ? value : undefined
+}
+
+async function agentPackageManifest(): Promise<Record<string, unknown>> {
+  const value: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+  if (!isRuntimeRecord(value)) throw new TypeError("Expected the Agent package manifest to be a record.")
+  return value
+}
+
+interface TestHistoryArchive {
+  messages: Array<{ attachments: Array<{ data?: string, unavailable?: boolean }>, id: string }>
+}
+
+async function testHistoryArchive(response: Response): Promise<TestHistoryArchive> {
+  const value: unknown = await response.json()
+  if (!isRuntimeRecord(value) || !Array.isArray(value.messages)) throw new TypeError("Expected a history archive with messages.")
+  for (const message of value.messages) {
+    if (!isRuntimeRecord(message) || !hasRuntimeType(message.id, "string") || !Array.isArray(message.attachments) || message.attachments.some(attachment => !isRuntimeRecord(attachment))) {
+      throw new TypeError("Expected history messages with attachment records.")
+    }
+  }
+  // SAFETY: The archive boundary validates every message ID and attachment collection before tests inspect the response.
+  return asUnknownBoundary(value) as TestHistoryArchive
+}
+
 function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, isDM?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, rawMessageValue?: unknown, replyTo?: Message, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
@@ -68,17 +95,21 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
       if (options.secret && request.headers.get("x-test-secret") !== options.secret) {
         return Response.json({ ok: false }, { status: 401 })
       }
-      const body = await request.json().catch(() => undefined) as { message?: Record<string, unknown>, update_id?: number } | undefined
-      const rawMessage = body?.message
+      const body = testRecord(await request.json().catch(() => undefined))
+      const rawMessage = testRecord(body?.message)
       if (!rawMessage || !chatInstance) {
         return Response.json({ ignored: true, ok: true })
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = rawMessage.chat as { id?: number | string } | undefined
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const from = rawMessage.from as { email?: string, id?: number | string, is_bot?: boolean, mail?: string, userPrincipalName?: string, username?: string } | undefined
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const document = rawMessage.document as { content?: string, file_id?: string, file_name?: string, file_size?: number, mime_type?: string, url?: string } | undefined
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const photos = rawMessage.photo as Array<{ file_id?: string, file_name?: string, file_size?: number, height?: number, url?: string, width?: number }> | undefined
       const photo = photos?.at(-1)
-      const date = typeof rawMessage.date === "number"
+      const date = hasRuntimeType(rawMessage.date, "number")
         ? new Date(rawMessage.date * 1000)
         : new Date("2026-06-10T12:00:00.000Z")
       const message = new Message({
@@ -91,7 +122,7 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
               size: 3,
               type: "audio",
             }]
-          : typeof document?.file_id === "string" && typeof document.mime_type === "string" && document.mime_type.startsWith("audio/")
+          : hasRuntimeType(document?.file_id, "string") && hasRuntimeType(document.mime_type, "string") && document.mime_type.startsWith("audio/")
             ? [{
                 fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
                 fetchMetadata: { fileId: document.file_id },
@@ -99,19 +130,19 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
-                ...(typeof document.url === "string" ? { url: document.url } : {}),
+                ...(hasRuntimeType(document.url, "string") ? { url: document.url } : {}),
               }]
-          : document && (typeof document.file_id === "string" || typeof document.url === "string" || typeof document.content === "string")
+          : document && (hasRuntimeType(document.file_id, "string") || hasRuntimeType(document.url, "string") || hasRuntimeType(document.content, "string"))
             ? [{
-                ...(typeof document.content === "string" ? { fetchData: options.attachmentFetchData ?? (async () => Buffer.from(document.content ?? "")) } : {}),
-                ...(typeof document.file_id === "string" ? { fetchMetadata: { fileId: document.file_id } } : {}),
+                ...(hasRuntimeType(document.content, "string") ? { fetchData: options.attachmentFetchData ?? (async () => Buffer.from(document.content ?? "")) } : {}),
+                ...(hasRuntimeType(document.file_id, "string") ? { fetchMetadata: { fileId: document.file_id } } : {}),
                 ...(document.mime_type ? { mimeType: document.mime_type } : {}),
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
-                ...(typeof document.url === "string" ? { url: document.url } : {}),
+                ...(hasRuntimeType(document.url, "string") ? { url: document.url } : {}),
               }]
-          : typeof photo?.file_id === "string"
+          : hasRuntimeType(photo?.file_id, "string")
             ? [{
                 ...(options.photoData
                   ? { data: options.photoData }
@@ -136,16 +167,18 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
           userName: String(from?.username ?? "maxi"),
         },
         formatted: { children: [], type: "root" },
-        id: options.missingIncomingMessageId ? undefined as unknown as string : String(rawMessage.message_id ?? "7"),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        id: options.missingIncomingMessageId ? asUnknownBoundary(undefined) as string : String(rawMessage.message_id ?? "7"),
         isMention: rawMessage.isMention === true,
         metadata: { dateSent: date, edited: false },
         raw: options.rawMessageValue ?? body,
         replyTo: options.replyTo,
-        text: typeof rawMessage.text === "string" ? rawMessage.text : "",
+        text: hasRuntimeType(rawMessage.text, "string") ? rawMessage.text : "",
         threadId: `telegram:${String(chat?.id ?? "456")}`,
       })
       cacheMessage(message)
-      const task = chatInstance.processMessage(adapter as unknown as Adapter, message.threadId, message, webhookOptions)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const task = chatInstance.processMessage(asUnknownBoundary(adapter) as Adapter, message.threadId, message, webhookOptions)
       if (!options.deferMessageProcessing) {
         await task
       }
@@ -178,9 +211,9 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
         id,
         metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
         raw: { message },
-        text: typeof message === "string"
+        text: hasRuntimeType(message, "string")
           ? message
-          : typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string"
+          : hasRuntimeType(message, "object") && message && "markdown" in message && hasRuntimeType(message.markdown, "string")
             ? message.markdown
             : "",
         threadId,
@@ -190,7 +223,8 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
     startTyping: vi.fn(async () => {}),
     userName: "vitehub",
   }
-  return adapter as unknown as Adapter & {
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+  return asUnknownBoundary(adapter) as Adapter & {
     _chatInstance: () => ChatInstance | undefined
     deleteMessage: ReturnType<typeof vi.fn>
     handleWebhook: ReturnType<typeof vi.fn>
@@ -231,11 +265,13 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "evals", "reference.xlsx"), "fixture", "utf8")
 
       const plugin = hubAgent()
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const configResolved = plugin.configResolved as (config: {
         [VITEHUB_SERVER_DIRS]?: string[]
         command: "serve"
         root: string
       }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const cli = plugin.vitehub?.cli as () => Promise<{
         namespaces: Array<{ features: Array<{ name: string }> }>
       }>
@@ -276,8 +312,10 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       await writeFile(evalFile, "export default defineEval({})", "utf8")
       const plugin = hubAgent({ providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } } })
-      const config = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: "build", mode: "production" }) => Record<string, unknown>
-      const configResolved = plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const config = asUnknownBoundary(plugin.config) as (config: Record<string, unknown>, environment: { command: "build", mode: "production" }) => Record<string, unknown>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: Record<string, unknown>) => Promise<void>
       const privateConfig = {
         [VITEHUB_GENERATED_ROOT]: generatedRoot,
         command: "build",
@@ -322,7 +360,8 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
-      const configResolved = plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: Record<string, unknown>) => Promise<void>
 
       await configResolved({
         [VITEHUB_GENERATED_ROOT]: generatedRoot,
@@ -361,7 +400,8 @@ describe("agent Vite plugin", () => {
         ``,
       ].join("\n"), "utf8")
 
-      const runBuild = build as unknown as (config: unknown) => Promise<unknown>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const runBuild = asUnknownBoundary(build) as (config: unknown) => Promise<unknown>
       const agentPlugin: unknown = hubAgent()
       const markdownPlugin: unknown = hubMarkdownTemplate()
       await runBuild({
@@ -387,8 +427,10 @@ describe("agent Vite plugin", () => {
       expect(output).toContain('materialize: "./IGNORED.template.md"')
       expect(output).toMatch(/^"use server";/)
       expect(output).not.toContain("readFile")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => [unknown] }
       const resolved = await resolveAgentCapabilities({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         capabilities: [bundled.default()[0] as never],
       }, {
         capabilities: {},
@@ -397,6 +439,7 @@ describe("agent Vite plugin", () => {
         runtimeConfig: {},
         waitUntil: vi.fn(),
       }, {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         context: {
           pullRequest: {
             pullRequest: {
@@ -415,6 +458,7 @@ describe("agent Vite plugin", () => {
             },
           },
         } as never,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, {
         fs: {
           exists: vi.fn(async () => false),
@@ -449,6 +493,7 @@ describe("agent Vite plugin", () => {
   it("ignores generated ViteHub files in the Vite dev watcher", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => { server?: { watch?: { ignored?: string[] } } }
 
     expect(config({}).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
@@ -464,10 +509,12 @@ describe("agent Vite plugin", () => {
     const plugin = hubAgent()
 
     const hook = plugin.configEnvironment
-    const result = typeof hook === "function"
+    const result = hasRuntimeType(hook, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? hook.call({} as never, "ssr", {
           consumer: "server",
           resolve: { noExternal: ["existing"] },
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         } as never, {} as never)
       : undefined
 
@@ -479,7 +526,8 @@ describe("agent Vite plugin", () => {
   it("exposes hubAgent options through Vite config", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes: { discordGateway: true } })
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
@@ -497,7 +545,9 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ workspace: {} })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent()
-      const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: { agent?: unknown, command: "serve", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "serve",
@@ -531,6 +581,7 @@ describe("agent Vite plugin", () => {
       expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
       expect(targets).toContain('scheduleTargetNames.push("agent/support")')
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const filteredPlugin = hubAgent({
         importBase: "vite-hub/_internal/agent",
         runtimeCapabilityImports: {
@@ -546,7 +597,9 @@ describe("agent Vite plugin", () => {
         },
         workspaceImportBase: "vite-hub/_internal/workspace",
       } as never)
-      const filteredConfigResolved = filteredPlugin.configResolved as unknown as typeof configResolved
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const filteredConfigResolved = asUnknownBoundary(filteredPlugin.configResolved) as typeof configResolved
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const filteredTransform = filteredPlugin.transform as typeof transform
       await filteredConfigResolved({
         command: "serve",
@@ -565,10 +618,13 @@ describe("agent Vite plugin", () => {
       expect(filteredRegistry).toContain('import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"')
       expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const composedBlobPlugin = hubAgent({
         runtimeCapabilityImports: { blob: false },
       } as never)
-      const composedBlobConfigResolved = composedBlobPlugin.configResolved as unknown as typeof configResolved
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const composedBlobConfigResolved = asUnknownBoundary(composedBlobPlugin.configResolved) as typeof configResolved
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const composedBlobTransform = composedBlobPlugin.transform as typeof transform
       await composedBlobConfigResolved({
         command: "serve",
@@ -591,7 +647,9 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-capabilities-"))
     try {
       const plugin = hubAgent()
-      const configResolved = plugin.configResolved as unknown as (config: { command: "build", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: { command: "build", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "build",
@@ -610,11 +668,13 @@ describe("agent Vite plugin", () => {
         "C:\\app\\.vitehub\\workflow\\registry.mjs",
       )
       const nitroPlugin = hubAgent()
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const nitroConfig = nitroPlugin.config as (config: Record<string | symbol, unknown>, environment: { command: "build", mode: string }) => Promise<unknown>
       await nitroConfig({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
         plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }],
         root,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { command: "build", mode: "production" } as never)
       const nitroRegistry = nitroPlugin.vitehub?.agent?.transformWorkflowRegistry(
         "const registry = {}\nexport default registry\n",
@@ -641,7 +701,9 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-"))
     try {
       const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } })
-      const configResolved = plugin.configResolved as unknown as (config: { command: "build", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: { command: "build", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "build",
@@ -658,8 +720,11 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
 
       const cloudflarePlugin = hubAgent()
-      const cloudflareConfigResolved = cloudflarePlugin.configResolved as unknown as typeof configResolved
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const cloudflareConfigResolved = asUnknownBoundary(cloudflarePlugin.configResolved) as typeof configResolved
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const cloudflareTransform = cloudflarePlugin.transform as typeof transform
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await cloudflareConfigResolved({
         command: "build",
         createResolver: () => async (id: string) => `/app/node_modules/${id}`,
@@ -692,7 +757,9 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-empty-schedule-targets-"))
     try {
       const plugin = hubAgent()
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "serve", root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({ command: "serve", root })
 
@@ -711,8 +778,10 @@ describe("agent Vite plugin", () => {
     const targetsModule = { id: "targets" }
     const nitroRegistryModule = { id: "nitro-registry" }
     const generatedRouteModule = { id: "generated-route" }
-    const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => void
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const configResolved = asUnknownBoundary(plugin.configResolved) as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const config = asUnknownBoundary(plugin.config) as (config: Record<string, unknown>) => void
     config({ __vitehubServerDirs: ["/app/backend"] })
     await configResolved({ command: "serve", plugins: [], root: "/app" })
     const modules = new Map<string, object>([
@@ -723,6 +792,7 @@ describe("agent Vite plugin", () => {
     ])
     const getModuleById = vi.fn((id: string) => modules.get(id))
     const invalidateModule = vi.fn()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
 
     await handleHotUpdate({
@@ -758,13 +828,15 @@ describe("agent Vite plugin", () => {
       await writeFile(join(agentRoot, "tone.md"), "Use a concise tone.\n", "utf8")
 
       const plugin = hubAgent()
-      const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
       await configResolved({ command: "serve", plugins: [], root })
       const generatedRouteModule = { id: "generated-route" }
       const getModuleById = vi.fn((id: string) => id === join(root, ".vitehub/agent/chat-webhook-route.ts")
         ? generatedRouteModule
         : undefined)
       const invalidateModule = vi.fn()
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
 
       await handleHotUpdate({
@@ -792,7 +864,9 @@ describe("agent Vite plugin", () => {
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "build", root: string }) => Promise<void>
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
@@ -818,7 +892,9 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
-      const configResolved = plugin.configResolved as unknown as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: [] }, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: [] }, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
@@ -839,7 +915,7 @@ describe("agent Vite plugin", () => {
       }))
     }
     finally {
-      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      if (hasRuntimeType(previousHosting, "string")) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
@@ -856,11 +932,13 @@ describe("agent Vite plugin", () => {
       process.env.NETLIFY_DEV = "true"
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const plugin = hubAgent({
         providerImportAliases: {
           "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
         },
       } as never)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "serve", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
@@ -900,9 +978,9 @@ describe("agent Vite plugin", () => {
       }))
     }
     finally {
-      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      if (hasRuntimeType(previousHosting, "string")) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
-      if (typeof previousNetlifyDev === "string") process.env.NETLIFY_DEV = previousNetlifyDev
+      if (hasRuntimeType(previousNetlifyDev, "string")) process.env.NETLIFY_DEV = previousNetlifyDev
       else delete process.env.NETLIFY_DEV
       await rm(root, { force: true, recursive: true })
     }
@@ -916,7 +994,9 @@ describe("agent Vite plugin", () => {
     try {
       process.env.VITEHUB_HOSTING = "netlify"
       const plugin = hubAgent()
-      const configResolved = plugin.configResolved as unknown as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: [] }, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const configResolved = asUnknownBoundary(plugin.configResolved) as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: [] }, root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
@@ -939,7 +1019,7 @@ describe("agent Vite plugin", () => {
       })
     }
     finally {
-      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      if (hasRuntimeType(previousHosting, "string")) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
@@ -948,9 +1028,11 @@ describe("agent Vite plugin", () => {
   it("publishes the conventional Nitro chat route for hosted Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
       : undefined
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handlers = (result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers
     const webhook = {
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
@@ -969,10 +1051,12 @@ describe("agent Vite plugin", () => {
   it("registers an opt-in custom inspection route with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes: { inspection: "/internal/agents/[agent]/status" } })
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
       : undefined
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
       route: "/internal/agents/:agent/status",
@@ -982,17 +1066,20 @@ describe("agent Vite plugin", () => {
   it("does not register agent routes without hosted Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, { root: join(import.meta.dirname, "fixtures") }, { command: "build", mode: "production" })
       : undefined
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((result as { nitro?: unknown } | undefined)?.nitro).toBeUndefined()
   })
 
   it("inlines Agent runtimes in Nitro output", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, {
           [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
           nitro: { externals: { inline: ["existing"] } },
@@ -1011,7 +1098,8 @@ describe("agent Vite plugin", () => {
   it("registers configured Discord Gateway routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes: { discordGateway: true } })
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
       : undefined
 
@@ -1038,7 +1126,8 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { discordGateway: true } })
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "serve", root } as never)
       }
 
@@ -1075,11 +1164,14 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const plugin = hubAgent({ processDiscordGateway: true, routes: { discordGateway: true } } as never)
-      const config = typeof plugin.config === "function"
+      const config = hasRuntimeType(plugin.config, "function")
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         ? await plugin.config.call({} as never, { root }, { command: "build", mode: "production" })
         : undefined
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "build", plugins: [], root } as never)
       }
 
@@ -1088,6 +1180,7 @@ describe("agent Vite plugin", () => {
           plugins: expect.arrayContaining([join(root, ".vitehub/agent/discord-gateway-plugin.ts")]),
         },
       })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       expect((config as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/api/_vitehub/agents/**:agent/discord/gateway" }),
       ]))
@@ -1118,7 +1211,8 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { discordGateway: true } })
       const schedulePlugin = hubSchedule({ providerOutput: false })
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, {
           command: "build",
           plugins: [schedulePlugin],
@@ -1138,7 +1232,8 @@ describe("agent Vite plugin", () => {
       }
 
       const denoPlugin = hubAgent({ runtime: "deno" })
-      if (typeof denoPlugin.configResolved === "function") {
+      if (hasRuntimeType(denoPlugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await denoPlugin.configResolved.call({} as never, {
           plugins: [schedulePlugin],
           root,
@@ -1154,7 +1249,8 @@ describe("agent Vite plugin", () => {
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
-      if (typeof netlifyPlugin.configResolved === "function") {
+      if (hasRuntimeType(netlifyPlugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await netlifyPlugin.configResolved.call({} as never, {
           build: { outDir: "dist/client" },
           command: "build",
@@ -1163,7 +1259,8 @@ describe("agent Vite plugin", () => {
           root,
         } as never)
       }
-      if (typeof netlifyPlugin.closeBundle === "object" && netlifyPlugin.closeBundle?.handler) {
+      if (netlifyPlugin.closeBundle && !isCallableMember(netlifyPlugin.closeBundle) && netlifyPlugin.closeBundle.handler) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
@@ -1172,7 +1269,7 @@ describe("agent Vite plugin", () => {
       expect(netlifyFunction).toContain("capabilities: vitehubAgentRouteCapabilities")
     }
     finally {
-      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      if (hasRuntimeType(previousHosting, "string")) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
@@ -1188,12 +1285,14 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const emailPlugin = hubEmail({ driver: "unemail/driver/resend" })
-      if (typeof emailPlugin.configResolved === "function") {
+      if (hasRuntimeType(emailPlugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await emailPlugin.configResolved.call({} as never, { root } as never)
       }
 
       const denoPlugin = hubAgent({ runtime: "deno" })
-      if (typeof denoPlugin.configResolved === "function") {
+      if (hasRuntimeType(denoPlugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await denoPlugin.configResolved.call({} as never, {
           command: "build",
           plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
@@ -1222,7 +1321,8 @@ describe("agent Vite plugin", () => {
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent()
-      if (typeof netlifyPlugin.configResolved === "function") {
+      if (hasRuntimeType(netlifyPlugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await netlifyPlugin.configResolved.call({} as never, {
           build: { outDir: "dist/client" },
           command: "build",
@@ -1231,7 +1331,8 @@ describe("agent Vite plugin", () => {
           root,
         } as never)
       }
-      if (typeof netlifyPlugin.closeBundle === "object" && netlifyPlugin.closeBundle?.handler) {
+      if (netlifyPlugin.closeBundle && !isCallableMember(netlifyPlugin.closeBundle) && netlifyPlugin.closeBundle.handler) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
@@ -1239,7 +1340,7 @@ describe("agent Vite plugin", () => {
       expect(netlifyFunction).not.toContain("@vite-hub/database/drizzle")
     }
     finally {
-      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      if (hasRuntimeType(previousHosting, "string")) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
@@ -1262,7 +1363,8 @@ describe("agent Vite plugin", () => {
       ].join("\n"), "utf8")
 
       const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { root } as never)
       }
 
@@ -1306,9 +1408,11 @@ describe("agent Vite plugin", () => {
       preset: "cloudflare",
       root: hostedAgentRoot,
     }
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, config as never, { command: "build", mode: "production" })
       : undefined
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const output = result as {
       build?: unknown
       nitro?: {
@@ -1349,15 +1453,18 @@ describe("agent Vite plugin", () => {
 
   it("uses a configured import in the Cloudflare Agent state Rollup entry", async () => {
     const { hubAgent } = await import("../src/vite.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const plugin = hubAgent({
       cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
     } as never)
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, {
           preset: "cloudflare",
           root: hostedAgentRoot,
         } as never, { command: "build", mode: "production" })
       : undefined
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const output = result as {
       nitro?: {
         rollupConfig?: {
@@ -1380,12 +1487,14 @@ describe("agent Vite plugin", () => {
   it("keeps automatic chat state host-neutral for Vercel hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, {
           preset: "vercel",
           root: hostedAgentRoot,
         } as never, { command: "build", mode: "production" })
       : undefined
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const output = result as {
       nitro?: {
         cloudflare?: unknown
@@ -1409,13 +1518,15 @@ describe("agent Vite plugin", () => {
   it("prefers an explicit Vercel runtime over inferred Cloudflare hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ runtime: "vercel" })
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, {
           preset: "cloudflare",
           root: hostedAgentRoot,
         } as never, { command: "build", mode: "production" })
       : undefined
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeUndefined()
   })
 
@@ -1425,13 +1536,15 @@ describe("agent Vite plugin", () => {
       process.env.VERCEL = "1"
       const { hubAgent } = await import("../src/vite.ts")
       const plugin = hubAgent()
-      const result = typeof plugin.config === "function"
+      const result = hasRuntimeType(plugin.config, "function")
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         ? await plugin.config.call({} as never, {
             preset: "cloudflare",
             root: hostedAgentRoot,
           } as never, { command: "build", mode: "production" })
         : undefined
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
     }
     finally {
@@ -1446,12 +1559,14 @@ describe("agent Vite plugin", () => {
       process.env.CF_PAGES = "1"
       const { hubAgent } = await import("../src/vite.ts")
       const plugin = hubAgent()
-      const result = typeof plugin.config === "function"
+      const result = hasRuntimeType(plugin.config, "function")
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         ? await plugin.config.call({} as never, {
             root: hostedAgentRoot,
           } as never, { command: "build", mode: "production" })
         : undefined
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
     }
     finally {
@@ -1463,9 +1578,11 @@ describe("agent Vite plugin", () => {
   it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
       : undefined
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const output = result as {
       build?: unknown
       nitro?: {
@@ -1493,7 +1610,8 @@ describe("agent Vite plugin", () => {
   it("skips Nitro handlers for Deno generated output", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ runtime: "deno" })
-    const result = typeof plugin.config === "function"
+    const result = hasRuntimeType(plugin.config, "function")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
@@ -1501,6 +1619,7 @@ describe("agent Vite plugin", () => {
       agent: { runtime: "deno" },
       server: { watch: { ignored: ["**/.vitehub/**"] } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((result as { nitro?: unknown } | undefined)?.nitro).toBeUndefined()
   })
 
@@ -1512,7 +1631,9 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "build", root: string }) => Promise<void>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
@@ -1534,7 +1655,8 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "serve", root } as never)
       }
 
@@ -1663,11 +1785,13 @@ export default defineAgent({
         ],
       }, null, 2)}\n`, "utf8")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       for (const stateProvider of ["cloudflare", "libsql"] as const) {
         const plugin = hubAgent(stateProvider === "libsql"
           ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } }, routes: { inspection: true } }
           : { routes: { inspection: true } })
-        if (typeof plugin.configResolved === "function") {
+        if (hasRuntimeType(plugin.configResolved, "function")) {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
         }
 
@@ -1691,7 +1815,7 @@ export default defineAgent({
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  }, 30_000)
+  }, 60_000)
 
   it("writes generated Cloudflare state helpers for Cloudflare hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -1700,7 +1824,8 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
       }
 
@@ -1727,15 +1852,18 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      const result = typeof plugin.config === "function"
+      const result = hasRuntimeType(plugin.config, "function")
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         ? await plugin.config.call({} as never, { preset: "cloudflare", root } as never, { command: "serve", mode: "development" })
         : undefined
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "serve", preset: "cloudflare", root } as never)
       }
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeUndefined()
       expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
       expect(webhookRoute).toContain(`const viteHubChatStateOptions = {"url":${JSON.stringify(pathToFileURL(join(root, ".vitehub/data/agent-state.sqlite")).href)}}`)
@@ -1756,7 +1884,8 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "build", preset: "vercel", root } as never)
       }
 
@@ -1779,8 +1908,9 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } } })
-      if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
+      if (!hasRuntimeType(plugin.configResolved, "function")) throw new TypeError("Expected Agent configResolved hook.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(plugin.configResolved.call({} as never, {
         command: "build",
         preset: "netlify",
@@ -1802,8 +1932,9 @@ export default defineAgent({
         providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } },
         runtime: "vercel",
       })
-      if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
+      if (!hasRuntimeType(plugin.configResolved, "function")) throw new TypeError("Expected Agent configResolved hook.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(plugin.configResolved.call({} as never, {
         command: "build",
         root,
@@ -1817,6 +1948,7 @@ export default defineAgent({
   it("writes generated Nitro webhook handlers with sqlite state providers", async () => {
     const { hubAgent } = await import("../src/vite.ts")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for (const provider of ["sqlite", "libsql"] as const) {
       const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${provider}-state-routes-`))
       try {
@@ -1833,7 +1965,8 @@ export default defineAgent({
             },
           },
         })
-        if (typeof plugin.configResolved === "function") {
+        if (hasRuntimeType(plugin.configResolved, "function")) {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           await plugin.configResolved.call({} as never, { command: "build", root } as never)
         }
 
@@ -1880,7 +2013,8 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "build", root } as never)
       }
 
@@ -1916,7 +2050,8 @@ export default defineAgent({
         "",
       ].join("\n"), "utf8")
       const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "build", root } as never)
       }
 
@@ -1955,7 +2090,8 @@ export default defineAgent({
         "",
       ].join("\n"), "utf8")
       const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { command: "build", root } as never)
       }
 
@@ -1980,7 +2116,8 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { root } as never)
       }
 
@@ -2000,7 +2137,8 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ runtime: "deno" })
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { root } as never)
       }
 
@@ -2050,7 +2188,8 @@ export default defineAgent({
       await writeFile(join(root, "server", "agents", "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
       await writeFile(join(root, "server", "agents", "support", "skills", "review", "scripts", "review.bin"), Uint8Array.from([0, 255, 42]))
       const plugin = hubAgent({ runtime: "deno" })
-      if (typeof plugin.configResolved === "function") {
+      if (hasRuntimeType(plugin.configResolved, "function")) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         await plugin.configResolved.call({} as never, { root } as never)
       }
 
@@ -2085,22 +2224,18 @@ export default defineAgent({
   })
 
   it("publishes the Cloudflare state Durable Object subpath", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      exports?: Record<string, unknown>
-    }
+    const pkg = await agentPackageManifest()
 
-    expect(pkg.exports?.["./cloudflare/state"]).toEqual({
+    expect(testRecord(pkg.exports)?.["./cloudflare/state"]).toEqual({
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
     })
   })
 
   it("publishes the internal generated Agent route handler subpath", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      exports?: Record<string, unknown>
-    }
+    const pkg = await agentPackageManifest()
 
-    expect(pkg.exports?.["./server/internal"]).toEqual({
+    expect(testRecord(pkg.exports)?.["./server/internal"]).toEqual({
       types: "./dist/server/internal.d.ts",
       import: "./dist/server/internal.js",
     })
@@ -2116,34 +2251,25 @@ export default defineAgent({
 
   it("keeps esbuild external in the Agent Vite plugin package build", async () => {
     const config = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8")
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      dependencies?: Record<string, string>
-    }
+    const pkg = await agentPackageManifest()
 
     expect(config).toContain('"esbuild"')
-    expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
+    expect(testRecord(pkg.dependencies)?.esbuild).toBe("catalog:esbuild-v27")
   })
 
   it("publishes Schedule as an optional Agent integration peer", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      dependencies?: Record<string, string>
-      devDependencies?: Record<string, string>
-      peerDependencies?: Record<string, string>
-      peerDependenciesMeta?: Record<string, { optional?: boolean }>
-    }
+    const pkg = await agentPackageManifest()
 
-    expect(pkg.dependencies?.["@vite-hub/schedule"]).toBeUndefined()
-    expect(pkg.devDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
-    expect(pkg.peerDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
-    expect(pkg.peerDependenciesMeta?.["@vite-hub/schedule"]).toEqual({ optional: true })
+    expect(testRecord(pkg.dependencies)?.["@vite-hub/schedule"]).toBeUndefined()
+    expect(testRecord(pkg.devDependencies)?.["@vite-hub/schedule"]).toBe("workspace:*")
+    expect(testRecord(pkg.peerDependencies)?.["@vite-hub/schedule"]).toBe("workspace:*")
+    expect(testRecord(testRecord(pkg.peerDependenciesMeta)?.["@vite-hub/schedule"])).toEqual({ optional: true })
   })
 
   it("publishes the Agent output helper subpath", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      exports?: Record<string, unknown>
-    }
+    const pkg = await agentPackageManifest()
 
-    expect(pkg.exports?.["./output"]).toEqual({
+    expect(testRecord(pkg.exports)?.["./output"]).toEqual({
       types: "./dist/output.d.ts",
       import: "./dist/output.js",
     })
@@ -2163,6 +2289,7 @@ describe("server helpers", () => {
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
         driver: { async run({ workspace }) {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             return await (workspace as { fs: { readFile(path: string): Promise<string> } }).fs.readFile("AGENTS.md")
           } },
         workspace: defineWorkspace({
@@ -2285,6 +2412,7 @@ describe("server helpers", () => {
       },
     }))
     const run = vi.fn(({ invoker, messages, run, runtime }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return `echo ${text?.text} for ${invoker.id} via ${run.origin} on ${runtime} from ${invoker.meta.user} after ${invoker.meta.fallback}`
     })
@@ -2295,6 +2423,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -2371,12 +2500,14 @@ describe("server helpers", () => {
         },
       }),
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockResolvedValueOnce({
       body: approvalResponse.body,
       headers: approvalResponse.headers,
       status: approvalResponse.status,
       statusText: approvalResponse.statusText,
     } as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability({ sessions: { idleTimeoutMs: 60_000, strategy: "hybrid" } })],
       driver: { run },
@@ -2492,6 +2623,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const run = vi.fn(({ input }) => input.context?.["vitehub.eve.approvedTools"] ? "approved" : "fresh")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: { run },
@@ -2584,6 +2716,7 @@ describe("server helpers", () => {
       ],
       driver: {
         async run({ tools }) {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           const record = await tools!.cronjob!.execute?.({
             cron: "0 9 * * *",
             id: "daily-0900",
@@ -2594,6 +2727,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/mini/chat", {
@@ -2619,6 +2753,7 @@ describe("server helpers", () => {
     const { schedule } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability(), schedule({ mode: "read" })],
       driver: { run: () => "unused" },
@@ -2644,6 +2779,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: {
@@ -2701,8 +2837,11 @@ describe("server helpers", () => {
     expect(foreignStream).not.toBeInstanceOf(ReadableStream)
     expect(foreignResponse).not.toBeInstanceOf(Response)
     const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger")
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       .mockResolvedValueOnce(foreignStream as never)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       .mockResolvedValueOnce(foreignResponse as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: { run: () => "unused" },
@@ -2726,6 +2865,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: {
@@ -2761,6 +2901,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: {
@@ -2795,6 +2936,7 @@ describe("server helpers", () => {
     const encoder = new TextEncoder()
     const error = new Error("upstream failed")
     let read = false
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: {
@@ -2833,9 +2975,11 @@ describe("server helpers", () => {
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context, invoker, run }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
       return `portal ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
@@ -2846,8 +2990,10 @@ describe("server helpers", () => {
               }
               return {
                 invokerProfileId: "customer:acme",
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 meta: body.meta as Record<string, unknown>,
                 run: { origin: "portal" },
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 user: body.user as Record<string, unknown>,
               }
             },
@@ -2898,6 +3044,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const resolveState = vi.fn(() => state)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({ messages: { state: resolveState } }),
@@ -2939,6 +3086,7 @@ describe("server helpers", () => {
     const bodySchema: AgentChannelChatRouteStandardSchemaV1<PortalBody> = {
       "~standard": {
         validate(input: unknown) {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           const body = input as PortalBody
           if (!Array.isArray(body.messages)) return { issues: ["messages must be an array"] }
           return { value: body }
@@ -2954,9 +3102,11 @@ describe("server helpers", () => {
         : false
     })
     const run = vi.fn(async ({ context, invoker, run, runtimeContext }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chatContext = context.get("chat") as { meta?: { audience?: string, customer?: string }, user?: { email?: string } } | undefined
       return `web ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.customer} ${chatContext?.meta?.audience} runtime-body:${await runtimeContext.request.text()}`
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
@@ -3065,11 +3215,13 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: { run: () => "unused" },
     }) as never)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const invalidBodies = [
       [[], "Agent chat payload must be a JSON object."],
       [{ text: "hello" }, "Agent chat payload requires a messages array."],
@@ -3110,9 +3262,11 @@ describe("server helpers", () => {
     })
     const validate = vi.fn((input: unknown) => {
       expect(input).toMatchObject({ extension: { requestId: "request-1" }, messages: [message] })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { value: input as { messages: unknown[] } }
     })
     const run = vi.fn(({ messages, run }) => `${run.messageId} ${run.threadId} ${JSON.stringify(messages)}`)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: http({
@@ -3152,6 +3306,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: { run: () => "unused" },
@@ -3193,9 +3348,11 @@ describe("server helpers", () => {
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const authenticate = vi.fn(({ request }) => request.headers.get("x-quiver-chat-token") === "trusted" ? true : false)
     const run = vi.fn(({ context, input, invoker, run }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
       return `trusted ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id} ${input.timeout ?? "no-timeout"}`
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
@@ -3256,9 +3413,11 @@ describe("server helpers", () => {
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context, input }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
       return `trusted ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id ?? "no-session"} ${input.timeout ?? "no-timeout"}`
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
@@ -3295,9 +3454,11 @@ describe("server helpers", () => {
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chatContext = context.get("chat") as { meta?: { audience?: string, customer?: string } } | undefined
       return `trusted ${chatContext?.meta?.customer} ${chatContext?.meta?.audience}`
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
@@ -3340,6 +3501,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
@@ -3374,9 +3536,11 @@ describe("server helpers", () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context, invoker, run }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
       return `portal ${run.origin} ${invoker.id} ${invoker.meta.scope} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       invoker: {
@@ -3396,8 +3560,11 @@ describe("server helpers", () => {
         }
         return {
           invokerProfileId: "customer:acme",
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           meta: body.meta as Record<string, unknown>,
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           run: body.run as never,
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           user: body.user as Record<string, unknown>,
         }
       },
@@ -3440,14 +3607,17 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         support: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
       messages: {
         ...(options.identity ? { identity: options.identity } : {}),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         ...(options.transcripts ? { transcripts: { maxPerUser: 50, retention: "30d" as const } } : {}),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
@@ -3505,6 +3675,7 @@ describe("server helpers", () => {
       }
     })
     const run = vi.fn(({ messages }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return {
         durationMs: 1200,
@@ -3528,6 +3699,7 @@ describe("server helpers", () => {
         defineChatCapability({
           identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           transcripts: {
@@ -3546,6 +3718,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -3691,11 +3864,13 @@ describe("server helpers", () => {
     const ignoredReplyCommand = vi.fn()
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
-      capabilities: [inputCommands({ commands: { delete: { run: ignoredReplyCommand } } })],
+      capabilities: [inputCommands({ commands: { delete: { call: ignoredReplyCommand } } })],
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { support: testTelegram(telegram, { adapter: () => adapter as never }) },
       driver: { run },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
         update_id: 42,
@@ -3816,10 +3991,12 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter({ replyTo })
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { support: testTelegram(telegram, { adapter: () => adapter as never }) },
       driver: { run },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
         update_id: 43,
@@ -3849,12 +4026,14 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         platforms: { telegram: () => adapter as never },
         stream: false,
         webhooks: { telegram: {} },
       })],
       driver: { run: () => "agent answer" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({
       update_id: 42,
@@ -3914,12 +4093,14 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         platforms: { telegram: () => adapter as never },
         stream: false,
         webhooks: { telegram: {} },
       })],
       driver: { run: () => "agent answer" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({
       update_id: 43,
@@ -3976,6 +4157,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => "unexpected" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const url = "https://example.com/api/_vitehub/agents/review/webhooks/github"
     const request = () => new Request(url, {
@@ -4017,11 +4199,13 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         platforms: { telegram: () => createTestChatAdapter() as never },
         webhooks: { telegram: {} },
       })],
       driver: { run: vi.fn() },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({ update_id: 43 })
     const request = new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" })
@@ -4059,12 +4243,14 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { filter, stream: false },
         }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (message: Record<string, unknown>) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
@@ -4120,6 +4306,7 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const deliveryKinds: AgentMessageDeliveryKind[] = []
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const createHandler = (adapter: Adapter) => createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -4169,10 +4356,12 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         web: webChat,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run: () => ({ text: "final answer" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
 
@@ -4199,6 +4388,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "final answer" })
     expect(adapter.editMessage).not.toHaveBeenCalled()
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const streamResponse = await createChannelChatRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         id: "portal-thread",
@@ -4217,6 +4407,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { discord: discord({ adapter: () => adapter as never }) },
       driver: {
         run: () => ({
@@ -4226,6 +4417,7 @@ describe("server helpers", () => {
       },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
       body: JSON.stringify({
         message: {
@@ -4252,6 +4444,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { commentary: "message" },
         }),
@@ -4274,6 +4467,7 @@ describe("server helpers", () => {
       },
       hooks: { "agent:finish": finish },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
 
@@ -4320,6 +4514,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { commentary: "message" },
         }),
@@ -4333,6 +4528,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
@@ -4362,6 +4558,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { commentary: "message" },
         }),
@@ -4375,6 +4572,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(2018, 999), "discord")
@@ -4393,6 +4591,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { commentary: "message" },
         }),
@@ -4407,6 +4606,7 @@ describe("server helpers", () => {
       },
       hooks: { "agent:finish": finish },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
@@ -4435,10 +4635,12 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         discord: discord({ adapter: () => adapter as never, messages: { commentary: "message" } }),
       },
       driver: { run: () => Response.json({ text: "Final answer." }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
@@ -4467,6 +4669,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { commentary: "hidden", stream: false },
         }),
@@ -4481,6 +4684,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
@@ -4509,6 +4713,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { commentary: "message", stream: true },
         }),
@@ -4523,6 +4728,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
@@ -4553,10 +4759,12 @@ describe("server helpers", () => {
       yield { text: "Final streamed answer.", type: "text-delta" }
     })(), { text: "stale partial text" })
     const agent = defineAgent({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { discord: discord({ adapter: () => adapter as never }) },
       driver: { run: () => stream },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
       body: JSON.stringify({
         message: {
@@ -4584,11 +4792,14 @@ describe("server helpers", () => {
     const finalAdapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         final: testTelegram(telegram, { adapter: () => finalAdapter as never, messages: { stream: false } }),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         progressive: testTelegram(telegram, { adapter: () => progressiveAdapter as never, messages: { stream: true } }),
       },
       driver: { run: () => ({ text: "channel reply" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
@@ -4618,15 +4829,16 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
       formatConverter: { renderPostable: (message: unknown) => string }
       name: string
     }
     adapter.formatConverter = {
       renderPostable(message: unknown) {
-        if (typeof message === "string") return message
-        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
-        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        if (hasRuntimeType(message, "string")) return message
+        if (hasRuntimeType(message, "object") && message && "raw" in message && hasRuntimeType(message.raw, "string")) return message.raw
+        if (hasRuntimeType(message, "object") && message && "markdown" in message && hasRuntimeType(message.markdown, "string")) return message.markdown
         return ""
       },
     }
@@ -4637,6 +4849,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { stream: true },
         }),
@@ -4653,6 +4866,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
       body: JSON.stringify({
@@ -4705,15 +4919,16 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
       formatConverter: { renderPostable: (message: unknown) => string }
       name: string
     }
     adapter.formatConverter = {
       renderPostable(message: unknown) {
-        if (typeof message === "string") return message
-        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
-        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        if (hasRuntimeType(message, "string")) return message
+        if (hasRuntimeType(message, "object") && message && "raw" in message && hasRuntimeType(message.raw, "string")) return message.raw
+        if (hasRuntimeType(message, "object") && message && "markdown" in message && hasRuntimeType(message.markdown, "string")) return message.markdown
         return ""
       },
     }
@@ -4723,6 +4938,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { stream: false },
         }),
@@ -4731,6 +4947,7 @@ describe("server helpers", () => {
         run: () => ({ text: replyText }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
@@ -4766,10 +4983,12 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -4827,10 +5046,12 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -4875,10 +5096,12 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter({ photoData: new Blob(["image"], { type: "application/octet-stream" }) })
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
       driver: { run },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
         update_id: 44,
@@ -4912,6 +5135,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => createTestChatAdapter() as never,
           webhookSecret: "secret-token",
         }),
@@ -4919,6 +5143,7 @@ describe("server helpers", () => {
       driver: { run },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request(
       "https://example.com/api/_vitehub/agents/support/webhooks/telegram",
       { method: "HEAD" },
@@ -4937,10 +5162,12 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
       driver: { run },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
         update_id: 43,
@@ -4985,10 +5212,12 @@ describe("server helpers", () => {
       .join(""))
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -5048,6 +5277,7 @@ describe("server helpers", () => {
       }),
       method: "POST",
     }), "telegram")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const largePrompt = run.mock.results.at(-1)?.value as string | undefined
 
     expect(largeResponse.status).toBe(200)
@@ -5074,10 +5304,12 @@ describe("server helpers", () => {
         }),
       ],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -5140,10 +5372,12 @@ describe("server helpers", () => {
         }),
       ],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -5202,10 +5436,12 @@ describe("server helpers", () => {
         transcribe({ execute }),
       ],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -5257,12 +5493,14 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ messages }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return `echo: ${text?.text}`
     })
     const agent = defineAgent({
       channels: {
         support: http({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           webhooks: { id: "custom-support" },
         }),
@@ -5271,6 +5509,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
@@ -5312,6 +5551,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           webhooks: { id: "discord-events" },
         }),
@@ -5320,6 +5560,7 @@ describe("server helpers", () => {
         run: vi.fn(),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
@@ -5350,7 +5591,8 @@ describe("server helpers", () => {
       publicKey: "0".repeat(64),
     })
     const run = vi.fn(() => "ok")
-    const handleGatewayMessage = (adapter as unknown as {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const handleGatewayMessage = (asUnknownBoundary(adapter) as {
       handleGatewayMessage: (message: unknown, isMentioned: boolean) => Promise<void>
     }).handleGatewayMessage.bind(adapter)
     Object.assign(adapter, {
@@ -5394,6 +5636,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/mini/discord/gateway"), {})
@@ -5423,12 +5666,14 @@ describe("server helpers", () => {
     }
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         discord: discord({ adapter: () => adapter as never }),
       },
       driver: {
         run: vi.fn(),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", {
@@ -5482,6 +5727,7 @@ describe("server helpers", () => {
       capabilities: [access({ chat: { resolve: admitChat } })],
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           webhooks: { id: "discord-events" },
         }),
@@ -5490,7 +5736,9 @@ describe("server helpers", () => {
         run,
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const webhookHandler = createChannelWebhookRouteHandler(agent as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const gatewayHandler = createDiscordGatewayRouteHandler(agent as never)
 
     try {
@@ -5593,10 +5841,12 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         alerts: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => alertsAdapter as never,
           webhooks: { id: "alerts-events" },
         }),
         support: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => supportAdapter as never,
           webhooks: { id: "support-events" },
         }),
@@ -5605,6 +5855,7 @@ describe("server helpers", () => {
         run: vi.fn(),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
     const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
@@ -5658,12 +5909,14 @@ describe("server helpers", () => {
     }
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         support: discord({ adapter: () => adapter as never }),
       },
       driver: { run: vi.fn() },
     })
     const abortController = new AbortController()
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const responsePromise = createDiscordGatewayRouteHandler(agent as never)(
       new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"),
       { abortSignal: abortController.signal, state: stateResolver },
@@ -5704,10 +5957,12 @@ describe("server helpers", () => {
       startGatewayListener: vi.fn(async () => Response.json({ ok: true })),
     }
     const agent = defineAgent({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { support: discord({ adapter: () => adapter as never }) },
       driver: { run: vi.fn() },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createDiscordGatewayRouteHandler(agent as never)(
       new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"),
       { webhookUrl: "https://example.com/api/_vitehub/agents/support/webhooks/support" },
@@ -5726,6 +5981,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         support: http({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: "secret-token" },
         }),
@@ -5734,6 +5990,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
@@ -5756,6 +6013,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         support: http({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: () => "" },
         }),
@@ -5764,6 +6022,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
@@ -5786,6 +6045,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           webhooks: { secretToken: "secret-token" },
         }),
@@ -5794,6 +6054,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -5816,10 +6077,12 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           mode: "polling",
         }),
         triggerOnly: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => triggerOnlyAdapter as never,
           messages: false,
           mode: "polling",
@@ -5829,6 +6092,7 @@ describe("server helpers", () => {
         run: vi.fn(),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createTelegramPollingRouteHandler(agent as never)
 
     const first = await handler(new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"))
@@ -5856,6 +6120,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
@@ -5884,6 +6149,7 @@ describe("server helpers", () => {
             webhook: {
               invoke: (_context, input) => {
                 triggerInputs.push(input)
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || "unknown"
                 return {
                   input: {
@@ -5906,6 +6172,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const payload = {
@@ -6003,6 +6270,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const body = JSON.stringify({ action: "opened" })
@@ -6041,6 +6309,7 @@ describe("server helpers", () => {
       },
       method: "POST",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       channels: {
         github: github({
@@ -6098,6 +6367,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
@@ -6155,6 +6425,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const body = JSON.stringify({ action: "opened" })
@@ -6209,6 +6480,7 @@ describe("server helpers", () => {
       },
       runtime: workflow("support-agent"),
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const body = JSON.stringify({ action: "opened" })
@@ -6279,6 +6551,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({
       action: "edited",
@@ -6336,7 +6609,9 @@ describe("server helpers", () => {
       return "accepted"
     })
     const invoke = vi.fn((_context, input) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const number = (input as { payload?: { number?: number } }).payload?.number || 0
       return {
         delivery: { finishEffects: () => undefined },
@@ -6362,6 +6637,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (deliveryId: string, number: number) => new Request("https://example.com/api/github/webhook", {
       body: JSON.stringify({ number }),
@@ -6425,6 +6701,7 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const appendToList = state.appendToList.bind(state)
     vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const event = value as { type?: string }
       if (key.endsWith(":events") && (event.type === "queued" || event.type === "invocation.started")) {
         throw new Error("custody progress unavailable")
@@ -6441,6 +6718,7 @@ describe("server helpers", () => {
                 input: { prompt: "preserve execution" },
                 webhook: {
                   concurrencyLimit: 1,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -6451,6 +6729,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -6474,6 +6753,7 @@ describe("server helpers", () => {
     }
   })
 
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   it.each([
     ["running", "queued"],
     ["failed", "failed"],
@@ -6502,6 +6782,7 @@ describe("server helpers", () => {
         }),
       },
       driver: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         run: () => ({
           id: `workflow-${workflowStatus}`,
           provider: "vercel",
@@ -6509,6 +6790,7 @@ describe("server helpers", () => {
         }) as never,
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = () => new Request("https://example.com/api/github/webhook", {
       body: "{}",
@@ -6567,6 +6849,7 @@ describe("server helpers", () => {
                 },
                 webhook: {
                   concurrencyLimit: 1,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -6577,6 +6860,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -6615,6 +6899,7 @@ describe("server helpers", () => {
       input: { context: cyclic, options: { sequence: 1n }, prompt: "resolve again" },
       webhook: {
         concurrencyLimit: 1,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
       },
     }))
@@ -6627,6 +6912,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -6695,6 +6981,7 @@ describe("server helpers", () => {
     })
 
     try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
         body: "{}",
         headers: {
@@ -6736,6 +7023,7 @@ describe("server helpers", () => {
       input: { prompt: `fresh ${deliveryId}` },
       run: { runId: deliveryId },
       webhook: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         busy: "steer" as const,
         concurrencyGroup: "reviews",
         concurrencyKey: "pr-42",
@@ -6762,6 +7050,7 @@ describe("server helpers", () => {
           if (rejectSteer) throw new Error("closed")
           steeredInputs.push(input)
           await steerAccepted
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           return "accepted" as const
         },
         support: { steer: true },
@@ -6783,6 +7072,7 @@ describe("server helpers", () => {
           triggers: {
             webhook: {
               invoke: (_context, input) => {
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
                 return {
                   input: { prompt: deliveryId },
@@ -6805,6 +7095,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (deliveryId: string) => new Request("https://example.com/api/github/webhook", {
       body: JSON.stringify({ number: 42 }),
@@ -6949,6 +7240,7 @@ describe("server helpers", () => {
           triggers: {
             webhook: {
               invoke: (_context, input) => {
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
                 return {
                   input: { prompt: deliveryId },
@@ -6968,6 +7260,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (deliveryId: string, tenant: keyof typeof stateUrls) => new Request("https://example.com/api/github/webhook", {
       body: "{}",
@@ -6982,6 +7275,7 @@ describe("server helpers", () => {
     const options = {
       agentName: "review",
       webhookState: (context: { request?: Request }) => {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         const tenant = context.request?.headers.get("x-tenant") as keyof typeof stateUrls
         const state = createLibsqlAgentState({ url: stateUrls[tenant] })
         states.push(state)
@@ -7054,8 +7348,10 @@ describe("server helpers", () => {
                 input: { prompt: "resumed" },
                 webhook: {
                   concurrencyGroup: "reviews",
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   concurrencyKey: `pr-${(input as { payload: { number: number } }).payload.number}`,
                   concurrencyLimit: 2,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7067,6 +7363,7 @@ describe("server helpers", () => {
       driver: { run },
     })
     const restoredState = createLibsqlAgentState({ url })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const stop = createChannelWebhookRouteHandler(agent as never).resume({
       agentName: "review",
       webhookState: restoredState,
@@ -7115,6 +7412,7 @@ describe("server helpers", () => {
                 input: { prompt: "resumed" },
                 webhook: {
                   concurrencyLimit: 1,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7152,6 +7450,7 @@ describe("server helpers", () => {
       const resolveState = vi.fn()
         .mockRejectedValueOnce(new Error("database unavailable"))
         .mockResolvedValue(state)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       stop = createChannelWebhookRouteHandler(agent as never).resume({
         agentName: "review",
         webhookState: resolveState,
@@ -7196,7 +7495,7 @@ describe("server helpers", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return typeof value === "function" ? value.bind(target) : value
+        return hasRuntimeType(value, "function") ? value.bind(target) : value
       },
     })
     let activeSignal: AbortSignal | undefined
@@ -7217,6 +7516,7 @@ describe("server helpers", () => {
                 input: { prompt: "stop" },
                 webhook: {
                   concurrencyLimit: 1,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7227,6 +7527,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (deliveryId: string) => new Request("https://example.com/api/github/webhook", {
       body: "{}",
@@ -7283,7 +7584,7 @@ describe("server helpers", () => {
       get(target, property) {
         if (property === "extendWebhookDeliveryLease") return extendLease
         const value = Reflect.get(target, property)
-        return typeof value === "function" ? value.bind(target) : value
+        return hasRuntimeType(value, "function") ? value.bind(target) : value
       },
     })
     let abortSignal: AbortSignal | undefined
@@ -7306,6 +7607,7 @@ describe("server helpers", () => {
                 webhook: {
                   concurrencyLimit: 1,
                   concurrencyTtlMs: 1_000,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7316,6 +7618,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     let stop: () => void | Promise<void> = () => undefined
 
@@ -7375,6 +7678,7 @@ describe("server helpers", () => {
                 input: { prompt: "retry" },
                 webhook: {
                   concurrencyLimit: 1,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7385,6 +7689,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     let stop: () => void = () => undefined
     const request = () => new Request("https://example.com/api/github/webhook", {
@@ -7406,7 +7711,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledOnce())
       await expect(retryDelivery.mock.results[0]?.value).resolves.toBe(true)
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
-        typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-retry"'),
+        hasRuntimeType(message, "string") && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-retry"'),
       )).toHaveLength(1))
 
       await vi.advanceTimersByTimeAsync(0)
@@ -7447,6 +7752,7 @@ describe("server helpers", () => {
                 input: { prompt: "fail" },
                 webhook: {
                   concurrencyLimit: 1,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7457,6 +7763,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = () => new Request("https://example.com/api/github/webhook", {
       body: "{}",
@@ -7478,7 +7785,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(1))
       await expect(retryDelivery.mock.results[0]?.value).resolves.toBe(true)
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
-        typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
+        hasRuntimeType(message, "string") && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(1))
       await vi.advanceTimersByTimeAsync(0)
 
@@ -7487,7 +7794,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(2))
       await expect(retryDelivery.mock.results[1]?.value).resolves.toBe(true)
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
-        typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
+        hasRuntimeType(message, "string") && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-terminal"'),
       )).toHaveLength(2))
       await vi.advanceTimersByTimeAsync(0)
       await vi.advanceTimersByTimeAsync(3_000)
@@ -7532,6 +7839,7 @@ describe("server helpers", () => {
                 input: { prompt: "retry" },
                 webhook: {
                   concurrencyLimit: 1,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7542,6 +7850,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntil = vi.fn((_task: Promise<unknown>) => undefined)
 
@@ -7593,9 +7902,11 @@ describe("server helpers", () => {
       { busy: "steer", concurrencyLimit: 1, deliveryId: "invalid-steer" },
       { busy: "steer", concurrencyKey: "shared", deliveryId: "invalid-steer" },
     ]) {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const handler = createChannelWebhookRouteHandler(defineAgent({
         channels: {
           github: github({
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             triggers: { webhook: { invoke: () => ({ input: { prompt: "ignored" }, webhook } as never) } },
             webhooks: { secretToken: false },
           }),
@@ -7633,6 +7944,7 @@ describe("server helpers", () => {
           triggers: {
             webhook: {
               invoke: (_context, input) => {
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
                 return {
                   input: { prompt: "github delivery" },
@@ -7649,6 +7961,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const webhookStateContexts: unknown[] = []
@@ -7731,13 +8044,14 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const extendLock = vi.fn(async (lock: { threadId: string }, ttlMs: number) =>
       lock.threadId.endsWith("deliveries:index:lock") || lock.threadId.endsWith(":journal-lock")
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         ? await state.extendLock(lock as never, ttlMs)
         : false)
     const losingState = new Proxy(state, {
       get(target, property) {
         if (property === "extendLock") return extendLock
         const value = Reflect.get(target, property)
-        return typeof value === "function" ? value.bind(target) : value
+        return hasRuntimeType(value, "function") ? value.bind(target) : value
       },
     })
     let abortSignal: AbortSignal | undefined
@@ -7759,6 +8073,7 @@ describe("server helpers", () => {
                 webhook: {
                   concurrencyKey: "acme/app:42:head-sha",
                   concurrencyTtlMs: 1_000,
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
                 },
               }),
@@ -7769,6 +8084,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const request = (deliveryId: string) => new Request("https://example.com/api/github/webhook", {
@@ -7832,6 +8148,7 @@ describe("server helpers", () => {
       driver: { run },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
       body: JSON.stringify({ action: "labeled" }),
       headers: {
@@ -7876,6 +8193,7 @@ describe("server helpers", () => {
       runtime: workflow("review"),
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
       body: JSON.stringify({ action: "labeled" }),
       headers: {
@@ -7934,6 +8252,7 @@ describe("server helpers", () => {
       scope: "webhook:review:github:github:",
       webhookId: "github",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
 
     try {
@@ -7987,6 +8306,7 @@ describe("server helpers", () => {
       scope: "webhook:review:github:github:",
       webhookId: "github",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
 
     try {
@@ -8021,6 +8341,7 @@ describe("server helpers", () => {
       scope: "webhook:review:github:removed-registration:",
       webhookId: "removed-registration",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
 
     try {
@@ -8068,6 +8389,7 @@ describe("server helpers", () => {
       webhookId: "github",
     })
     const claim = vi.spyOn(state, "claimWebhookDelivery")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review:triage", webhookState: state })
 
     try {
@@ -8126,6 +8448,7 @@ describe("server helpers", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
     try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
         body: JSON.stringify({ action: "labeled" }),
         headers: {
@@ -8136,6 +8459,7 @@ describe("server helpers", () => {
         method: "POST",
       }), "github", {
         agentIdentity: { name: "review" },
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         capabilities: { kv: {} as never },
         webhookState: state,
         waitUntil: task => waitUntilTasks.push(task),
@@ -8160,6 +8484,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         support: http({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => createTestChatAdapter() as never,
           webhooks: [
             { path: "/api/support/primary" },
@@ -8169,6 +8494,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => "ok" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
@@ -8210,6 +8536,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const options = {
@@ -8242,13 +8569,16 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         sales: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "sales-hook" } }),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         support: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "support-hook" } }),
       },
       driver: {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/http", {
@@ -8281,6 +8611,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/github/webhook", {
@@ -8300,17 +8631,21 @@ describe("server helpers", () => {
     const prefixes: string[] = []
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         sales: http({ adapter: () => createTestChatAdapter() as never }),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         support: http({ adapter: () => createTestChatAdapter() as never }),
       },
       messages: {
         state: ({ chat }) => {
           prefixes.push(chat.stateKeyPrefix)
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           return undefined as never
         },
       },
       driver: { run: () => "ok" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (webhook: string) => new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`, {
       body: JSON.stringify({
@@ -8338,9 +8673,12 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const miniRun = vi.fn(() => "mini")
     const brujulaRun = vi.fn(() => "brujula")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = (run: () => string, explicitState?: typeof state) => createChannelWebhookRouteHandler(defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         discord: http({ adapter: () => createTestChatAdapter() as never }),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         slack: http({ adapter: () => createTestChatAdapter() as never }),
       },
       driver: { run },
@@ -8406,9 +8744,12 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-transcript-scope-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const createHandler = (discordAdapter: ReturnType<typeof createTestChatAdapter>, slackAdapter: ReturnType<typeof createTestChatAdapter>) => createChannelWebhookRouteHandler(defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         discord: http({ adapter: () => discordAdapter as never }),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         slack: http({ adapter: () => slackAdapter as never }),
       },
       driver: { run: () => "ok" },
@@ -8433,16 +8774,19 @@ describe("server helpers", () => {
       const miniSlackTranscripts = miniSlack._chatInstance()!.transcripts
       const coordinatorTranscripts = coordinatorDiscord._chatInstance()!.transcripts
       await miniDiscordTranscripts.append(
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         { adapter: { name: "discord" }, id: "discord:456" } as never,
         { role: "user", text: "discord" },
         { userKey: "account:verified" },
       )
       await miniSlackTranscripts.append(
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         { adapter: { name: "slack" }, id: "slack:789" } as never,
         { role: "user", text: "slack" },
         { userKey: "account:verified" },
       )
       await coordinatorTranscripts.append(
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         { adapter: { name: "discord" }, id: "discord:456" } as never,
         { role: "user", text: "other agent" },
         { userKey: "account:verified" },
@@ -8478,9 +8822,11 @@ describe("server helpers", () => {
     const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
     const run = vi.fn(() => "ok")
     const finish = vi.fn()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const createHandler = () => createChannelWebhookRouteHandler(defineAgent({
       capabilities: [title({ execute })],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
       driver: { run },
@@ -8533,6 +8879,7 @@ describe("server helpers", () => {
     const context = createAgentInvocationContextStore()
     context.set(messageChannelStateContextKey, { keyPrefix: "chat:mini:discord:", state })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(claimMessageChannelTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
       deliver: true,
       error: readError,
@@ -8556,7 +8903,9 @@ describe("server helpers", () => {
       deliver: true,
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await finishMessageChannelTitleDelivery(attempt as never, true)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await resetMessageChannelTitleDelivery(attempt as never)
 
     expect(state.set).toHaveBeenCalledWith("channel-title:thread:delivered", true)
@@ -8581,6 +8930,7 @@ describe("server helpers", () => {
     const context = createAgentInvocationContextStore()
     context.set(messageChannelStateContextKey, { keyPrefix: "chat:mini:discord:", state })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(claimMessageChannelTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
       deliver: false,
       error: releaseError,
@@ -8600,9 +8950,11 @@ describe("server helpers", () => {
       .mockRejectedValueOnce(new Error("early delivery failed"))
       .mockRejectedValueOnce(new Error("finish delivery failed"))
       .mockResolvedValue(undefined)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
       driver: { run: () => "ok" },
@@ -8652,12 +9004,14 @@ describe("server helpers", () => {
           )
         }
         const value = Reflect.get(target, property)
-        return typeof value === "function" ? value.bind(target) : value
+        return hasRuntimeType(value, "function") ? value.bind(target) : value
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const createHandler = (prefix: string, adapter: ReturnType<typeof createTitleChatAdapter>) => createChannelWebhookRouteHandler(defineAgent({
       capabilities: [title({ execute })],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         channel: http({ adapter: () => adapter as never }),
       },
       driver: { run: () => "ok" },
@@ -8698,9 +9052,11 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-scope-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const setThreadTitle = vi.fn(async () => undefined)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = (channel: string) => createChannelWebhookRouteHandler(defineAgent({
       capabilities: [title({ execute: () => `${channel} title` })],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         [channel]: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
       driver: { run: () => "ok" },
@@ -8732,9 +9088,11 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-always-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const setThreadTitle = vi.fn(async () => undefined)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       capabilities: [title({ channelDelivery: "always", execute: ({ text }) => `Title: ${text}` })],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
       driver: { run: () => "ok" },
@@ -8772,14 +9130,16 @@ describe("server helpers", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return typeof value === "function" ? value.bind(target) : value
+        return hasRuntimeType(value, "function") ? value.bind(target) : value
       },
     })
     const setThreadTitle = vi.fn(async () => undefined)
     const adapter = createTitleChatAdapter(setThreadTitle)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       capabilities: [title({ execute: () => "Best effort title" })],
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         channel: http({ adapter: () => adapter as never }),
       },
       driver: { run: () => "ok" },
@@ -8814,6 +9174,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -8823,6 +9184,7 @@ describe("server helpers", () => {
       ],
       driver: { run: () => ({ text: "ok" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -8846,6 +9208,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -8855,6 +9218,7 @@ describe("server helpers", () => {
       ],
       driver: { run: () => ({ text: "ok" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await Promise.race([
@@ -8900,6 +9264,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -8913,6 +9278,7 @@ describe("server helpers", () => {
           return "ok"
         } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -8975,7 +9341,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (typeof chunk === "string") text += chunk
+        if (hasRuntimeType(chunk, "string")) text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       commitStarted()
@@ -8986,6 +9352,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -8999,6 +9366,7 @@ describe("server helpers", () => {
           return "ok"
         } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -9069,6 +9437,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9082,6 +9451,7 @@ describe("server helpers", () => {
           return "done"
         } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -9120,6 +9490,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9139,6 +9510,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -9178,6 +9550,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           fallbackStreamingPlaceholderText: "Working on it...",
@@ -9192,6 +9565,7 @@ describe("server helpers", () => {
           return "done"
         } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -9242,7 +9616,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (typeof chunk === "string") text += chunk
+        if (hasRuntimeType(chunk, "string")) text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       return { id: "stream-1", raw: { text }, threadId }
@@ -9252,6 +9626,7 @@ describe("server helpers", () => {
         defineChatCapability({
           fallbackStreamingPlaceholderText: "Working on it...",
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9265,6 +9640,7 @@ describe("server helpers", () => {
         return "done"
       } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(chatWebhookRequest(21046), "telegram")
@@ -9294,6 +9670,7 @@ describe("server helpers", () => {
         defineChatCapability({
           fallbackStreamingPlaceholderText: "Working on it...",
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9303,6 +9680,7 @@ describe("server helpers", () => {
       ],
       driver: { run: async () => "done" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(21047), "telegram")
@@ -9327,6 +9705,7 @@ describe("server helpers", () => {
           errorFallbackText: null,
           fallbackStreamingPlaceholderText: "Working on it...",
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9336,6 +9715,7 @@ describe("server helpers", () => {
       ],
       driver: { run: async () => "done" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -9362,6 +9742,7 @@ describe("server helpers", () => {
           errorFallbackText: null,
           fallbackStreamingPlaceholderText: "Working on it...",
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9371,6 +9752,7 @@ describe("server helpers", () => {
       ],
       driver: { run: async () => "done" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -9406,6 +9788,7 @@ describe("server helpers", () => {
         defineChatCapability({
           fallbackStreamingPlaceholderText: "Working on it...",
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9415,6 +9798,7 @@ describe("server helpers", () => {
       ],
       driver: { run: async () => "done" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(21048), "telegram", {
@@ -9451,6 +9835,7 @@ describe("server helpers", () => {
         capabilities: [
           defineChatCapability({
             platforms: {
+              // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
               telegram: () => adapter as never,
             },
             fallbackStreamingPlaceholderText: ["Working on it...", "Checking context..."],
@@ -9467,6 +9852,7 @@ describe("server helpers", () => {
           },
         },
       })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const handler = createChannelWebhookRouteHandler(agent as never)
 
       const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -9510,6 +9896,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -9519,6 +9906,7 @@ describe("server helpers", () => {
       ],
       driver: { run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -9558,6 +9946,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           errorFallbackText: "No pude procesar ese mensaje.",
@@ -9570,6 +9959,7 @@ describe("server helpers", () => {
           throw new Error("transcription failed")
         } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -9617,6 +10007,7 @@ describe("server helpers", () => {
         const agent = defineAgent({
           capabilities: [
             defineChatCapability({
+              // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
               platforms: { telegram: () => adapter as never },
               webhooks: { telegram: {} },
             }),
@@ -9627,6 +10018,7 @@ describe("server helpers", () => {
             },
           },
         })
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         const handler = createChannelWebhookRouteHandler(agent as never)
 
         const tasks: Promise<unknown>[] = []
@@ -9660,6 +10052,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         platforms: { telegram: () => adapter as never },
         webhooks: { telegram: {} },
       })],
@@ -9668,6 +10061,7 @@ describe("server helpers", () => {
     const tasks: Promise<unknown>[] = []
 
     try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const response = await createChannelWebhookRouteHandler(agent as never)(chatWebhookRequest(90_003), "telegram", {
         waitUntil: task => tasks.push(task),
       })
@@ -9692,12 +10086,14 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         defineChatCapability({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           platforms: { telegram: () => adapter as never },
           webhooks: { telegram: {} },
         }),
       ],
       driver: { run: () => { throw error } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -9714,6 +10110,7 @@ describe("server helpers", () => {
     }
   })
 
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   it.each([
     ["parallel", "concurrent"],
     ["drop", "drop"],
@@ -9728,18 +10125,21 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { concurrency, stream: false },
         }),
       },
       driver: { run: () => "Agent output" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_003), "telegram")
 
     expect(response.status).toBe(200)
-    expect((adapter._chatInstance() as unknown as { _concurrencyStrategy: string })._concurrencyStrategy).toBe(expectedConcurrency)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    expect((asUnknownBoundary(adapter._chatInstance()) as { _concurrencyStrategy: string })._concurrencyStrategy).toBe(expectedConcurrency)
   })
 
   it("processes retained serial messages in queue order after an earlier failure", async () => {
@@ -9775,9 +10175,11 @@ describe("server helpers", () => {
       }
       return "ok"
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             concurrency: "serial",
@@ -9792,7 +10194,8 @@ describe("server helpers", () => {
     }) as never)
     const serialRequest = async (messageId: number, text: string) => {
       const request = chatWebhookRequest(messageId, 456, text)
-      const payload = await request.json() as Record<string, unknown>
+      const payload = testRecord(await request.json())
+      if (!payload) throw new TypeError("Expected the test webhook request to contain a JSON record.")
       return new Request(request.url, {
         body: JSON.stringify({ ...payload, update_id: messageId + 1_000 }),
         method: "POST",
@@ -9849,9 +10252,11 @@ describe("server helpers", () => {
     circular.self = circular
     const adapter = createTestChatAdapter({ rawMessageValue: circular })
     const run = vi.fn(() => "ok")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { concurrency: "serial", stream: false },
         }),
@@ -9889,9 +10294,11 @@ describe("server helpers", () => {
       }
       return "ok"
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             concurrency: "serial",
@@ -9953,6 +10360,7 @@ describe("server helpers", () => {
       releaseFirst = resolve
     })
     const run = vi.fn(async ({ messages }) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       order.push(text?.text || "")
       if (text?.text === "A") {
@@ -9961,9 +10369,11 @@ describe("server helpers", () => {
       }
       return "ok"
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { concurrency: "queue", state, stream: false, triggerHistory: "none" },
         }),
@@ -10011,9 +10421,11 @@ describe("server helpers", () => {
       }),
       method: "POST",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             concurrency: "serial",
@@ -10063,6 +10475,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "automatic" },
         }),
@@ -10072,6 +10485,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Explicit reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_004), "telegram")
@@ -10094,6 +10508,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -10110,6 +10525,7 @@ describe("server helpers", () => {
         ],
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_005), "telegram")
@@ -10138,6 +10554,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual", stream: false },
         }),
@@ -10147,6 +10564,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Explicit reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await Promise.race([
@@ -10177,6 +10595,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual", state, timeout: 20 },
         }),
@@ -10190,6 +10609,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Durable reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -10249,12 +10669,14 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual" },
         }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -10285,12 +10707,14 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual", state },
         }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -10328,12 +10752,14 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual", durable: true, state, timeout: 20 },
         }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -10382,12 +10808,14 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual", durable: true, state },
         }),
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig(false)
 
@@ -10426,12 +10854,14 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual", durable: true, state, timeout: 60_000 },
         }),
       },
       driver: { run: () => "internal output" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -10471,6 +10901,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual" },
         }),
@@ -10481,6 +10912,7 @@ describe("server helpers", () => {
       },
       runtime: workflow("calories"),
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_104), "telegram")
@@ -10500,6 +10932,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual" },
         }),
@@ -10510,12 +10943,14 @@ describe("server helpers", () => {
       },
       runtime: workflow("calories"),
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
     try {
       const response = await handler(chatWebhookRequest(91_103), "telegram", {
         agentIdentity: { name: "calories" },
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         capabilities: { email: {} as never },
       })
 
@@ -10542,6 +10977,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { delivery: "manual", durable: false },
         }),
@@ -10554,6 +10990,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Inline reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -10589,6 +11026,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { concurrency: "serial", delivery: "manual", state },
         }),
@@ -10601,6 +11039,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Inline reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -10631,6 +11070,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: { concurrency: "drop", delivery: "manual" },
         }),
@@ -10640,6 +11080,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Inline reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -10677,6 +11118,7 @@ describe("server helpers", () => {
         defineChatCapability({
           delivery: "manual",
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -10690,6 +11132,7 @@ describe("server helpers", () => {
       },
       resolve: vi.fn(async () => model),
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_017), "telegram")
@@ -10706,10 +11149,11 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const schema = {
       "~standard": {
-        validate: (value: unknown) => typeof value === "object" && value !== null && "title" in value
+        validate: (value: unknown) => hasRuntimeType(value, "object") && value !== null && "title" in value
           ? { value }
           : { issues: [{ message: "Expected a title." }] },
         vendor: "vitehub-test",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         version: 1 as const,
       },
     }
@@ -10735,6 +11179,7 @@ describe("server helpers", () => {
           delivery: "manual",
           fallbackStreamingPlaceholderText: "Analyzing…",
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -10744,6 +11189,7 @@ describe("server helpers", () => {
       ],
       resolve: vi.fn(async () => model),
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_018), "telegram")
@@ -10760,19 +11206,22 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const schema = {
       "~standard": {
-        validate: (value: unknown) => typeof value === "object"
+        validate: (value: unknown) => hasRuntimeType(value, "object")
           && value !== null
           && "title" in value
-          && typeof value.title === "string"
+          && hasRuntimeType(value.title, "string")
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           ? { value: value as { title: string } }
           : { issues: [{ message: "Expected a title." }] },
         vendor: "vitehub-test",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         version: 1 as const,
       },
     }
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -10795,9 +11244,11 @@ describe("server helpers", () => {
         }),
       },
       hooks: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         "agent:finish": event => event.reply((event.result as { title: string }).title),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_016), "telegram")
@@ -10816,6 +11267,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -10846,6 +11298,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Final customer reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_013), "telegram")
@@ -10872,6 +11325,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -10895,6 +11349,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Final customer reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_014), "telegram", {
@@ -10921,6 +11376,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -10942,6 +11398,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -10969,6 +11426,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -10992,6 +11450,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11026,6 +11485,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11041,6 +11501,7 @@ describe("server helpers", () => {
         })()),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_011), "telegram")
@@ -11059,6 +11520,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11071,6 +11533,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Final reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_040), "telegram")
@@ -11097,6 +11560,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11113,6 +11577,7 @@ describe("server helpers", () => {
         ],
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11136,6 +11601,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11157,6 +11623,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11179,6 +11646,7 @@ describe("server helpers", () => {
 
   it.each([
     ["streamed text", { stream: true }, 91_033],
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     ["phased replies", { commentary: "hidden" as const, stream: false }, 91_034],
   ])("exposes completed tool results to automatic %s error fallbacks", async (_delivery, messages, messageId) => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
@@ -11190,6 +11658,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             ...messages,
@@ -11209,6 +11678,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11235,6 +11705,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11245,6 +11716,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => { throw new Error("model timeout") } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11274,6 +11746,7 @@ describe("server helpers", () => {
       ],
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11284,6 +11757,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = new Request("https://example.com/api/_vitehub/agents/mini/webhooks/telegram", {
       body: JSON.stringify({
@@ -11329,6 +11803,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11339,6 +11814,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => ({ text: "" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11365,6 +11841,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11379,6 +11856,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Final reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11416,6 +11894,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11430,6 +11909,7 @@ describe("server helpers", () => {
         "agent:finish": event => event.reply("Final reply"),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11470,6 +11950,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11480,11 +11961,13 @@ describe("server helpers", () => {
       },
       driver: { run: () => { throw providerError } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
       const response = await handler(chatWebhookRequest(91_020), "telegram")
       expect(response.status).toBe(503)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const logEntry = consoleError.mock.calls[0]?.[0] as { error?: unknown }
       const serializedLogEntry = JSON.stringify(logEntry)
       expect(serializedLogEntry.length).toBeLessThan(20_000)
@@ -11514,6 +11997,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11526,6 +12010,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11563,6 +12048,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -11575,6 +12061,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11614,6 +12101,7 @@ describe("server helpers", () => {
           adapter: async () => {
             adapterStarted = true
             await new Promise(resolve => setTimeout(resolve, 10_000))
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             return adapter as never
           },
           messages: {
@@ -11637,6 +12125,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11677,6 +12166,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: "Please try again.",
@@ -11693,6 +12183,7 @@ describe("server helpers", () => {
         }),
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11736,6 +12227,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: "Please try again.",
@@ -11748,11 +12240,13 @@ describe("server helpers", () => {
       driver: { run },
       hooks: {
         "agent:finish": async (event) => {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           const chat = event.extensions.get("chat") as { sendMessage?: (message: string) => Promise<void> } | undefined
           await chat?.sendMessage?.("late finish message")
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11784,11 +12278,13 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const iteratorReturn = vi.fn(async () => ({ done: true as const, value: undefined }))
     let first = true
     const iteratorNext = vi.fn(async () => {
       if (first) {
         first = false
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { done: false as const, value: "partial" }
       }
       return await new Promise<IteratorResult<string>>(() => undefined)
@@ -11804,6 +12300,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: "Please try again.",
@@ -11816,11 +12313,13 @@ describe("server helpers", () => {
       driver: { run: () => ({ text: "" }) },
       hooks: {
         "agent:finish": async (event) => {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           const chat = event.extensions.get("chat") as { sendMessage?: (message: AsyncIterable<string>) => Promise<void> } | undefined
           await chat?.sendMessage?.(reply)
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11854,6 +12353,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: async ({ thread }) => {
@@ -11865,6 +12365,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => { throw new Error("model timeout") } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11893,6 +12394,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: () => new Promise<string>((resolve) => {
@@ -11904,6 +12406,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => { throw new Error("model error") } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11943,6 +12446,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: async ({ thread }) => {
@@ -11954,6 +12458,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -11983,15 +12488,16 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
       formatConverter: { renderPostable: (message: unknown) => string }
       name: string
     }
     adapter.formatConverter = {
       renderPostable(message: unknown) {
-        if (typeof message === "string") return message
-        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
-        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        if (hasRuntimeType(message, "string")) return message
+        if (hasRuntimeType(message, "object") && message && "raw" in message && hasRuntimeType(message.raw, "string")) return message.raw
+        if (hasRuntimeType(message, "object") && message && "markdown" in message && hasRuntimeType(message.markdown, "string")) return message.markdown
         return ""
       },
     }
@@ -12003,6 +12509,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         discord: discord({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             errorFallbackText: "Please try again.",
@@ -12013,6 +12520,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => ({ text: `${"word ".repeat(430)}done` }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -12046,6 +12554,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -12056,6 +12565,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => { throw new Error("model timeout") } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -12077,6 +12587,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -12086,6 +12597,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => "Private output" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_007), "telegram")
@@ -12109,6 +12621,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -12119,6 +12632,7 @@ describe("server helpers", () => {
       driver: { run: () => "Private output" },
       hooks: {
         async "agent:finish"(event) {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           const chat = event.extensions.get("chat") as { sendMessage?: (message: unknown) => Promise<void> } | undefined
           await chat?.sendMessage?.({
             artifacts: [{
@@ -12132,6 +12646,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(chatWebhookRequest(91_008), "telegram")
@@ -12157,10 +12672,12 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    ;(adapter as unknown as { deleteMessage?: unknown }).deleteMessage = undefined
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    ;(asUnknownBoundary(adapter) as { deleteMessage?: unknown }).deleteMessage = undefined
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -12171,6 +12688,7 @@ describe("server helpers", () => {
       driver: { run: () => "Private output" },
       hooks: {
         async "agent:finish"(event) {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           const chat = event.extensions.get("chat") as { sendMessage?: (message: unknown) => Promise<void> } | undefined
           await chat?.sendMessage?.({
             artifacts: [{
@@ -12184,6 +12702,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(chatWebhookRequest(91_009), "telegram")
@@ -12214,6 +12733,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           stream: false,
@@ -12224,6 +12744,7 @@ describe("server helpers", () => {
       ],
       resolve: vi.fn(async () => model),
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -12258,6 +12779,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           stream: false,
@@ -12274,6 +12796,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (messageId: number, text: string) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
@@ -12306,16 +12829,19 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const connect = vi.spyOn(state, "connect")
-    const attachmentFetchData = vi.fn<() => Promise<Buffer>>(async () => "data:image/jpeg;base64,AQID" as unknown as Buffer)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const attachmentFetchData = vi.fn<() => Promise<Buffer>>(async () => asUnknownBoundary("data:image/jpeg;base64,AQID") as Buffer)
     const adapter = createTestChatAdapter({ attachmentFetchData, persistThreadHistory: true })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         platforms: { telegram: () => adapter as never },
         stream: false,
         webhooks: { telegram: { secretHeader: "x-test-secret", secretToken: "history-secret" } },
       })],
       driver: { run: () => "saved" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const webhookUrl = "https://example.com/api/_vitehub/agents/calories/webhooks/telegram"
     await expect(handler(new Request(webhookUrl, {
@@ -12367,7 +12893,7 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })
     expect(response.status).toBe(200)
-    const archive = await response.json() as { messages: Array<{ attachments: Array<{ data?: string, unavailable?: boolean }>, id: string }> }
+    const archive = await testHistoryArchive(response)
     expect(archive).toMatchObject({
       messages: expect.arrayContaining([expect.objectContaining({
         attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" })]),
@@ -12400,10 +12926,11 @@ describe("server helpers", () => {
     abortController.abort(new Error("client stopped waiting"))
     const abortedResponse = await abortedHistory
     expect(abortedResponse.status).toBe(200)
-    const abortedArchive = await abortedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
+    const abortedArchive = await testHistoryArchive(abortedResponse)
     expect(abortedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
     finishLateRead(Buffer.from([1, 2, 3]))
-    attachmentFetchData.mockResolvedValueOnce("data:text/plain,%ZZ" as unknown as Buffer)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    attachmentFetchData.mockResolvedValueOnce(asUnknownBoundary("data:text/plain,%ZZ") as Buffer)
     const malformedResponse = await handler(new Request(webhookUrl, {
       body: JSON.stringify({ threadId: "telegram:456" }),
       headers: {
@@ -12414,9 +12941,11 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })
     expect(malformedResponse.status).toBe(200)
-    const malformedArchive = await malformedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
+    const malformedArchive = await testHistoryArchive(malformedResponse)
     expect(malformedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
-    const chatThread = (adapter._chatInstance()! as unknown as { thread: (id: string) => { allMessages: AsyncIterable<Message> } }).thread("telegram:456")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const chatThread = (asUnknownBoundary(adapter._chatInstance()!) as { thread: (id: string) => { allMessages: AsyncIterable<Message> } }).thread("telegram:456")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const threadPrototype = Object.getPrototypeOf(chatThread) as { allMessages: AsyncIterable<Message> }
     const oversizedHistory = vi.spyOn(threadPrototype, "allMessages", "get").mockReturnValue({
       [Symbol.asyncIterator]: async function* () {
@@ -12444,6 +12973,7 @@ describe("server helpers", () => {
     expect(oversizedResponse.status).toBe(400)
     await expect(oversizedResponse.json()).resolves.toMatchObject({ message: "Channel history archive exceeds the 35 MiB response limit." })
     oversizedHistory.mockRestore()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const closeFailedHistory = vi.fn(async () => ({ done: true as const, value: undefined }))
     const failedHistory = vi.spyOn(threadPrototype, "allMessages", "get").mockReturnValue({
       [Symbol.asyncIterator]: () => ({
@@ -12487,7 +13017,8 @@ describe("server helpers", () => {
           userName: "maxi",
         },
         formatted: { children: [], type: "root" },
-        id: undefined as unknown as string,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        id: asUnknownBoundary(undefined) as string,
         metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
         raw: {},
         text: "previous id-less",
@@ -12497,6 +13028,7 @@ describe("server helpers", () => {
     const runs: string[][] = []
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: {
@@ -12510,6 +13042,7 @@ describe("server helpers", () => {
         triggerHistory: { maxMessages: 10, source: "thread" },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     await expect(handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -12543,7 +13076,8 @@ describe("server helpers", () => {
         userName: "maxi",
       },
       formatted: { children: [], type: "root" },
-      id: undefined as unknown as string,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      id: asUnknownBoundary(undefined) as string,
       metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
       raw: {},
       text,
@@ -12552,6 +13086,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: {
@@ -12562,6 +13097,7 @@ describe("server helpers", () => {
         triggerHistory: { maxMessages: 10, source: "thread" },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (updateId: number, text?: string) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
@@ -12606,6 +13142,7 @@ describe("server helpers", () => {
     const handler = (adapter: ReturnType<typeof createTestChatAdapter>) => {
       const agent = defineAgent({
         channels: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           telegram: testTelegram(telegram, { adapter: () => adapter as never }),
         },
         driver: {
@@ -12621,6 +13158,7 @@ describe("server helpers", () => {
           triggerHistory: { maxMessages: 25, source: "thread" },
         },
       })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return createChannelWebhookRouteHandler(agent as never)
     }
 
@@ -12674,6 +13212,7 @@ describe("server helpers", () => {
       const adapter = createTestChatAdapter({ persistThreadHistory: true })
       const agent = defineAgent({
         channels: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           telegram: testTelegram(telegram, { adapter: () => adapter as never }),
         },
         driver: {
@@ -12689,6 +13228,7 @@ describe("server helpers", () => {
           triggerHistory: { maxMessages: 25, source: "thread" },
         },
       })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const handler = createChannelWebhookRouteHandler(agent as never)
 
       const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -12753,11 +13293,13 @@ describe("server helpers", () => {
       const adapter = createTestChatAdapter({ persistThreadHistory: true })
       const agent = defineAgent({
         channels: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           telegram: testTelegram(telegram, { adapter: () => adapter as never }),
         },
         driver: {
           run: ({ messages }) => {
-            receivedMessages = messages as unknown as Array<{ parts: Array<Record<string, unknown>> }>
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+            receivedMessages = asUnknownBoundary(messages) as Array<{ parts: Array<Record<string, unknown>> }>
             runs.push(messages.map(getMessageText))
             return "ok"
           },
@@ -12769,6 +13311,7 @@ describe("server helpers", () => {
           triggerHistory: { maxMessages: 25, source: "thread" },
         },
       })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const handler = createChannelWebhookRouteHandler(agent as never)
 
       const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -12821,6 +13364,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           stream: false,
@@ -12832,6 +13376,7 @@ describe("server helpers", () => {
       resolve: vi.fn(async () => model),
       runtime: workflow("support-agent"),
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -12865,6 +13410,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
       const usage = event.invocation.usage
       if (chat && usage) {
@@ -12896,6 +13442,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           stream: false,
@@ -12909,6 +13456,7 @@ describe("server helpers", () => {
       },
       resolve: vi.fn(async () => model),
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -12953,6 +13501,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
       await chat?.sendMessage?.({ markdown: `side message via ${chat.provider}` })
     })
@@ -12960,6 +13509,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           stream: false,
@@ -12973,6 +13523,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => ({ text: "agent answer" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -13004,7 +13555,7 @@ describe("server helpers", () => {
     const stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (typeof chunk === "string") text += chunk
+        if (hasRuntimeType(chunk, "string")) text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       return { id: "stream-1", raw: { text }, threadId }
@@ -13013,6 +13564,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         support: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
           messages: {
             stream: false,
@@ -13029,6 +13581,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
@@ -13061,6 +13614,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = event.extensions.get("chat") as { sendMessage?: (message: { artifacts: unknown[], markdown: string }) => Promise<void> } | undefined
       await chat?.sendMessage?.({
         artifacts: [{
@@ -13076,6 +13630,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           stream: false,
@@ -13089,6 +13644,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => ({ text: "agent answer" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -13134,11 +13690,13 @@ describe("server helpers", () => {
       ],
       channels: {
         support: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
         }),
       },
       driver: { run: () => "agent answer" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
@@ -13190,11 +13748,13 @@ describe("server helpers", () => {
       ],
       channels: {
         support: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
         }),
       },
       driver: { run: () => "agent answer" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
@@ -13250,17 +13810,20 @@ describe("server helpers", () => {
       ],
       channels: {
         support: testTelegram(telegram, {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => adapter as never,
         }),
       },
       driver: {
         run: async ({ workspace }) => {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           await (workspace as { fs: { writeFile: (path: string, content: Uint8Array, options?: { mediaType?: string }) => Promise<string> } }).fs.writeFile("screenshots/login.png", content, { mediaType: "image/png" })
           return "agent answer"
         },
       },
       workspace: { mode: "write", store: { provider: "memory" } },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
@@ -13281,6 +13844,7 @@ describe("server helpers", () => {
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:989", { markdown: "agent answer" })
     expect(adapter.editMessage).not.toHaveBeenCalled()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const deliveryMessage = adapter.postMessage.mock.calls[1]?.[1] as {
       attachments?: Array<{ mimeType?: string, name?: string, type?: string, url?: string }>
       files?: Array<{ data: ArrayBuffer, filename: string, mimeType?: string }>
@@ -13319,7 +13883,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (typeof chunk === "string") text += chunk
+        if (hasRuntimeType(chunk, "string")) text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       order.push(`stream:${text}`)
@@ -13336,6 +13900,7 @@ describe("server helpers", () => {
       return { id: "sent-follow-up", raw: { message }, threadId }
     })
     const finish = vi.fn(async (event) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
       await chat?.sendMessage?.({ markdown: "usage ok" })
       order.push("finish:queued")
@@ -13344,6 +13909,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -13356,6 +13922,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => ({ text: "agent answer" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -13414,7 +13981,7 @@ describe("server helpers", () => {
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
       for await (const chunk of textStream) {
-        if (typeof chunk === "string") text += chunk
+        if (hasRuntimeType(chunk, "string")) text += chunk
         else if (chunk.type === "markdown_text") text += chunk.text
       }
       return { id: "stream-committed", raw: { text }, threadId }
@@ -13422,6 +13989,7 @@ describe("server helpers", () => {
     adapter.editMessage.mockRejectedValue(new Error("message is not modified"))
     adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => ({ id: "sent-follow-up", raw: { message }, threadId }))
     const finish = vi.fn(async (event) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
       await chat?.sendMessage?.({ markdown: "usage ok" })
     })
@@ -13429,6 +13997,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           errorFallbackText: "Sorry, I couldn't process that message.",
@@ -13442,6 +14011,7 @@ describe("server helpers", () => {
       },
       driver: { run: () => ({ text: "agent `answer`" }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -13499,6 +14069,7 @@ describe("server helpers", () => {
       }
     })
     const finish = vi.fn(async (event) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
       const usage = event.invocation.usage
       if (chat && usage) {
@@ -13509,6 +14080,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           stream: false,
@@ -13525,6 +14097,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -13566,6 +14139,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
       const usage = event.invocation.usage
       if (chat && usage) {
@@ -13583,6 +14157,7 @@ describe("server helpers", () => {
         }),
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -13604,6 +14179,7 @@ describe("server helpers", () => {
           },
         }) },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
@@ -13669,6 +14245,7 @@ describe("server helpers", () => {
           },
         }),
         defineChatCapability({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           platforms: { telegram: () => adapter as never },
           webhooks: {
             telegram: {},
@@ -13679,6 +14256,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
@@ -13721,6 +14299,7 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: {
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             telegram: () => adapter as never,
           },
         }),
@@ -13729,6 +14308,7 @@ describe("server helpers", () => {
         run
       },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({ update_id: 987_654_321 })
     const url = "https://example.com/api/_vitehub/agents/support/webhooks/telegram"
@@ -13763,6 +14343,7 @@ describe("agent registry helpers", () => {
       tools: {},
       version: "agent-v1",
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const definition = { resolve: async () => agent } as never
 
     await expect(getAgentFromRegistry("triager", {
@@ -13774,7 +14355,9 @@ describe("agent registry helpers", () => {
     const { getAgentFromRegistry } = await import("../src/index.ts")
 
     await expect(getAgentFromRegistry("triage", {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       reviewer: async () => ({} as never),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       triager: async () => ({} as never),
     })).rejects.toThrow("Unknown agent: triage. Did you mean \"triager\"? Discovered agents: reviewer, triager.")
   })

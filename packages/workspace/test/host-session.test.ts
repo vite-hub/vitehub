@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { promisify } from "node:util"
@@ -8,6 +8,7 @@ import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runti
 
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
+import { custom } from "../src/sources/custom.ts"
 import { fetch as fetchSource } from "../src/sources/fetch.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts"
@@ -26,9 +27,12 @@ function localHost(): WorkspaceSessionHost {
       },
       async list(path, options) {
         const entries: WorkspaceSessionHostFileEntry[] = []
+        const excluded = options?.exclude || []
+        const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         async function visit(root: string) {
           for (const entry of await readdir(root, { withFileTypes: true })) {
             const path = join(root, entry.name)
+            if (isExcluded(path)) continue
             const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
             entries.push({ path, ...(type === "file" ? { size: (await stat(path)).size } : {}), type })
             if (options?.recursive && type === "directory") await visit(path)
@@ -73,14 +77,18 @@ async function revisionArchive() {
   const source = await mkdtemp(join(tmpdir(), "vitehub-revision-source-"))
   const root = join(source, "repo-base", ".vitehub", "workspaces", "docs")
   await mkdir(join(root, "scripts"), { recursive: true })
+  await mkdir(join(root, ".agent-runs"), { recursive: true })
   await mkdir(join(root, ".git"), { recursive: true })
   await mkdir(join(root, ".vitehub", "meta"), { recursive: true })
   await mkdir(join(root, ".vitehub-revision"), { recursive: true })
+  await mkdir(join(root, "nested", ".Git", "objects"), { recursive: true })
   await writeFile(join(root, "README.md"), "# Docs\n")
+  await writeFile(join(root, ".agent-runs", "trace.json"), "internal")
   await writeFile(join(root, ".git", "config"), "internal")
   await writeFile(join(root, ".vitehub", "meta", "state.json"), "{}")
   await writeFile(join(root, ".vitehub-revision", "kept.txt"), "kept")
   await writeFile(join(root, ".vitehub-revision.tar.gz"), "kept archive name")
+  await writeFile(join(root, "nested", ".Git", "objects", "pack"), "internal")
   await writeFile(join(root, "scripts", "run.sh"), "#!/bin/sh\n")
   await execFileAsync("chmod", ["+x", join(root, "scripts", "run.sh")])
   await symlink("README.md", join(root, "CLAUDE.md"))
@@ -142,21 +150,26 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
       async list(path, options) {
         const root = normalize(path)
         const prefix = root === "/" ? "/" : `${root}/`
+        const excluded = options?.exclude?.map(normalize) || []
+        const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         const entries: WorkspaceSessionHostFileEntry[] = []
         for (const directory of directories) {
           if (directory === root || !directory.startsWith(prefix)) continue
+          if (isExcluded(directory)) continue
           const relative = directory.slice(prefix.length)
           if (!options?.recursive && relative.includes("/")) continue
           entries.push({ path: directory, type: "directory" })
         }
         for (const [file, content] of files) {
           if (!file.startsWith(prefix)) continue
+          if (isExcluded(file)) continue
           const relative = file.slice(prefix.length)
           if (!options?.recursive && relative.includes("/")) continue
           entries.push({ path: file, size: content.byteLength, type: "file" })
         }
         for (const file of symlinks.keys()) {
           if (!file.startsWith(prefix)) continue
+          if (isExcluded(file)) continue
           const relative = file.slice(prefix.length)
           if (!options?.recursive && relative.includes("/")) continue
           entries.push({ path: file, type: "symlink" })
@@ -240,6 +253,70 @@ function workspace() {
 }
 
 describe("workspace host sessions", () => {
+  it("prunes reserved local-store metadata during Session materialization", async () => {
+    const source = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-source-"))
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-target-"))
+    const target = join(targetParent, "workspace")
+    await mkdir(join(source, ".git"), { recursive: true })
+    await mkdir(join(source, ".agent-runs"), { recursive: true })
+    await mkdir(join(source, ".vitehub", "meta"), { recursive: true })
+    await mkdir(join(source, "docs", ".Git", "objects"), { recursive: true })
+    await writeFile(join(source, ".git", "config"), "internal")
+    await writeFile(join(source, ".agent-runs", "trace.json"), "internal")
+    await writeFile(join(source, ".vitehub", "meta", "state.json"), "internal")
+    await writeFile(join(source, "docs", ".Git", "objects", "pack"), "internal")
+    await writeFile(join(source, "README.md"), "# Docs\n")
+    const excluded = [
+      join(source, ".git"),
+      join(source, ".agent-runs"),
+      join(source, ".vitehub", "meta"),
+      join(source, "docs", ".Git"),
+    ]
+    if (process.platform !== "win32") {
+      await Promise.all(excluded.map(path => chmod(path, 0)))
+    }
+    const docs = createWorkspace({
+      ...defineWorkspace({
+        sources: {
+          request: fetchSource({ url: "https://status.example.com/request" }),
+        },
+        store: { provider: "local", root: source },
+      }),
+      name: "local-docs",
+    })
+
+    try {
+      const session = await docs.startSession({ host: localHost(), target })
+      await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
+      await expect(session.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+      await expect(stat(join(target, ".agent-runs"))).rejects.toThrow()
+      await expect(stat(join(target, ".git"))).rejects.toThrow()
+      await expect(stat(join(target, ".vitehub", "meta"))).rejects.toThrow()
+      await expect(stat(join(target, "docs", ".Git"))).rejects.toThrow()
+      await session.close()
+
+      const scoped = await docs.startSession({
+        host: localHost(),
+        paths: [".vitehub"],
+        target: join(targetParent, "scoped"),
+      })
+      await expect(scoped.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+      await expect(scoped.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ".vitehub/meta" }),
+      ]))
+      await scoped.close()
+    }
+    finally {
+      if (process.platform !== "win32") {
+        await Promise.all(excluded.map(path => chmod(path, 0o700)))
+      }
+      await Promise.all([
+        rm(source, { force: true, recursive: true }),
+        rm(targetParent, { force: true, recursive: true }),
+      ])
+    }
+  })
+
   it("extracts a pinned revision archive with root, mode, symlink, and progress semantics", async () => {
     const docs = workspace()
     const archive = await revisionArchive()
@@ -273,8 +350,10 @@ describe("workspace host sessions", () => {
       await expect(session.readFile(".vitehub-revision/kept.txt")).resolves.toBe("kept")
       await expect(session.readFile(".vitehub-revision.tar.gz")).resolves.toBe("kept archive name")
       await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ".agent-runs/trace.json" }),
         expect.objectContaining({ path: ".git/config" }),
         expect.objectContaining({ path: ".vitehub/meta/state.json" }),
+        expect.objectContaining({ path: "nested/.Git/objects/pack" }),
       ]))
       await expect(session.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ metadata: { gitMode: "120000" }, path: "CLAUDE.md" }),
@@ -602,11 +681,21 @@ describe("workspace host sessions", () => {
     }
   })
 
-  it("keeps descriptor and live Source files on the source-aware fallback", async () => {
+  it("keeps descriptor, live, and root-mounted lazy Source files on the source-aware fallback", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
       headers: { "content-type": "application/json" },
     }))
     const store = createMemoryWorkspaceStore() as ReturnType<typeof createMemoryWorkspaceStore> & WorkspaceRevisionMaterializerCarrier
+    const listStoreEntries = store.list.bind(store)
+    const reservedListCalls: string[] = []
+    store.list = async (path, options) => {
+      const listedPath = path || ""
+      if (listedPath === ".vitehub" || listedPath.startsWith(".vitehub/")) {
+        reservedListCalls.push(listedPath)
+        throw new Error("backing Store received a reserved list path")
+      }
+      return await listStoreEntries(path, options)
+    }
     let archiveMaterializations = 0
     store[workspaceRevisionMaterializer] = {
       async currentRevision() {
@@ -621,6 +710,16 @@ describe("workspace host sessions", () => {
       ...defineWorkspace({
         sources: {
           request: fetchSource({ url: "https://status.example.com/request" }),
+          root: custom({
+            materialize: "lazy",
+            mount: "",
+            async getKeys() {
+              return ["AGENTS.md"]
+            },
+            async getItem(key) {
+              return { content: "# Instructions\n", key, path: key }
+            },
+          }),
           status: fetchSource({ url: "https://status.example.com/live", workspacePath: "status.json" }),
         },
         store,
@@ -629,11 +728,71 @@ describe("workspace host sessions", () => {
     })
 
     const session = await docs.startSession({ host: memoryHost() })
+    await expect(session.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
     await expect(session.readFile("status.json")).resolves.toContain('"status": "ok"')
     await expect(session.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+    expect(reservedListCalls).toEqual([])
     expect(archiveMaterializations).toBe(0)
     await session.close()
+
+    const scoped = await docs.startSession({ host: memoryHost(), paths: [".vitehub"] })
+    await expect(scoped.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+    expect(reservedListCalls).toEqual([])
+    await expect(scoped.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".vitehub/meta" }),
+    ]))
+    await scoped.close()
     vi.restoreAllMocks()
+  })
+
+  it("honors list exclusions in hosted Sessions", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await docs.writeFile("public/readme.md", "public")
+    await docs.writeFile("private/secret.txt", "private")
+    const session = await docs.startSession({ host })
+    const list = host.files.list.bind(host.files)
+    const inspected: Array<{ options?: { exclude?: readonly string[], recursive?: boolean }, path: string }> = []
+    host.files.list = async (path, options) => {
+      inspected.push({ options, path })
+      if (path.startsWith("/workspace/private")) throw new Error("excluded subtree inspected")
+      return await list(path, options)
+    }
+
+    await expect(session.list("", { exclude: ["private"], recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "public", type: "directory" }),
+      expect.objectContaining({ path: "public/readme.md", type: "file" }),
+    ])
+    expect(inspected).toEqual([{
+      options: { exclude: ["/workspace/private"], recursive: true },
+      path: "/workspace",
+    }])
+    inspected.length = 0
+    await expect(session.list("", { exclude: ["/private"], recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "public", type: "directory" }),
+      expect.objectContaining({ path: "public/readme.md", type: "file" }),
+    ])
+    expect(inspected).toEqual([{
+      options: { exclude: ["/workspace/private"], recursive: true },
+      path: "/workspace",
+    }])
+    inspected.length = 0
+    await expect(session.list("", { exclude: ["private"] })).resolves.toEqual([
+      expect.objectContaining({ path: "public", type: "directory" }),
+    ])
+    expect(inspected).toEqual([{
+      options: { exclude: ["/workspace/private"], recursive: false },
+      path: "/workspace",
+    }])
+    inspected.length = 0
+    await expect(session.list("private", { exclude: ["private"], recursive: true })).resolves.toEqual([])
+    expect(inspected).toEqual([])
+    for (const root of ["", "/"]) {
+      inspected.length = 0
+      await expect(session.list("", { exclude: [root], recursive: true })).resolves.toEqual([])
+      expect(inspected).toEqual([])
+    }
+    await session.close()
   })
 
   it("rejects one concurrent publication after its pinned revision becomes stale", async () => {
@@ -1218,6 +1377,42 @@ describe("workspace host sessions", () => {
 
     expect(maximum).toBeGreaterThan(1)
     expect(maximum).toBeLessThanOrEqual(16)
+  })
+
+  it("uses host-reported executable modes without spawning probes", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const list = host.files.list.bind(host.files)
+    const exec = host.exec.bind(host)
+    let probes = 0
+    let runExecutable = true
+    host.files.list = async (path, options) => (await list(path, options)).map(entry => entry.type === "file"
+      ? { ...entry, executable: entry.path.endsWith("/scripts/run.sh") ? runExecutable : host.isExecutable(entry.path) }
+      : entry)
+    host.exec = async (command, args, options) => {
+      if (command === "test" && args?.[0] === "-x") probes++
+      return await exec(command, args, options)
+    }
+    await docs.writeFile("README.md", "docs")
+    await docs.writeFile("scripts/run.sh", "#!/bin/sh\n", { metadata: { gitMode: "100755" } })
+    await docs.snapshot({ name: "baseline" })
+
+    const session = await docs.startSession({ host })
+    await expect(session.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ metadata: undefined, path: "README.md" }),
+      expect.objectContaining({ metadata: { gitMode: "100755" }, path: "scripts/run.sh" }),
+    ]))
+    runExecutable = false
+    await expect(session.diff()).resolves.toMatchObject({ entries: [expect.objectContaining({
+      after: expect.objectContaining({ metadata: undefined }),
+      before: expect.objectContaining({ metadata: { gitMode: "100755" } }),
+      path: "scripts/run.sh",
+      type: "modified",
+    })] })
+    await session.close()
+
+    expect(probes).toBe(0)
+    expect(host.isExecutable("/workspace/scripts/run.sh")).toBe(true)
   })
 
   it("keeps unsafe symlinks inert and rejects writes through symlink parents", async () => {

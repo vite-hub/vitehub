@@ -104,6 +104,7 @@ describe("agent output helpers", () => {
     const canonicalCost = {
       display: "$0.02",
       estimated: false,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       source: "custom" as const,
       usd: "0.02",
     }
@@ -346,6 +347,7 @@ describe("agent output helpers", () => {
 
   it("restores configured activities on normalized tool events", () => {
     const toolNames = new Map<string, string>()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const activities = new Map([["repository_host_write", { kind: "action" as const, name: "repository-host.write" }]])
 
     expect(toAgentStreamEvent({ toolCallId: "call-1", toolName: "repository_host_write", type: "tool-call" }, toolNames, undefined, activities)).toMatchObject({

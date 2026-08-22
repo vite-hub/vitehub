@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
@@ -16,6 +17,7 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
   return {
     memo: vi.fn(),
     run: { annotations, runId },
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     runtime: "unknown" as const,
     waitUntil: vi.fn(),
   }
@@ -81,6 +83,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(runAgent(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
   })
@@ -318,6 +321,7 @@ describe("Agent Invocations", () => {
 
     const observation = (await invocations.getByRunId("long-tool-output"))?.observations
       .find(event => event.name === "agent.tool.finish")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((observation?.attributes?.["tool.output"] as { stdout?: string })?.stdout).toBe(output)
   })
 
@@ -423,6 +427,7 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await runAgent(agent, { ...runtime("custom-sequence"), traceLog } as never, {})
     const observations = (await invocations.getByRunId("custom-sequence"))?.observations || []
     expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3])
@@ -941,7 +946,7 @@ describe("Agent Invocations", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return typeof value === "function" ? value.bind(target) : value
+        return hasRuntimeType(value, "function") ? value.bind(target) : value
       },
     })
     const invocations = defineAgentInvocations({

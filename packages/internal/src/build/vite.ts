@@ -28,7 +28,6 @@ const projectRootDirectoryMarkers = [
   ["server", "browsers"],
   ["server", "emails"],
   ["server", "schedules"],
-  ["server", "templates"],
   ["server", "workspaces"],
 ]
 const projectRootFileMarkers = [

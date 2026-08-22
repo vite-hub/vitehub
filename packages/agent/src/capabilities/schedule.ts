@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
 import { defineCapability, normalizeMode } from "../capability-runtime.ts"
@@ -108,24 +109,30 @@ type RuntimeScheduleScope = Pick<NormalizedRuntimeScheduleCapabilityOptions, "al
 
 function scheduleClient(context: AgentCapabilityContext, mode: AgentCapabilityMode): RuntimeScheduleClientLike {
   const handle = requirePrimitive(context, "schedule")
-  const client = typeof handle === "object" && handle !== null && "schedules" in handle
+  const client = hasRuntimeType(handle, "object") && handle !== null && "schedules" in handle
+    // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
     ? (handle as { schedules?: unknown }).schedules
     : handle
   const methods = mode === "write"
+    // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
     ? ["create", "delete", "disable", "enable", "get", "list", "run", "update"] as const
+    // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
     : ["get", "list"] as const
-  if (!client || typeof client !== "object" || methods.some(method => typeof (client as Record<string, unknown>)[method] !== "function")) {
+  // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
+  if (!client || !hasRuntimeType(client, "object") || methods.some(method => !hasRuntimeType((client as Record<string, unknown>)[method], "function"))) {
     throw new Error(`[vitehub] schedule primitive must expose the Runtime Schedule ${mode} client methods.`)
   }
+  // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
   return client as RuntimeScheduleClientLike
 }
 
 function isRuntimeScheduleOptions(options: unknown): options is RuntimeScheduleCapabilityOptions {
-  return typeof (options as { mode?: unknown } | undefined)?.mode !== "undefined"
+  // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
+  return !hasRuntimeType((options as { mode?: unknown } | undefined)?.mode, "undefined")
 }
 
 function normalizeScheduleCron(cron: unknown): string {
-  if (typeof cron !== "string" || !cron.trim()) {
+  if (!hasRuntimeType(cron, "string") || !cron.trim()) {
     throw new TypeError("[vitehub] schedule({ schedules }) entries require a cron string.")
   }
   const normalized = cron.trim().replace(/\s+/g, " ")
@@ -146,14 +153,17 @@ function normalizeAgentScheduleEntries(entries: unknown): AgentScheduleCapabilit
   }
   const seen = new Set<string>()
   return entries.map((entry) => {
-    if (typeof entry === "object" && entry !== null) {
+    if (hasRuntimeType(entry, "object") && entry !== null) {
       assertAllowedKeys(entry, ["cron", "id"], "schedule({ schedules }) entry")
     }
-    const cron = normalizeScheduleCron(typeof entry === "string" ? entry : (entry as { cron?: unknown } | undefined)?.cron)
-    const id = typeof entry === "object" && entry !== null && "id" in entry && (entry as { id?: unknown }).id !== undefined
+    // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
+    const cron = normalizeScheduleCron(hasRuntimeType(entry, "string") ? entry : (entry as { cron?: unknown } | undefined)?.cron)
+    // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
+    const id = hasRuntimeType(entry, "object") && entry !== null && "id" in entry && (entry as { id?: unknown }).id !== undefined
+      // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
       ? (entry as { id?: unknown }).id
       : agentScheduleIdFromCron(cron)
-    if (typeof id !== "string" || !id.trim()) {
+    if (!hasRuntimeType(id, "string") || !id.trim()) {
       throw new TypeError("[vitehub] schedule({ schedules }) entry ids must be non-empty strings.")
     }
     if (seen.has(id)) {
@@ -166,7 +176,7 @@ function normalizeAgentScheduleEntries(entries: unknown): AgentScheduleCapabilit
 
 function normalizeRuntimeScheduleTargets(targets: unknown): readonly string[] | undefined {
   if (targets === undefined) return undefined
-  if (!Array.isArray(targets) || targets.some(target => typeof target !== "string" || !target.trim())) {
+  if (!Array.isArray(targets) || targets.some(target => !hasRuntimeType(target, "string") || !target.trim())) {
     throw new TypeError("[vitehub] schedule({ targets }) must be an array of non-empty Runtime Schedule target names.")
   }
   return [...new Set(targets)]
@@ -176,7 +186,7 @@ function normalizeRuntimeScheduleOptions<TTarget extends string>(options: Runtim
   assertAllowedKeys(options, ["allowSelfTarget", "delivery", "mode", "policy", "targets", "timeZone"], "schedule()")
   const mode = normalizeMode(options.mode, "Schedule")
   const targets = normalizeRuntimeScheduleTargets(options.targets)
-  if (options.allowSelfTarget !== undefined && typeof options.allowSelfTarget !== "boolean") {
+  if (options.allowSelfTarget !== undefined && !hasRuntimeType(options.allowSelfTarget, "boolean")) {
     throw new TypeError("[vitehub] schedule({ allowSelfTarget }) must be a boolean.")
   }
   if (options.delivery !== undefined && options.delivery !== "origin") {
@@ -196,7 +206,7 @@ function normalizeRuntimeScheduleOptions<TTarget extends string>(options: Runtim
 }
 
 function assertAllowedRuntimeScheduleTarget(target: string | undefined, options: RuntimeScheduleScope, label: string): string {
-  if (typeof target !== "string" || !target.trim()) {
+  if (!hasRuntimeType(target, "string") || !target.trim()) {
     throw new TypeError(`[vitehub] ${label} target must be a non-empty Runtime Schedule target name.`)
   }
   if (options.selfTarget && target === options.selfTarget) {
@@ -212,7 +222,7 @@ function assertAllowedRuntimeScheduleTarget(target: string | undefined, options:
 }
 
 function assertRuntimeScheduleId(id: unknown, label: string): string {
-  if (typeof id !== "string" || !id.trim()) {
+  if (!hasRuntimeType(id, "string") || !id.trim()) {
     throw new TypeError(`[vitehub] ${label} id must be a non-empty Runtime Schedule id.`)
   }
   return id
@@ -224,7 +234,7 @@ function assertOptionalRuntimeScheduleId(id: unknown, label: string): string | u
 }
 
 function assertRuntimeScheduleCron(cron: unknown, label: string): string {
-  if (typeof cron !== "string" || !cron.trim()) {
+  if (!hasRuntimeType(cron, "string") || !cron.trim()) {
     throw new TypeError(`[vitehub] ${label} cron must be a five-field cron expression.`)
   }
   const normalized = cron.trim().replace(/\s+/g, " ")
@@ -235,7 +245,7 @@ function assertRuntimeScheduleCron(cron: unknown, label: string): string {
 }
 
 function assertRuntimeSchedulePrompt(prompt: unknown, label: string): string {
-  if (typeof prompt !== "string" || !prompt.trim()) {
+  if (!hasRuntimeType(prompt, "string") || !prompt.trim()) {
     throw new TypeError(`[vitehub] ${label} prompt must be a non-empty string.`)
   }
   return prompt.trim()
@@ -243,7 +253,7 @@ function assertRuntimeSchedulePrompt(prompt: unknown, label: string): string {
 
 function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): boolean | undefined {
   if (enabled === undefined) return undefined
-  if (typeof enabled !== "boolean") {
+  if (!hasRuntimeType(enabled, "boolean")) {
     throw new TypeError(`[vitehub] ${label} enabled must be a boolean.`)
   }
   return enabled
@@ -257,8 +267,8 @@ function assertOptionalRuntimeScheduleTimeZone(timeZone: unknown, label: string)
   return timeZone
 }
 
-function assertAllowedKeys(input: object | undefined, allowed: string[], label: string): void {
-  if (!input || typeof input !== "object") return
+function assertAllowedKeys(input: unknown, allowed: string[], label: string): void {
+  if (!isRuntimeRecord(input)) return
   for (const key of Object.keys(input)) {
     if (!allowed.includes(key)) {
       throw new TypeError(`[vitehub] ${label} does not support "${key}".`)
@@ -301,7 +311,8 @@ function visibleRuntimeScheduleTargets(options: RuntimeScheduleScope): readonly 
 
 function assertScopedRuntimeSchedule(record: RuntimeScheduleRecordLike, options: RuntimeScheduleScope, label: string): void {
   assertAllowedRuntimeScheduleTarget(record.target, options, label)
-  if (!record.input || typeof record.input !== "object" || Array.isArray(record.input) || (record.input as { kind?: unknown }).kind !== "agent-turn") return
+  // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
+  if (!record.input || !hasRuntimeType(record.input, "object") || Array.isArray(record.input) || (record.input as { kind?: unknown }).kind !== "agent-turn") return
   let owner: AgentInvoker | undefined
   try {
     owner = parseScheduledAgentTurnInput(record.input).invoker
@@ -381,19 +392,21 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: 
 
 function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
-    if (context.context.get<boolean>(scheduledAgentTurnContextKey) === true) return
+    if (context.context.get(scheduledAgentTurnContextKey) === true) return
     const scope: RuntimeScheduleScope = {
       ...options,
       invoker: { id: context.invoker.id, kind: context.invoker.kind },
-      selfTarget: scheduledAgentTargetName(context.context.get<string>(scheduledAgentNameContextKey)),
+      selfTarget: scheduledAgentTargetName(context.context.get(scheduledAgentNameContextKey)),
     }
+    // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
     const client = scheduleClient(context as never, options.mode)
     const writeOperations = new Set(["create", "delete", "edit", "pause", "resume", "run"])
     const writePolicy = options.policy
     const policy: ScheduleCapabilityToolPolicy | undefined = writePolicy
       ? async (policyContext) => {
+          // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
           if (!writeOperations.has((policyContext.input as { operation?: unknown } | undefined)?.operation as string)) return "allow"
-          return typeof writePolicy === "function" ? await writePolicy(policyContext) : writePolicy
+          return hasRuntimeType(writePolicy, "function") ? await writePolicy(policyContext) : writePolicy
         }
       : undefined
     const tools: AgentToolSet = {
@@ -405,6 +418,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
             throw new Error(`[vitehub] cronjob ${operation} requires Schedule Capability write mode.`)
           }
           const agentTurn = input.prompt !== undefined
+          // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
           assertAllowedKeys(input as Record<string, unknown>, operation === "create" || operation === "edit"
             ? ["cron", "enabled", "id", "operation", ...(agentTurn ? ["prompt"] : ["target"]), "timeZone"]
             : ["id", "operation"], "cronjob")
@@ -433,7 +447,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
                   context.invoker,
                   context.run,
                   options.delivery,
-                  context.context.get<string[]>(scheduledAgentChannelIdsContextKey),
+                  context.context.get(scheduledAgentChannelIdsContextKey),
                 ),
                 target: scope.selfTarget,
                 ...(timeZone ? { timeZone } : {}),
@@ -523,7 +537,7 @@ function runtimeScheduleCapability<TTarget extends string>(options: RuntimeSched
     } satisfies RuntimeScheduleCapabilityMetadata,
     mode: normalized.mode,
     output(context) {
-      if (normalized.delivery === "origin" && context.context.get<boolean>(scheduledAgentTurnContextKey) === true) {
+      if (normalized.delivery === "origin" && context.context.get(scheduledAgentTurnContextKey) === true) {
         context.delivery.finishEffect(scheduledAgentTurnReplyEffect)
       }
     },

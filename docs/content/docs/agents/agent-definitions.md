@@ -15,7 +15,7 @@ ViteHub discovers definitions in `server/agents`. Both `server/agents/support.ts
 Start with the execution path. This Agent uses ViteHub's built-in Codex Driver:
 
 ```ts [server/agents/review.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   description: 'Reviews the current repository change.',
@@ -42,9 +42,9 @@ For application-supplied execution, use exactly one structural Driver variant: `
 Capabilities decide which runtime abilities the selected Driver receives. Workspace context decides which files and Sources those abilities can reach.
 
 ```ts [server/agents/support/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { glob } from '@vite-hub/workspace'
+import { defineAgent } from 'vite-hub/agent'
+import { workspaceShell } from 'vite-hub/agent/capabilities'
+import { glob } from 'vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -69,7 +69,7 @@ Set `driver.output` when downstream code needs validated data instead of free-fo
 
 ```ts [server/agents/triage.ts]
 import * as v from 'valibot'
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: {

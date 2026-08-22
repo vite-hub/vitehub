@@ -8,23 +8,18 @@ icon: i-lucide-git-pull-request
 ---
 
 `repositoryHost()` gives an Agent a provider-neutral Repository Host Capability.
-Use it when the Agent needs GitHub, GitLab, Bitbucket, or another repository host through a configured client boundary.
+Use it when the Agent needs GitHub, GitLab, Bitbucket, or another repository host through a configured client.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 Provide a client directly or configure a `repository-host` primitive.
-
-## What it adds
 
 The Capability adds `repository_host_read` in read mode.
 In write mode it also adds `repository_host_write` for comments and reactions through the configured Repository Host client.
 
-## Configuration
+## Configure repository tools
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { repositoryHost } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { repositoryHost } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -38,7 +33,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How repository tools work
 
 `repository_host_read` accepts normalized operations for repositories, Change Requests, Change Request files, issues, comments, checks, and statuses.
 Operations that target a single Change Request, issue, comment, check, or status require `target.id`.
@@ -69,13 +64,12 @@ The client must expose `read()`, and write mode also requires `write()` before t
 | `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `repository_host_write`. |
 | `provider` | `"github" \| "gitlab" \| "bitbucket" \| string` | client provider | Provider metadata for inspection. |
 
-## Inspect and verify
+## Verify repository tools
 
 Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 Read one repository or Change Request through `repository_host_read`, then verify read mode exposes no write tool. When using an explicit approval policy, verify that posting comments or reactions requests approval.
 
-## Reference
+## Related pages
 
 - [Custom capabilities](/docs/capabilities/custom-capabilities)
 - [Agent triggers](/docs/agents/triggers)
-- Source: `packages/agent/src/capabilities/repository-host.ts`

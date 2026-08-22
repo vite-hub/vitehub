@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { otlpHttpJson } from "../telemetry.ts"
 
@@ -17,7 +18,7 @@ export interface OtlpCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig
 export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: OtlpCapabilityOptions<TRuntimeConfig>,
 ): AgentCapabilityDefinition<TRuntimeConfig> {
-  if (!options || typeof options !== "object" || typeof options.endpoint !== "string" || !options.endpoint.trim()) {
+  if (!options || !hasRuntimeType(options, "object") || !hasRuntimeType(options.endpoint, "string") || !options.endpoint.trim()) {
     throw new TypeError("[vitehub] otlp({ endpoint }) requires a non-empty traces endpoint.")
   }
   return defineCapability({

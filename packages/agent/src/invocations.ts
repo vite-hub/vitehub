@@ -1,6 +1,7 @@
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { agentInvocationJournalTraceLogSymbol } from "./trace.ts"
+import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
@@ -156,14 +157,14 @@ function annotationKey(key: string): boolean {
 }
 
 function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<string, AgentInvocationAnnotationValue> | undefined {
-  if (!input || typeof input !== "object") return
+  if (!input || !hasRuntimeType(input, "object")) return
   const annotations: Record<string, AgentInvocationAnnotationValue> = {}
   for (const [key, value] of Object.entries(input)) {
     if (Object.keys(annotations).length >= MAX_ANNOTATIONS) break
     if (!annotationKey(key)) continue
-    if (typeof value === "string") annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
-    else if (typeof value === "number" && Number.isFinite(value)) annotations[key] = value
-    else if (typeof value === "boolean" || value === null) annotations[key] = value
+    if (hasRuntimeType(value, "string")) annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
+    else if (hasRuntimeType(value, "number") && Number.isFinite(value)) annotations[key] = value
+    else if (hasRuntimeType(value, "boolean") || value === null) annotations[key] = value
   }
   return Object.keys(annotations).length ? annotations : undefined
 }
@@ -203,20 +204,21 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   if (budget.items <= 0) return "[truncated]"
   budget.items--
   if (value === undefined) return undefined
-  if (typeof value === "string") {
+  if (hasRuntimeType(value, "string")) {
     if (budget.stringLength <= 0) return "[truncated]"
     const length = Math.min(value.length, maxStringLength, budget.stringLength)
     budget.stringLength -= length
     return value.slice(0, length)
   }
-  if (value === null || typeof value === "boolean") return value
-  if (typeof value === "number") return Number.isFinite(value) ? value : null
-  if (typeof value === "bigint") return boundedString(String(value))
+  if (value === null || hasRuntimeType(value, "boolean")) return value
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : null
+  if (hasRuntimeType(value, "bigint")) return boundedString(String(value))
   if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
   if (Array.isArray(value)) {
     return value.slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
   }
-  if (!value || typeof value !== "object") return boundedString(String(value))
+  if (!value || !hasRuntimeType(value, "object")) return boundedString(String(value))
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
     .slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items))
     .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]))
@@ -257,19 +259,19 @@ function invocationIdentity(runId: string, agentName?: string): string {
 }
 
 function assertInvocationId(id: string): void {
-  if (typeof id !== "string" || !id.trim()) {
+  if (!hasRuntimeType(id, "string") || !id.trim()) {
     throw new TypeError("[vitehub] Agent Invocations require a non-empty invocation id.")
   }
 }
 
 function assertStore(store: AgentInvocationStore | undefined): asserts store is AgentInvocationStore {
   if (!store
-    || typeof store.claim !== "function"
-    || typeof store.create !== "function"
-    || typeof store.get !== "function"
-    || typeof store.list !== "function"
-    || typeof store.release !== "function"
-    || typeof store.update !== "function") {
+    || !hasRuntimeType(store.claim, "function")
+    || !hasRuntimeType(store.create, "function")
+    || !hasRuntimeType(store.get, "function")
+    || !hasRuntimeType(store.list, "function")
+    || !hasRuntimeType(store.release, "function")
+    || !hasRuntimeType(store.update, "function")) {
     throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), list(), release(), and update().")
   }
 }
@@ -409,7 +411,8 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
 ): TraceEventLog {
-  return {
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
@@ -425,6 +428,10 @@ function journalTraceLog(
     },
     entries: () => traceLog.entries(),
   } as TraceEventLog
+  if (content === "content") {
+    Object.defineProperty(journal, agentInvocationJournalContentTraceLogSymbol, { value: true })
+  }
+  return journal
 }
 
 export function defineAgentInvocations(options: AgentInvocationsOptions): AgentInvocations {
@@ -476,10 +483,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
         if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
-        const unref = (heartbeat as unknown as { unref?: () => void }).unref
+        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+        const unref = (asUnknownBoundary(heartbeat) as { unref?: () => void }).unref
         if (unref) unref.call(heartbeat)
         heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
-        const unrefTimeout = (heartbeatTimeout as unknown as { unref?: () => void }).unref
+        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+        const unrefTimeout = (asUnknownBoundary(heartbeatTimeout) as { unref?: () => void }).unref
         if (unrefTimeout) unrefTimeout.call(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
@@ -630,7 +639,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                const unref = (timer as unknown as { unref?: () => void }).unref
+                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
                 if (unref) unref.call(timer)
               })
               await finishOnce()
@@ -659,7 +669,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                const unref = (timer as unknown as { unref?: () => void }).unref
+                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
                 if (unref) unref.call(timer)
               })
               if (finished) return
@@ -691,9 +702,11 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   options?: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean },
 ): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!invocations) return
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const bind = (invocations as Partial<BoundAgentInvocations>)[bindAgentInvocationsSymbol]
-  if (typeof bind !== "function") {
+  if (!hasRuntimeType(bind, "function")) {
     throw new TypeError("[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations().")
   }
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
 }

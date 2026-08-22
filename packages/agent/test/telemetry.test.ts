@@ -24,6 +24,7 @@ describe("Agent telemetry", () => {
     })
     const runtime = {
       memo: vi.fn(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "vercel" as const,
       runtimeConfig: {},
       waitUntil: vi.fn(),
@@ -95,7 +96,7 @@ describe("Agent telemetry", () => {
         telemetryCapability(telemetry),
         defineCapability({
           id: "custom",
-          metadata: { apiKey: "definition-secret", feature: "sessions" },
+          metadata: { apiKey: "definition-secret", feature: "sessions", prompt: "Capability prompt" },
           prepare(context) {
             context.telemetry.metadata({ connected: true, token: "runtime-secret" })
           },
@@ -125,8 +126,38 @@ describe("Agent telemetry", () => {
       runtime: { name: "unknown" },
     })
     expect(JSON.stringify(configured)).not.toContain("user prompt")
+    expect(JSON.stringify(configured)).not.toContain("Capability prompt")
     expect(JSON.stringify(configured)).not.toContain("runtime-secret")
     expect(JSON.stringify(configured)).not.toContain("definition-secret")
+  })
+
+  it("omits Capability metadata that cannot be inspected safely", async () => {
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn()
+    const hostile = new Proxy({}, {
+      getPrototypeOf() { throw new Error("blocked prototype") },
+      ownKeys() { throw new Error("blocked keys") },
+    })
+    const agent = defineAgent({
+      capabilities: [
+        telemetryCapability(telemetry),
+        defineCapability({ id: "hostile", metadata: hostile }),
+      ],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-hostile-metadata" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).resolves.toBe("ok")
+    await Promise.all(tasks)
+
+    const configuration = telemetry.mock.calls[0]![0].spans[0].events
+      .find((event: { name: string }) => event.name === "vitehub.agent.configured")
+      .attributes["vitehub.agent.configuration"]
+    expect(configuration.capabilities).toContainEqual({ id: "hostile" })
   })
 
   it("opts into input and output trace content independently", async () => {
@@ -137,6 +168,15 @@ describe("Agent telemetry", () => {
     const tasks: Promise<unknown>[] = []
     const agent = defineAgent({
       capabilities: [
+        defineCapability({
+          id: "content-metadata",
+          metadata: {
+            input: "Capability input",
+            instructions: "Capability instructions",
+            nested: { output: "Nested output", safe: "visible" },
+            prompt: "Capability prompt",
+          },
+        }),
         defineCapability({ id: "input-traces", telemetry: { content: { inputs: true }, exporter: inputs } }),
         defineCapability({ id: "instruction-traces", telemetry: { content: { instructions: true }, exporter: instructions } }),
         defineCapability({ id: "output-traces", telemetry: { content: { outputs: true }, exporter: outputs } }),
@@ -175,6 +215,15 @@ describe("Agent telemetry", () => {
     expect(configuration(inputs)).not.toHaveProperty("instructions")
     expect(configuration(outputs)).not.toHaveProperty("instructions")
     expect(configuration(instructions)).toMatchObject({ instructions: ["system instructions"] })
+    const capabilityMetadata = (exporter: typeof inputs) => configuration(exporter).capabilities
+      .find((capability: { id: string }) => capability.id === "content-metadata").metadata
+    expect(capabilityMetadata(inputs)).toEqual({
+      input: "Capability input",
+      nested: { safe: "visible" },
+      prompt: "Capability prompt",
+    })
+    expect(capabilityMetadata(outputs)).toEqual({ nested: { output: "Nested output", safe: "visible" } })
+    expect(capabilityMetadata(instructions)).toEqual({ instructions: "Capability instructions", nested: { safe: "visible" } })
   })
 
   it("keeps directly appended Trace Events in content-enabled exports", async () => {
@@ -381,6 +430,7 @@ describe("Agent telemetry", () => {
       await Promise.all(tasks)
 
       expect(telemetry).toHaveBeenCalledTimes(2)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       expect((telemetry.mock.calls[1]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
     }
     finally {
@@ -449,6 +499,7 @@ describe("Agent telemetry", () => {
     const traceLog = createTraceEventLog()
     const runtime = {
       memo: vi.fn(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
       trace: { id: "host-trace" },
       traceLog,
@@ -498,6 +549,7 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const agent = defineAgent({
       capabilities: [telemetryCapability(telemetry)],
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runEvents: {} as never,
       driver: { run: () => "unreachable" },
     })
@@ -555,6 +607,7 @@ describe("Agent telemetry", () => {
     const runtime = (runId: string) => ({
       memo: vi.fn(),
       run: { runId },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
       waitUntil(task: PromiseLike<unknown>) { tasks.push(Promise.resolve(task)) },
     })

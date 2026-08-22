@@ -1,16 +1,18 @@
 ---
 title: Frameworks and hosts
-description: Separate Vite integration, application runtime imports, and package-specific host output.
+description: See what ViteHub configures for each framework and deployment host.
 navigation.title: Overview
 navigation.order: 40
 icon: i-lucide-network
 ---
 
-ViteHub separates build integration from runtime hosting. Vite Integrations discover Definitions and prepare package-owned output, while application code uses stable Runtime Helpers that do not expose generated file paths.
+ViteHub discovers definitions during the Vite build, then prepares the files and
+bindings required by the selected host. Application code keeps using ViteHub
+imports instead of generated paths or provider SDKs.
 
 Host support remains package-specific. A host can support one primitive without supporting every ViteHub package, and a Runtime Helper can work without a ViteHub-generated deployment bundle.
 
-## Follow the right boundary
+## Choose a host
 
 | Need | Open |
 | --- | --- |
@@ -22,20 +24,19 @@ Host support remains package-specific. A host can support one primitive without 
 | Understand package-owned Nitro bridges | [Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) |
 | Mount supported helpers in a Node-shaped server | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) |
 
-## Vite integration responsibilities
+## What the Vite integration does
 
-| Vite Integration responsibility | Boundary |
+| Step | Result |
 | --- | --- |
-| Discover Definitions | File conventions produce Discovered Definitions and Discovery Identity. |
-| Generate Runtime Registries | App code uses Stable ViteHub Import Paths instead of generated files. |
-| Resolve Integration Options | Provider Selection and build-time options become Runtime Config or Provider Output. |
-| Write Provider Output | A package generates host artifacts only for the providers it supports. |
+| Discover definitions | Finds named Agents, Workspaces, queues, workflows, and other configured resources. |
+| Generate registries | Lets server code load discovered definitions by name. |
+| Resolve options | Applies the host and provider choices from `vite.config.ts`. |
+| Write host output | Generates only the bindings, routes, functions, or config supported by that package. |
 
 ## Compose integrations
 
-Use `vite-hub` when the application wants the canonical framework
-distribution. Queue remains opt-in, and application APIs stay separated by
-intentional feature subpaths.
+Use `vite-hub` in applications. Queue remains opt-in, and each feature keeps its
+own public import.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -46,14 +47,13 @@ export default defineConfig({
 })
 ```
 
-Register individual `hubX()` integrations from their `@vite-hub/*/vite` owner
-packages instead when a library or advanced integration needs direct package
-control.
+Register an individual `hubX()` integration from its `@vite-hub/*/vite` package
+when a library or focused integration needs direct control.
 
 ## Keep runtime imports stable
 
-Application code should import Runtime Helpers and generated surfaces through ViteHub-owned import paths.
-Do not import framework virtual modules or generated files unless a package reference marks that path public.
+Import server APIs through documented ViteHub paths. Do not import framework
+virtual modules or generated files unless a reference page marks the path public.
 
 ```ts [server/settings.ts]
 import { kv } from 'vite-hub/kv'
@@ -64,9 +64,11 @@ export async function saveSettings(settings: Record<string, unknown>) {
 }
 ```
 
-## Vite output boundary
+## Inspect the output
 
-Vite dev proves discovery and generated local files. Provider-shaped builds prove deployable output, while Netlify local development can also materialise functions for Netlify CLI.
+Vite development proves discovery and local generation. A production build
+creates the output for the selected host. Netlify development can also create
+functions for the Netlify CLI.
 
 ```bash [Terminal]
 pnpm dev

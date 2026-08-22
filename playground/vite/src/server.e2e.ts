@@ -3,7 +3,7 @@ import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
 import { blob } from "@vite-hub/blob"
-import { databases } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database/drizzle"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { kv } from "@vite-hub/kv"
 import { deferQueue, runQueue } from "@vite-hub/queue"
@@ -15,7 +15,9 @@ import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
 import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
 
 const app = new H3()
+const analytics = useDatabase("analytics")
 const queueName = "welcome-email"
+const primary = useDatabase("primary")
 const workflowName = "welcome"
 
 declare global {
@@ -95,7 +97,7 @@ function assertCloudflareRateLimit(event: unknown) {
 }
 
 async function ensureNotesTable() {
-  await databases.primary.db.run(sql`
+  await primary.db.run(sql`
     create table if not exists notes (
       id integer primary key autoincrement,
       title text not null
@@ -104,7 +106,7 @@ async function ensureNotesTable() {
 }
 
 async function ensureAnalyticsEventsTable() {
-  await databases.analytics.db.run(sql`
+  await analytics.db.run(sql`
     create table if not exists analytics_events (
       id integer primary key autoincrement,
       name text not null
@@ -188,31 +190,31 @@ app.get("/api/blob/serve", async (event) => {
 
 app.get("/api/database", async () => {
   await ensureNotesTable()
-  const notes = await databases.primary.db.select().from(databases.primary.schema.notes).orderBy(desc(databases.primary.schema.notes.id))
+  const notes = await primary.db.select().from(primary.schema.notes).orderBy(desc(primary.schema.notes.id))
   return { notes, ok: true }
 })
 
 app.post("/api/database", async (event) => {
   await ensureNotesTable()
   const body = await readValidatedBody(event, noteBody)
-  const result = await databases.primary.db.insert(databases.primary.schema.notes).values({ title: body.title }).returning()
+  const result = await primary.db.insert(primary.schema.notes).values({ title: body.title }).returning()
   return { note: result[0], ok: true }
 })
 
 app.get("/api/database/analytics", async () => {
   await ensureAnalyticsEventsTable()
-  const events = await databases.analytics.db
+  const events = await analytics.db
     .select()
-    .from(databases.analytics.schema.analyticsEvents)
-    .orderBy(desc(databases.analytics.schema.analyticsEvents.id))
+    .from(analytics.schema.analyticsEvents)
+    .orderBy(desc(analytics.schema.analyticsEvents.id))
   return { events, ok: true }
 })
 
 app.post("/api/database/analytics", async (event) => {
   await ensureAnalyticsEventsTable()
   const body = await readValidatedBody(event, analyticsEventBody)
-  const result = await databases.analytics.db
-    .insert(databases.analytics.schema.analyticsEvents)
+  const result = await analytics.db
+    .insert(analytics.schema.analyticsEvents)
     .values({ name: body.name })
     .returning()
   return { event: result[0], ok: true }

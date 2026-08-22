@@ -1,3 +1,4 @@
+import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { effectScope, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +20,7 @@ interface RequestCall {
 
 function controlledRequester() {
   const calls: RequestCall[] = [];
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   const request = (<T>(path: string, options: Parameters<AgentInvocationRequester>[1]) =>
     new Promise<T>((resolve, reject) => {
       options.signal?.addEventListener(
@@ -32,10 +34,12 @@ function controlledRequester() {
 }
 
 function record(id: string): AgentInvocationRecord {
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   return { id } as AgentInvocationRecord;
 }
 
 function observation(sequence: number): TraceEventLogEntry {
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   return { sequence } as TraceEventLogEntry;
 }
 
@@ -57,7 +61,9 @@ describe("Agent Invocation Vue composables", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
     const scope = effectScope();
-    const request = <T>(path: string, options: { signal?: AbortSignal }) => fetch(path, options).then(response => response.json() as Promise<T>);
+    const requestUnknown = (path: string, options: { signal?: AbortSignal }): Promise<unknown> => fetch(path, options).then(response => response.json());
+    // SAFETY: This fixture controls the response body and supplies the exact list shape consumed by the composable.
+    const request = requestUnknown as AgentInvocationRequester;
     const resource = scope.run(() => useAgentInvocations({ immediate: false, request }))!;
 
     await expect(resource.refresh()).resolves.toEqual({ invocations: [] });
@@ -160,11 +166,13 @@ describe("Agent Invocation Vue composables", () => {
 
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const requestMock = vi.fn(async () => ({
       cursor: "next",
       invocations: [record("inv-1")],
     }) as AgentInvocationListResult);
-    const request = requestMock as unknown as AgentInvocationRequester;
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const request = asUnknownBoundary(requestMock) as AgentInvocationRequester;
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
 

@@ -17,6 +17,7 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 | Channel | `server/channels/<path>.ts` | `<path>.channel.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. |
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
+| Realtime | `server/realtime/<path>.ts` | None | Normalized relative path. |
 | Workflow | `server/workflows/<path>.ts` or a folder containing `index.ts` or numbered step files | `<path>.workflow.ts` | Normalized relative file or folder path. Agent Definitions contribute their Agent identity by default, `workflow(...)` can override it, and `runtime: false` opts out. |
 | Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Sandbox | `server/sandboxes/<path>/{package.json,index.ts}` | `<path>.sandbox.ts` outside `server/sandboxes/` | Normalized folder or suffix path, without a trailing `.sandbox` segment. |
@@ -77,9 +78,20 @@ This convention needs no `skills()` Capability declaration. Use [`skills()`](/do
 
 ## Markdown templates
 
-Ordinary Markdown files under `server/templates` form the application template catalog. ViteHub removes the directory prefix and `.md` extension to produce each typed template name, so `server/templates/pull-request.md` becomes `pull-request` and `server/templates/review/pull-request.md` becomes `review/pull-request`.
+Place a `*.template.md` file beside the TypeScript or JavaScript module that renders it, then import the generated render function directly. For example, `server/agents/review/agent.ts` can import `./reply.template.md`.
 
-Use a `.template.md` suffix only when a private template belongs beside its caller and should be imported directly. ViteHub excludes `.template.md` files from the named catalog. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
+When one caller owns several templates, you can group them in a local directory such as `server/agents/review/templates/`. The directory has no discovery behavior; keep the `.template.md` suffix and import each file explicitly. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
+
+## Email templates
+
+Markdown files under `server/emails` become typed email renderers. ViteHub
+removes the directory prefix and `.md` extension, so
+`server/emails/welcome.md` becomes `#vitehub/emails/welcome` and
+`server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`.
+
+Email template names must use non-empty path segments and cannot contain `.` or
+`..` segments, query strings, fragments, backslashes, or a trailing `.md`.
+ViteHub rejects duplicate names across configured server directories.
 
 ## Generated files
 

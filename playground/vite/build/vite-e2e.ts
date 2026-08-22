@@ -178,6 +178,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
     "export const databases = {",
     ...databaseEntries,
     "}",
+    "export function useDatabase(name) { return databases[name] }",
     "",
     ...(config.databaseNames.includes("default")
       ? [

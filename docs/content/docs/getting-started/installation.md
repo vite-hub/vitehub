@@ -5,13 +5,12 @@ navigation.order: 2
 icon: i-lucide-download
 ---
 
-Install `vite-hub` for the normal application path. It provides the main Vite
-Integration and intentional feature subpaths while keeping one direct ViteHub
-dependency in the application manifest.
+Install `vite-hub` when you are building an application. It provides the Vite
+integration and public feature imports through one dependency.
 
 ## Prerequisites
 
-- Node.js 24 or newer.
+- Node.js 24.15 or newer.
 - Vite 8 or newer.
 - An ESM package with `"type": "module"` or a `vite.config.mts` file.
 - A package manager such as `pnpm`, `npm`, `yarn`, or `bun`.
@@ -63,17 +62,18 @@ import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkspace } from "vite-hub/workspace"
 ```
 
-Third-party model providers and chat adapters remain explicit dependencies because the application chooses them. Built-in coding providers use ViteHub's pinned provider runtime. The distribution includes
-the Workflow DevKit runtime and builders because Vercel Workflow is a deliberate
-framework default; other provider SDKs stay package-owned and explicit.
+Install third-party model providers and chat adapters separately. Built-in coding
+providers use the provider runtime pinned by ViteHub. The distribution includes
+the Workflow DevKit runtime and builders for Vercel Workflow; install other
+provider SDKs only when you use them.
 
 Until T3 publishes the provider runtime on npm, pnpm consumers using a built-in coding provider must set `blockExoticSubdeps: false` in `pnpm-workspace.yaml`; ViteHub pins an exact pkg.pr.new tarball rather than a moving branch.
 
 ## Install an owner package directly
 
-Every `@vite-hub/*` owner package remains independently installable. Use one
-directly for a library, a focused integration, or an advanced composition that
-does not want the framework distribution.
+Every `@vite-hub/*` package can also be installed on its own. Use a package
+directly when you are building a library or need to configure one integration
+without the framework distribution.
 
 | Path | Direct install | Integration |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ does not want the framework distribution.
 | Agents | `pnpm add @vite-hub/agent vite` | `hubAgent()` from `@vite-hub/agent/vite` |
 
 ::tip
-New applications should start with `vite-hub`. Direct owner packages are the
+Start new applications with `vite-hub`. Direct owner packages are the
 escape hatch when package-level control is the goal.
 ::
 
@@ -103,9 +103,9 @@ your application uses generated names or stable `#vitehub/...` imports.
 
 ## Verify the integration
 
-Run the application through its Vite-based development command. A Runtime
-Helper without its matching Vite Integration should fail visibly instead of
-silently choosing an unrelated provider.
+Run the application with its Vite-based development command. If a server API
+is missing its Vite integration, ViteHub reports the configuration error instead
+of selecting another provider.
 
 The two first-success guides include complete build and runtime commands:
 
@@ -117,4 +117,3 @@ The two first-success guides include complete build and runtime commands:
 - Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand integration ownership.
 - Open [Server Primitives](/docs/server-primitives) to choose infrastructure.
 - Open [Agents](/docs/agents) to choose an Agent Driver and Capabilities.
-- Read [Migrate to `vite-hub`](/docs/getting-started/migration) for existing applications.
