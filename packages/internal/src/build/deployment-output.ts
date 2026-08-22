@@ -101,6 +101,12 @@ export interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions
 const composedProviderOutputKey = Symbol.for("vitehub.composedProviderOutput")
 const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
 
+async function settleWrites(writes: Array<Promise<void>>): Promise<void> {
+  const results = await Promise.allSettled(writes)
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+  if (failure) throw failure.reason
+}
+
 export interface ComposedProviderOutput {
   runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
   vercelRuntimePackagesByProduct?: Record<string, VercelFunctionRuntimePackage[] | undefined>
@@ -244,8 +250,15 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const staleFiles = (await readdir(serverDir)).filter(file => file !== "node_modules")
   await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
 
-  await Promise.all([
-    bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),
+  try {
+    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir })
+  }
+  catch (error) {
+    await rm(serverDir, { force: true, recursive: true })
+    throw error
+  }
+
+  const writes = await Promise.allSettled([
     writeFile(
       resolve(serverDir, ".vc-config.json"),
       `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
@@ -256,6 +269,8 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
       ? copyVercelClientOutput(options.rootDir, clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
       : Promise.resolve(),
   ])
+  const failedWrite = writes.find(result => result.status === "rejected")
+  if (failedWrite?.status === "rejected") throw failedWrite.reason
 }
 
 async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOptions): Promise<void> {
@@ -330,8 +345,6 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
     }))
-  } else if (options.cleanup?.cloudflare) {
-    writes.push(cleanupCloudflareDeploymentOutput(options.rootDir, options.cleanup.cloudflare))
   }
   if (options.netlify) {
     writes.push(writeNetlifyDeploymentOutput({
@@ -339,8 +352,6 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
     }))
-  } else if (options.cleanup?.netlify) {
-    writes.push(cleanupNetlifyDeploymentOutput(options.rootDir, options.cleanup.netlify))
   }
   if (options.vercel) {
     writes.push(writeVercelDeploymentOutput({
@@ -348,12 +359,22 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
     }))
-  } else if (options.cleanup?.vercel) {
-    const cleanup = typeof options.cleanup.vercel === "function" ? await options.cleanup.vercel() : options.cleanup.vercel
-    if (cleanup) writes.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup))
   }
-  await Promise.all(writes)
+  await settleWrites(writes)
   await options.afterWrite?.()
+
+  const cleanups: Array<Promise<void>> = []
+  if (!options.cloudflare && options.cleanup?.cloudflare) {
+    cleanups.push(cleanupCloudflareDeploymentOutput(options.rootDir, options.cleanup.cloudflare))
+  }
+  if (!options.netlify && options.cleanup?.netlify) {
+    cleanups.push(cleanupNetlifyDeploymentOutput(options.rootDir, options.cleanup.netlify))
+  }
+  if (!options.vercel && options.cleanup?.vercel) {
+    const cleanup = typeof options.cleanup.vercel === "function" ? await options.cleanup.vercel() : options.cleanup.vercel
+    if (cleanup) cleanups.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup))
+  }
+  await settleWrites(cleanups)
 }
 
 export async function withProviderDeploymentOutputLock<T>(
