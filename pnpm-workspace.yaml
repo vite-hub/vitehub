@@ -2,7 +2,7 @@ packages:
   - "docs"
   - "packages/*"
 catalog:
-  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@67cf65b129d2c52a20199243565ecb8bd63c7af1
+  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@66628e8b8dcf468201b93c958604d641f89e62ef
 
 catalogMode: prefer
 
