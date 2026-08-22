@@ -150,6 +150,21 @@ describe("anti-slop lexical type resolution", () => {
     expect(result).toContain("anti-slop(no-object-parameters)");
   });
 
+  test("checks static template-literal symbol names", () => {
+    const result = diagnostics(`
+        declare const payload: Record<string, unknown>;
+        declare const suffix: string;
+        void payload[\`shape\`];
+        void payload[\`sha\${suffix}\`];
+        const value = {
+          [\`ShapeValue\`]: true,
+          [\`sha\${suffix}\`]: false,
+        };
+        void value;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-shape-in-symbol-names)")).toHaveLength(2);
+  });
+
   test("resolves composed generic aliases and transparent assertion expressions", () => {
     const result = diagnostics(`
         type Identity<T> = T;
@@ -738,6 +753,12 @@ describe("anti-slop lexical type resolution", () => {
         (<typeof globalThis>self).Reflect.apply(fn, receiver, args);
         // SAFETY: fixture verifies assertions around a worker host global.
         (self as typeof globalThis).Reflect.apply(fn, receiver, args);
+        const { Reflect: reflection } = globalThis;
+        reflection.get(target, key);
+        const { Reflect: workerReflection } = self;
+        workerReflection.apply(fn, receiver, args);
+        let { Reflect: mutableReflection } = globalThis;
+        mutableReflection.get(target, key);
         function safe(window: { Reflect: { get(value: object, property: PropertyKey): unknown } }) {
           // SAFETY: fixture verifies transparent wrappers retain the lexical shadow.
           return (window as typeof globalThis).Reflect.get(target, key);
@@ -745,11 +766,16 @@ describe("anti-slop lexical type resolution", () => {
         function safeWorker(self: { Reflect: { apply: typeof Reflect.apply } }) {
           return (self!).Reflect.apply(fn, receiver, args);
         }
+        function safeGlobal(globalThis: { Reflect: typeof Reflect }) {
+          const { Reflect: localReflection } = globalThis;
+          return localReflection.get(target, key);
+        }
         void safe;
         void safeWorker;
+        void safeGlobal;
       `);
-    expect(result.filter((code) => code === "anti-slop(no-reflect-get)")).toHaveLength(4);
-    expect(result.filter((code) => code === "anti-slop(no-reflect-apply)")).toHaveLength(3);
+    expect(result.filter((code) => code === "anti-slop(no-reflect-get)")).toHaveLength(5);
+    expect(result.filter((code) => code === "anti-slop(no-reflect-apply)")).toHaveLength(4);
   });
 
   test("tracks qualified dictionary alias cycles by declaration", () => {

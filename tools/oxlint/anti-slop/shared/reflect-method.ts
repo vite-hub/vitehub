@@ -57,16 +57,35 @@ function isGlobalReflect(
     const variable = resolveVariable(sourceCode, expression);
     if (variable === null || visited.has(variable)) return false;
     visited.add(variable);
-    return variable.defs.some(
-      (definition) =>
-        definition.type === "Variable" &&
-        definition.node.type === "VariableDeclarator" &&
-        definition.node.id.type === "Identifier" &&
-        definition.parent?.type === "VariableDeclaration" &&
-        definition.parent.kind === "const" &&
-        definition.node.init !== null &&
-        isGlobalReflect(sourceCode, definition.node.init, visited),
-    );
+    return variable.defs.some((definition) => {
+      if (
+        definition.type !== "Variable" ||
+        definition.node.type !== "VariableDeclarator" ||
+        definition.parent?.type !== "VariableDeclaration" ||
+        definition.parent.kind !== "const" ||
+        definition.node.init === null
+      ) {
+        return false;
+      }
+      const { id, init } = definition.node;
+      if (id.type === "Identifier") {
+        return isGlobalReflect(sourceCode, init, visited);
+      }
+      if (id.type !== "ObjectPattern" || !isUnshadowedHostGlobal(sourceCode, init)) return false;
+      return id.properties.some((property) => {
+        if (property.type !== "Property") return false;
+        const binding =
+          property.value.type === "AssignmentPattern" ? property.value.left : property.value;
+        if (binding.type !== "Identifier" || binding.name !== expression.name) return false;
+        const name =
+          property.key.type === "Identifier"
+            ? property.key.name
+            : property.key.type === "Literal"
+              ? property.key.value
+              : null;
+        return name === "Reflect";
+      });
+    });
   }
   if (expression.type !== "MemberExpression") return false;
   const property = expression.property;

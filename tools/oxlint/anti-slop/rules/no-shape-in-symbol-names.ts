@@ -7,6 +7,12 @@ function containsForbiddenSymbolName(name: string): boolean {
   return name.toLowerCase().includes(FORBIDDEN_SYMBOL_NAME);
 }
 
+function staticStringKey(key: ESTree.Node): string | null {
+  if (key.type === "Literal") return typeof key.value === "string" ? key.value : null;
+  if (key.type !== "TemplateLiteral" || key.expressions.length > 0) return null;
+  return key.quasis.length === 1 ? (key.quasis[0]?.value.cooked ?? null) : null;
+}
+
 /** Ban the case-insensitive substring "shape" in every JavaScript and TypeScript symbol name. */
 export const noForbiddenTermInSymbolNamesRule = defineRule({
   meta: {
@@ -33,17 +39,12 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
     const reportForbiddenLiteralKey = (
       node: ESTree.Node & { key: ESTree.Node; computed?: boolean },
     ) => {
-      if (
-        node.key.type !== "Literal" ||
-        typeof node.key.value !== "string" ||
-        !containsForbiddenSymbolName(node.key.value)
-      ) {
-        return;
-      }
+      const name = staticStringKey(node.key);
+      if (name === null || !containsForbiddenSymbolName(name)) return;
       context.report({
         node: node.key,
         messageId: "forbiddenSymbolName",
-        data: { name: node.key.value },
+        data: { name },
       });
     };
 
@@ -55,10 +56,10 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
       PropertyDefinition: reportForbiddenLiteralKey,
       AccessorProperty: reportForbiddenLiteralKey,
       MethodDefinition: reportForbiddenLiteralKey,
-	  MemberExpression(node) {
-		if (!node.computed || node.property.type !== "Literal") return;
-		reportForbiddenLiteralKey({ ...node, key: node.property });
-	  },
+      MemberExpression(node) {
+        if (!node.computed) return;
+        reportForbiddenLiteralKey({ ...node, key: node.property });
+      },
       TSEnumMember(node) {
         if (node.id.type !== "Literal" || typeof node.id.value !== "string") return;
         reportForbiddenLiteralKey({ ...node, key: node.id });
