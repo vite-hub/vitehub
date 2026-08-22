@@ -72,6 +72,29 @@ describe("Node Runtime diagnostics", () => {
     expect(snapshot.support).toContainEqual({ reason, scope: "service", source: "linux-cgroup-v2", supported: false })
   })
 
+  it.each([
+    ["EACCES", "permission-denied"],
+    ["EPERM", "permission-denied"],
+    ["ENOENT", "unsupported-runtime"],
+    ["EIO", "collection-failed"],
+  ])("reports %s /proc/meminfo reads honestly", async (code, reason) => {
+    const inspector = nodeRuntimeResources({
+      readText: async (path) => {
+        if (path === "/proc/meminfo") throw Object.assign(new Error("unavailable"), { code })
+        throw Object.assign(new Error("missing"), { code: "ENOENT" })
+      },
+    })
+
+    const snapshot = await inspector.inspect()
+
+    expect(snapshot.support).toContainEqual({
+      reason,
+      scope: "host",
+      source: "linux-proc",
+      supported: false,
+    })
+  })
+
   it("reports Linux-only sources as unsupported on other platforms", async () => {
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
     const inspector = nodeRuntimeResources()

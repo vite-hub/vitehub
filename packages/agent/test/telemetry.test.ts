@@ -75,6 +75,63 @@ describe("Agent telemetry", () => {
     }])
   })
 
+  it("encodes binary content as one bounded OTLP value", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const binary = new Uint8Array(25 * 1024 * 1024)
+
+    await otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      spans: [{
+        attributes: { "input.messages": [{ parts: [{ data: binary, mediaType: "image/png", type: "file" }], role: "user" }] },
+        name: "vitehub.run",
+        spanId: "0123456789abcdef",
+        startTime: "2026-01-01T00:00:00.000Z",
+        status: { code: "OK" },
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+    })
+
+    const request = fetch.mock.calls[0]?.[1]
+    const body = String(request?.body)
+    expect(body).not.toContain('"kvlistValue":{"values":[{"key":"0"')
+    expect(body).toContain('"bytesValue":"')
+    expect(body.length).toBeLessThan(binary.byteLength * 2)
+  })
+
+  it("encodes the exact bytes from binary buffers and offset views", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const backing = Uint8Array.from([0, 1, 2, 3, 4, 5]).buffer
+    const offsetBytes = new Uint8Array(backing, 1, 3)
+    const dataView = new DataView(backing, 2, 2)
+    const buffer = Buffer.from([7, 8, 9])
+
+    await otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      spans: [{
+        attributes: { backing, buffer, dataView, offsetBytes },
+        name: "vitehub.run",
+        spanId: "0123456789abcdef",
+        startTime: "2026-01-01T00:00:00.000Z",
+        status: { code: "OK" },
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
+    const attributes = Object.fromEntries(body.resourceSpans[0].scopeSpans[0].spans[0].attributes
+      .map((attribute: { key: string, value: unknown }) => [attribute.key, attribute.value]))
+    expect(attributes).toMatchObject({
+      backing: { bytesValue: "AAECAwQF" },
+      buffer: { bytesValue: "BwgJ" },
+      dataView: { bytesValue: "AgM=" },
+      offsetBytes: { bytesValue: "AQID" },
+    })
+  })
+
   it("configures OTLP as a Capability", () => {
     expect(otlp({
       content: { instructions: true },

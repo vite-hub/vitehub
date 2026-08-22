@@ -306,6 +306,24 @@ function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEnt
   }
 }
 
+function prioritizePendingOutcomes(
+  pending: TraceEventLogEntry[],
+  incoming: TraceEventLogEntry,
+  activeWrite: boolean,
+): void {
+  const fatal = pending.find(failureEvidenceObservation)
+    ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
+  const terminal = terminalObservation(incoming)
+    ? incoming
+    : pending.findLast(terminalObservation)
+  const outcomes: TraceEventLogEntry[] = []
+  if (fatal) outcomes.push(fatal)
+  if (terminal && terminal !== fatal) outcomes.push(terminal)
+  const ordinary = pending.filter(observation => !failureEvidenceObservation(observation) && !terminalObservation(observation))
+  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (activeWrite ? 1 : 0) - outcomes.length)
+  pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
+}
+
 export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
@@ -617,14 +635,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (atCapacity) {
           observationsTruncated = true
           if (priority === undefined) return
-          const ordinaryIndex = pendingObservations.findLastIndex(candidate => outcomeObservationPriority(candidate) === undefined)
-          if (ordinaryIndex >= 0) pendingObservations.splice(ordinaryIndex, 1)
-          const insertAt = pendingObservations.findIndex((candidate) => {
-            const candidatePriority = outcomeObservationPriority(candidate)
-            return candidatePriority === undefined || candidatePriority > priority
-          })
-          if (insertAt >= 0) pendingObservations.splice(insertAt, 0, queuedObservation)
-          else pendingObservations.push(queuedObservation)
+          prioritizePendingOutcomes(pendingObservations, queuedObservation, observationWrite !== undefined)
           writeNextObservation()
           return
         }

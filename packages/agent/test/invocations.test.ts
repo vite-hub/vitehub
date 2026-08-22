@@ -285,6 +285,112 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("bounds a saturated pending queue containing only outcome evidence", async () => {
+    let releaseActive!: () => void
+    let reportActiveStarted!: () => void
+    let observationWrites = 0
+    const activeGate = new Promise<void>((resolve) => { releaseActive = resolve })
+    const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+    const memory = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        async update(id, input, claimId) {
+          if (input.observation) observationWrites++
+          if (input.observation?.name === "active") {
+            reportActiveStarted()
+            await activeGate
+          }
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-outcome-observations"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({ name: "active", type: "run" })
+    await activeStarted
+    for (let index = 0; index < 512; index++) {
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": `provider stream failed ${index}` },
+        name: "agent.stream.error",
+        type: "error",
+      })
+    }
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+    const finishing = journal.finish("failed", new Error("provider stream failed"))
+    releaseActive()
+    await finishing
+
+    const record = await invocations.getByRunId("bounded-outcome-observations")
+    expect(observationWrites).toBeLessThanOrEqual(256)
+    expect(record?.observations.length).toBeLessThanOrEqual(256)
+    expect(record?.observations[1]).toMatchObject({
+      attributes: { "error.message": "provider stream failed 0" },
+      name: "agent.stream.error",
+    })
+    expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
+  })
+
+  it("keeps the earliest fatal evidence before the latest terminal outcome", async () => {
+    let releaseActive!: () => void
+    let reportActiveStarted!: () => void
+    let observationWrites = 0
+    const activeGate = new Promise<void>((resolve) => { releaseActive = resolve })
+    const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+    const memory = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        async update(id, input, claimId) {
+          if (input.observation) observationWrites++
+          if (input.observation?.name === "active") {
+            reportActiveStarted()
+            await activeGate
+          }
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("ordered-outcome-observations"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({ name: "active", type: "run" })
+    await activeStarted
+    for (let index = 0; index < 255; index++) {
+      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+    }
+    await journal.context.traceLog?.append({
+      attributes: { generation: "older" },
+      name: "agent.invocation.finish",
+      type: "run",
+    })
+    await journal.context.traceLog?.append({
+      attributes: { "error.message": "fatal run error" },
+      name: "run.error",
+      type: "error",
+    })
+    await journal.context.traceLog?.append({
+      attributes: { generation: "latest" },
+      name: "agent.invocation.finish",
+      type: "run",
+    })
+
+    const finishing = journal.finish("failed", new Error("fatal run error"))
+    releaseActive()
+    await finishing
+
+    const record = await invocations.getByRunId("ordered-outcome-observations")
+    expect(observationWrites).toBeLessThanOrEqual(256)
+    expect(record?.observations.length).toBeLessThanOrEqual(256)
+    expect(record?.observations.slice(-2)).toMatchObject([
+      { attributes: { "error.message": "fatal run error" }, name: "run.error" },
+      { attributes: { generation: "latest" }, name: "agent.invocation.finish" },
+    ])
+    expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { generation: "older" } }))
+  })
+
   it("terminalizes records created after the store timeout", async () => {
     const memory = createMemoryAgentInvocationStore()
     let releaseCreate!: () => void

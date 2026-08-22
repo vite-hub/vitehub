@@ -29,15 +29,6 @@ function observation(
   return value === undefined || !Number.isFinite(value) ? [] : [{ name, scope, source, unit, value }]
 }
 
-async function optionalRead(readText: ReadText, path: string): Promise<string | undefined> {
-  try {
-    return await readText(path)
-  }
-  catch {
-    return undefined
-  }
-}
-
 type TextReadResult = { error?: unknown, value?: string }
 
 async function readResult(readText: ReadText, path: string): Promise<TextReadResult> {
@@ -171,10 +162,10 @@ export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOption
       const usage = resourceUsage()
       const linux = process.platform === "linux"
       const [cgroup, linuxMeminfo] = linux
-        ? await Promise.all([cgroupObservations(readText), optionalRead(readText, "/proc/meminfo")])
+        ? await Promise.all([cgroupObservations(readText), readResult(readText, "/proc/meminfo")])
         // SAFETY: Runtime host normalization establishes the asserted provider contract.
-        : [{ observations: [], support: { reason: "unsupported-runtime", scope: "service", source: "linux-cgroup-v2", supported: false } as const }, undefined] as const
-      const host = meminfo(linuxMeminfo)
+        : [{ observations: [], support: { reason: "unsupported-runtime", scope: "service", source: "linux-cgroup-v2", supported: false } as const }, {}] as const
+      const host = meminfo(linuxMeminfo.value)
       return {
         observedAt: now().toISOString(),
         observations: [
@@ -195,10 +186,12 @@ export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOption
           { scope: "process", source: "node", supported: true },
           {
             // SAFETY: Runtime host normalization establishes the asserted provider contract.
-            ...(linuxMeminfo === undefined ? { reason: linux ? "collection-failed" as const : "unsupported-runtime" as const } : {}),
+            ...(linuxMeminfo.value === undefined
+              ? { reason: linux ? readFailureReason([linuxMeminfo], "unsupported-runtime") : "unsupported-runtime" as const }
+              : {}),
             scope: "host",
             source: "linux-proc",
-            supported: linuxMeminfo !== undefined,
+            supported: linuxMeminfo.value !== undefined,
           },
           cgroup.support,
         ],

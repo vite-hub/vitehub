@@ -14,12 +14,27 @@ export interface OtlpHttpJsonOptions<TRuntimeConfig extends AgentRuntimeConfig =
 type OtlpAnyValue =
   | { arrayValue: { values: OtlpAnyValue[] } }
   | { boolValue: boolean }
+  | { bytesValue: string }
   | { doubleValue: number }
   | { intValue: string }
   | { kvlistValue: { values: Array<{ key: string, value: OtlpAnyValue }> } }
   | { stringValue: string }
 
 const retryableStatuses = new Set([429, 502, 503, 504])
+
+function binaryBytes(value: unknown): Uint8Array | undefined {
+  if (value instanceof ArrayBuffer) return new Uint8Array(value)
+  if (!ArrayBuffer.isView(value)) return
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+}
+
+function base64Bytes(bytes: Uint8Array): string {
+  const chunks: string[] = []
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 32_768)))
+  }
+  return btoa(chunks.join(""))
+}
 
 function otlpAnyValue(value: unknown): OtlpAnyValue {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
@@ -33,6 +48,8 @@ function otlpAnyValue(value: unknown): OtlpAnyValue {
       : { stringValue: String(value) }
   }
   if (hasRuntimeType(value, "string")) return { stringValue: value }
+  const bytes = binaryBytes(value)
+  if (bytes) return { bytesValue: base64Bytes(bytes) }
   if (Array.isArray(value)) return { arrayValue: { values: value.map(otlpAnyValue) } }
   if (value && hasRuntimeType(value, "object")) {
     return {
