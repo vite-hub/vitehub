@@ -292,6 +292,37 @@ describe("anti-slop lexical type resolution", () => {
     expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
   });
 
+  test("preserves any through widened binding aliases", () => {
+    const result = diagnostics(`
+        type Broad = any;
+        const direct: any = { id: "direct" };
+        const aliased: Broad = { id: "aliased" };
+        // SAFETY: fixture intentionally recreates the discarded direct type.
+        const directRestored = direct as { id: string };
+        // SAFETY: fixture intentionally recreates the discarded aliased type.
+        const aliasedRestored = aliased as { id: string };
+        void directRestored;
+        void aliasedRestored;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(2);
+  });
+
+  test("preserves unary evidence when tracking widened bindings", () => {
+    const result = diagnostics(`
+        declare const flag: boolean;
+        const widened: unknown = !flag;
+        // SAFETY: fixture intentionally recreates the discarded type.
+        const restored = widened as boolean;
+        const precise = !flag;
+        // SAFETY: fixture verifies that precise evidence was not widened.
+        const unchanged = precise as boolean;
+        void restored;
+        void unchanged;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(1);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
+  });
+
   test("checks assignments to annotated class fields", () => {
     const result = diagnostics(`
         class Store {
@@ -419,6 +450,24 @@ describe("anti-slop lexical type resolution", () => {
     ]) {
       expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
     }
+  });
+
+  test("tracks qualified dictionary alias cycles by declaration", () => {
+    const result = diagnostics(`
+        namespace B {
+          export type Dictionary<T> = Record<string, T>;
+        }
+        namespace A {
+          export type Dictionary<T> = B.Dictionary<T>;
+        }
+        type Unsafe = A.Dictionary<unknown>;
+        type Safe = A.Dictionary<string>;
+        void (null as unknown as Unsafe);
+        void (null as unknown as Safe);
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-unsafe-dictionary-type)")).toHaveLength(
+      1,
+    );
   });
 
   test("resolves import-equals roots in qualified type names", () => {

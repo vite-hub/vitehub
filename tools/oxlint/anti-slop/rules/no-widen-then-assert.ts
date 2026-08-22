@@ -9,6 +9,7 @@ import {
 } from "../shared/dictionary-types.ts";
 
 import type { TypeEnvironment } from "../shared/dictionary-types.ts";
+import { resolvesThroughTypeAliases } from "../shared/type-alias-resolution.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
 
@@ -118,7 +119,16 @@ function isBroadRecordType(type: ESTree.TSType, environment: TypeEnvironment): b
 
 function broadTypeKind(type: ESTree.TSType, environment: TypeEnvironment): BroadTypeKind | null {
   const unwrapped = unwrapTypeParentheses(type);
-  if (unwrapped.type === "TSAnyKeyword") return "top";
+  if (
+    resolvesThroughTypeAliases(
+      unwrapped,
+      environment.typeBindings,
+      environment.visitorKeys,
+      (candidate) => unwrapTypeParentheses(candidate).type === "TSAnyKeyword",
+    )
+  ) {
+    return "top";
+  }
   const widening = classifyWideningTarget(unwrapped, environment);
   if (widening?.kind === "unknown") return "top";
   if (widening?.kind === "object") return "object";
@@ -257,7 +267,11 @@ function knownValueEvidence(
     return { type: unwrapped.typeAnnotation };
   }
 
-  if (unwrapped.type === "Literal" || unwrapped.type === "TemplateLiteral") {
+  if (
+    unwrapped.type === "Literal" ||
+    unwrapped.type === "TemplateLiteral" ||
+    unwrapped.type === "UnaryExpression"
+  ) {
     return { type: null };
   }
 
