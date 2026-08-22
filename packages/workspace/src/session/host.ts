@@ -583,10 +583,7 @@ async function materializeWorkspace(
       label: "Extracting workspace revision",
     }, async () => await extractRevisionArchive(host, root, { ...revision, archive: revision.archive! }, options?.abortSignal))
     abortSignal?.throwIfAborted()
-    await Promise.all([
-      removeHostPath(host, root, toHostPath(root, ".git"), true),
-      removeHostPath(host, root, toHostPath(root, ".vitehub"), true),
-    ])
+    await Promise.all(defaultExcludedSessionPaths.map(path => removeHostPath(host, root, toHostPath(root, path), true)))
     abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root)
     abortSignal?.throwIfAborted()

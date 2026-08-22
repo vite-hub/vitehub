@@ -73,10 +73,12 @@ async function revisionArchive() {
   const source = await mkdtemp(join(tmpdir(), "vitehub-revision-source-"))
   const root = join(source, "repo-base", ".vitehub", "workspaces", "docs")
   await mkdir(join(root, "scripts"), { recursive: true })
+  await mkdir(join(root, ".agent-runs"), { recursive: true })
   await mkdir(join(root, ".git"), { recursive: true })
   await mkdir(join(root, ".vitehub", "meta"), { recursive: true })
   await mkdir(join(root, ".vitehub-revision"), { recursive: true })
   await writeFile(join(root, "README.md"), "# Docs\n")
+  await writeFile(join(root, ".agent-runs", "trace.json"), "internal")
   await writeFile(join(root, ".git", "config"), "internal")
   await writeFile(join(root, ".vitehub", "meta", "state.json"), "{}")
   await writeFile(join(root, ".vitehub-revision", "kept.txt"), "kept")
@@ -305,6 +307,7 @@ describe("workspace host sessions", () => {
       await expect(session.readFile(".vitehub-revision/kept.txt")).resolves.toBe("kept")
       await expect(session.readFile(".vitehub-revision.tar.gz")).resolves.toBe("kept archive name")
       await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ".agent-runs/trace.json" }),
         expect.objectContaining({ path: ".git/config" }),
         expect.objectContaining({ path: ".vitehub/meta/state.json" }),
       ]))

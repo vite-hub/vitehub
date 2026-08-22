@@ -2205,7 +2205,7 @@ async function createAgentInvocationContext<
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
     const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
-    let usesRegisteredOwnedDefinition = Boolean(
+    const usesRegisteredOwnedDefinition = Boolean(
       workspaceName
       && ownsWorkspaceDefinition
       && registeredWorkspaceDefinition
@@ -2222,7 +2222,6 @@ async function createAgentInvocationContext<
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
       markWorkspaceAgentDefinitionRegistered(workspaceDefinition, workspaceName)
-      usesRegisteredOwnedDefinition = true
     }
     const workspaceUseOptions = resolvedWorkspaceDefinition && (
       ownsWorkspaceDefinition
