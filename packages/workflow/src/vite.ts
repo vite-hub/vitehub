@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
@@ -48,6 +49,8 @@ const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
 type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
   agentImportBase?: string
+  hosting?: string
+  implicitlyEnabled?: boolean
   importBase?: string
   providerImportAliases?: Record<string, string>
   includeUserAppEntry?: boolean
@@ -73,7 +76,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
   const internalOptions = options as InternalWorkflowModuleOptions | undefined
   let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
-  let workflow: WorkflowModuleOptions | undefined = options
+  let workflow: WorkflowModuleOptions | undefined = internalOptions?.implicitlyEnabled
+    && normalizeHosting(internalOptions.hosting).includes("netlify")
+    ? false
+    : options
   let serverDirs: string[] | undefined
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel"): Record<string, string> {
@@ -93,7 +99,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
 
   async function prepareScheduleRuntime() {
     if (!resolved) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
-    if (normalizeWorkflowOptions(workflow, { hosting: "vercel" })?.provider !== "vercel") return
+    if (normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(resolved.root)
     const artifacts = await writeProviderEntries(rootDir, workflow, {
       agent: internalOptions?.agentImportBase,
@@ -177,6 +183,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       await generateProviderOutputs({
         agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolve(resolved.root, resolved.build.outDir),
+        hosting: internalOptions?.hosting,
         importBase: internalOptions?.importBase,
         providerImportAliases: await providerImportAliases(),
         providerRuntimeImportAliases: {

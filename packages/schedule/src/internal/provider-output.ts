@@ -4,7 +4,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
 
-import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
@@ -514,7 +514,7 @@ async function writeCloudflareScheduleOutput(options: {
     bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
       alias: options.bundleAlias,
       conditions: ["workerd", "worker", "browser", "default"],
-      external: ["node:*"],
+      external: [cloudflareRuntimeExternal, "node:*"],
       format: "esm",
       platform: "neutral",
       plugins: [createScheduleDefinitionAliasPlugin()],

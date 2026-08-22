@@ -100,6 +100,20 @@ describe("workflow config", () => {
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
   })
 
+  it("leaves implicitly enabled Workflow disabled when Schedule prepares a Netlify build", async () => {
+    const plugin = hubWorkflow({ hosting: "netlify", implicitlyEnabled: true } as never)
+    ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
+
+    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+  })
+
+  it("keeps explicit Workflow provider enforcement when Schedule prepares a Netlify build", async () => {
+    const plugin = hubWorkflow({ hosting: "netlify" } as never)
+    ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
+
+    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toThrow(/cannot be inferred for Netlify/)
+  })
+
   it("rejects invalid openworkflow options", () => {
     expect(() => normalizeWorkflowOptions({
       postgres: "postgres://localhost/vitehub",
