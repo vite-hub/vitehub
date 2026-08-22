@@ -197,9 +197,11 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       if (!path) continue
       if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
-      if (!options.recursive && normalizedPrefix && path.slice(normalizedPrefix.length + 1).includes("/")) continue
-      if (!options.recursive && !normalizedPrefix && path.includes("/")) {
-        entries.set(path.split("/")[0]!, { path: path.split("/")[0]!, type: "directory" })
+      const relative = normalizedPrefix ? path.slice(normalizedPrefix.length + 1) : path
+      if (!options.recursive && relative.includes("/")) {
+        const child = relative.split("/")[0]!
+        const directory = normalizedPrefix ? `${normalizedPrefix}/${child}` : child
+        entries.set(directory, { path: directory, type: "directory" })
         continue
       }
 
