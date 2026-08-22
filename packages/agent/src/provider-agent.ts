@@ -385,7 +385,12 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
           for (const entry of await readdir(directory, { withFileTypes: true })) {
             const target = join(directory, entry.name)
             const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
-            entries.push({ path: target, ...(type === "file" ? { size: (await lstat(target)).size } : {}), type })
+            const stats = type === "file" ? await lstat(target) : undefined
+            entries.push({
+              path: target,
+              ...(stats ? { executable: Boolean(stats.mode & 0o100), size: stats.size } : {}),
+              type,
+            })
             if (options?.recursive && type === "directory") await visit(target)
           }
         }
