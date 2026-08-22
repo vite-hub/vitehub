@@ -259,7 +259,7 @@ async function listHostEntries(
   await assertHostWorkspaceRoot(host, root)
   const workspacePath = normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })
   if (isExcludedWorkspacePath(workspacePath, excluded)) return []
-  const hostExcluded = excluded.map(item => toHostPath(root, item))
+  const hostExcluded = excluded.map(item => toHostPath(root, normalizeWorkspacePath(item)))
   const listed = await host.files.list(toHostPath(root, workspacePath), { exclude: hostExcluded, recursive })
   const entries = listed
     .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))

@@ -768,6 +768,15 @@ describe("workspace host sessions", () => {
       path: "/workspace",
     }])
     inspected.length = 0
+    await expect(session.list("", { exclude: ["/private"], recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "public", type: "directory" }),
+      expect.objectContaining({ path: "public/readme.md", type: "file" }),
+    ])
+    expect(inspected).toEqual([{
+      options: { exclude: ["/workspace/private"], recursive: true },
+      path: "/workspace",
+    }])
+    inspected.length = 0
     await expect(session.list("", { exclude: ["private"] })).resolves.toEqual([
       expect.objectContaining({ path: "public", type: "directory" }),
     ])
