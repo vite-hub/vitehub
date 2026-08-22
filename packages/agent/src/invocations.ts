@@ -55,6 +55,7 @@ export interface AgentInvocationRecord {
 export interface AgentInvocationListOptions {
   cursor?: string
   limit?: number
+  search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
 }
 
@@ -173,6 +174,25 @@ function normalizeLimit(limit: number | undefined): number {
     throw new TypeError("[vitehub] Agent Invocation list limit must be a positive integer.")
   }
   return Math.min(limit, MAX_LIST_LIMIT)
+}
+
+function normalizeSearch(search: string | undefined): string | undefined {
+  if (search === undefined) return
+  if (typeof search !== "string") {
+    throw new TypeError("[vitehub] Agent Invocation search must be a string.")
+  }
+  const value = search.trim()
+  if (!value) return
+  if (value.length > 256) {
+    throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.")
+  }
+  return value
+}
+
+function matchesInvocationSearch(record: AgentInvocationRecord, search: string | undefined): boolean {
+  if (!search) return true
+  const { observations: _observations, ...summary } = record
+  return JSON.stringify(summary).toLowerCase().includes(search.toLowerCase())
 }
 
 function normalizeBuiltInCursor(cursor: string | undefined): string | undefined {
@@ -317,12 +337,13 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     list(options = {}) {
       const limit = normalizeLimit(options.limit)
       const cursor = normalizeBuiltInCursor(options.cursor)
+      const search = normalizeSearch(options.search)
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
       const before = cursor === undefined ? Number.POSITIVE_INFINITY : Number(cursor)
       const candidates = [...records.values()]
-        .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)))
+        .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)) && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
       const page = candidates.slice(0, limit)
       return {
@@ -612,7 +633,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       return await store.get(await boundedIdentity(invocationIdentity(runId, agentName)))
     },
     async list(options = {}) {
-      return await store.list({ ...options, limit: normalizeLimit(options.limit) })
+      const search = normalizeSearch(options.search)
+      const normalized = { ...options, limit: normalizeLimit(options.limit) }
+      if (search) normalized.search = search
+      else delete normalized.search
+      return await store.list(normalized)
     },
   }
   return invocations

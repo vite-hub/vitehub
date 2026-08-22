@@ -39,9 +39,9 @@ describe("UI server rendering", () => {
     expect(html).toContain("Improve the coding session console");
     expect(html).toContain("Working");
     expect(html).toContain("4m");
-    expect(html).toContain("Settled (1)");
+    expect(html).not.toContain("Settled");
     expect(html).toContain('aria-current="true"');
-    expect(html).not.toContain("Publish the dashboard preview");
+    expect(html).toContain("Publish the dashboard preview");
     expect(selected).toEqual([]);
   });
 
@@ -157,6 +157,8 @@ describe("UI server rendering", () => {
     expect(html).toContain("workspace-shell");
     expect(html).toContain("Work through the repository carefully.");
     expect(html).toContain("repository");
-    expect(html).toContain("trace_1");
+    expect(html).toContain("Copy Trace ID");
+    expect(html).toContain("Copy Invocation ID");
+    expect(html).not.toContain("trace_1");
   });
 });

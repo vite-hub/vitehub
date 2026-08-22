@@ -192,18 +192,42 @@ export function useAgentInvocations(
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let revision = 0;
+  let resetFirstPage = true;
+  let sourceSignature: string | undefined;
   let stopped = false;
+
+  function currentSourceSignature() {
+    return JSON.stringify([
+      toValue(baseURL),
+      options.query ? toValue(options.query) : undefined,
+    ]);
+  }
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
-      invocations.value = result.invocations;
-      cursor.value = result.cursor;
+      if (resetFirstPage || invocations.value.length === 0) {
+        invocations.value = result.invocations;
+        cursor.value = result.cursor;
+        resetFirstPage = false;
+        return;
+      }
+      const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
+      const retained = invocations.value.filter(invocation => !firstPageIds.has(invocation.id));
+      invocations.value = [...result.invocations, ...retained];
+      if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
     },
     beforeLoad() {
+      const nextSignature = currentSourceSignature();
+      resetFirstPage = sourceSignature !== nextSignature;
+      sourceSignature = nextSignature;
+      if (resetFirstPage) {
+        invocations.value = [];
+        cursor.value = undefined;
+      }
       revision++;
       loadMoreController?.abort();
       loadMoreController = undefined;

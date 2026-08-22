@@ -283,6 +283,10 @@ describe("Agent Invocations", () => {
     const listed = await invocations.list()
     expect(listed.invocations).toHaveLength(1)
     expect(listed.invocations[0]).not.toHaveProperty("observations")
+    await expect(invocations.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
+      invocations: [expect.objectContaining({ status: "completed" })],
+    })
+    await expect(invocations.list({ search: "observation-only content" })).resolves.toEqual({ invocations: [] })
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
@@ -527,10 +531,11 @@ describe("Agent Invocations", () => {
     }
     const invocations = defineAgentInvocations({ store })
 
-    await expect(invocations.list({ cursor: "opaque/token", limit: 1000 })).resolves.toMatchObject({
+    await expect(invocations.list({ cursor: "opaque/token", limit: 1000, search: "  ViteHub  " })).resolves.toMatchObject({
       cursor: "next/token",
     })
-    expect(list).toHaveBeenCalledWith({ cursor: "opaque/token", limit: 100 })
+    expect(list).toHaveBeenCalledWith({ cursor: "opaque/token", limit: 100, search: "ViteHub" })
+    await expect(invocations.list({ search: "x".repeat(257) })).rejects.toThrow("at most 256 characters")
   })
 
   it("keeps terminal records immutable when an invocation id is reused", async () => {
@@ -678,7 +683,7 @@ describe("Agent Invocations", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, runtime("durable-run"), {})
+      await runAgent(agent, runtime("durable-run", { "github.repository": "vite-hub/vitehub" }), {})
 
       const restored = defineAgentInvocations({
         store: createLibsqlAgentInvocationStore({ client: readerClient }),
@@ -693,6 +698,10 @@ describe("Agent Invocations", () => {
         "agent.invocation.finish",
       ])
       expect((await restored.getByRunId("durable-run"))?.observations[1]?.attributes).toMatchObject({ nan: null })
+      await expect(restored.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ status: "completed" })],
+      })
+      await expect(restored.list({ search: "missing repository" })).resolves.toEqual({ invocations: [] })
       for (const cursor of ["invalid", "01", "1.0", " 1", String(Number.MAX_SAFE_INTEGER + 1)]) {
         await expect(restored.list({ cursor })).rejects.toThrow("cursor is invalid")
       }

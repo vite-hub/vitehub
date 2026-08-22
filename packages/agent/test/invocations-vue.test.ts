@@ -137,7 +137,27 @@ describe("Agent Invocation Vue composables", () => {
 
     calls[1]!.resolve({ invocations: [record("inv-2")] } satisfies AgentInvocationListResult);
     await refresh;
-    expect(resource.invocations.value).toEqual([record("inv-2")]);
+    expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-1")]);
+    scope.stop();
+  });
+
+  it("keeps lazy-loaded pages when polling refreshes the first page", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-0")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "new-page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await refresh;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
+    expect(resource.cursor.value).toBe("page-3");
     scope.stop();
   });
 

@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, ref, type PropType, type Slot, watch } from "vue";
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "../types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -55,13 +55,14 @@ function renderItem(
   select: (item: AgentInvocationListItem) => void,
   projectIconSlot?: Slot,
   harnessSlot?: Slot,
+  itemProps?: Record<string, unknown>,
 ) {
   const time = relativeTime(item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt, now);
   const harness = harnessSlot?.({ item }) ?? [
     item.provider ? h("span", { title: `Provider: ${item.provider}` }, [metadataIcon("provider"), h("span", { class: "vh-visually-hidden" }, `Provider ${item.provider}`)]) : null,
     item.agent ? h("span", { title: `Agent: ${item.agent}` }, [metadataIcon("agent"), h("span", { class: "vh-visually-hidden" }, `Agent ${item.agent}`)]) : null,
   ];
-  return h("li", { key: item.id }, [
+  return h("li", { key: item.id, ...itemProps }, [
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
       class: "vh-invocation-list__item",
@@ -95,45 +96,97 @@ export const AgentInvocationList = defineComponent({
   name: "AgentInvocationList",
   props: {
     ariaLabel: { default: "Agent sessions", type: String },
+    hasMore: Boolean,
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
+    loading: Boolean,
     now: Number,
     selectedId: String,
+    virtual: { default: true, type: Boolean },
   },
   emits: {
+    endReached: () => true,
     select: (_item: AgentInvocationListItem) => true,
   },
   setup(props, { emit, slots }) {
-    const settledOpen = ref(false);
-    const active = computed(() => props.items.filter(item => item.status === "pending" || item.status === "running"));
-    const settled = computed(() => props.items.filter(item => item.status !== "pending" && item.status !== "running"));
-    watch(() => props.selectedId, (id) => {
-      if (id && settled.value.some(item => item.id === id)) settledOpen.value = true;
-    }, { immediate: true });
+    const viewport = ref<HTMLElement | null>(null);
+    const requestedLength = ref<number>();
+    const scrollTop = ref(0);
+    const viewportHeight = ref(0);
+    const rowSize = 86;
+    const overscan = 6;
+    let resizeObserver: ResizeObserver | undefined;
+    let measureViewport: (() => void) | undefined;
+    const virtualRows = computed(() => {
+      const visibleRows = Math.max(1, Math.ceil(viewportHeight.value / rowSize));
+      const start = Math.max(0, Math.floor(scrollTop.value / rowSize) - overscan);
+      const end = Math.min(props.items.length, start + visibleRows + overscan * 2);
+      return Array.from({ length: end - start }, (_, offset) => {
+        const index = start + offset;
+        return { index, start: index * rowSize };
+      });
+    });
+    watch(
+      [virtualRows, () => props.hasMore, () => props.loading, () => props.items.length],
+      ([rows, hasMore, loading, length]) => {
+        if (!hasMore || loading || !length || requestedLength.value === length) return;
+        if (rows.at(-1)?.index !== undefined && rows.at(-1)!.index >= length - 6) {
+          requestedLength.value = length;
+          emit("endReached");
+        }
+      },
+      { flush: "post" },
+    );
+    watch(() => props.items.length, (length, previous) => {
+      if (length < previous) requestedLength.value = undefined;
+    });
+    onMounted(() => {
+      if (!viewport.value) return;
+      measureViewport = () => { viewportHeight.value = viewport.value?.clientHeight ?? 0; };
+      measureViewport();
+      if ("ResizeObserver" in globalThis) {
+        resizeObserver = new ResizeObserver(measureViewport);
+        resizeObserver.observe(viewport.value);
+      } else {
+        window.addEventListener("resize", measureViewport);
+      }
+    });
+    onBeforeUnmount(() => {
+      resizeObserver?.disconnect();
+      if (measureViewport) window.removeEventListener("resize", measureViewport);
+    });
     const select = (item: AgentInvocationListItem) => emit("select", item);
 
-    return () => h("nav", { "aria-label": props.ariaLabel, class: "vh-invocation-list" }, [
-      slots.header?.({ active: active.value, settled: settled.value }),
+    return () => h("nav", {
+      "aria-label": props.ariaLabel,
+      class: "vh-invocation-list",
+      onScroll: (event: Event) => { scrollTop.value = (event.currentTarget as HTMLElement).scrollTop; },
+      ref: viewport,
+    }, [
+      slots.header?.({ items: props.items }),
       props.items.length === 0
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
-      active.value.length
-        ? h("section", { "aria-label": "Active sessions" }, [
-            h("h2", { class: "vh-invocation-list__section-title" }, "Active"),
-            h("ul", active.value.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness))),
-          ])
-        : null,
-      settled.value.length
-        ? h("section", { class: "vh-invocation-list__settled" }, [
-            h("button", {
-              "aria-expanded": settledOpen.value,
-              class: "vh-invocation-list__settled-trigger",
-              onClick: () => { settledOpen.value = !settledOpen.value; },
-              type: "button",
-            }, [h("span", `Settled (${settled.value.length})`), h("span", { "aria-hidden": "true" }, "⌄")]),
-            settledOpen.value ? h("ul", settled.value.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness))) : null,
-          ])
-        : null,
-      slots.footer?.({ active: active.value, settled: settled.value }),
+      props.items.length && (props.virtual && typeof window !== "undefined")
+        ? h("ul", {
+            class: "vh-invocation-list__virtual",
+            style: { height: `${props.items.length * rowSize}px` },
+          }, virtualRows.value.map(row => renderItem(
+            props.items[row.index]!,
+            props.selectedId,
+            props.now,
+            select,
+            slots.projectIcon,
+            slots.harness,
+            {
+              "data-index": row.index,
+              style: { height: `${rowSize}px`, transform: `translateY(${row.start}px)` },
+            },
+          )))
+        : props.items.length
+          ? h("ul", props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
+          : null,
+      props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading" }, "Loading sessions…") : null,
+      slots.footer?.({ items: props.items }),
     ]);
   },
 });
