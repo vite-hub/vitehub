@@ -20,11 +20,12 @@
   },
   "files": [
     "dist",
+    "styles.css",
     "package.json"
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/styles.css"
+    "./styles.css"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
