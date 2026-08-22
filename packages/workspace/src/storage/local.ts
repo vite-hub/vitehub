@@ -64,12 +64,12 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
   }
 }
 
-async function walk(root: string, current = root, excluded: readonly string[] = []): Promise<WorkspaceEntry[]> {
+async function walk(root: string, current = root, excluded: readonly string[] = [], recursive = true): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
   const entries: WorkspaceEntry[] = []
   const dirents = await readdir(current, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return []
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return []
     throw error
   })
 
@@ -85,7 +85,7 @@ async function walk(root: string, current = root, excluded: readonly string[] = 
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      entries.push(...await walk(root, absolute, excluded))
+      if (recursive) entries.push(...await walk(root, absolute, excluded))
       continue
     }
     if (dirent.isFile()) {
@@ -242,8 +242,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
-    const excluded = (options.exclude || []).map(path => normalizeWorkspacePath(path))
-    const all = await walk(this.root, resolveInside(this.root, normalizedPrefix), excluded)
+    const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
+    const all = await walk(this.root, current, options.exclude, options.recursive === true)
     return all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")

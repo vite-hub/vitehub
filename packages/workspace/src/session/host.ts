@@ -229,6 +229,24 @@ function gitMetadataRoot(path: string) {
   return index === -1 ? undefined : parts.slice(0, index + 1).join("/")
 }
 
+async function removeHostGitMetadata(host: WorkspaceSessionHost, root: string, signal?: AbortSignal): Promise<void> {
+  const directories = [""]
+  for (let index = 0; index < directories.length; index++) {
+    signal?.throwIfAborted()
+    const directory = directories[index]!
+    for (const entry of await host.files.list(toHostPath(root, directory))) {
+      const path = fromHostPath(root, entry.path)
+      const gitRoot = gitMetadataRoot(path)
+      if (gitRoot) {
+        await removeHostPath(host, root, toHostPath(root, gitRoot), true)
+      }
+      else if (entry.type === "directory") {
+        directories.push(path)
+      }
+    }
+  }
+}
+
 async function listHostEntries(
   host: WorkspaceSessionHost,
   root: string,
@@ -434,24 +452,32 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
 
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
   const paths = normalizeSessionPaths(options)
-  if (!paths) {
-    return (await workspace.list("", { exclude: [...defaultExcludedSessionPaths], recursive: true }))
-      .filter(entry => !isExcludedSessionSourcePath(entry.path))
+  const entries = new Map<string, WorkspaceEntry>()
+  const directories = paths ? [] : [""]
+  if (paths) {
+    for (const path of paths) {
+      const excluded = isExcludedSessionSourcePath(path)
+      if (excluded && path !== ".vitehub") continue
+      const stat = await workspace.stat(path).catch((error) => {
+        if (isMissingWorkspacePathError(error)) return undefined
+        throw error
+      })
+      if (!stat) continue
+      if (!excluded) entries.set(stat.path, stat)
+      if (stat.type === "directory") directories.push(stat.path)
+    }
   }
 
-  const entries = new Map<string, WorkspaceEntry>()
-  for (const path of paths) {
-    const excluded = isExcludedSessionSourcePath(path)
-    if (excluded && path !== ".vitehub") continue
-    const stat = await workspace.stat(path).catch((error) => {
-      if (isMissingWorkspacePathError(error)) return undefined
-      throw error
-    })
-    if (!stat) continue
-    if (!excluded) entries.set(stat.path, stat)
-    if (stat.type === "directory") {
-      for (const entry of await workspace.list(path, { exclude: [...defaultExcludedSessionPaths], recursive: true })) {
-        if (!isExcludedSessionSourcePath(entry.path)) entries.set(entry.path, entry)
+  const visited = new Set<string>()
+  for (let index = 0; index < directories.length; index++) {
+    const directory = directories[index]!
+    if (visited.has(directory)) continue
+    visited.add(directory)
+    for (const entry of await workspace.list(directory)) {
+      const excluded = isExcludedSessionSourcePath(entry.path)
+      if (!excluded) entries.set(entry.path, entry)
+      if (entry.type === "directory" && (!excluded || entry.path === ".vitehub")) {
+        directories.push(entry.path)
       }
     }
   }
@@ -585,6 +611,7 @@ async function materializeWorkspace(
     }, async () => await extractRevisionArchive(host, root, { ...revision, archive: revision.archive! }, options?.abortSignal))
     abortSignal?.throwIfAborted()
     await Promise.all(defaultExcludedSessionPaths.map(path => removeHostPath(host, root, toHostPath(root, path), true)))
+    await removeHostGitMetadata(host, root, abortSignal)
     abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root)
     abortSignal?.throwIfAborted()

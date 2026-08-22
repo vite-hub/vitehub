@@ -1,5 +1,5 @@
 import { workspaceError } from "../core/errors.ts"
-import { contentStreamToBytes, decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
+import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
@@ -154,9 +154,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const storeEntries = await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
-    for (const entry of descriptorPathEntries(path, options)) result.set(entry.path, entry)
+    for (const entry of descriptorPathEntries(path, options)) {
+      if (!isExcludedWorkspacePath(entry.path, options.exclude)) result.set(entry.path, entry)
+    }
 
     for (const source of getLazySourcesForPath(path)) {
+      if (isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
       await ensurePrepared(source.key)
       if (source.livePaths) {
         await pruneLiveSourceStoreEntries(result, source)
@@ -546,6 +549,7 @@ function addLiveSourceEntries(
   for (const source of sources.filter(source => source.livePaths)) {
     for (const entry of liveSourceEntries(source)) {
       if (!isListedLiveEntry(entry, normalized, options)) continue
+      if (isExcludedWorkspacePath(entry.path, options.exclude)) continue
       result.set(entry.path, entry)
     }
   }

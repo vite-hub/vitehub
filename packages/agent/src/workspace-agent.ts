@@ -210,19 +210,39 @@ export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
 }
 
-const registeredWorkspaceAgentNames = new WeakMap<object, Set<string>>()
+const registeredWorkspaceAgentNames = Symbol("vitehub.registeredWorkspaceAgentNames")
+
+type RegisteredWorkspaceAgent = {
+  [registeredWorkspaceAgentNames]?: Set<string>
+}
 
 export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: string): void {
   if (typeof agent !== "object" || agent === null) return
-  const names = registeredWorkspaceAgentNames.get(agent) || new Set<string>()
+  const registeredAgent = agent as RegisteredWorkspaceAgent
+  const names = registeredAgent[registeredWorkspaceAgentNames] || new Set<string>()
   names.add(name)
-  registeredWorkspaceAgentNames.set(agent, names)
+  if (registeredAgent[registeredWorkspaceAgentNames]) return
+  Object.defineProperty(registeredAgent, registeredWorkspaceAgentNames, {
+    configurable: true,
+    value: names,
+  })
+}
+
+export function markDiscoveredWorkspaceAgentDefinitionRegistered(
+  agent: unknown,
+  defaults: WorkspaceAgentDefaults = {},
+): string | undefined {
+  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return
+  const options = (agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions
+  const name = workspaceNameFromOptions(options, defaults)
+  markWorkspaceAgentDefinitionRegistered(agent, name)
+  return name
 }
 
 export function workspaceAgentUsesRegisteredDefinition(agent: unknown, name: string): boolean {
   return typeof agent === "object"
     && agent !== null
-    && Boolean(registeredWorkspaceAgentNames.get(agent)?.has(name))
+    && Boolean((agent as RegisteredWorkspaceAgent)[registeredWorkspaceAgentNames]?.has(name))
 }
 
 export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir: string, colocatedInstructions?: string): Agent {

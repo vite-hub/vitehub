@@ -447,7 +447,6 @@ export type { OtlpHttpJsonOptions, OtlpResourceAttributes } from "./telemetry.ts
 
 export {
   createAgentInspectionMetadata,
-  markWorkspaceAgentDefinitionRegistered,
   materializeAgentInspectionSourceMetadata,
   resolveAgentInspectionMetadata,
   workspaceAgentOwnsWorkspaceDefinition,
@@ -2053,11 +2052,14 @@ function resolveOwnedAgentWorkspaceDefinition(
   const existing = definitions.get(name)
   if (existing) return existing
   const resolved = mergeOwnedAgentWorkspaceDefinition(name, registered, configured)
-  if (resolved) {
-    definitions.set(name, resolved)
-    ownedAgentWorkspaceDefinitions.set(agent, definitions)
-  }
+  if (resolved) setOwnedAgentWorkspaceDefinition(agent, name, resolved)
   return resolved
+}
+
+function setOwnedAgentWorkspaceDefinition(agent: object, name: string, definition: WorkspaceDefinition): void {
+  const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
+  definitions.set(name, definition)
+  ownedAgentWorkspaceDefinitions.set(agent, definitions)
 }
 
 function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
@@ -2066,11 +2068,38 @@ function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefin
   return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
 }
 
-async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
+async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<WorkspaceDefinition | undefined> {
   if (!definition) return
   const { name: _name, ...workspace } = definition
   const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
-  registerWorkspace(name, workspace)
+  return registerWorkspace(name, workspace)
+}
+
+const ownedAgentWorkspaceRegistrations = new WeakMap<object, Map<string, Promise<WorkspaceDefinition | undefined>>>()
+
+async function awaitOwnedAgentWorkspaceRegistration(agent: object, name: string): Promise<void> {
+  await ownedAgentWorkspaceRegistrations.get(agent)?.get(name)
+}
+
+async function registerOwnedAgentWorkspaceDefinition(
+  agent: object,
+  name: string,
+  definition: WorkspaceDefinition,
+): Promise<WorkspaceDefinition | undefined> {
+  const registrations = ownedAgentWorkspaceRegistrations.get(agent) || new Map<string, Promise<WorkspaceDefinition | undefined>>()
+  let registration = registrations.get(name)
+  if (!registration) {
+    registration = registerResolvedAgentWorkspaceDefinition(name, definition).then((registered) => {
+      if (registered) setOwnedAgentWorkspaceDefinition(agent, name, registered)
+      return registered
+    })
+    registrations.set(name, registration)
+    ownedAgentWorkspaceRegistrations.set(agent, registrations)
+    void registration.catch(() => {
+      if (registrations.get(name) === registration) registrations.delete(name)
+    })
+  }
+  return await registration
 }
 
 function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, "waitUntil">, task: Promise<unknown>): void {
@@ -2223,10 +2252,13 @@ async function createAgentInvocationContext<
     const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
       : undefined
+    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
     const registeredWorkspaceDefinition = workspaceName
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
-    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
+    if (workspaceName && ownsWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+      await awaitOwnedAgentWorkspaceRegistration(workspaceDefinition, workspaceName)
+    }
     const usesRegisteredOwnedDefinition = Boolean(
       workspaceName
       && ownsWorkspaceDefinition
@@ -2234,7 +2266,7 @@ async function createAgentInvocationContext<
       && workspaceAgentUsesRegisteredDefinition(workspaceDefinition, workspaceName),
     )
     const configuredDefinitionForMerge = ownsWorkspaceDefinition ? undefined : configuredWorkspaceDefinition
-    const resolvedWorkspaceDefinition = workspaceName
+    let resolvedWorkspaceDefinition = workspaceName
       ? ownsWorkspaceDefinition
         ? usesRegisteredOwnedDefinition
           ? registeredWorkspaceDefinition
@@ -2242,7 +2274,15 @@ async function createAgentInvocationContext<
         : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
     if (workspaceName && ownsWorkspaceDefinition && resolvedWorkspaceDefinition && !registeredWorkspaceDefinition) {
-      await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+        resolvedWorkspaceDefinition = await registerOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
+      }
+      else {
+        resolvedWorkspaceDefinition = await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+      }
+      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+        setOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
+      }
     }
     const workspaceUseOptions = resolvedWorkspaceDefinition && (
       ownsWorkspaceDefinition

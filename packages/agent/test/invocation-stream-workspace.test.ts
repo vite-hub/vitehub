@@ -194,8 +194,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
   it("previews trigger finish effects before write workspace auto-commit completes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-workspace-"))
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+    await mkdir(join(root, "server", "agents", "review", "workspace"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "agent.ts"), "export default defineAgent({ workspace: { mode: \"write\" } })", "utf8")
 
     const { defineChannel } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -267,10 +267,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       "workspace-diff",
       "workspace-snapshot",
     ])
-    expect(useWorkspace).toHaveBeenCalledWith("review", {
-      definition: { mode: "write", name: "review" },
-      mode: "write",
-    })
+    expect(useWorkspace).toHaveBeenCalledWith("review", { mode: "write" })
     expect(replyEffect).not.toHaveBeenCalled()
   })
 

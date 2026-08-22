@@ -7,6 +7,8 @@ import { afterEach, expect, it, vi } from "vitest"
 import { defineAgent, runAgent } from "../src/index.ts"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
+import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
+
 const roots: string[] = []
 
 afterEach(async () => {
@@ -116,4 +118,45 @@ it("does not replace a registered Workspace used by named references", async () 
 
   await expect(runAgent(inline, context, {})).resolves.toBe("inline")
   await expect(runAgent(reference, context, {})).resolves.toBe("registered")
+})
+
+it("shares one owned Workspace across concurrent first use and later named references", async () => {
+  const name = `shared-workspace-${Math.random().toString(36).slice(2)}`
+  let calls = 0
+  const context = {
+    memo<T>(_key: string, create: () => T): T {
+      return create()
+    },
+    runtime: "unknown" as const,
+    waitUntil: vi.fn(),
+  }
+  const owner = defineAgent({
+    name,
+    runtime: false,
+    workspace: { mode: "write", store: { provider: "memory" } },
+    driver: {
+      run: async ({ workspace }) => {
+        const call = ++calls
+        await (workspace as WritableWorkspaceFacade).fs.writeFile(`checkout-${call}.txt`, `shared-${call}`)
+        return "written"
+      },
+    },
+  })
+  const reference = defineAgent({
+    name: `${name}-reference`,
+    runtime: false,
+    workspace: { mode: "read", name },
+    driver: {
+      run: async ({ workspace }) => [
+        await workspace!.fs.readFile("checkout-1.txt"),
+        await workspace!.fs.readFile("checkout-2.txt"),
+      ].join(":"),
+    },
+  })
+
+  await expect(Promise.all([
+    runAgent(owner, context, {}),
+    runAgent(owner, context, {}),
+  ])).resolves.toEqual(["written", "written"])
+  await expect(runAgent(reference, context, {})).resolves.toBe("shared-1:shared-2")
 })

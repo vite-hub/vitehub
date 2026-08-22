@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { promisify } from "node:util"
@@ -77,12 +77,14 @@ async function revisionArchive() {
   await mkdir(join(root, ".git"), { recursive: true })
   await mkdir(join(root, ".vitehub", "meta"), { recursive: true })
   await mkdir(join(root, ".vitehub-revision"), { recursive: true })
+  await mkdir(join(root, "nested", ".Git", "objects"), { recursive: true })
   await writeFile(join(root, "README.md"), "# Docs\n")
   await writeFile(join(root, ".agent-runs", "trace.json"), "internal")
   await writeFile(join(root, ".git", "config"), "internal")
   await writeFile(join(root, ".vitehub", "meta", "state.json"), "{}")
   await writeFile(join(root, ".vitehub-revision", "kept.txt"), "kept")
   await writeFile(join(root, ".vitehub-revision.tar.gz"), "kept archive name")
+  await writeFile(join(root, "nested", ".Git", "objects", "pack"), "internal")
   await writeFile(join(root, "scripts", "run.sh"), "#!/bin/sh\n")
   await execFileAsync("chmod", ["+x", join(root, "scripts", "run.sh")])
   await symlink("README.md", join(root, "CLAUDE.md"))
@@ -242,17 +244,28 @@ function workspace() {
 }
 
 describe("workspace host sessions", () => {
-  it("omits reserved local-store metadata during Session materialization", async () => {
+  it("prunes reserved local-store metadata during Session materialization", async () => {
     const source = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-source-"))
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-target-"))
     const target = join(targetParent, "workspace")
     await mkdir(join(source, ".git"), { recursive: true })
     await mkdir(join(source, ".agent-runs"), { recursive: true })
     await mkdir(join(source, ".vitehub", "meta"), { recursive: true })
+    await mkdir(join(source, "docs", ".Git", "objects"), { recursive: true })
     await writeFile(join(source, ".git", "config"), "internal")
     await writeFile(join(source, ".agent-runs", "trace.json"), "internal")
     await writeFile(join(source, ".vitehub", "meta", "state.json"), "internal")
+    await writeFile(join(source, "docs", ".Git", "objects", "pack"), "internal")
     await writeFile(join(source, "README.md"), "# Docs\n")
+    const excluded = [
+      join(source, ".git"),
+      join(source, ".agent-runs"),
+      join(source, ".vitehub", "meta"),
+      join(source, "docs", ".Git"),
+    ]
+    if (process.platform !== "win32") {
+      await Promise.all(excluded.map(path => chmod(path, 0)))
+    }
     const docs = createWorkspace({
       ...defineWorkspace({ store: { provider: "local", root: source } }),
       name: "local-docs",
@@ -264,9 +277,13 @@ describe("workspace host sessions", () => {
       await expect(stat(join(target, ".agent-runs"))).rejects.toThrow()
       await expect(stat(join(target, ".git"))).rejects.toThrow()
       await expect(stat(join(target, ".vitehub", "meta"))).rejects.toThrow()
+      await expect(stat(join(target, "docs", ".Git"))).rejects.toThrow()
       await session.close()
     }
     finally {
+      if (process.platform !== "win32") {
+        await Promise.all(excluded.map(path => chmod(path, 0o700)))
+      }
       await Promise.all([
         rm(source, { force: true, recursive: true }),
         rm(targetParent, { force: true, recursive: true }),
@@ -310,6 +327,7 @@ describe("workspace host sessions", () => {
         expect.objectContaining({ path: ".agent-runs/trace.json" }),
         expect.objectContaining({ path: ".git/config" }),
         expect.objectContaining({ path: ".vitehub/meta/state.json" }),
+        expect.objectContaining({ path: "nested/.Git/objects/pack" }),
       ]))
       await expect(session.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ metadata: { gitMode: "120000" }, path: "CLAUDE.md" }),

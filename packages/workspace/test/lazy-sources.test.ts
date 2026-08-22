@@ -109,6 +109,7 @@ describe("lazy sources", () => {
     }
     const view = createWorkspaceSourceView(definition, createMemoryWorkspaceStore())
 
+    await expect(view.list("", { exclude: ["docs"], recursive: true })).resolves.toEqual([])
     await expect(view.list("docs")).resolves.toEqual([
       expect.objectContaining({ path: "docs/foo.md", type: "file" }),
     ])
