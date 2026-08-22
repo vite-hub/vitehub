@@ -51,6 +51,7 @@ export default defineEventHandler(() => {
 | --- | --- |
 | `defineSource`, `defineSources`, `createSource`, `combineSources`, `custom` from `vite-hub/source` | Define Sources, create context-dependent readers, and combine keyed readers. |
 | `defineCollection` from `vite-hub/source`, `defineCollectionHandler` from `vite-hub/source/server`, `useCollection` from `vite-hub/source/client` | Turn any loader into a typed, paginated HTTP read model and consume it from Vue. |
+| `defineDrizzleCollection`, `useDatabase` from `vite-hub/database/drizzle` | Expose a Drizzle table as a Collection without writing cursor SQL. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
@@ -237,8 +238,43 @@ change the process-local registry: `defineSources()`, `registerSources()`, and
 ## Expose a typed Collection
 
 A Source describes where data comes from. A Collection describes the paginated
-object shape an application exposes to a client. Its loader can call a database,
-a Source reader, an SDK, or any other server-side origin.
+object shape an application exposes to a client. For a discovered Drizzle
+database, let the database adapter own the keyset query:
+
+```ts [server/collections/articles.ts]
+import { eq } from 'drizzle-orm'
+import * as v from 'valibot'
+import { defineDrizzleCollection, useDatabase } from 'vite-hub/database/drizzle'
+
+const { db, schema } = useDatabase('default')
+
+export const articles = defineDrizzleCollection({
+  db,
+  table: schema.articles,
+  keyset: {
+    by: schema.articles.createdAt,
+    order: 'desc',
+    tieBreaker: schema.articles.id,
+  },
+  defaultLimit: 25,
+  maxLimit: 100,
+  querySchema: v.object({ author: v.optional(v.string()) }),
+  where: ({ query, table }) => query.author
+    ? eq(table.author, query.author)
+    : undefined,
+  transform: article => ({ id: article.id, title: article.title }),
+})
+```
+
+`by` and `tieBreaker` must be non-null columns on the selected table, and the
+tie-breaker must be unique. The adapter applies `where` before its lexicographic
+cursor predicate, orders both columns consistently, requests the extra row, and
+keeps the cursor opaque to clients. Omit `querySchema` and `where` when the
+Collection has no filters.
+
+Use `defineCollection` directly when the origin is a Source reader, SDK, HTTP
+API, joined query, or another loader whose pagination is not a single Drizzle
+table. In that escape hatch, the loader owns its origin-specific cursor logic.
 
 ```ts [server/collections/articles.ts]
 import { defineCollection } from 'vite-hub/source'
@@ -256,7 +292,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
 })
 ```
 
-The Collection requests one extra row from the loader, enforces its configured
+The generic Collection requests one extra row from the loader, enforces its configured
 limits, and turns the last visible row into an opaque cursor. `transform()` is
 the server-to-client boundary, so private columns and provider objects stay out
 of the response while its return type becomes the client item type. Any Standard

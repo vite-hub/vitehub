@@ -1561,6 +1561,9 @@ importers:
       '@netlify/blobs':
         specifier: catalog:storage
         version: 10.7.5
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@supabase/storage-js':
         specifier: catalog:storage
         version: 2.105.4
@@ -1670,6 +1673,9 @@ importers:
         specifier: catalog:workflow
         version: 5.0.0-beta.35(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.3)(react@19.2.6)(typescript@6.0.3)(ws@8.21.3)
     devDependencies:
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.17.4
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3

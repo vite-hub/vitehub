@@ -144,6 +144,7 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@aws-sdk/client-s3": "catalog:storage",
     "@aws-sdk/lib-storage": "catalog:storage",
     "@aws-sdk/s3-presigned-post": "catalog:storage",
@@ -193,6 +194,7 @@
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
