@@ -47,7 +47,7 @@ interface AgentWorkflowRegistryPlugin extends Plugin {
 
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
-type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
+interface InternalWorkflowModuleOptions {
   agentImportBase?: string
   hosting?: string
   implicitlyEnabled?: boolean
@@ -72,11 +72,10 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return aliases
 }
 
-export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin {
-  const internalOptions = options as InternalWorkflowModuleOptions | undefined
+export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
-  let workflow: WorkflowModuleOptions | undefined = internalOptions?.implicitlyEnabled
+  let workflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
     ? false
     : options

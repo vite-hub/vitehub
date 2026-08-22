@@ -19,24 +19,37 @@ interface RequestCall {
 
 function controlledRequester() {
   const calls: RequestCall[] = [];
-  const request = (<T>(path: string, options: Parameters<AgentInvocationRequester>[1]) =>
-    new Promise<T>((resolve, reject) => {
+  const request: AgentInvocationRequester = (path, options) =>
+    new Promise<unknown>((resolve, reject) => {
       options.signal?.addEventListener(
         "abort",
         () => reject(new DOMException("Aborted", "AbortError")),
         { once: true },
       );
       calls.push({ options, path, reject, resolve });
-    })) as AgentInvocationRequester;
+    });
   return { calls, request };
 }
 
 function record(id: string): AgentInvocationRecord {
-  return { id } as AgentInvocationRecord;
+  return {
+    createdAt: "2026-08-22T12:00:00.000Z",
+    cursor: id,
+    id,
+    observations: [],
+    status: "running",
+    traceId: `trace-${id}`,
+    updatedAt: "2026-08-22T12:00:00.000Z",
+  };
 }
 
 function observation(sequence: number): TraceEventLogEntry {
-  return { sequence } as TraceEventLogEntry;
+  return {
+    name: "agent.invocation.running",
+    sequence,
+    timestamp: "2026-08-22T12:00:00.000Z",
+    type: "lifecycle",
+  };
 }
 
 async function settle() {
@@ -167,7 +180,7 @@ describe("Agent Invocation Vue composables", () => {
       cursor: "next",
       invocations: [record("inv-1")],
     }) as AgentInvocationListResult);
-    const request = requestMock as unknown as AgentInvocationRequester;
+    const request: AgentInvocationRequester = (_path, _options) => requestMock();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
 

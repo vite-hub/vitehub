@@ -110,6 +110,7 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
+    const scrollRevision = ref(0);
     const scrollTop = ref(0);
     const viewportHeight = ref(0);
     const rowSize = 86;
@@ -126,7 +127,7 @@ export const AgentInvocationList = defineComponent({
       });
     });
     watch(
-      [virtualRows, () => props.hasMore, () => props.loading, () => props.items.length],
+      [virtualRows, () => props.hasMore, () => props.loading, () => props.items.length, scrollRevision],
       ([rows, hasMore, loading, length]) => {
         if (!hasMore || loading || !length || requestedLength.value === length) return;
         if (rows.at(-1)?.index !== undefined && rows.at(-1)!.index >= length - 6) {
@@ -159,7 +160,13 @@ export const AgentInvocationList = defineComponent({
     return () => h("nav", {
       "aria-label": props.ariaLabel,
       class: "vh-invocation-list",
-      onScroll: (event: Event) => { scrollTop.value = (event.currentTarget as HTMLElement).scrollTop; },
+      onScroll: (event: Event) => {
+        scrollTop.value = (event.currentTarget as HTMLElement).scrollTop;
+        if (!props.loading && requestedLength.value === props.items.length) {
+          requestedLength.value = undefined;
+        }
+        scrollRevision.value++;
+      },
       ref: viewport,
     }, [
       slots.header?.({ items: props.items }),

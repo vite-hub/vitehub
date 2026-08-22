@@ -2,14 +2,60 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
 
-const packageJson = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-) as {
+interface PackageManifest {
   dependencies: Record<string, string>;
   exports: Record<string, unknown>;
   peerDependencies: Record<string, string>;
   peerDependenciesMeta: Record<string, { optional?: boolean }>;
-};
+}
+
+function parsePackageManifest(source: string): PackageManifest {
+  const value: unknown = JSON.parse(source);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("Invalid @vite-hub/ui package manifest.");
+  }
+  const dependencies = stringRecord("dependencies" in value ? value.dependencies : undefined);
+  const exports = unknownRecord("exports" in value ? value.exports : undefined);
+  const peerDependencies = stringRecord("peerDependencies" in value ? value.peerDependencies : undefined);
+  const peerDependenciesMeta = optionalPeerRecord(
+    "peerDependenciesMeta" in value ? value.peerDependenciesMeta : undefined,
+  );
+  if (!dependencies || !exports || !peerDependencies || !peerDependenciesMeta) {
+    throw new TypeError("Invalid @vite-hub/ui package manifest maps.");
+  }
+  return { dependencies, exports, peerDependencies, peerDependenciesMeta };
+}
+
+function unknownRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return;
+  return { ...value };
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  const record = unknownRecord(value);
+  if (!record || Object.values(record).some(entry => typeof entry !== "string")) return;
+  return Object.fromEntries(Object.entries(record).map(([key, entry]) => [key, String(entry)]));
+}
+
+function optionalPeerRecord(
+  value: unknown,
+): Record<string, { optional?: boolean }> | undefined {
+  const record = unknownRecord(value);
+  if (!record) return;
+  const entries: Array<[string, { optional?: boolean }]> = [];
+  for (const [key, entry] of Object.entries(record)) {
+    const metadata = unknownRecord(entry);
+    if (!metadata || (metadata.optional !== undefined && typeof metadata.optional !== "boolean")) {
+      return;
+    }
+    entries.push([key, metadata.optional === undefined ? {} : { optional: metadata.optional }]);
+  }
+  return Object.fromEntries(entries);
+}
+
+const packageJson = parsePackageManifest(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {

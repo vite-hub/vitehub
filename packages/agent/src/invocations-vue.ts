@@ -4,6 +4,7 @@ import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { MaybeRefOrGetter, ShallowRef } from "vue";
 import type {
   AgentInvocationListResult,
+  AgentInvocationRecordStatus,
   AgentInvocationSummary,
 } from "./invocations.ts";
 
@@ -11,10 +12,10 @@ export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
 }
 
-export type AgentInvocationRequester = <T>(
+export type AgentInvocationRequester = (
   path: string,
   options: AgentInvocationRequestOptions,
-) => Promise<T>;
+) => Promise<unknown>;
 
 type QueryValue = boolean | number | string | null | undefined;
 
@@ -61,6 +62,79 @@ export interface UseAgentInvocationReturn {
 }
 
 const defaultBaseURL = "/api/invocations";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isInvocationStatus(value: unknown): value is AgentInvocationRecordStatus {
+  return value === "pending" || value === "running" || value === "completed" || value === "failed" || value === "cancelled";
+}
+
+function isTraceEventType(value: unknown): value is TraceEventLogEntry["type"] {
+  return value === "approval" || value === "capability" || value === "error" || value === "lifecycle" || value === "policy" || value === "run";
+}
+
+function parseInvocationSummary(value: unknown): AgentInvocationSummary {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.createdAt !== "string" ||
+    typeof value.cursor !== "string" ||
+    !isInvocationStatus(value.status) ||
+    typeof value.traceId !== "string" ||
+    typeof value.updatedAt !== "string"
+  ) {
+    throw new TypeError("Invalid Agent Invocation response.");
+  }
+  return {
+    ...value,
+    createdAt: value.createdAt,
+    cursor: value.cursor,
+    id: value.id,
+    status: value.status,
+    traceId: value.traceId,
+    updatedAt: value.updatedAt,
+  };
+}
+
+function parseInvocationListResult(value: unknown): AgentInvocationListResult {
+  if (!isRecord(value) || !Array.isArray(value.invocations)) {
+    throw new TypeError("Invalid Agent Invocation list response.");
+  }
+  if (value.cursor !== undefined && typeof value.cursor !== "string") {
+    throw new TypeError("Invalid Agent Invocation list cursor.");
+  }
+  return {
+    ...(typeof value.cursor === "string" ? { cursor: value.cursor } : {}),
+    invocations: value.invocations.map(parseInvocationSummary),
+  };
+}
+
+function parseAgentInvocationDetailResult(value: unknown): AgentInvocationDetailResult {
+  if (!isRecord(value) || !Array.isArray(value.observations)) {
+    throw new TypeError("Invalid Agent Invocation detail response.");
+  }
+  const observations = value.observations.map((observation) => {
+    if (
+      !isRecord(observation) ||
+      typeof observation.name !== "string" ||
+      typeof observation.sequence !== "number" ||
+      typeof observation.timestamp !== "string" ||
+      !isTraceEventType(observation.type)
+    ) {
+      throw new TypeError("Invalid Agent Invocation observation.");
+    }
+    return {
+      ...observation,
+      name: observation.name,
+      sequence: observation.sequence,
+      timestamp: observation.timestamp,
+      type: observation.type,
+    };
+  });
+  return { invocation: parseInvocationSummary(value.invocation), observations };
+}
 
 function isAbortError(error: unknown): boolean {
   return Boolean(
@@ -235,10 +309,12 @@ export function useAgentInvocations(
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
-    load: (signal) =>
-      request<AgentInvocationListResult>(
-        appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
-        { signal },
+    load: async (signal) =>
+      parseInvocationListResult(
+        await request(
+          appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
+          { signal },
+        ),
       ),
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
@@ -257,9 +333,11 @@ export function useAgentInvocations(
     resource.error.value = null;
     try {
       const query = options.query ? toValue(options.query) : undefined;
-      const result = await request<AgentInvocationListResult>(
-        appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
-        { signal: controller.signal },
+      const result = parseInvocationListResult(
+        await request(
+          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
+          { signal: controller.signal },
+        ),
       );
       if (loadMoreController !== controller || revision !== currentRevision) return;
       const ids = new Set(invocations.value.map(invocation => invocation.id));
@@ -317,9 +395,9 @@ export function useAgentInvocation(
     load(signal) {
       const resolvedId = toValue(id);
       if (resolvedId === undefined) return Promise.resolve(undefined);
-      return request<AgentInvocationDetailResult>(detailPath(toValue(baseURL), resolvedId), {
-        signal,
-      });
+      return request(detailPath(toValue(baseURL), resolvedId), { signal }).then(
+        parseAgentInvocationDetailResult,
+      );
     },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), toValue(id)],

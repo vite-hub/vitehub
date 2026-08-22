@@ -36,7 +36,25 @@ function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
 
 function deserialize(value: unknown, cursor: unknown): AgentInvocationRecord | undefined {
   if (typeof value !== "string") return
-  const record = JSON.parse(value) as Omit<AgentInvocationRecord, "cursor">
+  const parsed: unknown = JSON.parse(value)
+  if (
+    parsed === null
+    || typeof parsed !== "object"
+    || !("id" in parsed)
+    || typeof parsed.id !== "string"
+    || !("status" in parsed)
+    || (parsed.status !== "pending" && parsed.status !== "running" && parsed.status !== "completed" && parsed.status !== "failed" && parsed.status !== "cancelled")
+    || !("traceId" in parsed)
+    || typeof parsed.traceId !== "string"
+    || !("createdAt" in parsed)
+    || typeof parsed.createdAt !== "string"
+    || !("updatedAt" in parsed)
+    || typeof parsed.updatedAt !== "string"
+    || !("observations" in parsed)
+    || !Array.isArray(parsed.observations)
+  ) return
+  // SAFETY: SQLite values are written by serialize(), and required invocation identity/lifecycle fields were validated.
+  const record = parsed as Omit<AgentInvocationRecord, "cursor">
   return { ...record, cursor: String(cursor) }
 }
 
