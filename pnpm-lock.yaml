@@ -7252,7 +7252,7 @@ packages:
     resolution: {integrity: sha512-K6h3iUlqeM946U4sXFYeahefR1YBbXJvko+hv8WS8/0BNJ4OHiHRywMnQUJCqkR7Y9+hqQ1TvEpiKqUhz7NEFg==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@66628e8b8dcf468201b93c958604d641f89e62ef':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@66628e8b8dcf468201b93c958604d641f89e62ef}
+    resolution: {integrity: sha512-iV1zseVu6hHWVBpaZrOeE9na3zdBpY/ruGnxsV1yoNVF9N+YLHSIeqj2u92nePtrLvovhpBoul2GWyY3Ux9JVQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@66628e8b8dcf468201b93c958604d641f89e62ef}
     version: 0.0.33
     peerDependencies:
       effect: 4.0.0-beta.103
