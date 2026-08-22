@@ -173,7 +173,7 @@ describe("hubSandbox", () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "server/sandboxes/tools/release-notes"), { recursive: true })
     await writeFile(join(rootDir, "server/sandboxes/tools/release-notes/index.ts"), [
-      `export default { ok: true }`,
+      `export default async function run() { return { ok: true } }`,
       ``,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
@@ -1090,7 +1090,7 @@ describe("hubSandbox", () => {
       type: "module",
       vitehub: { sandbox: { timeout: 30_000 } },
     }))
-    await writeFile(definition, "export default { ok: true }\n")
+    await writeFile(definition, "export default async function run() { return { ok: true } }\n")
     await writeFile(join(projectDir, "prompt.md"), "initial prompt")
 
     const { hubSandbox } = await import("../src/vite.ts")
@@ -1173,7 +1173,7 @@ describe("hubSandbox", () => {
     const manifest = join(projectDir, "package.json")
     await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
     await mkdir(projectDir, { recursive: true })
-    await writeFile(join(projectDir, "index.ts"), "export default { ok: true }\n")
+    await writeFile(join(projectDir, "index.ts"), "export default async function run() { return { ok: true } }\n")
 
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "vercel" })

@@ -460,36 +460,7 @@ it("removes root Vercel output before writing an isolated Workflow function in t
   expect(existsSync(configFile)).toBe(false)
 })
 
-it("recovers pre-marker default Workflow output after a restart", async () => {
-  const rootDir = await createWorkspaceTempDir("vitehub-workflow-legacy-restart-")
-  const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
-
-  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
-  await rm(join(functionRoot, ".vitehub-workflow-output.json"))
-  await rm(join(rootDir, ".vitehub", "workflow", "vercel-output.json"))
-  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
-
-  expect(existsSync(functionRoot)).toBe(false)
-  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
-})
-
-it("preserves replaced pre-marker default Vercel output", async () => {
-  const rootDir = await createWorkspaceTempDir("vitehub-workflow-legacy-replaced-")
-  const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
-  const functionFile = join(functionRoot, "index.mjs")
-  const configFile = join(rootDir, ".vercel", "output", "config.json")
-
-  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
-  await rm(join(functionRoot, ".vitehub-workflow-output.json"))
-  await rm(join(rootDir, ".vitehub", "workflow", "vercel-output.json"))
-  await writeFile(functionFile, "export default { user: true }\n")
-  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
-
-  await expect(readFile(functionFile, "utf8")).resolves.toBe("export default { user: true }\n")
-  expect(existsSync(configFile)).toBe(true)
-})
-
-it("recovers truncated Workflow ownership JSON", async () => {
+it("preserves a Vercel function with a truncated ownership marker", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-truncated-ownership-")
   const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
   const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
@@ -499,8 +470,8 @@ it("recovers truncated Workflow ownership JSON", async () => {
   await writeFile(stateFile, "{\"serverFunctionName\":")
   await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
 
-  expect(existsSync(functionRoot)).toBe(false)
-  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+  expect(existsSync(functionRoot)).toBe(true)
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
   expect(existsSync(stateFile)).toBe(false)
 })
 

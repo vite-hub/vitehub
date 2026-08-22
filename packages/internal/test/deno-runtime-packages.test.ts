@@ -194,7 +194,7 @@ import "real"
       readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse),
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
-    expect(deployRunner).toContain('process.env.VITEHUB_DEPLOYMENT_NAME || "package-default"')
+    expect(deployRunner).toContain('process.env.DENO_DEPLOY_APP || "package-default"')
     for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.mjs", '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
   })

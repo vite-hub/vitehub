@@ -284,7 +284,7 @@ describe("workspace types", () => {
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
     const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
     const lazyGithubWorkspaceOptions: WorkspaceModuleOptions = { store: { provider: "github", repository: () => "acme/app", token: () => "token" } }
-    // @ts-expect-error syncOnBuild was removed in favor of assets
+    // @ts-expect-error Workspace Sources configure generated assets through assets.
     const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()

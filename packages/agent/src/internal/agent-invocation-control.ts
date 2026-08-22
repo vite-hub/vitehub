@@ -8,13 +8,8 @@ import type { AgentRunInput, MaybePromise } from "../types.ts"
 
 const invocationControlId = Symbol("vitehub.agentInvocationControlId")
 
-type InvocationControlContext = {
-  [invocationControlId]?: string
-  run?: { runId?: string }
-}
-
-export function agentInvocationControlId(context: InvocationControlContext): string | undefined {
-  return context[invocationControlId] ?? context.run?.runId
+export function agentInvocationControlId(context: object): string | undefined {
+  return (context as { [invocationControlId]?: string })[invocationControlId]
 }
 
 export function withAgentInvocationControlId<TContext extends object>(context: TContext, id: string): TContext {

@@ -887,17 +887,13 @@ describe("vitehub", () => {
   })
 
   describe("Cloudflare Workers Builds deployment identity", () => {
-    const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
     const previousProviderName = process.env.WRANGLER_CI_OVERRIDE_NAME
 
     beforeEach(() => {
-      delete process.env.VITEHUB_DEPLOYMENT_NAME
       delete process.env.WRANGLER_CI_OVERRIDE_NAME
     })
 
     afterEach(() => {
-      if (previousDeploymentName === undefined) delete process.env.VITEHUB_DEPLOYMENT_NAME
-      else process.env.VITEHUB_DEPLOYMENT_NAME = previousDeploymentName
       if (previousProviderName === undefined) delete process.env.WRANGLER_CI_OVERRIDE_NAME
       else process.env.WRANGLER_CI_OVERRIDE_NAME = previousProviderName
     })
@@ -940,11 +936,6 @@ describe("vitehub", () => {
 
       await expect(applyDeploymentConfig({
         name: "vitehub-drop-production",
-        preset: "cloudflare",
-      })).rejects.toThrow("conflicts with WRANGLER_CI_OVERRIDE_NAME")
-
-      process.env.VITEHUB_DEPLOYMENT_NAME = "vitehub-drop-production"
-      await expect(applyDeploymentConfig({
         preset: "cloudflare",
       })).rejects.toThrow("conflicts with WRANGLER_CI_OVERRIDE_NAME")
     })
@@ -1007,40 +998,6 @@ describe("vitehub", () => {
     expect(truncated.nitro).toMatchObject({
       cloudflare: { wrangler: { name: "a".repeat(47) } },
     })
-  })
-
-  it("keeps explicit and legacy deployment identities deterministic", async () => {
-    const previousName = process.env.VITEHUB_DEPLOYMENT_NAME
-    process.env.VITEHUB_DEPLOYMENT_NAME = "Legacy App"
-    try {
-      const explicit = await applyDeploymentConfig({
-        name: "legacy-app",
-        preset: "cloudflare",
-        rateLimit: true,
-      })
-      expect(explicit.rateLimit).toMatchObject({ namespace: "legacy-app" })
-
-      await expect(applyDeploymentConfig({
-        name: "another-app",
-        preset: "cloudflare",
-      })).rejects.toThrow("conflicts with VITEHUB_DEPLOYMENT_NAME")
-
-      const legacy = await applyDeploymentConfig({
-        preset: "cloudflare",
-        rateLimit: true,
-      })
-      expect(legacy.rateLimit).toMatchObject({ namespace: "legacy-app" })
-
-      process.env.VITEHUB_DEPLOYMENT_NAME = `${"a".repeat(48)}-environment`
-      await expect(applyDeploymentConfig({
-        name: `${"a".repeat(48)}-configured`,
-        preset: "cloudflare",
-      })).rejects.toThrow("conflicts with VITEHUB_DEPLOYMENT_NAME")
-    }
-    finally {
-      if (previousName === undefined) delete process.env.VITEHUB_DEPLOYMENT_NAME
-      else process.env.VITEHUB_DEPLOYMENT_NAME = previousName
-    }
   })
 
   it("preserves explicit provider and Blob store overrides", async () => {
