@@ -297,7 +297,6 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
   if (!options.chat && !options.workspace) {
     throw new TypeError("[vitehub] access() requires at least one access surface.")
   }
-  if (options.workspace) validateNoLegacyWorkspaceScopeInstructions(options.workspace)
   return defineCapability({
     id: "access",
     metadata: {
@@ -394,7 +393,6 @@ async function resolveWorkspaceScope<
   }
 
   const definition = selection.definition || options.scopes?.[selection.scope] || {}
-  assertNoLegacyWorkspaceScopeInstructions(definition, `Workspace Scope "${selection.scope}"`)
   const role = selection.role || "viewer"
   const all = definition.all === true
   if (all && role !== "admin") {
@@ -409,18 +407,6 @@ async function resolveWorkspaceScope<
     role,
     scope: selection.scope,
     sources: scopeSources(definition),
-  }
-}
-
-function validateNoLegacyWorkspaceScopeInstructions(options: { scopes?: Record<string, unknown> }): void {
-  for (const [scope, definition] of Object.entries(options.scopes || {})) {
-    assertNoLegacyWorkspaceScopeInstructions(definition, `Workspace Scope "${scope}"`)
-  }
-}
-
-function assertNoLegacyWorkspaceScopeInstructions(value: unknown, label: string): void {
-  if (isRecord(value) && "instructions" in value) {
-    throw new TypeError(`[vitehub] ${label} instructions were removed. Put scope guidance in Agent Driver Instructions with ::capability{key="access"} coverage.`)
   }
 }
 
@@ -492,7 +478,6 @@ function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
 function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
-  assertNoLegacyWorkspaceScopeInstructions(value, "Inline Workspace Scope")
   const candidate = value as { role?: unknown, scope?: unknown }
   if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
   return {

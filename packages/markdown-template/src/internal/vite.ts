@@ -1,7 +1,5 @@
 export const markdownTemplateFileSuffix = ".template.md"
 export const markdownTemplateModuleQuery = "markdown-template"
-export const markdownTemplateRegistryId = "#vitehub/templates"
-export const markdownTemplateRegistryPath = ".vitehub/markdown-template/templates.mjs"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 export function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
@@ -16,10 +14,6 @@ export function parseMarkdownTemplateRequest(id: string): { path: string } | und
 export interface BundledMarkdownTemplate {
   id: string
   template: string
-}
-
-export interface BundledMarkdownTemplateCatalogEntry extends BundledMarkdownTemplate {
-  imports: Record<string, BundledMarkdownTemplate>
 }
 
 export function markdownTemplateMaterializationPath(templatePath: string): string {
@@ -93,23 +87,6 @@ export function renderMarkdownTemplateModule(template: string, sourceId?: string
   ].join("\n")
 }
 
-export function renderMarkdownTemplateCatalogModule(entries: Record<string, BundledMarkdownTemplateCatalogEntry>, runtimeSpecifier: string = markdownTemplateRuntimeSpecifier): string {
-  return [
-    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(runtimeSpecifier)}`,
-    `const vitehubMarkdownTemplates = new Map(${JSON.stringify(Object.entries(entries))})`,
-    "export function renderTemplate(name, data = {}) {",
-    "  const entry = vitehubMarkdownTemplates.get(name)",
-    "  if (!entry) throw new TypeError(`[vitehub] Unknown Markdown template ${JSON.stringify(name)}.`)",
-    "  return vitehubRenderMarkdownTemplate(entry.template, {",
-    "    data,",
-    "    sourceId: entry.id,",
-    "    resolveImport: (specifier, importer) => entry.imports[`${importer}\\0${specifier}`],",
-    "  })",
-    "}",
-    "",
-  ].join("\n")
-}
-
 export async function bundleMarkdownTemplateImports(
   sourceId: string,
   load: (specifier: string, importer: string) => Promise<BundledMarkdownTemplate | undefined>,
@@ -140,21 +117,6 @@ export function renderMarkdownTemplateTypes(): string {
     `declare module "*${markdownTemplateFileSuffix}" {`,
     "  const render: (data?: Record<string, unknown>) => Promise<string>",
     "  export default render",
-    "}",
-    `declare module "*?${markdownTemplateModuleQuery}" {`,
-    "  const render: (data?: Record<string, unknown>) => Promise<string>",
-    "  export default render",
-    "}",
-    "",
-  ].join("\n")
-}
-
-export function renderMarkdownTemplateCatalogTypes(names: string[]): string {
-  const templateName = names.length ? names.map(name => JSON.stringify(name)).join(" | ") : "never"
-  return [
-    `declare module ${JSON.stringify(markdownTemplateRegistryId)} {`,
-    `  export type TemplateName = ${templateName}`,
-    "  export function renderTemplate(name: TemplateName, data?: Record<string, unknown>): Promise<string>",
     "}",
     "",
   ].join("\n")

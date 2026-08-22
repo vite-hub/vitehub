@@ -221,6 +221,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({
       agentImportBase: "vite-hub/_internal/agent",
+      hosting: "node-server",
       importBase: "vite-hub/_internal/workflow",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
@@ -237,7 +238,10 @@ describe("vitehub", () => {
       },
     }))
     vitehub({ agent: true, preset: "node" })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ includeUserAppEntry: false }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      implicitlyEnabled: true,
+      includeUserAppEntry: false,
+    }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
       hosting: "node-server",
       importBase: "vite-hub/_internal/workspace",
@@ -314,14 +318,14 @@ describe("vitehub", () => {
     expect(() => vitehub({ email: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
   })
 
-  it("derives standalone Schedule output from the Vercel preset", () => {
+  it("passes the active host to Workflow inference", () => {
     vitehub({ preset: "cloudflare", schedule: true, workflow: true })
 
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({
       providerOutput: expect.anything(),
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
-      provider: expect.anything(),
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      hosting: "cloudflare-module",
     }))
 
     vitehub({ preset: "vercel", schedule: true, workflow: true })
@@ -329,8 +333,14 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining({
       providerOutput: "standalone",
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
-      provider: expect.anything(),
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      hosting: "vercel",
+    }))
+
+    vitehub({ preset: "netlify", schedule: true, workflow: true })
+
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      hosting: "netlify",
     }))
   })
 
@@ -488,7 +498,7 @@ describe("vitehub", () => {
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
-    const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/templates", {} as never)
+    const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/env/server", {} as never)
     if (access === "deny") expect(resolved).toBeUndefined()
     else expect(resolved).toBe(fileURLToPath(import.meta.resolve(name)))
   })
@@ -540,6 +550,12 @@ describe("vitehub", () => {
     const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
     await hook(config, { command: "build", mode: "production" })
     expect(config.nitro).toMatchObject({ preset: nitroPreset })
+    if (preset === "cloudflare") {
+      expect(config.nitro).toMatchObject({ wasm: { lazy: true } })
+    }
+    else {
+      expect(config.nitro).not.toHaveProperty("wasm")
+    }
     if (preset === "deno") {
       expect(config.nitro).toMatchObject({
         commands: { deploy: "node ./deploy.mjs" },
@@ -547,6 +563,15 @@ describe("vitehub", () => {
         rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" } },
       })
     }
+  })
+
+  it("preserves an explicit Cloudflare WASM loading mode", async () => {
+    const config = await applyDeploymentConfig(
+      { preset: "cloudflare" },
+      { nitro: { wasm: { lazy: false } } },
+    )
+
+    expect(config.nitro).toMatchObject({ wasm: { lazy: false } })
   })
 
   it("uses Nitro's Durable Object transport for Cloudflare realtime", async () => {
@@ -862,17 +887,13 @@ describe("vitehub", () => {
   })
 
   describe("Cloudflare Workers Builds deployment identity", () => {
-    const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
     const previousProviderName = process.env.WRANGLER_CI_OVERRIDE_NAME
 
     beforeEach(() => {
-      delete process.env.VITEHUB_DEPLOYMENT_NAME
       delete process.env.WRANGLER_CI_OVERRIDE_NAME
     })
 
     afterEach(() => {
-      if (previousDeploymentName === undefined) delete process.env.VITEHUB_DEPLOYMENT_NAME
-      else process.env.VITEHUB_DEPLOYMENT_NAME = previousDeploymentName
       if (previousProviderName === undefined) delete process.env.WRANGLER_CI_OVERRIDE_NAME
       else process.env.WRANGLER_CI_OVERRIDE_NAME = previousProviderName
     })
@@ -915,11 +936,6 @@ describe("vitehub", () => {
 
       await expect(applyDeploymentConfig({
         name: "vitehub-drop-production",
-        preset: "cloudflare",
-      })).rejects.toThrow("conflicts with WRANGLER_CI_OVERRIDE_NAME")
-
-      process.env.VITEHUB_DEPLOYMENT_NAME = "vitehub-drop-production"
-      await expect(applyDeploymentConfig({
         preset: "cloudflare",
       })).rejects.toThrow("conflicts with WRANGLER_CI_OVERRIDE_NAME")
     })
@@ -982,40 +998,6 @@ describe("vitehub", () => {
     expect(truncated.nitro).toMatchObject({
       cloudflare: { wrangler: { name: "a".repeat(47) } },
     })
-  })
-
-  it("keeps explicit and legacy deployment identities deterministic", async () => {
-    const previousName = process.env.VITEHUB_DEPLOYMENT_NAME
-    process.env.VITEHUB_DEPLOYMENT_NAME = "Legacy App"
-    try {
-      const explicit = await applyDeploymentConfig({
-        name: "legacy-app",
-        preset: "cloudflare",
-        rateLimit: true,
-      })
-      expect(explicit.rateLimit).toMatchObject({ namespace: "legacy-app" })
-
-      await expect(applyDeploymentConfig({
-        name: "another-app",
-        preset: "cloudflare",
-      })).rejects.toThrow("conflicts with VITEHUB_DEPLOYMENT_NAME")
-
-      const legacy = await applyDeploymentConfig({
-        preset: "cloudflare",
-        rateLimit: true,
-      })
-      expect(legacy.rateLimit).toMatchObject({ namespace: "legacy-app" })
-
-      process.env.VITEHUB_DEPLOYMENT_NAME = `${"a".repeat(48)}-environment`
-      await expect(applyDeploymentConfig({
-        name: `${"a".repeat(48)}-configured`,
-        preset: "cloudflare",
-      })).rejects.toThrow("conflicts with VITEHUB_DEPLOYMENT_NAME")
-    }
-    finally {
-      if (previousName === undefined) delete process.env.VITEHUB_DEPLOYMENT_NAME
-      else process.env.VITEHUB_DEPLOYMENT_NAME = previousName
-    }
   })
 
   it("preserves explicit provider and Blob store overrides", async () => {

@@ -35,7 +35,7 @@ export default defineConfig({
         }
       : {
           agent: true,
-          workflow: true,
+          workflow: preset === "netlify" ? false : true,
           workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE !== "1",
         }),
   })],

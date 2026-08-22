@@ -1,5 +1,4 @@
 import schema from "#vitehub/database/schema"
-import databaseEntries from "#vitehub/database/databases"
 import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase } from "./runtime/agent.ts"
 
@@ -12,8 +11,14 @@ export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>> {
   schema: TSchema
 }
 
+export interface DatabaseRegistry {}
+
+type RegisteredDatabaseSchema<Name extends keyof DatabaseRegistry> = DatabaseRegistry[Name] extends {
+  schema: infer TSchema extends Record<string, unknown>
+} ? TSchema : never
+
 type RuntimeDatabaseRegistry = {
-  [Name in keyof typeof databaseEntries]: RuntimeDatabaseEntry<typeof databaseEntries[Name]["schema"]>
+  [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>>
 }
 
 type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
