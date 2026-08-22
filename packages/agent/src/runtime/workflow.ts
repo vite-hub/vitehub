@@ -385,7 +385,9 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     while (backgroundTasks.length) {
       await Promise.allSettled(backgroundTasks.splice(0))
     }
-    await channelOwnership?.settle(channelDeliveryStatus).catch(() => undefined)
+    await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
+      if (channelOwnership.retrySettlementFailures) throw error
+    })
   }
 }
 

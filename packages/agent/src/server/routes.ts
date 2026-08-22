@@ -2584,6 +2584,30 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         try {
           pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
           if (pending?.message?.input) {
+            if (pending.message.settlementStatus === "failed" && pending.message.settlementError) {
+              await failDurableSteerQueue(
+                resolved.state,
+                queue,
+                ownedPendingQueue,
+                pending,
+                new Error(pending.message.settlementError),
+                async (delivery, failure) =>
+                  await postDurableSteerErrorFallback(
+                    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                    agent as AgentInput<ViteAgentRouteRuntimeContext>,
+                    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                    context as ViteAgentRouteRuntimeContext,
+                    registration,
+                    resolved.state,
+                    delivery,
+                    failure,
+                    Date.now(),
+                  ),
+              )
+              stopExecutionHeartbeat()
+              await resolved.state.releaseLock(executionLock).catch(() => undefined)
+              return { retrySettlementFailures: true, settlementStatus: "failed", settle: async () => undefined }
+            }
             await restoreDurableSteerQueue(resolved.state, queue, pending.message)
             if (!(await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, pending))) {
               throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
@@ -2630,6 +2654,30 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           return
         }
         ownershipLost = false
+        if (activePending.message?.settlementStatus === "failed" && activePending.message.settlementError) {
+          await failDurableSteerQueue(
+            resolved.state,
+            queue,
+            ownedPendingQueue,
+            activePending,
+            new Error(activePending.message.settlementError),
+            async (delivery, failure) =>
+              await postDurableSteerErrorFallback(
+                // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                agent as AgentInput<ViteAgentRouteRuntimeContext>,
+                // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                context as ViteAgentRouteRuntimeContext,
+                registration,
+                resolved.state,
+                delivery,
+                failure,
+                Date.now(),
+              ),
+          )
+          await resolved.state.releaseLock(lock)
+          ownerReleased = true
+          return
+        }
         if (!activePending.message?.settlementStatus) {
           const settlementPending: DurableSteerQueueEntry = {
             ...activePending,
@@ -2733,12 +2781,16 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
           stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => undefined)
         }
-        const successorPending =
+        let successorPending =
           pendingQueue && pendingPersisted && successorClaimId
             ? await claimDurableSteerPending(resolved.state, pendingQueue, lock.token, successorClaimId)
             : null
         if (successorStartAttempted) {
           if (!pendingQueue || !successorPending?.message?.input) return
+          successorPending = await recordDurableSteerTerminalFailure(resolved.state, pendingQueue, successorPending, error)
+          if (!successorPending?.message?.input) {
+            throw new Error("[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", { cause: error })
+          }
           try {
             await failDurableSteerQueue(
               resolved.state,
@@ -2832,7 +2884,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         await resolved.state.releaseLock(executionLock).catch(() => undefined)
       }
     }
-    return { abortSignal: executionAbort.signal, settlementStatus: claimedPending.message.settlementStatus, settle }
+    return { abortSignal: executionAbort.signal, retrySettlementFailures: true, settlementStatus: claimedPending.message.settlementStatus, settle }
   })
 }
 
@@ -2880,6 +2932,7 @@ interface DurableSteerQueueMessage {
   resolvedInvoker?: boolean
   run?: AgentRunMetadata
   settledDeliveryIds?: string[]
+  settlementError?: string
   settlementStatus?: "completed" | "failed"
 }
 
@@ -2912,7 +2965,9 @@ function durableSteerPendingQueue(queue: string): string {
 async function claimDurableSteerPending(state: StateAdapter, queue: string, ownerToken: string, claimId: string): Promise<DurableSteerQueueEntry | null> {
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   const pending = (await requireAtomicAgentStateQueue(state).queuePeek(queue)) as DurableSteerQueueEntry | null
-  return !pending || (pending.message?.ownerToken === ownerToken && pending.message.claimId === claimId) ? pending : null
+  const ownedTerminalFailure =
+    pending?.message?.ownerToken === ownerToken && pending.message.settlementStatus === "failed" && pending.message.settlementError !== undefined
+  return !pending || (pending.message?.ownerToken === ownerToken && (pending.message.claimId === claimId || ownedTerminalFailure)) ? pending : null
 }
 
 async function acknowledgeDurableSteerPending(state: StateAdapter, queue: string, pending: DurableSteerQueueEntry): Promise<boolean> {
@@ -3023,6 +3078,32 @@ async function recordDurableSteerFallbackStatus(
   return null
 }
 
+async function recordDurableSteerTerminalFailure(
+  state: StateAdapter,
+  queue: string,
+  entry: DurableSteerQueueEntry,
+  error: unknown,
+): Promise<DurableSteerQueueEntry | null> {
+  if (!entry.message) return entry
+  const updated: DurableSteerQueueEntry = {
+    ...entry,
+    message: {
+      ...entry.message,
+      settlementError: channelDeliveryError(error),
+      settlementStatus: "failed",
+    },
+  }
+  for (let attempt = 0; attempt < durableSteerFallbackProgressWriteAttempts; attempt++) {
+    try {
+      // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+      if (await requireAtomicAgentStateQueue(state).queueReplaceHead(queue, entry as never, [updated as never], durableSteerQueueMaximum)) return updated
+    } catch {
+      // A later attempt can still persist the terminal recovery transition.
+    }
+  }
+  return null
+}
+
 export async function deliverDurableSteerErrorFallbacks(
   state: StateAdapter,
   queue: string,
@@ -3037,14 +3118,7 @@ export async function deliverDurableSteerErrorFallbacks(
     if (delivery.fallbackStatus !== "reserved") {
       const reserved = await recordDurableSteerFallbackStatus(state, queue, active, index, "reserved")
       if (!reserved) {
-        console.error({
-          component: "@vite-hub/agent",
-          error: serializeErrorForLog(new Error("[vitehub] Durable steered Channel error fallback reservation could not be persisted.")),
-          event: "chat.message.error_fallback.progress_failed",
-          message_id: delivery.message.id,
-          thread_id: delivery.message.threadId,
-        })
-        continue
+        throw new Error("[vitehub] Durable steered Channel error fallback reservation could not be persisted.")
       }
       active = reserved
       delivery = active.message?.errorDeliveries?.[index]
@@ -4291,6 +4365,7 @@ async function handleChatSdkMessage(
       let workflowRequestUrl = context.request.url
       let workflowRun = run
       let workflowRunContext = runContext
+      let workflowSettlementError: DurableSteerQueueMessage["settlementError"]
       let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
       if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
       const currentErrorDelivery: DurableSteerErrorDelivery = {
@@ -4426,6 +4501,7 @@ async function handleChatSdkMessage(
             workflowRequestUrl = previous.message.requestUrl ?? workflowRequestUrl
             workflowErrorDeliveries = previous.message.errorDeliveries ?? []
             workflowRun = previous.message.run
+            workflowSettlementError = previous.message.settlementError
             workflowSettlementStatus = previous.message.settlementStatus
             workflowRunContext = {
               ...context,
@@ -4462,7 +4538,9 @@ async function handleChatSdkMessage(
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
       const steerStartLocks = [steerLock, steerHandoffLock].filter((lock): lock is Lock => lock != null)
       let steerStartOwnershipLost = false
+      let retainSteerStartOwnership = false
       let steerPending: DurableSteerQueueEntry | undefined
+      let steerPendingPersisted = false
       const stopSteerStartHeartbeats = steerStartLocks.map((lock) =>
         startWebhookLockHeartbeat(state.state, lock, steerTtlMs, () => {
           steerStartOwnershipLost = true
@@ -4487,11 +4565,13 @@ async function handleChatSdkMessage(
               requestUrl: workflowRequestUrl,
               resolvedInvoker: workflowInputHasResolvedInvoker,
               run: workflowRun,
+              ...(workflowSettlementError ? { settlementError: workflowSettlementError } : {}),
               ...(workflowSettlementStatus ? { settlementStatus: workflowSettlementStatus } : {}),
             },
           }
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           await state.state.enqueue(durableSteerPendingQueue(steerQueue), steerPending as never, 1)
+          steerPendingPersisted = true
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           if (
             reclaimedEntry &&
@@ -4518,29 +4598,81 @@ async function handleChatSdkMessage(
         clearTimeout(durableTypingTimeout)
         durableTyping.stop()
         try {
-          if (steerQueue && steerPending && !steerStartOwnershipLost) {
+          if (steerQueue && steerPending && steerPendingPersisted && !steerStartOwnershipLost) {
             const pendingQueue = durableSteerPendingQueue(steerQueue)
             if (reclaimingDeliveryQueued) {
-              await failDurableSteerQueue(
-                state.state,
-                steerQueue,
-                pendingQueue,
-                steerPending,
-                error,
-                async (delivery, failure) =>
-                  await postDurableSteerErrorFallback(agent, context, registration, state.state, delivery, failure, maximumInvocationDeadline ?? Date.now()),
-              )
+              const failedPending = await recordDurableSteerTerminalFailure(state.state, pendingQueue, steerPending, error)
+              if (!failedPending?.message?.input) {
+                retainSteerStartOwnership = true
+                durableHandoff = true
+                detachAgentChannelDelivery(delivery)
+                throw new Error("[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", { cause: error })
+              }
+              steerPending = failedPending
+              try {
+                await failDurableSteerQueue(
+                  state.state,
+                  steerQueue,
+                  pendingQueue,
+                  steerPending,
+                  error,
+                  async (delivery, failure) =>
+                    await postDurableSteerErrorFallback(agent, context, registration, state.state, delivery, failure, maximumInvocationDeadline ?? Date.now()),
+                )
+              } catch (settlementError) {
+                retainSteerStartOwnership = true
+                durableHandoff = true
+                try {
+                  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                } catch (retryError) {
+                  if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
+                    detachAgentChannelDelivery(delivery)
+                    throw new AggregateError(
+                      [error, settlementError, retryError],
+                      "[vitehub] Durable steered Channel delivery terminal settlement retry could not start.",
+                    )
+                  }
+                }
+                await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+                detachAgentChannelDelivery(delivery)
+                return
+              }
             } else {
               if (!(await acknowledgeDurableSteerPending(state.state, pendingQueue, steerPending))) {
-                throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
+                const failedPending = await recordDurableSteerTerminalFailure(state.state, pendingQueue, steerPending, error)
+                retainSteerStartOwnership = true
+                durableHandoff = true
+                if (!failedPending?.message?.input) {
+                  detachAgentChannelDelivery(delivery)
+                  throw new Error("[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", { cause: error })
+                }
+                steerPending = failedPending
+                try {
+                  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                } catch (retryError) {
+                  if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
+                    detachAgentChannelDelivery(delivery)
+                    throw new AggregateError(
+                      [error, retryError],
+                      "[vitehub] Durable steered Channel delivery failed-start settlement retry could not start.",
+                    )
+                  }
+                }
+                await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+                detachAgentChannelDelivery(delivery)
+                return
               }
               if (reclaimedMessage?.input) {
                 await restoreDurableSteerQueue(state.state, steerQueue, reclaimedMessage)
               }
             }
+          } else if (steerQueue && steerPending && !steerPendingPersisted) {
+            throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
           }
         } finally {
-          if (steerLock) await state.state.releaseLock(steerLock).catch(() => undefined)
+          if (steerLock && !retainSteerStartOwnership) await state.state.releaseLock(steerLock).catch(() => undefined)
         }
         if (reclaimingDeliveryQueued) {
           durableHandoff = true
@@ -4721,6 +4853,7 @@ async function handleChatSdkMessage(
       )
     }
   } catch (error) {
+    if (durableHandoff) throw error
     invocationFailed = true
     if (invocationStarted)
       await settleChannelDeliveryInvocation(delivery, "failed", "failed", {

@@ -12938,21 +12938,24 @@ describe("server helpers", () => {
 
   it.each([
     { persistentProgressFailure: false, title: "retries fallback progress before settling failed recovered and reclaiming deliveries" },
-    { persistentProgressFailure: true, title: "skips unjournaled fallbacks before settling failed recovered and reclaiming deliveries" },
+    { persistentProgressFailure: true, title: "recovers persistently rejected fallback reservations before terminal settlement" },
   ])(
     "$title",
     async ({ persistentProgressFailure }) => {
       const { defineAgent } = await import("../src/index.ts")
+      const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { telegram } = await import("../src/channels.ts")
       const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
       const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
       const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+      const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
       const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-start-failure-"))
       const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
       const acquireLock = vi.spyOn(state, "acquireLock")
       const replaceQueueHead = state.queueReplaceHead.bind(state)
-      let rejectFallbackProgress = true
+      let remainingFallbackProgressFailures = persistentProgressFailure ? 2 : 1
       const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
         // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
         const current = args[1] as {
@@ -12964,8 +12967,8 @@ describe("server helpers", () => {
         }>
         const currentProgress = current?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
         const replacementProgress = replacement[0]?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
-        if (rejectFallbackProgress && replacementProgress > currentProgress) {
-          if (!persistentProgressFailure) rejectFallbackProgress = false
+        if (remainingFallbackProgressFailures > 0 && replacementProgress > currentProgress) {
+          remainingFallbackProgressFailures--
           return false
         }
         return await replaceQueueHead(...args)
@@ -12975,7 +12978,9 @@ describe("server helpers", () => {
       const workflowPayloads: Array<{ input?: AgentRunInput }> = []
       const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
         workflowPayloads.push(params)
-        if (createBatch.mock.calls.length > 1) throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
+        if (createBatch.mock.calls.length === 2 || createBatch.mock.calls.length === 3) {
+          throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
+        }
         return [{ id, status: async () => ({ status: "queued" }) }]
       })
       const errorFallbackText = vi.fn(() => "Could not process message.")
@@ -13007,12 +13012,13 @@ describe("server helpers", () => {
 
       try {
         await state.connect()
+        const env = {
+          [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+        }
         const runtime = {
           agentIdentity: { name: "calories" },
           cloudflare: {
-            env: {
-              [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
-            },
+            env,
           },
         }
         const recoveredRuntime = { ...runtime, capabilities: { blob: false } }
@@ -13025,31 +13031,62 @@ describe("server helpers", () => {
         await expect(handler(request(91_147, "beta"), "telegram", reclaimerRuntime)).resolves.toMatchObject({ status: 200 })
         expect(createBatch.mock.calls.length).toBeGreaterThan(1)
         const queue = `${ownershipKey}:queue`
+        if (persistentProgressFailure) {
+          expect(await state.queueDepth(queue)).toBe(1)
+          expect(await state.queueDepth(`${queue}:pending`)).toBe(1)
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          const recoveryBinding = workflowPayloads[3]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
+            | { steer?: { lock: { key: string; token: string; threadId: string }; ttlMs: number } }
+            | undefined
+          expect(recoveryBinding?.steer).toBeDefined()
+          // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+          const failedPending = (await state.queuePeek(`${queue}:pending`)) as
+            | { message?: { settlementError?: string; settlementStatus?: string } }
+            | null
+          expect(failedPending?.message).toMatchObject({
+            settlementError: "Workflow provider operation failed.",
+            settlementStatus: "failed",
+          })
+          const sideEffect = vi.fn(async () => "must not run")
+          setActiveCloudflareEnv(env)
+          await expect(
+            runAgentWorkflowDefinition(
+              // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+              agent as never,
+              {
+                id: "failed-steer-settlement-recovery",
+                name: "calories",
+                payload: workflowPayloads[3],
+                provider: "cloudflare",
+              },
+              sideEffect,
+            ),
+          ).resolves.toBeUndefined()
+          expect(sideEffect).not.toHaveBeenCalled()
+        }
         expect(await state.queueDepth(queue)).toBe(0)
         expect(await state.queueDepth(`${queue}:pending`)).toBe(0)
-        expect(errorFallbackText).toHaveBeenCalledTimes(persistentProgressFailure ? 0 : 2)
-        expect(adapter.postMessage).toHaveBeenCalledTimes(persistentProgressFailure ? 0 : 2)
-        if (!persistentProgressFailure) {
-          const fallbackAdapterContexts = adapterContexts.filter(({ runId }) => runId !== undefined)
-          expect(fallbackAdapterContexts).toHaveLength(2)
-          expect(fallbackAdapterContexts).toEqual(
-            expect.arrayContaining([
-              {
-                capabilities: { blob: false },
-                runId: "telegram:91146",
-                url: "https://recovered.example/api/agent/calories/channels/telegram",
-              },
-              {
-                capabilities: { email: false },
-                runId: "telegram:91147",
-                url: "https://reclaimer.example/api/agent/calories/channels/telegram",
-              },
-            ]),
-          )
-          expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
-          expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
-        }
-        expect(rejectFallbackProgress).toBe(persistentProgressFailure)
+        expect(errorFallbackText).toHaveBeenCalledTimes(2)
+        expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+        const fallbackAdapterContexts = adapterContexts.filter(({ runId }) => runId !== undefined)
+        expect(fallbackAdapterContexts).toHaveLength(2)
+        expect(fallbackAdapterContexts).toEqual(
+          expect.arrayContaining([
+            {
+              capabilities: { blob: false },
+              runId: "telegram:91146",
+              url: "https://recovered.example/api/agent/calories/channels/telegram",
+            },
+            {
+              capabilities: { email: false },
+              runId: "telegram:91147",
+              url: "https://reclaimer.example/api/agent/calories/channels/telegram",
+            },
+          ]),
+        )
+        expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
+        expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
+        expect(remainingFallbackProgressFailures).toBe(0)
         expect(queueReplaceHead).toHaveBeenCalledWith(
           expect.any(String),
           expect.anything(),
@@ -13086,6 +13123,7 @@ describe("server helpers", () => {
           expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
         }
       } finally {
+        setActiveCloudflareEnv(undefined)
         resetWorkflowRuntime()
         await state.disconnect()
         await rm(stateDir, { force: true, recursive: true })
@@ -13093,6 +13131,140 @@ describe("server helpers", () => {
     },
     10_000,
   )
+
+  it("keeps failed-start steer ownership until pending acknowledgement recovers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-failed-start-ack-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const replaceQueueHead = state.queueReplaceHead.bind(state)
+    let remainingPendingAcknowledgementFailures = 2
+    const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
+      const [queue, _current, replacement] = args
+      if (remainingPendingAcknowledgementFailures > 0 && queue.endsWith(":pending") && replacement.length === 0) {
+        remainingPendingAcknowledgementFailures--
+        return false
+      }
+      return await replaceQueueHead(...args)
+    })
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      if ([1, 2, 4, 5].includes(createBatch.mock.calls.length)) {
+        throw Object.assign(new Error("Workflow provider unavailable"), { status: 503 })
+      }
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const errorFallbackText = vi.fn(() => "Could not start the queued delivery.")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this fixture.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
+        }),
+      },
+      driver: { run: () => "must not run" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const runtime = { agentIdentity: { name: "calories" }, cloudflare: { env } }
+      await expect(handler(chatWebhookRequest(91_164), "telegram", runtime)).resolves.toMatchObject({ status: 200 })
+      expect(remainingPendingAcknowledgementFailures).toBe(1)
+      expect(createBatch).toHaveBeenCalledTimes(3)
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const binding = workflowPayloads[2]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
+        | {
+            steer?: {
+              lock: { expiresAt: number; threadId: string; token: string }
+              pendingQueue: string
+              queue: string
+              ttlMs: number
+            }
+          }
+        | undefined
+      expect(binding?.steer).toBeDefined()
+      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+      const pending = (await state.queuePeek(binding!.steer!.pendingQueue)) as
+        | { message?: { settlementError?: string; settlementStatus?: string } }
+        | null
+      expect(pending?.message).toMatchObject({
+        settlementError: "Workflow provider operation failed.",
+        settlementStatus: "failed",
+      })
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+
+      const sideEffect = vi.fn(async () => "must not run")
+      setActiveCloudflareEnv(env)
+      const recovery = {
+        id: "failed-start-settlement-recovery",
+        name: "calories",
+        payload: workflowPayloads[2],
+        provider: "cloudflare" as const,
+      }
+      await expect(
+        runAgentWorkflowDefinition(
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          agent as never,
+          recovery,
+          sideEffect,
+        ),
+      ).rejects.toThrow("settlement retry could not start")
+
+      expect(sideEffect).not.toHaveBeenCalled()
+      expect(errorFallbackText).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Could not start the queued delivery.")
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
+      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
+      expect(remainingPendingAcknowledgementFailures).toBe(0)
+      expect(createBatch).toHaveBeenCalledTimes(5)
+
+      await expect(
+        runAgentWorkflowDefinition(
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          agent as never,
+          recovery,
+          sideEffect,
+        ),
+      ).resolves.toBeUndefined()
+      expect(sideEffect).not.toHaveBeenCalled()
+      expect(errorFallbackText).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(false)
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_164), "telegram", runtime)
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91164"))
+      expect(delivery).toMatchObject({ status: "failed" })
+      expect(delivery?.events.filter((event) => event.type === "invocation.failed")).toHaveLength(1)
+      expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
+      queueReplaceHead.mockRestore()
+    } finally {
+      queueReplaceHead.mockRestore()
+      setActiveCloudflareEnv(undefined)
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
 
   it.each([
     {
@@ -13655,14 +13827,30 @@ describe("server helpers", () => {
 
   it.each([
     {
+      fallbackReservationFailures: 0,
+      recoveryStartFailures: false,
       stalledFallback: undefined,
       title: "terminally settles queued steer deliveries when successor Workflow startup fails",
     },
     {
+      fallbackReservationFailures: 0,
+      recoveryStartFailures: false,
       stalledFallback: "resolution",
       title: "bounds stalled durable fallback resolution before terminal steer settlement",
     },
-  ] as const)("$title", async ({ stalledFallback }) => {
+    {
+      fallbackReservationFailures: 2,
+      recoveryStartFailures: false,
+      stalledFallback: undefined,
+      title: "restarts settlement-only recovery when successor fallback reservation fails",
+    },
+    {
+      fallbackReservationFailures: 2,
+      recoveryStartFailures: true,
+      stalledFallback: undefined,
+      title: "retries terminal successor settlement from the predecessor Workflow when recovery cannot start",
+    },
+  ] as const)("$title", async ({ fallbackReservationFailures, recoveryStartFailures = false, stalledFallback }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -13674,11 +13862,26 @@ describe("server helpers", () => {
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-terminal-start-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const replaceQueueHead = state.queueReplaceHead.bind(state)
+    let remainingFallbackReservationFailures = fallbackReservationFailures
+    const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
+      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+      const current = args[1] as { message?: { errorDeliveries?: Array<{ fallbackStatus?: string }> } } | null
+      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+      const replacement = args[2] as Array<{ message?: { errorDeliveries?: Array<{ fallbackStatus?: string }> } }>
+      const currentReservations = current?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
+      const replacementReservations = replacement[0]?.message?.errorDeliveries?.filter((item) => item.fallbackStatus === "reserved").length ?? 0
+      if (remainingFallbackReservationFailures > 0 && replacementReservations > currentReservations) {
+        remainingFallbackReservationFailures--
+        return false
+      }
+      return await replaceQueueHead(...args)
+    })
     const adapter = createTestChatAdapter()
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
-      if (createBatch.mock.calls.length > 1) {
+      if (createBatch.mock.calls.length > 1 && (recoveryStartFailures || !(fallbackReservationFailures > 0 && createBatch.mock.calls.length > 3))) {
         throw Object.assign(new Error("successor provider unavailable"), { status: 503 })
       }
       return [{ id, status: async () => ({ status: "queued" }) }]
@@ -13717,26 +13920,55 @@ describe("server helpers", () => {
       expect(createBatch).toHaveBeenCalledOnce()
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const binding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
-        | { steer?: { pendingQueue: string; queue: string } }
+        | { steer?: { lock: { threadId: string }; pendingQueue: string; queue: string } }
         | undefined
       expect(binding?.steer).toBeDefined()
 
       setActiveCloudflareEnv(env)
-      await expect(
-        runAgentWorkflowDefinition(
-          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          agent as never,
-          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          {
-            id: "completed-predecessor",
-            name: "calories",
-            payload: workflowPayloads[0],
-            provider: "cloudflare",
-          },
-          async () => "completed",
-        ),
-      ).resolves.toBe("completed")
-      expect(createBatch).toHaveBeenCalledTimes(3)
+      const predecessorSideEffect = vi.fn(async () => "completed")
+      const predecessorWorkflow = {
+        id: "completed-predecessor",
+        name: "calories",
+        payload: workflowPayloads[0],
+        provider: "cloudflare" as const,
+      }
+      const predecessorExecution = runAgentWorkflowDefinition(
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        agent as never,
+        predecessorWorkflow,
+        predecessorSideEffect,
+      )
+      if (recoveryStartFailures) {
+        await expect(predecessorExecution).rejects.toThrow("terminal settlement retry could not start")
+      } else {
+        await expect(predecessorExecution).resolves.toBe("completed")
+      }
+      expect(predecessorSideEffect).toHaveBeenCalledOnce()
+      expect(createBatch).toHaveBeenCalledTimes(recoveryStartFailures ? 5 : fallbackReservationFailures > 0 ? 4 : 3)
+      if (fallbackReservationFailures > 0) {
+        expect(remainingFallbackReservationFailures).toBe(0)
+        expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
+        expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
+        expect(adapter.postMessage).not.toHaveBeenCalled()
+        if (recoveryStartFailures) await state.forceReleaseLock(binding!.steer!.lock.threadId)
+        const settlementSideEffect = vi.fn(async () => "must not run")
+        await expect(
+          runAgentWorkflowDefinition(
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            agent as never,
+            recoveryStartFailures
+              ? predecessorWorkflow
+              : {
+                  id: "successor-fallback-settlement-recovery",
+                  name: "calories",
+                  payload: workflowPayloads[3],
+                  provider: "cloudflare",
+                },
+            settlementSideEffect,
+          ),
+        ).resolves.toBeUndefined()
+        expect(settlementSideEffect).not.toHaveBeenCalled()
+      }
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_141), "telegram", {
         agentIdentity: { name: "calories" },
@@ -13759,6 +13991,7 @@ describe("server helpers", () => {
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
     } finally {
+      queueReplaceHead.mockRestore()
       setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
       await state.disconnect()
