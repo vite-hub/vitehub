@@ -2294,6 +2294,56 @@ function allowedAgentTelemetryContent(key: string, content: AgentTelemetryConten
   return false
 }
 
+type AgentTelemetryMessageContentClass = "inputs" | "instructions" | "outputs"
+
+function agentTelemetryMessageContentClass(value: unknown): AgentTelemetryMessageContentClass | undefined {
+  try {
+    if (!value || !hasRuntimeType(value, "object")) return
+    // SAFETY: The guarded record is read only to classify its finite public role contract.
+    const role = (value as { role?: unknown }).role
+    if (role === "user") return "inputs"
+    if (role === "system") return "instructions"
+    if (role === "assistant" || role === "tool") return "outputs"
+  }
+  catch {
+    return undefined
+  }
+}
+
+function agentTelemetryMessagesForContent(
+  value: unknown,
+  policy: AgentTelemetryContentOptions,
+): unknown[] | undefined {
+  if (!Array.isArray(value)) return
+  const selected = value.filter((message) => {
+    const contentClass = agentTelemetryMessageContentClass(message)
+    return contentClass !== undefined && policy[contentClass] === true
+  })
+  return selected.length ? selected : undefined
+}
+
+function agentTelemetryAttributeForContent(
+  key: string,
+  value: unknown,
+  policy: AgentTelemetryContentOptions,
+): { selected: true, value: unknown } | undefined {
+  if (key === "input.messages") {
+    const messages = agentTelemetryMessagesForContent(value, policy)
+    return messages ? { selected: true, value: messages } : undefined
+  }
+  if (key === "input.prompt" && Array.isArray(value)) {
+    const messages = agentTelemetryMessagesForContent(value, policy)
+    return messages ? { selected: true, value: messages } : undefined
+  }
+  if (key === "input.message" && !hasRuntimeType(value, "string")) {
+    const contentClass = agentTelemetryMessageContentClass(value)
+    return contentClass !== undefined && policy[contentClass] === true
+      ? { selected: true, value }
+      : undefined
+  }
+  return allowedAgentTelemetryContent(key, policy) ? { selected: true, value } : undefined
+}
+
 type AgentTelemetryContentClass = "ambiguous" | "inputs" | "instructions" | "outputs"
 
 function agentTelemetryContentClass(path: string): AgentTelemetryContentClass | undefined {
@@ -2357,9 +2407,14 @@ function withAgentTelemetryContent(
 ): OpenTelemetrySpanView[] {
   const attributes = (safe: Record<string, unknown> | undefined, full: Record<string, unknown> | undefined) => {
     const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
-    const allowed = Object.fromEntries(Object.entries(full || {}).filter(([key]) => allowedAgentTelemetryContent(key, policy)))
+    const allowedEntries = Object.entries(full || {}).flatMap(([key, value]) => {
+      const selected = agentTelemetryAttributeForContent(key, value, policy)
+      return selected ? [[key, selected.value] as const] : []
+    })
+    const allowedKeys = new Set(allowedEntries.map(([key]) => key))
+    const allowed = Object.fromEntries(allowedEntries)
     const omitted = Array.isArray(safe?.["content.omitted"])
-      ? safe["content.omitted"].filter(key => !hasRuntimeType(key, "string") || !allowedAgentTelemetryContent(key, policy))
+      ? safe["content.omitted"].filter(key => !hasRuntimeType(key, "string") || !allowedKeys.has(key))
       : undefined
     return {
       ...safeAttributes,
@@ -2402,7 +2457,7 @@ async function exportAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   const metadataSpans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" })
   let contentSpans: OpenTelemetrySpanView[] | undefined
   const exports = await Promise.allSettled(telemetry.map(async ({ capabilityId, registration }) => {
-    const selectedSpans = registration.content?.inputs || registration.content?.outputs
+    const selectedSpans = registration.content?.inputs || registration.content?.instructions || registration.content?.outputs
       ? withAgentTelemetryContent(
           metadataSpans,
           contentSpans ||= traceEventsToOpenTelemetrySpans(run.events, { content: "content" }),

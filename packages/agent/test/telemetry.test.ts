@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { defineAgent, defineCapability, runAgent, type AgentTelemetry } from "../src/index.ts"
+import { createMessage, defineAgent, defineCapability, runAgent, type AgentTelemetry } from "../src/index.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
 
@@ -324,6 +324,71 @@ describe("Agent telemetry", () => {
     })
     expect(capabilityMetadata(outputs)).toEqual({ nested: { output: "Nested output", safe: "visible" } })
     expect(capabilityMetadata(instructions)).toEqual({ instructions: "Capability instructions", nested: { safe: "visible" } })
+  })
+
+  it("filters conversation history through independent content opt-ins", async () => {
+    const inputs = vi.fn()
+    const outputs = vi.fn()
+    const both = vi.fn()
+    const instructions = vi.fn()
+    const all = vi.fn()
+    const none = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const developerMessage = createMessage({ id: "developer-1", role: "system", text: "Developer instruction" })
+    const customMessage = createMessage({ id: "custom-1", role: "user", text: "Custom content" })
+    Reflect.set(developerMessage, "role", "developer")
+    Reflect.set(customMessage, "role", "custom")
+    const messages = [
+      createMessage({ id: "user-1", role: "user", text: "User input" }),
+      createMessage({ id: "system-1", role: "system", text: "System instruction" }),
+      createMessage({ id: "assistant-1", role: "assistant", text: "Assistant output" }),
+      createMessage({ id: "tool-1", role: "tool", text: "Tool output" }),
+      developerMessage,
+      customMessage,
+    ]
+    const originalMessages = structuredClone(messages)
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "input-history", telemetry: { content: { inputs: true }, exporter: inputs } }),
+        defineCapability({ id: "output-history", telemetry: { content: { outputs: true }, exporter: outputs } }),
+        defineCapability({ id: "combined-history", telemetry: { content: { inputs: true, outputs: true }, exporter: both } }),
+        defineCapability({ id: "instruction-history", telemetry: { content: { instructions: true }, exporter: instructions } }),
+        defineCapability({ id: "all-history", telemetry: { content: { inputs: true, instructions: true, outputs: true }, exporter: all } }),
+        defineCapability({ id: "metadata-history", telemetry: { exporter: none } }),
+      ],
+      driver: { run: () => "Current output" },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-history-policy" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { messages, prompt: messages })
+    await Promise.all(tasks)
+
+    const messageRole = (message: unknown) => message !== null && Object(message) === message && !Array.isArray(message)
+      ? Reflect.get(Object(message), "role")
+      : undefined
+    const historyRoles = (exporter: typeof inputs, key = "input.messages") => {
+      const history = exporter.mock.calls[0]![0].spans[0].attributes[key]
+      return Array.isArray(history)
+        ? history.map(messageRole)
+        : undefined
+    }
+    expect(historyRoles(inputs)).toEqual(["user"])
+    expect(historyRoles(outputs)).toEqual(["assistant", "tool"])
+    expect(historyRoles(both)).toEqual(["user", "assistant", "tool"])
+    expect(historyRoles(instructions)).toEqual(["system"])
+    expect(historyRoles(all)).toEqual(["user", "system", "assistant", "tool"])
+    expect(historyRoles(none)).toBeUndefined()
+    expect(historyRoles(inputs, "input.prompt")).toEqual(["user"])
+    expect(historyRoles(outputs, "input.prompt")).toEqual(["assistant", "tool"])
+    expect(historyRoles(both, "input.prompt")).toEqual(["user", "assistant", "tool"])
+    expect(historyRoles(instructions, "input.prompt")).toEqual(["system"])
+    expect(historyRoles(all, "input.prompt")).toEqual(["user", "system", "assistant", "tool"])
+    expect(historyRoles(none, "input.prompt")).toBeUndefined()
+    expect(messages).toEqual(originalMessages)
   })
 
   it("correlates trace events emitted by a resolver that discovers telemetry", async () => {
