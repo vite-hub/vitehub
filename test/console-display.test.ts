@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { invocationContext, invocationSummary, invocationTitle } from '../app/invocation-display.ts'
+import { invocationContext, invocationProject, invocationSummary, invocationTitle } from '../app/invocation-display.ts'
 
 test('uses the Agent name as the invocation title', () => {
   assert.equal(invocationTitle({
@@ -32,6 +32,7 @@ test('uses GitHub metadata for session titles and context', () => {
 
   assert.equal(invocationTitle(invocation), 'feat(ui): add the invocation console')
   assert.equal(invocationContext(invocation), 'vite-hub/vitehub · PR #1015')
+  assert.equal(invocationProject(invocation), 'vitehub')
 })
 
 test('uses failure detail before generic invocation context', () => {

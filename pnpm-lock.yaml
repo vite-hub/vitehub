@@ -38,8 +38,8 @@ importers:
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       '@vite-hub/ui':
-        specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@a31c849
-        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@a31c849(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
+        specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@15716dce31fcea25cc9558eb78adaf2b3debc439
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@15716dce31fcea25cc9558eb78adaf2b3debc439(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
       ai:
         specifier: 7.0.38
         version: 7.0.38(zod@4.4.3)
@@ -3200,8 +3200,8 @@ packages:
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
-  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@a31c849':
-    resolution: {integrity: sha512-LRYggBpMdAgfBje1xVq9r3ddNw+noA/HAAGdSwcV/P7/RSABtq9+Dpx95mtWLqOxxZWsStyx+qL3ZuIHznvwTg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@a31c849}
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@15716dce31fcea25cc9558eb78adaf2b3debc439':
+    resolution: {integrity: sha512-jL9T1NtN1mW45wvdgJQOZ7xIw2e/NNycFXCwq2KRkj1SQaRPyhnl7lp5vpLz69sQuEgEbXCpTsXCW+Zd7FkNzw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@15716dce31fcea25cc9558eb78adaf2b3debc439}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -9312,7 +9312,7 @@ snapshots:
       jiti: 2.7.0
       klona: 2.0.6
       mlly: 1.8.2
-      ohash: 2.0.11
+      ohash: 2.0.12
       pathe: 2.0.3
       pkg-types: 2.3.1
       rc9: 3.0.1
@@ -10965,7 +10965,7 @@ snapshots:
       '@vite-hub/runtime': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       effect: 4.0.0-beta.99
 
-  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@a31c849(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))':
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@15716dce31fcea25cc9558eb78adaf2b3debc439(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))':
     dependencies:
       '@comark/vue': 0.6.2(vue@3.5.40(typescript@6.0.3))
       '@nuxt/kit': 4.4.8
