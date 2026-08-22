@@ -3,7 +3,7 @@ import { posix } from "node:path"
 import { normalizeExecutionAuthority } from "@vite-hub/runtime"
 
 import { workspaceConflict, workspaceError } from "../core/errors.ts"
-import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentToBytes, decodeFile, isExcludedWorkspacePath, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 import { withWorkspaceProgress } from "./progress.ts"
@@ -229,6 +229,24 @@ function gitMetadataRoot(path: string) {
   return index === -1 ? undefined : parts.slice(0, index + 1).join("/")
 }
 
+async function removeHostGitMetadata(host: WorkspaceSessionHost, root: string, signal?: AbortSignal): Promise<void> {
+  const directories = [""]
+  for (let index = 0; index < directories.length; index++) {
+    signal?.throwIfAborted()
+    const directory = directories[index]!
+    for (const entry of await host.files.list(toHostPath(root, directory))) {
+      const path = fromHostPath(root, entry.path)
+      const gitRoot = gitMetadataRoot(path)
+      if (gitRoot) {
+        await removeHostPath(host, root, toHostPath(root, gitRoot), true)
+      }
+      else if (entry.type === "directory") {
+        directories.push(path)
+      }
+    }
+  }
+}
+
 async function listHostEntries(
   host: WorkspaceSessionHost,
   root: string,
@@ -236,11 +254,16 @@ async function listHostEntries(
   recursive = false,
   include?: (entry: WorkspaceEntry) => boolean,
   includeGit = false,
+  excluded: readonly string[] = [],
 ): Promise<WorkspaceEntry[]> {
   await assertHostWorkspaceRoot(host, root)
-  const entries = (await host.files.list(toHostPath(root, path), { recursive }))
+  const workspacePath = normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })
+  if (isExcludedWorkspacePath(workspacePath, excluded)) return []
+  const hostExcluded = excluded.map(item => toHostPath(root, normalizeWorkspacePath(item)))
+  const listed = await host.files.list(toHostPath(root, workspacePath), { exclude: hostExcluded, recursive })
+  const entries = listed
     .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))
-    .filter(({ workspaceEntry }) => !include || include(workspaceEntry))
+    .filter(({ workspaceEntry }) => !isExcludedWorkspacePath(workspaceEntry.path, excluded) && (!include || include(workspaceEntry)))
   const resolved = await mapWithConcurrency(entries, hostInspectionConcurrency, async ({ executable, workspaceEntry }) => {
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
     if (executable !== undefined) return workspaceEntry
@@ -411,6 +434,13 @@ function isExcludedWriteBackPath(path: string, excluded: readonly string[]) {
   return Boolean(gitMetadataRoot(path)) || excluded.some(item => path === item || path.startsWith(`${item}/`) || item.startsWith(`${path}/`))
 }
 
+const defaultExcludedSessionPaths = [".agent-runs", ".git", ".vitehub"] as const
+
+function isExcludedSessionSourcePath(path: string): boolean {
+  if (path === ".vitehub/sources" || path.startsWith(".vitehub/sources/")) return false
+  return isExcludedWriteBackPath(path, defaultExcludedSessionPaths)
+}
+
 function filterWriteBackDiff(diff: WorkspaceDiff, excluded: readonly string[]): WorkspaceDiff {
   return {
     ...diff,
@@ -427,18 +457,33 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
 
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
   const paths = normalizeSessionPaths(options)
-  if (!paths) return await workspace.list("", { recursive: true })
-
   const entries = new Map<string, WorkspaceEntry>()
-  for (const path of paths) {
-    const stat = await workspace.stat(path).catch((error) => {
-      if (isMissingWorkspacePathError(error)) return undefined
-      throw error
-    })
-    if (!stat) continue
-    entries.set(stat.path, stat)
-    if (stat.type === "directory") {
-      for (const entry of await workspace.list(path, { recursive: true })) entries.set(entry.path, entry)
+  const directories = paths ? [] : [""]
+  if (paths) {
+    for (const path of paths) {
+      const excluded = isExcludedSessionSourcePath(path)
+      if (excluded && path !== ".vitehub") continue
+      const stat = await workspace.stat(path).catch((error) => {
+        if (isMissingWorkspacePathError(error)) return undefined
+        throw error
+      })
+      if (!stat) continue
+      if (!excluded) entries.set(stat.path, stat)
+      if (stat.type === "directory") directories.push(stat.path)
+    }
+  }
+
+  const visited = new Set<string>()
+  for (let index = 0; index < directories.length; index++) {
+    const directory = directories[index]!
+    if (visited.has(directory)) continue
+    visited.add(directory)
+    for (const entry of await workspace.list(directory)) {
+      const excluded = isExcludedSessionSourcePath(entry.path)
+      if (!excluded) entries.set(entry.path, entry)
+      if (entry.type === "directory" && (!excluded || entry.path === ".vitehub")) {
+        directories.push(entry.path)
+      }
     }
   }
   return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
@@ -570,10 +615,8 @@ async function materializeWorkspace(
       label: "Extracting workspace revision",
     }, async () => await extractRevisionArchive(host, root, { ...revision, archive: revision.archive! }, options?.abortSignal))
     abortSignal?.throwIfAborted()
-    await Promise.all([
-      removeHostPath(host, root, toHostPath(root, ".git"), true),
-      removeHostPath(host, root, toHostPath(root, ".vitehub"), true),
-    ])
+    await Promise.all(defaultExcludedSessionPaths.map(path => removeHostPath(host, root, toHostPath(root, path), true)))
+    await removeHostGitMetadata(host, root, abortSignal)
     abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root)
     abortSignal?.throwIfAborted()
@@ -679,9 +722,7 @@ export async function createHostedWorkspaceSession(
   const root = normalizeTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
   const excludedWriteBackPaths = [
-    ".agent-runs",
-    ".git",
-    ".vitehub",
+    ...defaultExcludedSessionPaths,
     ...(options.writeBack?.exclude || []).map(path => normalizeSafeWorkspacePath(path, { allowReserved: true })),
   ]
   let closed = false
@@ -781,7 +822,10 @@ export async function createHostedWorkspaceSession(
     },
     async list(path = "", listOptions = {}) {
       assertOpen()
-      return filterSessionEntries(await listHostEntries(host, root, path, listOptions.recursive), sessionPaths)
+      return filterSessionEntries(
+        await listHostEntries(host, root, path, listOptions.recursive, undefined, false, listOptions.exclude),
+        sessionPaths,
+      )
     },
     async glob(pattern, globOptions) {
       assertOpen()

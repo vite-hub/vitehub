@@ -161,6 +161,7 @@ export interface BoxFileOptions {
 }
 
 export interface BoxListFilesOptions extends BoxFileOptions {
+  exclude?: readonly string[];
   recursive?: boolean;
 }
 
