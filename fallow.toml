@@ -27,6 +27,8 @@ dynamicallyLoaded = [
   "packages/env/test/**/*.test-d.ts",
   "packages/auth/test/**/*.test-d.ts",
   "packages/ui/test/**/*.test-d.ts",
+  # Copied into the public package and loaded through its CSS export.
+  "packages/ui/styles.css",
   # Registered by the UI Nuxt module as a client runtime plugin.
   "packages/ui/src/runtime/nuxt-plugin.ts",
   # Registered by the ViteHub Nuxt module and copied as packaged console runtime entries.
@@ -165,6 +167,8 @@ ignoreDependencies = [
   "publint",
   "ssh2",
   "uploadthing",
+  # Invoked by the root Vite+ verification task.
+  "vite-doctor",
   "workflow",
 ]
 
@@ -176,6 +180,7 @@ publicPackages = [
   "@vite-hub/sandbox",
   "@vite-hub/schedule",
   "@vite-hub/shell",
+  "@vite-hub/ui",
   "@vite-hub/workspace",
 ]
 

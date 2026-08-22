@@ -381,9 +381,12 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       },
       async list(path, options) {
         const entries: WorkspaceSessionHostFileEntry[] = []
+        const excluded = options?.exclude?.map(item => resolve(item)) || []
+        const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         const visit = async (directory: string) => {
           for (const entry of await readdir(directory, { withFileTypes: true })) {
             const target = join(directory, entry.name)
+            if (isExcluded(resolve(target))) continue
             const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
             const stats = type === "file" ? await lstat(target) : undefined
             entries.push({

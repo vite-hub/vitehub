@@ -3,6 +3,10 @@ packages:
   - "packages/*"
 catalog:
   '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@66628e8b8dcf468201b93c958604d641f89e62ef
+  vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
+
+ignoredOptionalDependencies:
+  - fallow-type-aware
 
 catalogMode: prefer
 
@@ -99,7 +103,7 @@ catalogs:
     "@types/node": ^24.13.3
     "@types/picomatch": ^4.0.3
     esbuild: ^0.28.1
-    fallow: 2.41.0
+    fallow: 3.17.0
     knip: 6.27.0
     local-pkg: ^1.2.1
     oxlint: ^1.74.0

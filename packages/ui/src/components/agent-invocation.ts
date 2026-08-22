@@ -27,6 +27,18 @@ function invocationContext(invocation: AgentInvocationView): string {
   return invocation.threadId ?? invocation.origin ?? invocation.id;
 }
 
+function invocationRepository(invocation: AgentInvocationView): string | undefined {
+  const repository = invocation.annotations?.["github.repository"];
+  return typeof repository === "string" ? repository : undefined;
+}
+
+function invocationProject(invocation: AgentInvocationView): string {
+  return invocationRepository(invocation)?.split("/").at(-1)
+    ?? invocation.configuration?.workspace?.name
+    ?? invocation.agentName
+    ?? "Workspace";
+}
+
 function statusLabel(status: AgentInvocationView["status"]): string {
   return {
     cancelled: "Cancelled",
@@ -77,6 +89,12 @@ function markdown(value: string | undefined, className: string) {
     default: () => h(AgentMarkdown, { class: className, value }),
     fallback: () => h("p", { class: className }, value),
   });
+}
+
+function renderFolderIcon() {
+  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [
+    h("path", { d: "M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "stroke-linecap": "round", "stroke-linejoin": "round" }),
+  ]);
 }
 
 function renderMessage(activity: InvocationActivity) {
@@ -178,29 +196,37 @@ function inspectorSection(title: string, body: ReturnType<typeof h> | null) {
   return body ? h("section", [h("h4", title), body]) : null;
 }
 
+function inspectorRow(label: string, value: string | number | undefined, code = false) {
+  if (value === undefined || value === "") return null;
+  return h("div", [h("dt", label), h("dd", code ? [h("code", String(value))] : String(value))]);
+}
+
 function renderConfiguration(configuration: AgentInvocationConfiguration) {
   const driver = configurationLabel(configuration);
   const workspace = workspaceLabel(configuration);
   return [
     inspectorSection("Environment", h("dl", { class: "vh-invocation-inspector__list" }, [
-      driver ? h("div", [h("dt", "Driver"), h("dd", driver)]) : null,
-      configuration.runtime?.name ? h("div", [h("dt", "Runtime"), h("dd", configuration.runtime.name)]) : null,
-      workspace ? h("div", [h("dt", "Workspace"), h("dd", workspace)]) : null,
+      inspectorRow("Driver", driver),
+      inspectorRow("Runtime", configuration.runtime?.name),
+      inspectorRow("Workspace", workspace),
     ])),
     configuration.workspace?.sources?.length
-      ? inspectorSection("Sources", h("div", { class: "vh-invocation-inspector__badges" }, configuration.workspace.sources.map(source => h("code", source))))
+      ? inspectorSection("Sources", h("ul", { class: "vh-invocation-inspector__items" }, configuration.workspace.sources.map(source => h("li", [h("span", { "aria-hidden": "true" }, "↳"), h("code", source)]))))
       : null,
     configuration.capabilities?.length
-      ? inspectorSection("Capabilities", h("div", { class: "vh-invocation-inspector__stack" }, configuration.capabilities.map(capability => h("details", [
-          h("summary", capability.id),
-          capability.metadata ? h("pre", JSON.stringify(capability.metadata, null, 2)) : null,
+      ? inspectorSection("Capabilities", h("div", { class: "vh-invocation-inspector__stack" }, configuration.capabilities.map(capability => h("details", { class: "vh-invocation-inspector__disclosure" }, [
+          h("summary", [h("span", capability.id), capability.metadata ? h("small", "Metadata") : null]),
+          capability.metadata ? h("pre", JSON.stringify(capability.metadata, null, 2)) : h("p", "No additional metadata."),
         ]))))
       : null,
     configuration.tools?.length
-      ? inspectorSection("Tools", h("div", { class: "vh-invocation-inspector__badges" }, configuration.tools.map(tool => h("code", tool.name))))
+      ? inspectorSection("Tools", h("ul", { class: "vh-invocation-inspector__items" }, configuration.tools.map(tool => h("li", [h("span", { "aria-hidden": "true" }, "⌁"), h("code", tool.name)]))))
       : null,
     configuration.instructions?.length
-      ? inspectorSection("Instructions", h("pre", { class: "vh-invocation-inspector__instructions" }, configuration.instructions.join("\n\n")))
+      ? inspectorSection("Instructions", h("details", { class: "vh-invocation-inspector__disclosure" }, [
+          h("summary", [h("span", "Invocation instructions"), h("small", `${configuration.instructions.length} block${configuration.instructions.length === 1 ? "" : "s"}`)]),
+          h("pre", { class: "vh-invocation-inspector__instructions" }, configuration.instructions.join("\n\n")),
+        ]))
       : null,
   ];
 }
@@ -208,6 +234,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
 export const AgentInvocation = defineComponent({
   name: "AgentInvocation",
   props: {
+    header: { default: true, type: Boolean },
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
   },
   setup(props, { slots }) {
@@ -219,21 +246,17 @@ export const AgentInvocation = defineComponent({
         "data-status": props.invocation.status,
         "data-slot": "invocation",
       }, [
+        props.header ? h("header", { class: "vh-invocation-header" }, [
+          h("div", { class: "vh-invocation-header__breadcrumb", title: `${invocationProject(props.invocation)} / ${invocationTitle(props.invocation)}` }, [
+            h("span", { class: "vh-invocation-header__project-icon" }, [renderFolderIcon()]),
+            h("span", { class: "vh-invocation-header__project" }, invocationProject(props.invocation)),
+            h("span", { "aria-hidden": "true", class: "vh-invocation-header__separator" }, "/"),
+            h("h2", slots.title?.({ invocation: props.invocation }) ?? invocationTitle(props.invocation)),
+          ]),
+          slots.actions?.({ invocation: props.invocation }),
+        ]) : null,
         h("main", { class: "vh-invocation-thread" }, [
           h("div", { class: "vh-invocation-thread__content" }, [
-            h("header", { class: "vh-invocation-thread__heading" }, [
-              h("div", { class: "vh-invocation-thread__eyebrow" }, [
-                h("span", { class: "vh-invocation-session__status-dot", "aria-hidden": "true" }),
-                h("span", statusLabel(props.invocation.status)),
-              ]),
-              h("div", { class: "vh-invocation-thread__title-row" }, [
-                h("div", [
-                  h("h2", slots.title?.({ invocation: props.invocation }) ?? invocationTitle(props.invocation)),
-                  h("p", invocationContext(props.invocation)),
-                ]),
-                slots.actions?.({ invocation: props.invocation }),
-              ]),
-            ]),
             props.invocation.error
               ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
                   h("strong", props.invocation.error.name ?? "Invocation failed"),
@@ -275,23 +298,32 @@ export const AgentInvocationInspector = defineComponent({
           "data-slot": "invocation-inspector",
         }, [
           h("header", [
-            h("div", [h("h3", "Session details"), h("p", configuration?.agent?.name ?? props.invocation.agentName ?? "Agent invocation")]),
+            h("div", [h("h3", "Details"), h("p", invocationProject(props.invocation))]),
             slots.actions?.({ invocation: props.invocation }),
           ]),
           h("div", { class: "vh-invocation-inspector__content" }, [
-            h("section", { class: "vh-invocation-inspector__status" }, [
-              h("span", { class: "vh-invocation-inspector__status-icon", "aria-hidden": "true" }),
-              h("div", [h("strong", statusLabel(props.invocation.status)), h("small", formatDuration(props.invocation.startedAt, endedAt) ?? "In progress")]),
+            h("section", { class: "vh-invocation-inspector__identity" }, [
+              h("div", { class: "vh-invocation-inspector__status" }, [
+                h("span", { class: "vh-invocation-inspector__status-icon", "aria-hidden": "true" }),
+                h("strong", statusLabel(props.invocation.status)),
+                h("small", formatDuration(props.invocation.startedAt, endedAt) ?? "In progress"),
+              ]),
+              h("h4", invocationTitle(props.invocation)),
+              h("p", invocationContext(props.invocation)),
             ]),
-            inspectorSection("Activity", h("dl", { class: "vh-invocation-inspector__metrics" }, [
-              h("div", [h("dt", "Messages"), h("dd", String(metrics.value.messages))]),
-              h("div", [h("dt", "Steps"), h("dd", String(metrics.value.steps))]),
-              metrics.value.changes ? h("div", [h("dt", "Changes"), h("dd", String(metrics.value.changes))]) : null,
-              metrics.value.tokens !== undefined ? h("div", [h("dt", "Tokens"), h("dd", new Intl.NumberFormat().format(metrics.value.tokens))]) : null,
+            inspectorSection("Run", h("dl", { class: "vh-invocation-inspector__list" }, [
+              inspectorRow("Agent", configuration?.agent?.name ?? props.invocation.agentName),
+              inspectorRow("Messages", metrics.value.messages),
+              inspectorRow("Steps", metrics.value.steps),
+              metrics.value.changes ? inspectorRow("Changes", metrics.value.changes) : null,
+              metrics.value.tokens !== undefined ? inspectorRow("Tokens", new Intl.NumberFormat().format(metrics.value.tokens)) : null,
             ])),
             ...(configuration ? renderConfiguration(configuration) : []),
             slots.metadata?.({ invocation: props.invocation }),
-            inspectorSection("Trace", h("code", { class: "vh-invocation-inspector__trace" }, props.invocation.traceId)),
+            inspectorSection("Trace", h("dl", { class: "vh-invocation-inspector__list" }, [
+              inspectorRow("Trace ID", props.invocation.traceId, true),
+              inspectorRow("Invocation ID", props.invocation.id, true),
+            ])),
           ]),
         ]);
     };

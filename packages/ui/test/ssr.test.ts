@@ -3,9 +3,48 @@ import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import { AgentChat } from "../src/components/agent-chat.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
+import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("UI server rendering", () => {
+  it("renders a coding-session list without owning navigation", async () => {
+    const selected: string[] = [];
+    const app = createSSRApp({
+      render: () => h(AgentInvocationList, {
+        items: [
+          {
+            agent: "babysitter",
+            context: "PR #1015",
+            id: "ainv_active",
+            project: "vitehub",
+            provider: "codex",
+            status: "running",
+            title: "Improve the coding session console",
+            updatedAt: "2026-08-22T00:04:00.000Z",
+          },
+          {
+            id: "ainv_done",
+            project: "vitehub",
+            status: "completed",
+            title: "Publish the dashboard preview",
+            updatedAt: "2026-08-22T00:00:00.000Z",
+          },
+        ],
+        now: Date.parse("2026-08-22T00:08:00.000Z"),
+        onSelect: item => selected.push(item.id),
+        selectedId: "ainv_active",
+      }),
+    });
+    const html = await renderToString(app);
+    expect(html).toContain("Improve the coding session console");
+    expect(html).toContain("Working");
+    expect(html).toContain("4m");
+    expect(html).toContain("Settled (1)");
+    expect(html).toContain('aria-current="true"');
+    expect(html).not.toContain("Publish the dashboard preview");
+    expect(selected).toEqual([]);
+  });
+
   it("renders AI SDK messages without browser globals", async () => {
     const app = createSSRApp({
       render: () =>

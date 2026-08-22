@@ -20,11 +20,12 @@
   },
   "files": [
     "dist",
+    "styles.css",
     "package.json"
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/styles.css"
+    "./styles.css"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -63,7 +64,6 @@
     "@pierre/theme": "1.1.0",
     "@pierre/trees": "1.0.0-beta.6",
     "@types/node": "catalog:tooling",
-    "@vite-hub/internal": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vue/server-renderer": "^3.5.0",
     "@vue/test-utils": "2.4.11",

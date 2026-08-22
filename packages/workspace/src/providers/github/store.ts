@@ -3,6 +3,7 @@ import { posix } from "node:path";
 import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts";
 import {
   contentStreamToBytes,
+  isExcludedWorkspacePath,
   matchesAny,
   normalizeSafeWorkspacePath,
   normalizeSafeWorkspacePattern,
@@ -645,8 +646,9 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async #listEntries(prefix: string, options: ListOptions, resolveSymlinks = true): Promise<WorkspaceEntry[]> {
     const entries = new Map<string, WorkspaceEntry>();
     for (const file of this.#files.values()) {
-      if (isReservedWorkspacePath(file.path)) continue;
+      if (isReservedWorkspacePath(file.path) || isExcludedWorkspacePath(file.path, options.exclude)) continue;
       for (const dir of parentDirectories(file.path)) {
+        if (isExcludedWorkspacePath(dir, options.exclude)) continue;
         if (this.#entryInPrefix(dir, prefix, options))
           entries.set(dir, { path: dir, type: "directory" });
       }

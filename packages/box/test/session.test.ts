@@ -43,6 +43,9 @@ describe("BoxSession", () => {
         { path: "workspace/nested", size: undefined, type: "directory" },
         { path: "workspace/nested/data.bin", size: 4, type: "file" },
       ]);
+      await expect(
+        session.files.list("workspace", { exclude: ["/"], recursive: true }),
+      ).resolves.toEqual([]);
 
       await session.files.move?.("workspace/nested/data.bin", "workspace/data.bin");
       await session.files.remove("workspace/nested");
