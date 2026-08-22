@@ -807,7 +807,7 @@ describe("Agent telemetry", () => {
       await vi.advanceTimersByTimeAsync(5_000)
       await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(1))
 
-      for (let index = 0; index < 1_200; index += 1) {
+      for (let index = 0; index < 1_023; index += 1) {
         await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
       }
       expect(tasks).toHaveLength(1)
@@ -821,12 +821,15 @@ describe("Agent telemetry", () => {
       const logs = telemetry.mock.calls.map(call => call[0])
         .filter(exported => (exported as { signal: string }).signal === "logs") as Array<{ records: Array<{ eventName: string }> }>
       expect(logs.length).toBeGreaterThan(2)
+      expect(logs.slice(1).map(exported => exported.records.length)).toEqual([512, 511, 2])
       expect(logs.every(exported => exported.records.length <= 512)).toBe(true)
       const progress = logs.flatMap(exported => exported.records)
         .map(record => record.eventName)
         .filter(name => name.startsWith("application.progress"))
-      expect(progress).toHaveLength(1_201)
+      expect(progress).toHaveLength(1_024)
       expect(new Set(progress).size).toBe(progress.length)
+      expect(logs.flatMap(exported => exported.records)
+        .filter(record => record.eventName === "vitehub.agent.configured")).toHaveLength(1)
       expect(telemetry.mock.calls.at(-1)?.[0]).toMatchObject({ signal: "traces" })
     }
     finally {

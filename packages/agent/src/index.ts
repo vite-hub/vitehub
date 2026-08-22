@@ -2305,8 +2305,9 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
       const nextIndex = invocationEvents.findIndex(event => event.sequence > afterSequence)
       if (nextIndex < 0) return
       const remainingCount = invocationEvents.length - nextIndex
-      const finalBatchIncludesConfiguration = includeConfiguration && remainingCount <= agentTelemetryMaxBatchSize
-      const eventLimit = finalBatchIncludesConfiguration ? agentTelemetryMaxBatchSize - 1 : agentTelemetryMaxBatchSize
+      const reservesConfigurationSlot = includeConfiguration && remainingCount <= agentTelemetryMaxBatchSize
+      const finalBatchIncludesConfiguration = includeConfiguration && remainingCount < agentTelemetryMaxBatchSize
+      const eventLimit = reservesConfigurationSlot ? agentTelemetryMaxBatchSize - 1 : agentTelemetryMaxBatchSize
       const events = invocationEvents.slice(nextIndex, nextIndex + eventLimit)
       const anchor = invocationEvents[0]
       const conversionEvents = anchor && anchor.sequence <= afterSequence ? [anchor, ...events] : events
