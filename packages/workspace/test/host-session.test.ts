@@ -8,6 +8,7 @@ import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runti
 
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
+import { custom } from "../src/sources/custom.ts"
 import { fetch as fetchSource } from "../src/sources/fetch.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts"
@@ -680,7 +681,7 @@ describe("workspace host sessions", () => {
     }
   })
 
-  it("keeps descriptor and live Source files on the source-aware fallback", async () => {
+  it("keeps descriptor, live, and root-mounted lazy Source files on the source-aware fallback", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
       headers: { "content-type": "application/json" },
     }))
@@ -709,6 +710,16 @@ describe("workspace host sessions", () => {
       ...defineWorkspace({
         sources: {
           request: fetchSource({ url: "https://status.example.com/request" }),
+          root: custom({
+            materialize: "lazy",
+            mount: "",
+            async getKeys() {
+              return ["AGENTS.md"]
+            },
+            async getItem(key) {
+              return { content: "# Instructions\n", key, path: key }
+            },
+          }),
           status: fetchSource({ url: "https://status.example.com/live", workspacePath: "status.json" }),
         },
         store,
@@ -717,6 +728,7 @@ describe("workspace host sessions", () => {
     })
 
     const session = await docs.startSession({ host: memoryHost() })
+    await expect(session.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
     await expect(session.readFile("status.json")).resolves.toContain('"status": "ok"')
     await expect(session.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
     expect(reservedListCalls).toEqual([])

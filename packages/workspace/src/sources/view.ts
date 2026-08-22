@@ -158,6 +158,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const entry of descriptorPathEntries(path, options)) {
       if (!isExcludedWorkspacePath(entry.path, options.exclude)) result.set(entry.path, entry)
     }
+    if (isDescriptorPath(normalized)) {
+      return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))
+    }
 
     for (const source of getLazySourcesForPath(path)) {
       if (isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
