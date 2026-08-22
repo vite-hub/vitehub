@@ -1,7 +1,7 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView } from "../types.ts";
 
-export type InvocationActivityKind =
+type InvocationActivityKind =
   | "action"
   | "approval"
   | "change"
@@ -14,7 +14,7 @@ export type InvocationActivityKind =
   | "tool"
   | "activity";
 
-export interface InvocationCommand {
+interface InvocationCommand {
   command: string;
   cwd?: string;
   exitCode?: number;
