@@ -62,12 +62,12 @@ article.metadata?.revision
 const articles = await useSource("articles").items()
 ```
 
-Compose runtime Source readers into a typed Collection when keys can overlap:
+Combine runtime Source readers when keys can overlap:
 
 ```ts
-import { defineCollection, defineSource } from "@vite-hub/source"
+import { combineSources, defineSource } from "@vite-hub/source"
 
-const recaps = defineCollection({
+const recaps = combineSources({
   sources: {
     github: defineSource({
       get: async (month: `${number}-${number}`) => ({ month }),
@@ -79,6 +79,49 @@ const recaps = defineCollection({
 await recaps.get(["github", "2026-07"])
 await recaps.items() // [{ key: "2026-07", source: "github", identity: ["github", "2026-07"] }]
 ```
+
+Define a Collection when a database or other origin should become a typed,
+paginated client read model:
+
+```ts
+// server/collections/articles.ts
+import { defineCollection } from "@vite-hub/source"
+import * as v from "valibot"
+
+export const articles = defineCollection(async ({ cursor, limit, query }) => {
+  return db.listArticles({ after: cursor, author: query.author, limit })
+}, {
+  cursor: article => [article.createdAt, article.id] as const,
+  cursorSchema: v.tuple([v.number(), v.string()]),
+  querySchema: v.object({ author: v.optional(v.string()) }),
+  transform: article => ({ id: article.id, title: article.title }),
+})
+```
+
+`cursorSchema` and `querySchema` accept any Standard Schema validator. Their
+output types flow into the loader, so the loader needs no manual generic types.
+
+```ts
+// app/composables/articles.ts
+import { useCollection } from "@vite-hub/source/client"
+
+export const useArticles = () => useCollection("articles", {
+  all: true,
+  filter: { author: "Ada" },
+})
+```
+
+ViteHub discovers named exports in `server/collections` and generates the
+collection registry and GET handler, binding each filename to its endpoint and
+definition type. Everything in that directory is a public read model; keep
+private definitions elsewhere and do not repeat the route under `server/api`.
+Callers do not repeat URL strings or generic imports. `filter` is validated by
+the Collection's query schema before the loader runs and remains fixed across
+cursor pages. Set `all: true` for bounded Collections that should materialize
+every page; otherwise call `loadMore()` explicitly. The loader owns the
+origin-specific query. Collection owns limit enforcement, opaque cursor
+transport, response shaping, and the exact item and filter types consumed by
+`useCollection()`.
 
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured

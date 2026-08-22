@@ -14,6 +14,7 @@ import { vitehub } from "./index.ts"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { Plugin, PluginOption, UserConfig } from "vite"
+import type { GeneratedCollectionHandler } from "./internal/types.ts"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
@@ -395,9 +396,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   } | undefined
   if (!emailPlugin) await emailCleanupPlugin?.api?.prepareTypes?.(projectRoot)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
-    api?: { prepareTypes?: (root: string) => Promise<void> }
+    api?: { prepareTypes?: (root: string) => Promise<GeneratedCollectionHandler[]> }
   } | undefined
-  await typesPlugin?.api?.prepareTypes?.(projectRoot)
+  const collectionHandlers = await typesPlugin?.api?.prepareTypes?.(projectRoot) ?? []
 
   viteConfig.define = {
     ...viteConfig.define,
@@ -435,6 +436,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)
+    const handlers = (config.handlers ??= []) as Array<{
+      handler: string
+      method?: string
+      route: string
+    }>
+    for (const handler of collectionHandlers) {
+      const duplicate = handlers.some(candidate =>
+        candidate.route === handler.route
+        && (!candidate.method || candidate.method.toLowerCase() === handler.method),
+      )
+      if (!duplicate) handlers.push(handler)
+    }
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
@@ -442,6 +455,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
   })
   if (options.agent) addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
+  addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (options.auth) {
     const envOptions = options.env || {}
     hubAuthNuxt({

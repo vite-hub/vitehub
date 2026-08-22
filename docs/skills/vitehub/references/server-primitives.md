@@ -20,6 +20,8 @@ With the current facade, register `vitehub()` from `vite-hub` and import applica
 
 For Database runtime access, import `useDatabase` from `vite-hub/database/drizzle` and call it with the discovered database name. Use `useDatabase("default")` for a Default Database. Query through the returned `db` and `schema`; do not import a Database Definition into application code or use the direct `db`, `schema`, or `databases` exports.
 
+For a read-only Collection backed by one database table, import `defineCollection` and `table` from `vite-hub/source`, then pass the `db` and `schema` table returned by `useDatabase` to `source: table(...)`. Declare non-null order columns with a unique final tie-breaker and put validated domain filtering in `where`; do not hand-write cursor predicates, ordering, or limits in application loaders. Keep the loader form of `defineCollection` as the escape hatch for SDKs, external APIs, joins, and other origins the table source cannot represent. Every named export under `server/collections` is a public read model: ViteHub generates its `/api/<name>` GET route, so do not add a matching `server/api` handler. Keep private definitions outside that directory.
+
 ## Authority
 
 Runtime Helpers called by application code keep authority in the application. If an Agent needs the same behavior, grant the narrow Capability documented for that feature; do not make every application primitive an Agent tool.

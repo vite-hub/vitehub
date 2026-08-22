@@ -1,8 +1,10 @@
 import { describe, expectTypeOf, it } from "vitest"
+import * as v from "valibot"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 
 import {
+  combineSources,
   createSource,
   custom,
   defineCollection,
@@ -67,7 +69,7 @@ describe("@vite-hub/source types", () => {
         return { month, rootDir: context.rootDir }
       },
     }))
-    const collection = defineCollection({
+    const collection = combineSources({
       sources: {
         count: reader("same", 1),
         keyed: createSource(keyedDefinition, { rootDir: "/recaps" }),
@@ -81,7 +83,7 @@ describe("@vite-hub/source types", () => {
       .toEqualTypeOf<{ month: "2026-07", rootDir: string }>()
     expectTypeOf((await collection.items())[0]!.source).toEqualTypeOf<"count" | "title">()
 
-    const variants = defineCollection({
+    const variants = combineSources({
       sources: {
         variant: {
           async get(key: "a" | "b") { return key },
@@ -107,38 +109,38 @@ describe("@vite-hub/source types", () => {
     const conditionalReader = Math.random() > 0.5
       ? { async get(key: "a" | "shared") { return key } }
       : { async get(key: "b" | "shared") { return key } }
-    const conditionalCollection = defineCollection({ sources: { conditional: conditionalReader } })
+    const conditionalCollection = combineSources({ sources: { conditional: conditionalReader } })
     await conditionalCollection.get(["conditional", "shared"])
     // @ts-expect-error A key must be accepted by every possible reader variant
     await conditionalCollection.get(["conditional", "a"])
     const enumerableUnion = Math.random() > 0.5
       ? { async get(key: "a" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
       : { async get(key: "b" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
-    const enumerableCollection = defineCollection({ sources: { enumerable: enumerableUnion } })
+    const enumerableCollection = combineSources({ sources: { enumerable: enumerableUnion } })
     const emittedIdentity = (await enumerableCollection.items())[0]!.identity
     await enumerableCollection.get(emittedIdentity)
     // @ts-expect-error Enumerable union readers cannot emit a variant-only key
-    defineCollection({ sources: { invalidUnion: (Math.random() > 0.5 ? reader("a", 1) : reader("b", 2)) } })
+    combineSources({ sources: { invalidUnion: (Math.random() > 0.5 ? reader("a", 1) : reader("b", 2)) } })
     const mixedUnion = Math.random() > 0.5
       ? { async get(key: "a" | "shared") { return key }, async items() { return [{ key: "shared" as const }] } }
       : { async get(key: "b" | "shared") { return key } }
-    const mixedCollection = defineCollection({ sources: { mixed: mixedUnion } })
+    const mixedCollection = combineSources({ sources: { mixed: mixedUnion } })
     const mixedIdentity = (await mixedCollection.items())[0]!.identity
     await mixedCollection.get(mixedIdentity)
     // @ts-expect-error Mixed reader unions cannot emit a variant-only key either
-    defineCollection({ sources: { invalidMixed: (Math.random() > 0.5 ? reader("a", 1) : { async get(key: "b") { return key } }) } })
+    combineSources({ sources: { invalidMixed: (Math.random() > 0.5 ? reader("a", 1) : { async get(key: "b") { return key } }) } })
     interface OverloadedReader {
       get(key: "a"): Promise<{ a: number }>
       get(key: "b"): Promise<{ b: string }>
     }
     const overloadedReader = null as unknown as OverloadedReader
     // @ts-expect-error Overloaded get methods have an ambiguous Collection contract
-    defineCollection({ sources: { overloaded: overloadedReader } })
+    combineSources({ sources: { overloaded: overloadedReader } })
     const conditionalGeneric = null as unknown as {
       get<TKey extends string>(key: TKey): Promise<TKey extends "a" ? { a: number } : never>
     }
     // @ts-expect-error Generic key-dependent get methods cannot be represented by the Collection return type
-    defineCollection({ sources: { conditionalGeneric } })
+    combineSources({ sources: { conditionalGeneric } })
     interface GenericItems {
       a: { a: number }
       b: { b: string }
@@ -147,11 +149,40 @@ describe("@vite-hub/source types", () => {
       get<TKey extends keyof GenericItems>(key: TKey): Promise<GenericItems[TKey]>
     }
     // @ts-expect-error Generic key-dependent get methods must use an explicit union-parameter contract
-    defineCollection({ sources: { indexedGeneric } })
+    combineSources({ sources: { indexedGeneric } })
     // @ts-expect-error enumerable item keys must be accepted by the Source reader
-    defineCollection({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
+    combineSources({ sources: { invalid: { async get(_key: "one") {}, async items() { return [{ key: "two" as const }] } } } })
     // @ts-expect-error Collection aliases must be strings
-    defineCollection({ sources: { 0: reader("same", 1) } })
+    combineSources({ sources: { 0: reader("same", 1) } })
+  })
+
+  it("infers Collection source rows, transformed items, cursors, and queries", async () => {
+    const collection = defineCollection(async ({ cursor, limit, query }) => {
+      expectTypeOf(cursor).toEqualTypeOf<[number, string] | undefined>()
+      expectTypeOf(limit).toBeNumber()
+      expectTypeOf(query).toEqualTypeOf<{ day?: string }>()
+      return [{ createdAt: 1, id: "meal_1", photoPath: "private/original" }]
+    }, {
+      cursor: row => [row.createdAt, row.id] as const,
+      cursorSchema: v.tuple([v.number(), v.string()]),
+      querySchema: v.object({ day: v.optional(v.string()) }),
+      transform(row) {
+        return { createdAt: new Date(row.createdAt).toISOString(), id: row.id }
+      },
+    })
+
+    const page = await collection.page({ query: { day: "2026-08-21" } })
+    expectTypeOf(page.items).toEqualTypeOf<Array<{ createdAt: string, id: string }>>()
+    expectTypeOf(await collection.parseQuery({ day: "2026-08-21" }))
+      .toEqualTypeOf<{ day?: string }>()
+
+    defineCollection(async ({ cursor }) => {
+      expectTypeOf(cursor).toEqualTypeOf<number | undefined>()
+      return [{ id: "2" }]
+    }, {
+      cursor: row => row.id,
+      cursorSchema: v.pipe(v.string(), v.transform(Number), v.number()),
+    })
   })
 
   it("accepts SDK clients and transports without exposing SDK types", () => {

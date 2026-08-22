@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createSource, defineCollection, defineSource } from "../src/index.ts"
+import { combineSources, createSource, defineSource } from "../src/index.ts"
 
 function enumerable<const TKey extends string, TData>(key: TKey, data: TData) {
   return {
@@ -13,9 +13,9 @@ function enumerable<const TKey extends string, TData>(key: TKey, data: TData) {
   }
 }
 
-describe("Source Collections", () => {
+describe("combined Sources", () => {
   it("keeps equal Source keys distinct by alias", async () => {
-    const collection = defineCollection({
+    const collection = combineSources({
       sources: {
         first: enumerable("same", 1),
         second: enumerable("same", 2),
@@ -36,24 +36,24 @@ describe("Source Collections", () => {
       },
     }))
     const keyed = createSource(definition, { rootDir: "/recaps" })
-    const collection = defineCollection({ sources: { keyed } })
+    const collection = combineSources({ sources: { keyed } })
 
     await expect(collection.get(["keyed", "july"])).resolves.toBe("/recaps:JULY")
     await expect(collection.items()).rejects.toMatchObject({ code: "SOURCE_FAILED", name: "ViteHubError" })
-    await expect(collection.get(["missing" as "keyed", "july"])).rejects.toThrow("source alias \"missing\" is not defined")
+    await expect(collection.get(["missing" as "keyed", "july"])).rejects.toThrow("Combined Source alias \"missing\" is not defined")
     await expect(collection.get("keyed:july" as never)).rejects.toBeInstanceOf(TypeError)
   })
 
   it("rejects non-enumerable Collections before reading any Source", async () => {
     const items = vi.fn(async () => [{ key: "one" }])
-    const collection = defineCollection({
+    const collection = combineSources({
       sources: {
         enumerable: { async get(key: string) { return key }, items },
         keyed: { async get(key: string) { return key } },
       },
     })
 
-    await expect(collection.items()).rejects.toThrow("source alias \"keyed\" is not enumerable")
+    await expect(collection.items()).rejects.toThrow("Combined Source alias \"keyed\" is not enumerable")
     expect(items).not.toHaveBeenCalled()
   })
 })

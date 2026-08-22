@@ -15,12 +15,14 @@ export default defineConfig({
       ],
     },
     entry: [
+      "src/client.ts",
       "src/index.ts",
       "src/file.ts",
       "src/github.ts",
       "src/glob.ts",
       "src/markdown.ts",
       "src/mcp.ts",
+      "src/server.ts",
     ],
     exports: {
       customExports(exports) {

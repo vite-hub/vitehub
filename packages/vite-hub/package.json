@@ -118,11 +118,13 @@
     "./shell/providers/just-bash": "./dist/shell/providers/just-bash.js",
     "./shell/workspace": "./dist/shell/workspace.js",
     "./source": "./dist/source.js",
+    "./source/client": "./dist/source/client.js",
     "./source/file": "./dist/source/file.js",
     "./source/github": "./dist/source/github.js",
     "./source/glob": "./dist/source/glob.js",
     "./source/markdown": "./dist/source/markdown.js",
     "./source/mcp": "./dist/source/mcp.js",
+    "./source/server": "./dist/source/server.js",
     "./workflow": "./dist/workflow.js",
     "./workspace": "./dist/workspace.js",
     "./workspace/cloudflare": "./dist/workspace/cloudflare.js",
@@ -142,6 +144,7 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@aws-sdk/client-s3": "catalog:storage",
     "@aws-sdk/lib-storage": "catalog:storage",
     "@aws-sdk/s3-presigned-post": "catalog:storage",
@@ -159,8 +162,8 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/browser": "workspace:*",
     "@vite-hub/box": "workspace:*",
+    "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
     "@vite-hub/database": "workspace:*",
@@ -191,6 +194,7 @@
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",

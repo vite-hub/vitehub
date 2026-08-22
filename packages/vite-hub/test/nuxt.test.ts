@@ -683,6 +683,28 @@ describe("ViteHub Nuxt integration", () => {
     expect(steps).toEqual(["email", "types"])
   })
 
+  it("registers generated Collection handlers without replacing configured handlers", async () => {
+    const generated = {
+      handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/meals.mjs",
+      method: "get" as const,
+      route: "/api/meals",
+    }
+    const prepareTypes = vi.fn(async () => [generated])
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "vite-hub/types",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const nitroConfig = { handlers: [existing] }
+    await runNitroConfigHook(nitroConfig)
+
+    expect(prepareTypes).toHaveBeenCalledWith("/tmp/vitehub-nuxt")
+    expect(nitroConfig.handlers).toEqual([existing, generated])
+  })
+
   it("replaces existing Env array declarations instead of concatenating data values", async () => {
     const { nuxt } = createNuxt()
     const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }
@@ -909,6 +931,7 @@ describe("ViteHub Nuxt integration", () => {
       nitro: { alias: Record<string, string>, plugins: string[] }
     }
     expect(options.imports.imports).toEqual([
+      { from: "vite-hub/source/client", name: "useCollection" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useSession" },
       { from: "vite-hub/auth/vue", name: "useSignIn" },
@@ -933,6 +956,7 @@ describe("ViteHub Nuxt integration", () => {
       { from: "vite-hub/agent/vue", name: "useAgentInvocation" },
       { from: "vite-hub/agent/vue", name: "useAgentInvocations" },
       { from: "vite-hub/agent/vue", name: "useChat" },
+      { from: "vite-hub/source/client", name: "useCollection" },
     ])
   })
 
@@ -1002,7 +1026,7 @@ describe("ViteHub Nuxt integration", () => {
       imports: { imports: Array<{ from: string, name: string }> }
       nitro: Record<string, unknown>
     }
-    expect(options.imports.imports).toHaveLength(5)
+    expect(options.imports.imports).toHaveLength(6)
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
     expect(options.nitro.alias).toEqual({
       "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
