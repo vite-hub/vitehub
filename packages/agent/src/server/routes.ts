@@ -2881,6 +2881,7 @@ interface DurableSteerQueueMessage {
 }
 
 interface DurableSteerErrorDelivery {
+  capabilities?: Record<string, false>
   fallbackAttempted?: true
   input: AgentRunInput
   message: {
@@ -2888,6 +2889,7 @@ interface DurableSteerErrorDelivery {
     text: string
     threadId: string
   }
+  requestUrl?: string
   run?: AgentRunMetadata
 }
 
@@ -2957,7 +2959,13 @@ async function postDurableSteerErrorFallback(
 ): Promise<void> {
   const baseOptions = getAgentChatOptions(agent)
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
-  const adapters = await resolveChatAdapters(baseOptions, context)
+  const deliveryContext: ViteAgentRouteRuntimeContext = {
+    ...context,
+    capabilities: delivery.capabilities,
+    ...(delivery.requestUrl ? { request: new Request(delivery.requestUrl) } : {}),
+    ...(delivery.run ? { run: delivery.run } : {}),
+  }
+  const adapters = await resolveChatAdapters(baseOptions, deliveryContext)
   const adapterName = resolveChatAdapterName(adapters, registration)
   const adapter = adapterName ? adapters[adapterName] : undefined
   if (!adapterName || !adapter) {
@@ -4241,12 +4249,14 @@ async function handleChatSdkMessage(
       let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
       if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
       const currentErrorDelivery: DurableSteerErrorDelivery = {
+        capabilities: workflowCapabilities,
         input: workflowInput,
         message: {
           ...(message.id ? { id: message.id } : {}),
           text: message.text,
           threadId: message.threadId,
         },
+        requestUrl: workflowRequestUrl,
         ...(run ? { run } : {}),
       }
       let workflowErrorDeliveries = [currentErrorDelivery]

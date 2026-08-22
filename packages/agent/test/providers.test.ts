@@ -12866,6 +12866,7 @@ describe("server helpers", () => {
         return await replaceQueueHead(...args)
       })
       const adapter = createTestChatAdapter()
+      const adapterContexts: Array<{ capabilities?: Record<string, unknown>; runId?: string; url: string }> = []
       const workflowPayloads: Array<{ input?: AgentRunInput }> = []
       const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
         workflowPayloads.push(params)
@@ -12877,7 +12878,10 @@ describe("server helpers", () => {
         channels: {
           telegram: testTelegram(telegram, {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            adapter: () => adapter as never,
+            adapter: (context) => {
+              adapterContexts.push({ capabilities: context.capabilities, runId: context.run?.runId, url: context.request?.url ?? "" })
+              return adapter as never
+            },
             messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
           }),
         },
@@ -12889,8 +12893,8 @@ describe("server helpers", () => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const handler = createChannelWebhookRouteHandler(agent as never)
       setWorkflowRuntimeConfig({ provider: "cloudflare" })
-      const request = (messageId: number, invoker: string) => {
-        const webhook = chatWebhookRequest(messageId)
+      const request = (messageId: number, invoker: string, origin = "https://reclaimer.example") => {
+        const webhook = new Request(`${origin}/api/agent/calories/channels/telegram`, chatWebhookRequest(messageId))
         webhook.headers.set("x-invoker", invoker)
         return webhook
       }
@@ -12905,12 +12909,14 @@ describe("server helpers", () => {
             },
           },
         }
-        await handler(request(91_146, "alpha"), "telegram", runtime)
+        const recoveredRuntime = { ...runtime, capabilities: { blob: false } }
+        const reclaimerRuntime = { ...runtime, capabilities: { email: false } }
+        await handler(request(91_146, "alpha", "https://recovered.example"), "telegram", recoveredRuntime)
         const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
         expect(ownershipKey).toBeDefined()
         await state.forceReleaseLock(ownershipKey!)
 
-        await expect(handler(request(91_147, "beta"), "telegram", runtime)).resolves.toMatchObject({ status: 200 })
+        await expect(handler(request(91_147, "beta"), "telegram", reclaimerRuntime)).resolves.toMatchObject({ status: 200 })
         expect(createBatch.mock.calls.length).toBeGreaterThan(1)
         const queue = `${ownershipKey}:queue`
         expect(await state.queueDepth(queue)).toBe(0)
@@ -12918,6 +12924,22 @@ describe("server helpers", () => {
         expect(errorFallbackText).toHaveBeenCalledTimes(persistentProgressFailure ? 0 : 2)
         expect(adapter.postMessage).toHaveBeenCalledTimes(persistentProgressFailure ? 0 : 2)
         if (!persistentProgressFailure) {
+          const fallbackAdapterContexts = adapterContexts.filter(({ runId }) => runId !== undefined)
+          expect(fallbackAdapterContexts).toHaveLength(2)
+          expect(fallbackAdapterContexts).toEqual(
+            expect.arrayContaining([
+              {
+                capabilities: { blob: false },
+                runId: "telegram:91146",
+                url: "https://recovered.example/api/agent/calories/channels/telegram",
+              },
+              {
+                capabilities: { email: false },
+                runId: "telegram:91147",
+                url: "https://reclaimer.example/api/agent/calories/channels/telegram",
+              },
+            ]),
+          )
           expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
           expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
         }
@@ -12946,7 +12968,7 @@ describe("server helpers", () => {
           }),
         ).toHaveLength(persistentProgressFailure ? 4 : 3)
 
-        const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", runtime)
+        const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", reclaimerRuntime)
         for (const runId of ["telegram:91146", "telegram:91147"]) {
           const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
           expect(delivery).toMatchObject({ status: "failed" })
