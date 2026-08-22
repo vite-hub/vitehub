@@ -73,6 +73,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
+  "@vite-hub/ui": true,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>

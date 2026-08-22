@@ -28,7 +28,8 @@
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/bin.js"
+    "./dist/bin.js",
+    "./dist/ui/styles.css"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -123,6 +124,10 @@
     "./source/glob": "./dist/source/glob.js",
     "./source/markdown": "./dist/source/markdown.js",
     "./source/mcp": "./dist/source/mcp.js",
+    "./ui": "./dist/ui.js",
+    "./ui/headless": "./dist/ui/headless.js",
+    "./ui/nuxt": "./dist/ui/nuxt.js",
+    "./ui/vite": "./dist/ui/vite.js",
     "./workflow": "./dist/workflow.js",
     "./workspace": "./dist/workspace.js",
     "./workspace/cloudflare": "./dist/workspace/cloudflare.js",
@@ -133,6 +138,7 @@
     "./workspace/runtime": "./dist/workspace/runtime.js",
     "./workspace/server": "./dist/workspace/server.js",
     "./package.json": "./package.json",
+    "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json"
   },
   "scripts": {
@@ -177,6 +183,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "@vite-hub/ui": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@workflow/builders": "catalog:workflow",

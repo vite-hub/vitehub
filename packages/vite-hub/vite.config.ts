@@ -35,6 +35,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
+      { from: "src/ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
     deps: {
@@ -55,8 +56,12 @@ export default defineConfig({
     exports: {
       exclude: ["bin"],
       bin: distributionBinEntries,
-      customExports: {
-        "./tsconfig": "./tsconfig.json",
+      customExports(exports) {
+        return {
+          ...exports,
+          "./ui/styles.css": "./dist/ui/styles.css",
+          "./tsconfig": "./tsconfig.json",
+        }
       },
       inlinedDependencies: false,
     },
