@@ -10424,19 +10424,20 @@ describe("server helpers", () => {
       }
       await handler(request(91_130, "alpha"), "telegram", runtime)
       await handler(request(91_131, "beta"), "telegram", runtime)
-      await handler(request(91_132, "alpha"), "telegram", runtime)
+      await handler(request(91_132, "gamma"), "telegram", runtime)
+      await handler(request(91_133, "beta"), "telegram", runtime)
 
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
       const queue = `${ownershipKey}:queue`
       expect(await state.queueDepth(queue)).toBe(2)
       await state.forceReleaseLock(ownershipKey!)
-      await handler(request(91_133, "alpha"), "telegram", runtime)
-      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91130", "91133"])
+      await handler(request(91_134, "alpha"), "telegram", runtime)
+      expect(workflowPayloads[1]?.input?.messages?.map(message => message.id)).toEqual(["91130", "91134"])
       expect(await state.queueDepth(queue)).toBe(2)
       const first = await state.dequeue(queue) as { message?: { input?: AgentRunInput } } | null
       const second = await state.dequeue(queue) as { message?: { input?: AgentRunInput } } | null
-      expect(first?.message?.input?.messages?.at(-1)?.id).toBe("91131")
+      expect(first?.message?.input?.messages?.map(message => message.id)).toEqual(["91131", "91133"])
       expect(second?.message?.input?.messages?.at(-1)?.id).toBe("91132")
     }
     finally {
@@ -10621,6 +10622,71 @@ describe("server helpers", () => {
       expect(workflowPayloads.at(-1)?.input?.messages?.map(message => message.id)).toEqual(["91106", "91107", "91109", "91110"])
     }
     finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("terminally settles queued steer deliveries when successor Workflow startup fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-terminal-start-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      if (createBatch.mock.calls.length > 1) throw new Error("successor provider unavailable")
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "internal output" },
+      hooks: { "agent:finish": event => event.reply("Durable reply") },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const bindingName = getCloudflareWorkflowBindingName("calories")
+    const env = { [bindingName]: { createBatch, get: vi.fn() } }
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const runtime = { agentIdentity: { name: "calories" }, cloudflare: { env } }
+      await handler(chatWebhookRequest(91_140), "telegram", runtime)
+      await handler(chatWebhookRequest(91_141), "telegram", runtime)
+      expect(createBatch).toHaveBeenCalledOnce()
+
+      setActiveCloudflareEnv(env)
+      await expect(runAgentWorkflowDefinition(agent as never, {
+        id: "completed-predecessor",
+        name: "calories",
+        payload: workflowPayloads[0],
+        provider: "cloudflare",
+      }, async () => "completed")).resolves.toBe("completed")
+      expect(createBatch).toHaveBeenCalledTimes(3)
+
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_141), "telegram", { agentIdentity: { name: "calories" } })
+      const successor = deliveries.find(delivery => delivery.events.some(event => event.runId === "telegram:91141"))
+      expect(successor).toMatchObject({ status: "failed" })
+      expect(successor?.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ error: "Workflow provider operation failed.", type: "invocation.failed" }),
+        expect.objectContaining({ error: "Workflow provider operation failed.", type: "failed" }),
+      ]))
+    }
+    finally {
+      setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })

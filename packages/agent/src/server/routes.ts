@@ -2445,6 +2445,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       let queued: DurableSteerQueueEntry | null = null
       let pendingQueue: string | undefined
       let pendingPersisted = false
+      let successorStartAttempted = false
       try {
         for (const deliveryId of binding.steer?.deliveryIds ?? []) {
           const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
@@ -2474,6 +2475,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
         }
         const queuedDelivery = queuedInput.context?.[agentChannelDeliveryWorkflowContextKey]
+        successorStartAttempted = true
         await runAgent(agent as never, {
           ...context,
           capabilities: queued.message.capabilities,
@@ -2503,7 +2505,10 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         const pending = pendingQueue && pendingPersisted
           ? await takeDurableSteerPending(resolved.state, pendingQueue, lock.token).catch(() => null)
           : null
-        if (queued?.message?.input && (!pendingPersisted || pending?.message?.input)) {
+        if (successorStartAttempted && pending?.message?.input) {
+          await failDurableSteerQueue(resolved.state, queue, pending.message, error)
+        }
+        else if (queued?.message?.input && (!pendingPersisted || pending?.message?.input)) {
           await restoreDurableSteerQueue(resolved.state, queue, queued.message)
         }
         await resolved.state.releaseLock(lock).catch(() => undefined)
@@ -2588,6 +2593,22 @@ function durableSteerDeliveryIds(message: DurableSteerQueueMessage | undefined):
     ...message?.deliveryIds ?? [],
     ...(deliveryId ? [deliveryId] : []),
   ])]
+}
+
+async function failDurableSteerQueue(state: StateAdapter, queue: string, failed: DurableSteerQueueMessage, error: unknown): Promise<void> {
+  const messages = [failed]
+  for (;;) {
+    const queued = await state.dequeue(queue) as DurableSteerQueueEntry | null
+    if (!queued) break
+    if (queued.message) messages.push(queued.message)
+  }
+  const deliveryIds = [...new Set(messages.flatMap(message => durableSteerDeliveryIds(message)))]
+  for (const deliveryId of deliveryIds) {
+    const delivery = await resumeAgentChannelDelivery(state, deliveryId).catch(() => undefined)
+    if (delivery) {
+      await settleChannelDeliveryInvocation(delivery, "failed", "failed", { error: channelDeliveryError(error) })
+    }
+  }
 }
 
 async function restoreDurableSteerQueue(state: StateAdapter, queue: string, previous: DurableSteerQueueMessage): Promise<void> {
@@ -3707,41 +3728,30 @@ async function handleChatSdkMessage(
           }
         }
         if (steerKey && steerQueue && !steerLock) {
-          const previous = await state.state.dequeue(steerQueue) as DurableSteerQueueEntry | null
+          const atomicQueue = requireAtomicAgentStateQueue(state.state)
+          const previous = await atomicQueue.queuePeek(steerQueue) as DurableSteerQueueEntry | null
           const deliveryIds = durableSteerDeliveryIds(previous?.message)
           const sameInvoker = !previous?.message?.input || durableSteerInvokerKey(previous.message) === workflowInvokerKey
           if (sameInvoker) workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
-          else if (previous) {
-            await state.state.enqueue(steerQueue, {
-              enqueuedAt: Date.now(),
-              expiresAt: Number.MAX_SAFE_INTEGER,
-              message: previous.message,
-            } as never, durableSteerQueueMaximum)
-            reclaimedMessage = undefined
+          const queued: DurableSteerQueueEntry = {
+            enqueuedAt: Date.now(),
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            message: {
+              capabilities: workflowCapabilities,
+              deliveryIds: sameInvoker ? deliveryIds : [],
+              input: workflowInput,
+              invokerKey: workflowInvokerKey,
+              resolvedInvoker: workflowInputHasResolvedInvoker,
+              run,
+            },
           }
-          try {
-            await state.state.enqueue(steerQueue, {
-              enqueuedAt: Date.now(),
-              expiresAt: Number.MAX_SAFE_INTEGER,
-              message: {
-                capabilities: workflowCapabilities,
-                deliveryIds: sameInvoker ? deliveryIds : [],
-                input: workflowInput,
-                invokerKey: workflowInvokerKey,
-                resolvedInvoker: workflowInputHasResolvedInvoker,
-                run,
-              },
-            } as never, sameInvoker ? 1 : durableSteerQueueMaximum)
-          }
-          catch (error) {
-            if (sameInvoker && previous?.message?.input) {
-              await state.state.enqueue(steerQueue, {
-                enqueuedAt: Date.now(),
-                expiresAt: Number.MAX_SAFE_INTEGER,
-                message: previous.message,
-              } as never, 1)
+          if (sameInvoker) {
+            if (!await atomicQueue.queueReplaceHead(steerQueue, previous as never, [queued as never], durableSteerQueueMaximum)) {
+              throw new Error("[vitehub] Durable steered Channel delivery queue changed while its matching invocation was being coalesced.")
             }
-            throw error
+          }
+          else {
+            await state.state.enqueue(steerQueue, queued as never, durableSteerQueueMaximum)
           }
           durableHandoff = true
           await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
