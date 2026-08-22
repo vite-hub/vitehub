@@ -15,12 +15,35 @@ import {
 } from "../src/headless/message-scroller.ts";
 
 class ResizeObserverStub {
+  callback: ResizeObserverCallback;
+  targets = new Set<Element>();
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    resizeObservers.push(this);
+  }
+
+  disconnect() {
+    this.targets.clear();
+  }
+
+  observe(target: Element) {
+    this.targets.add(target);
+  }
+}
+
+class MutationObserverStub {
+  constructor(_callback: MutationCallback) {}
   disconnect() {}
   observe() {}
 }
 
+const resizeObservers: ResizeObserverStub[] = [];
+
 beforeEach(() => {
+  resizeObservers.length = 0;
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+  vi.stubGlobal("MutationObserver", MutationObserverStub);
 });
 
 describe("message scroller behavior", () => {
@@ -87,5 +110,66 @@ describe("message scroller behavior", () => {
     expect(button.exists()).toBe(true);
     await button.trigger("click");
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 500 });
+  });
+
+  it("stops following before user scrolling and follows content-only growth at the edge", async () => {
+    const scrollTo = vi.fn();
+    const Harness = defineComponent({
+      setup() {
+        return () =>
+          h(MessageScrollerRoot, null, {
+            default: () =>
+              h(MessageScrollerViewport, null, {
+                default: () =>
+                  h(
+                    MessageScrollerContent,
+                    { items: ["one"] },
+                    {
+                      default: () =>
+                        h(MessageScrollerItem, { messageId: "one" }, { default: () => "One" }),
+                    },
+                  ),
+              }),
+          });
+      },
+    });
+    const wrapper = mount(Harness);
+    const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    const content = wrapper.find("[data-slot='message-scroller-content']");
+    let scrollHeight = 500;
+    let scrollTop = 400;
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = value;
+        },
+      },
+      scrollTo: {
+        configurable: true,
+        value: scrollTo.mockImplementation(({ top }: ScrollToOptions) => {
+          if (typeof top === "number") scrollTop = top;
+        }),
+      },
+    });
+    await viewport.trigger("scroll");
+
+    const observer = resizeObservers[0]!;
+    expect(observer.targets.has(content.element)).toBe(true);
+    scrollTo.mockClear();
+    await viewport.trigger("wheel", { deltaY: -10 });
+    scrollHeight = 600;
+    observer.callback([], observer as unknown as ResizeObserver);
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    scrollTop = 500;
+    await viewport.trigger("scroll");
+    scrollTo.mockClear();
+    scrollHeight = 700;
+    observer.callback([], observer as unknown as ResizeObserver);
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 700 });
   });
 });

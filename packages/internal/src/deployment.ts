@@ -127,6 +127,10 @@ export function resolveDeploymentPlan(preset: DeploymentPreset): DeploymentPlan 
   return plan
 }
 
+export function normalizeNitroPreset(value: string): string {
+  return value.trim().toLowerCase().replaceAll("_", "-")
+}
+
 export function assertDeploymentService(plan: DeploymentPlan, service: DeploymentService): void {
   const policy = plan.services[service]
   if (policy.supported) return

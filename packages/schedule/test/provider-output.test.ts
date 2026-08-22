@@ -829,6 +829,23 @@ describe("schedule provider output", () => {
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")).resolves.toContain("vite-alias-marker")
   })
 
+  it("preserves Cloudflare runtime imports in standalone output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-cloudflare-runtime-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { EmailMessage } from 'cloudflare:email'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => EmailMessage })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      bundleExternal: ["cloudflare:email"],
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "index.js"), "utf8")).resolves.toContain("cloudflare:email")
+  })
+
   it("rejects sanitized Vercel function path collisions", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-collision-")
     const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")

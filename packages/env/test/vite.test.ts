@@ -29,8 +29,6 @@ describe("Vite plugin", () => {
   it("prepares generated types without running a Vite build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-prepare-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "prepare-types" }), "utf8")
-    await mkdir(join(root, ".vitehub", "env"), { recursive: true })
-    await writeFile(join(root, ".vitehub", "env", "vite.d.ts"), "stale declarations\n", "utf8")
     const plugin = hubEnv()
 
     await plugin.api.prepareTypes({
@@ -57,7 +55,6 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"githubToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export interface PublicEnv")
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export interface ServerEnv")
-    await expect(readFile(join(root, ".vitehub", "env", "vite.d.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {
@@ -66,9 +63,6 @@ describe("Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "quiver-chat", version: "1.2.3" }), "utf8")
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
-    await mkdir(join(root, ".vitehub", "env"), { recursive: true })
-    await writeFile(join(root, ".vitehub", "env", "vite.d.ts"), "stale env generated types\n", "utf8")
-
     const plugin = hubEnv({ diagnostics: "trace" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const result = await configHook({
@@ -237,7 +231,6 @@ describe("Vite plugin", () => {
     expect(types).not.toContain("useSafeBuildConfig")
     expect(types).not.toContain("virtual:@vite-hub/env/build")
     expect(types).not.toContain("export {}")
-    await expect(readFile(join(root, ".vitehub", "env", "vite.d.ts"), "utf8")).rejects.toThrow()
     await expect(readFile(join(root, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("usePublicEnv")
     await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("useServerEnv")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export function usePublicEnv(): PublicEnv")

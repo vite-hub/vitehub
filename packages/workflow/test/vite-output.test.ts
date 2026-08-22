@@ -6,6 +6,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
+import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { cleanVercelNativeWorkflowOutput, generateProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
@@ -103,6 +104,26 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   const artifacts = await writeProviderEntries(projectRoot, false, {}, undefined, false, undefined, viteRoot)
 
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
+})
+
+it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-cloudflare-email-")
+  const workflowDir = join(rootDir, "server", "workflows", "recap")
+  const emailDefinition = join(rootDir, "email-definition.mjs")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(emailDefinition, "import { EmailMessage } from 'cloudflare:email'\nexport default EmailMessage\n")
+  await writeFile(join(workflowDir, "01-email.ts"), "import email from '#vitehub/email/definition'\nexport default async function send() { return email }\n")
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist", "client"),
+    hosting: "cloudflare-module",
+    providerImportAliases: { "#vitehub/email/definition": emailDefinition },
+    rootDir,
+    workflow: undefined,
+  })
+
+  await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs"), "utf8")).resolves.toContain("cloudflare:email")
+  expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func"))).toBe(false)
 })
 
 it("keeps generated native step imports scoped to each directory Workflow", async () => {
@@ -362,6 +383,234 @@ it("removes stale WDK output when the Vercel provider is disabled", async () => 
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
 })
 
+it("removes only a prior Workflow-owned Vercel function when the active host changes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-host-transition-")
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    workflow: {},
+  })
+  const functionsRoot = join(rootDir, ".vercel", "output", "functions")
+  const workflowFunction = join(functionsRoot, "__server.func")
+  expect(existsSync(workflowFunction)).toBe(true)
+
+  const externalFunction = join(functionsRoot, "external.func")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const userRoute = { dest: "/user", src: "/user" }
+  await mkdir(externalFunction, { recursive: true })
+  await writeFile(join(externalFunction, "index.mjs"), "export default { external: true }\n")
+  const config = JSON.parse(await readFile(configFile, "utf8"))
+  await writeFile(configFile, `${JSON.stringify({ ...config, framework: { slug: "nuxt" }, routes: [...config.routes, userRoute] })}\n`)
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })
+
+  expect(existsSync(workflowFunction)).toBe(false)
+  await expect(readFile(join(externalFunction, "index.mjs"), "utf8")).resolves.toBe("export default { external: true }\n")
+  await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
+    framework: { slug: "nuxt" },
+    routes: [userRoute],
+    version: 3,
+  })
+})
+
+it("rolls back partial Vercel output when the server bundle fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-vercel-error-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "broken.workflow.ts"), `import "./missing.js"\nexport default async function broken() {}\n`)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    transformRegistry: () => "export default { broken: ",
+    workflow: {},
+  })).rejects.toThrow()
+
+  expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func"))).toBe(false)
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+
+  await rm(join(workflowDir, "broken.workflow.ts"))
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+})
+
+it("removes root Vercel output before writing an isolated Workflow function in the same root", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-root-to-isolated-")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName: "__workflow.func",
+    workflow: {},
+  })
+
+  expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func"))).toBe(false)
+  expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__workflow.func"))).toBe(true)
+  expect(existsSync(configFile)).toBe(false)
+})
+
+it("preserves a Vercel function with a truncated ownership marker", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-truncated-ownership-")
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await writeFile(join(functionRoot, ".vitehub-workflow-output.json"), "{\"digest\":")
+  await writeFile(stateFile, "{\"serverFunctionName\":")
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
+
+  expect(existsSync(functionRoot)).toBe(true)
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
+  expect(existsSync(stateFile)).toBe(false)
+})
+
+it("preserves Vercel ownership when its root config is truncated", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-truncated-vercel-config-")
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+  const configFile = join(rootDir, ".vercel", "output", "config.json")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await writeFile(configFile, "{\"routes\":")
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })).rejects.toThrow()
+
+  expect(existsSync(functionRoot)).toBe(true)
+  expect(existsSync(stateFile)).toBe(true)
+})
+
+it("rolls back marker-owned output after an atomic state write fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-state-write-error-")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+  const serverFunctionName = "__custom-workflow.func"
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", serverFunctionName)
+  await mkdir(stateFile, { recursive: true })
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName,
+    workflow: {},
+  })).rejects.toThrow()
+  expect(existsSync(functionRoot)).toBe(false)
+
+  await rm(stateFile, { recursive: true })
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "cloudflare-module", rootDir, workflow: {} })
+  expect(existsSync(functionRoot)).toBe(false)
+})
+
+it("preserves the active Vercel function after ownership state bookkeeping fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-active-state-error-")
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+  const functionFile = join(functionRoot, "index.mjs")
+  const markerFile = join(functionRoot, ".vitehub-workflow-output.json")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await rm(stateFile)
+  await mkdir(stateFile)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    workflow: {},
+  })).rejects.toThrow()
+
+  const functionContents = await readFile(functionFile)
+  const ownership = JSON.parse(await readFile(markerFile, "utf8")) as { digest: string }
+  expect(ownership.digest).toBe(createHash("sha256").update(functionContents).digest("hex"))
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
+})
+
+it("preserves the previous Vercel function when replacement ownership fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-replacement-state-error-")
+  const previousFunctionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+  const replacementFunctionRoot = join(rootDir, ".vercel", "output", "functions", "__workflow.func")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await rm(stateFile)
+  await mkdir(stateFile)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName: "__workflow.func",
+    workflow: {},
+  })).rejects.toThrow()
+
+  expect(existsSync(previousFunctionRoot)).toBe(true)
+  expect(existsSync(replacementFunctionRoot)).toBe(false)
+})
+
+it("discovers and removes a prior custom-named Workflow Vercel function", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-custom-function-transition-")
+  const customFunction = "__custom-workflow.func"
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName: customFunction,
+    workflow: {},
+  })
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", customFunction)
+  expect(existsSync(functionRoot)).toBe(true)
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })
+
+  expect(existsSync(functionRoot)).toBe(false)
+})
+
+it("preserves a custom-named Vercel function after ownership changes", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-custom-function-replaced-")
+  const customFunction = "__custom-workflow.func"
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    serverFunctionName: customFunction,
+    workflow: {},
+  })
+  const functionFile = join(rootDir, ".vercel", "output", "functions", customFunction, "index.mjs")
+  await writeFile(functionFile, "export default { external: true }\n")
+
+  await generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })
+
+  await expect(readFile(functionFile, "utf8")).resolves.toBe("export default { external: true }\n")
+  expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-output.json"))).toBe(false)
+})
+
 it("serializes native Vercel generation with disabled-provider cleanup", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-concurrent-cleanup-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")
@@ -385,8 +634,7 @@ it("serializes native Vercel generation with disabled-provider cleanup", async (
   const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
   const configFile = join(rootDir, ".vercel", "output", "config.json")
   expect(existsSync(workflowRoot)).toBe(false)
-  const routes = JSON.parse(await readFile(configFile, "utf8")).routes ?? []
-  expect(routes.some((route: unknown) => JSON.stringify(route).includes("/.well-known/workflow/v1/"))).toBe(false)
+  expect(existsSync(configFile)).toBe(false)
 }, buildOutputTestTimeout)
 
 function resolvePlaygroundNodeModules() {
@@ -466,22 +714,21 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(join(agentDir, "skills", "review"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "skills", "shared"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
-    await mkdir(join(rootDir, "server", "templates"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
     await mkdir(optionalDevtoolsFixture, { recursive: true })
     await writeFile(join(optionalDevtoolsFixture, "package.json"), JSON.stringify({ main: "index.js", name: "optional-vite-devtools-fixture", type: "module" }))
     await writeFile(join(optionalDevtoolsFixture, "index.js"), `export const optionalDevtools = import("@vitejs/devtools-vite")\n`)
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
-    await writeFile(join(rootDir, "server", "templates", "review.md"), "Review {{ repository }} through a bundled Markdown template.\n")
+    await writeFile(join(agentDir, "review.template.md"), "Review {{ repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       `import repositoryHostContext from "./repository-host-context.md?raw"`,
-      `import { renderTemplate } from "#vitehub/templates"`,
+      `import renderReview from "./review.template.md"`,
       `import { optionalDevtools } from "optional-vite-devtools-fixture"`,
       "",
       "export default defineAgent({",
       "  workspace: {},",
-      `  run: async () => [repositoryHostContext, await renderTemplate("review", { repository: "ViteHub" }), optionalDevtools].join("\\n"),`,
+      `  run: async () => [repositoryHostContext, await renderReview({ repository: "ViteHub" }), optionalDevtools].join("\\n"),`,
       "})",
       "",
     ].join("\n"))

@@ -9,13 +9,49 @@ import { promisify } from "node:util"
 
 import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitropack/core"
 import { nitro } from "nitro/vite"
-import { createBuilder, resolveConfig } from "vite"
+import { createBuilder, resolveConfig, type Plugin, type PluginOption } from "vite"
 import { vitehub } from "vite-hub"
 import { expect, it } from "vitest"
 
 import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/provider-output.ts"
 
 const execFile = promisify(execFileCallback)
+
+function flattenPlugins(options: PluginOption[]): Plugin[] {
+  return options.flat(Number.POSITIVE_INFINITY).filter((plugin): plugin is Plugin => Boolean(plugin) && typeof plugin === "object")
+}
+
+it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
+  const workflow = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
+    .find(plugin => plugin.name === "@vite-hub/workflow/vite") as Plugin & {
+      vitehub?: { workflow?: { prepareScheduleRuntime?: () => Promise<unknown> } }
+    }
+
+  expect(workflow).toBeDefined()
+  ;(workflow.configResolved as (config: unknown) => void)({ plugins: [workflow], resolve: { alias: [] }, root: "/unused" })
+  await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+})
+
+it("disables Workflow in the Netlify consumer fixture", async () => {
+  const previousPreset = process.env.VITEHUB_PRESET
+  process.env.VITEHUB_PRESET = "netlify"
+  try {
+    const config = (await import("../../fixtures/consumer/vite-hub/vite.config.ts")).default
+    if (typeof config === "function" || config instanceof Promise) throw new TypeError("Expected an object Vite config.")
+    const plugins = Array.isArray(config.plugins) ? config.plugins.flat(Number.POSITIVE_INFINITY) : []
+    const names = plugins
+      .filter((plugin): plugin is Exclude<typeof plugin, false | null | undefined> => Boolean(plugin))
+      .map(plugin => typeof plugin === "object" && "name" in plugin ? plugin.name : undefined)
+
+    expect(names).toContain("@vite-hub/agent/vite")
+    expect(names).toContain("@vite-hub/schedule/vite")
+    expect(names).not.toContain("@vite-hub/workflow/vite")
+  }
+  finally {
+    if (previousPreset === undefined) delete process.env.VITEHUB_PRESET
+    else process.env.VITEHUB_PRESET = previousPreset
+  }
+})
 
 it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-netlify-output-"))
@@ -127,10 +163,8 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
   const manualBucket = { binding: "MANUAL_BUCKET", bucket_name: "manual-bucket" }
   const manualContainer = { class_name: "ManualContainer", name: "manual-container" }
   const manualRateLimit = { name: "MANUAL", namespace_id: "9", simple: { limit: 1, period: 10 } }
-  const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
   const previousProviderName = process.env.WRANGLER_CI_OVERRIDE_NAME
   try {
-    delete process.env.VITEHUB_DEPLOYMENT_NAME
     process.env.WRANGLER_CI_OVERRIDE_NAME = deploymentName
     await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/api"), { recursive: true })
@@ -250,8 +284,6 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     expect(emittedSource).not.toContain("@vercel/queue")
     expect(existsSync(join(root, ".vercel/output"))).toBe(false)
   } finally {
-    if (typeof previousDeploymentName === "undefined") delete process.env.VITEHUB_DEPLOYMENT_NAME
-    else process.env.VITEHUB_DEPLOYMENT_NAME = previousDeploymentName
     if (typeof previousProviderName === "undefined") delete process.env.WRANGLER_CI_OVERRIDE_NAME
     else process.env.WRANGLER_CI_OVERRIDE_NAME = previousProviderName
     await rm(root, { force: true, recursive: true })

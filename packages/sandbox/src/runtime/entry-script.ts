@@ -5,12 +5,9 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     ? [
         `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,
         `    const exported = await mod.default`,
-        `    const callable = typeof exported === 'function'`,
-        `    const result = callable ? await exported(input.payload, input.context) : exported`,
-        `    if (!callable && result && typeof result === 'object' && typeof result.run === 'function')`,
-        `      throw new TypeError('Sandbox package entrypoints execute at module top level; remove defineSandbox({ run }).')`,
-        `    if (typeof result === 'undefined')`,
-        `      throw new TypeError('Sandbox package entrypoint must default-export a result.')`,
+        `    if (typeof exported !== 'function')`,
+        `      throw new TypeError('Sandbox package entrypoint must default-export a function.')`,
+        `    const result = await exported(input.payload, input.context)`,
       ]
     : [
         `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,

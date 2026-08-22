@@ -1,6 +1,5 @@
 import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
 import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
-import { readFile } from 'node:fs/promises'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import { toTemplateSafeName } from './internal/shared/feature-definitions'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
@@ -16,7 +15,6 @@ import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
 import { resolveSandboxProject, type SandboxProject } from './project'
 import { createSandboxTypeTemplateContents } from './type-template'
-import { hasExportedType } from './internal/shared/discovered-definition/ast'
 import type { DiscoveredSandboxDefinition } from './discovery'
 
 export const sandboxRuntimeDependencies = [
@@ -82,7 +80,6 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
   }
 }
 type SandboxDefinitionMetadata = {
-  hasPayloadType: boolean
   kind: DiscoveredSandboxDefinition['kind']
   name: string
   options?: SandboxDefinitionOptions
@@ -112,11 +109,7 @@ async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefin
     const project = await resolveSandboxProject(definition.handler, rootDir, {
       readSandboxOptions: definition.kind === 'package-entry',
     })
-    const source = definition.kind === 'package-entry'
-      ? await readFile(definition.handler, 'utf8')
-      : undefined
     return {
-      hasPayloadType: source ? hasExportedType(source, definition.handler, 'SandboxPayload') : false,
       kind: definition.kind,
       name: definition.name,
       options: definition.kind === 'package-entry'
@@ -222,10 +215,8 @@ export async function createSandboxFeaturePlan(
   )
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
   const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions.map((definition) => {
-    const metadata = metadataByName.get(definition.name)
     return {
       handler: definition.handler,
-      hasPayloadType: metadata?.hasPayloadType ?? false,
       kind: definition.kind,
       name: definition.name,
     }

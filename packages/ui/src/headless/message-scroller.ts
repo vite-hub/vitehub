@@ -153,8 +153,21 @@ export const MessageScrollerViewport = defineComponent({
       if (context.atEnd.value) context.following.value = true;
     };
     const interruptFollowing = () => {
-      context.refresh();
-      if (!context.atEnd.value) context.following.value = false;
+      context.following.value = false;
+    };
+    const observeContent = () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      const viewport = context.viewport.value;
+      if (viewport) resizeObserver?.observe(viewport);
+      if (context.content.value && context.content.value !== viewport) {
+        resizeObserver?.observe(context.content.value);
+        mutationObserver?.observe(context.content.value, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+      }
     };
     onMounted(() => {
       const viewport = context.viewport.value;
@@ -163,28 +176,16 @@ export const MessageScrollerViewport = defineComponent({
         context.refresh();
         if (context.following.value) context.scrollToEnd({ behavior: "instant" });
       });
-      resizeObserver.observe(viewport);
       mutationObserver = new MutationObserver(() => {
         context.refresh();
         if (context.following.value) context.scrollToEnd({ behavior: "instant" });
       });
-      if (context.content.value)
-        mutationObserver.observe(context.content.value, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-        });
+      observeContent();
       context.refresh();
       if (context.following.value) context.scrollToEnd({ behavior: "instant" });
     });
     onUpdated(() => {
-      mutationObserver?.disconnect();
-      if (context.content.value)
-        mutationObserver?.observe(context.content.value, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-        });
+      observeContent();
     });
     onBeforeUnmount(() => {
       resizeObserver?.disconnect();

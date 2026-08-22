@@ -3,6 +3,7 @@ import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
@@ -353,6 +354,19 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...moduleOptions,
     env: envOptions,
   } as Parameters<typeof vitehub>[0]
+  const plan = resolveDeploymentPlan(options.preset)
+  const nitro = (nuxt.options.nitro ??= {})
+  const nitroPreset = plan.preset === "cloudflare" && options.realtime
+    ? "cloudflare-durable"
+    : plan.nitroPreset
+  if (typeof nitro.preset === "string" && normalizeNitroPreset(nitro.preset) !== nitroPreset) {
+    throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + ".")
+  }
+  nitro.preset = nitroPreset
+  if (plan.preset === "cloudflare") {
+    const wasm = (nitro.wasm ??= {}) as Record<string, unknown>
+    wasm.lazy ??= true
+  }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
@@ -483,7 +497,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...(emailPlugin && !nuxt.options.dev
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
       : {}),
-    "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)

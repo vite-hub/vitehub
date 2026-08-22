@@ -15,54 +15,43 @@ The package requires Node.js 24 or later.
 pnpm add @vite-hub/markdown-template
 ```
 
-## Use named template files
+## Import a template file
 
-Place shared templates under `server/templates` and render them by their relative name. ViteHub discovers ordinary `.md` files in this directory, generates the valid template names for TypeScript, and bundles their contents before deployment.
+Place a `*.template.md` file beside the module that renders it. Importing the file returns an asynchronous render function.
 
-```md [server/templates/review/pull-request.md]
+```md [server/agents/reviewer/prompt.template.md]
 # Review {{ pullRequest.number }}
 
 Title: {{ pullRequest.title }}
 ```
 
-```ts [server/agents/reviewer.ts]
-import { renderTemplate, type TemplateName } from '#vitehub/templates'
+```ts [server/agents/reviewer/agent.ts]
+import renderPrompt from './prompt.template.md'
 
-export function renderPrompt(name: TemplateName, data: Record<string, unknown>) {
-  return renderTemplate(name, data)
-}
-
-const prompt = await renderPrompt('review/pull-request', {
+const prompt = await renderPrompt({
   pullRequest: { number: 611, title: 'Refine navigation' },
 })
 ```
 
-ViteHub removes the `server/templates/` prefix and `.md` extension from each catalog name. The path `server/templates/pull-request.md` becomes `pull-request`, while `server/templates/review/pull-request.md` becomes `review/pull-request`.
+ViteHub bundles the template and its relative Markdown imports before deployment. The deployed application does not read these source files at runtime. The generated module type accepts an optional `Record<string, unknown>` and returns `Promise<string>`.
 
-### Named template API
+When one caller owns several templates, you may group them in a local directory such as `./templates/`. The directory has no discovery behavior; import each `*.template.md` file directly. Multiple callers can also import the same template from an explicitly shared source path.
 
-`renderTemplate(name, data?)` returns a `Promise<string>` after rendering the named template with the supplied data.
+For a fixed runtime choice, define the allowed names with an ordinary TypeScript map:
 
-| Parameter | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `name` | `TemplateName` | Required | Selects a template from the generated literal union. TypeScript completes valid names and reports misspelled names. |
-| `data` | `Record<string, unknown>` | `{}` | Supplies values for bindings, fragments, and conditions. |
+```ts [server/agents/reviewer/replies.ts]
+import renderFailure from './failure.template.md'
+import renderSuccess from './success.template.md'
 
-JavaScript callers can bypass the generated union. At runtime, `renderTemplate` throws a `TypeError` when `name` does not exist in the bundled catalog.
-
-The `vitehub()` preset installs template discovery. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both integrations resolve `server/templates` and generated files from the ViteHub project root, including projects that use a nested Vite root, and generate the ambient module under `.vitehub/types`, which the application `tsconfig.json` must include.
-
-Use a `.template.md` suffix when a private template belongs beside its caller instead of in the shared catalog:
-
-```ts [server/agents/reviewer.ts]
-import prompt from './reviewer.template.md'
-
-const markdown = await prompt({ pullRequest, sections })
+export const replies = {
+  failure: renderFailure,
+  success: renderSuccess,
+} as const
 ```
 
-Relative template imports work with both forms. Imported fragments can remain ordinary `.md` files.
+The `vitehub()` preset installs the template module integration. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both forms generate the ambient module type under `.vitehub/types`, which the application `tsconfig.json` must include.
 
-Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code uses the `.template.md` suffix.
+Imported fragments can remain ordinary `.md` files.
 
 `repositoryHostContext({ materialize })` uses the same path convention. Pass a caller-relative `.template.md` path; ViteHub bundles its renderer and derives the generated `.md` path by removing only the final `.template`, preserving directories and case.
 

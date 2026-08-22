@@ -1,13 +1,13 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
-import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
-import { createDefaultCloudflareOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
@@ -26,6 +26,8 @@ import type { Plugin as VitePlugin } from "vite"
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
 const vercelNativeWorkflowOwnershipMarker = ".vitehub-owned"
+const vercelWorkflowFunctionOwnershipMarker = ".vitehub-workflow-output.json"
+const vercelWorkflowOutputState = ".vitehub/workflow/vercel-output.json"
 
 interface VercelNativeWorkflowOwnership {
   cleanup?: boolean
@@ -43,6 +45,35 @@ interface VercelNativeWorkflowState {
 interface VercelNativeWorkflowSnapshot {
   config?: Buffer
   files: Record<string, Buffer>
+}
+
+interface VercelWorkflowFunctionOwnership {
+  digest: string
+  rootConfigRoutes?: string[]
+  version: 1
+}
+
+interface VercelWorkflowOutputState {
+  rootConfigRoutes?: string[]
+  serverFunctionName: string
+  version: 1
+}
+
+const vercelRootWorkflowRoutes = [
+  { handle: "filesystem" },
+  { src: "/(.*)", dest: "/__server" },
+].map(route => JSON.stringify(route))
+
+async function writeJsonAtomically(file: string, value: unknown): Promise<void> {
+  const temporaryFile = `${file}.${process.pid}.${randomUUID()}.tmp`
+  await mkdir(dirname(file), { recursive: true })
+  try {
+    await writeFile(temporaryFile, `${JSON.stringify(value, null, 2)}\n`, "utf8")
+    await rename(temporaryFile, file)
+  }
+  finally {
+    await rm(temporaryFile, { force: true })
+  }
 }
 
 async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise<VercelNativeWorkflowOwnership | undefined> {
@@ -517,6 +548,7 @@ interface GeneratedWorkflowArtifacts {
 interface GenerateProviderOutputsOptions {
   agentImportBase?: string
   clientOutDir: string
+  hosting?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
   providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
@@ -1070,8 +1102,7 @@ function createCloudflareOutput(
         "@vercel/functions",
         "@vercel/queue",
         "@vercel/sandbox",
-        "cloudflare:workers",
-        "cloudflare:workflows",
+        cloudflareRuntimeExternal,
         ...nodeBuiltinExternals,
         "workflow",
         "workflow/api",
@@ -1145,6 +1176,139 @@ function createVercelOutput(
   }
 }
 
+function isSafeVercelFunctionName(functionsRoot: string, serverFunctionName: string): boolean {
+  const path = relative(functionsRoot, resolve(functionsRoot, serverFunctionName))
+  return Boolean(path) && path !== ".." && !path.startsWith("../") && !path.startsWith("..\\") && !isAbsolute(path)
+}
+
+async function readVercelWorkflowFunctionOwnership(functionRoot: string): Promise<VercelWorkflowFunctionOwnership | undefined> {
+  try {
+    const ownership = JSON.parse(await readFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), "utf8")) as Partial<VercelWorkflowFunctionOwnership>
+    if (typeof ownership.digest !== "string") return
+    if (ownership.version !== undefined && ownership.version !== 1) return
+    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => typeof route !== "string"))) return
+    return {
+      digest: ownership.digest,
+      ...(ownership.rootConfigRoutes ? { rootConfigRoutes: ownership.rootConfigRoutes } : {}),
+      version: 1,
+    }
+  }
+  catch {
+    return
+  }
+}
+
+async function getVercelWorkflowFunctionOwnership(functionRoot: string): Promise<VercelWorkflowFunctionOwnership | undefined> {
+  const ownership = await readVercelWorkflowFunctionOwnership(functionRoot)
+  if (ownership) {
+    try {
+      const digest = createHash("sha256").update(await readFile(resolve(functionRoot, "index.mjs"))).digest("hex")
+      return digest === ownership.digest ? ownership : undefined
+    }
+    catch {
+      return
+    }
+  }
+}
+
+async function readVercelWorkflowOutputState(rootDir: string, functionsRoot: string): Promise<VercelWorkflowOutputState | undefined> {
+  try {
+    const state = JSON.parse(await readFile(resolve(rootDir, vercelWorkflowOutputState), "utf8")) as Partial<VercelWorkflowOutputState>
+    if (typeof state.serverFunctionName !== "string" || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
+    if (state.version !== undefined && state.version !== 1) return
+    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => typeof route !== "string"))) return
+    return {
+      ...(state.rootConfigRoutes ? { rootConfigRoutes: state.rootConfigRoutes } : {}),
+      serverFunctionName: state.serverFunctionName,
+      version: 1,
+    }
+  }
+  catch {
+    return
+  }
+}
+
+async function cleanVercelWorkflowRootConfig(rootDir: string, ownedRoutes: string[]): Promise<void> {
+  if (!ownedRoutes.length) return
+  const configFile = resolve(createDefaultVercelOutputRoot(rootDir), "config.json")
+  let config: Record<string, unknown>
+  try {
+    const value = JSON.parse(await readFile(configFile, "utf8")) as unknown
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    config = value as Record<string, unknown>
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+  if (!Array.isArray(config.routes)) return
+
+  const pendingRoutes = [...ownedRoutes]
+  const routes = config.routes.filter((route) => {
+    const index = pendingRoutes.indexOf(JSON.stringify(route))
+    if (index < 0) return true
+    pendingRoutes.splice(index, 1)
+    return false
+  })
+  if (routes.length === config.routes.length) return
+
+  const next = { ...config }
+  if (routes.length) next.routes = routes
+  else delete next.routes
+  if (next.version === 3 && Object.keys(next).length === 1) delete next.version
+  if (Object.keys(next).length) await writeJsonAtomically(configFile, next)
+  else await rm(configFile, { force: true })
+}
+
+async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServerFunctionName: string | undefined, ownsRootConfig: boolean): Promise<void> {
+  const functionsRoot = resolve(createDefaultVercelOutputRoot(rootDir), "functions")
+  const candidates = new Set(["__server.func", "__workflow.func"])
+  const previousOutput = await readVercelWorkflowOutputState(rootDir, functionsRoot)
+  if (previousOutput) candidates.add(previousOutput.serverFunctionName)
+  if (activeServerFunctionName) candidates.add(activeServerFunctionName)
+  try {
+    for (const entry of await readdir(functionsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && existsSync(resolve(functionsRoot, entry.name, vercelWorkflowFunctionOwnershipMarker))) candidates.add(entry.name)
+    }
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  const removedRootConfigRoutes: string[] = []
+  const removedFunctionRoots: string[] = []
+  for (const serverFunctionName of candidates) {
+    if (serverFunctionName === activeServerFunctionName || !isSafeVercelFunctionName(functionsRoot, serverFunctionName)) continue
+    const functionRoot = resolve(functionsRoot, serverFunctionName)
+    const ownership = await getVercelWorkflowFunctionOwnership(functionRoot)
+    if (!ownership) continue
+    removedRootConfigRoutes.push(...(ownership.rootConfigRoutes ?? (previousOutput?.serverFunctionName === serverFunctionName ? previousOutput.rootConfigRoutes ?? [] : [])))
+    removedFunctionRoots.push(functionRoot)
+  }
+  const stateFile = resolve(rootDir, vercelWorkflowOutputState)
+  if (!activeServerFunctionName) {
+    await cleanVercelWorkflowRootConfig(rootDir, removedRootConfigRoutes)
+    await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
+    await rm(stateFile, { force: true })
+    return
+  }
+
+  const functionRoot = resolve(functionsRoot, activeServerFunctionName)
+  const digest = createHash("sha256").update(await readFile(resolve(functionRoot, "index.mjs"))).digest("hex")
+  const rootConfigRoutes = ownsRootConfig ? vercelRootWorkflowRoutes : undefined
+  await writeJsonAtomically(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), {
+    digest,
+    ...(rootConfigRoutes ? { rootConfigRoutes } : {}),
+    version: 1,
+  } satisfies VercelWorkflowFunctionOwnership)
+  await writeJsonAtomically(stateFile, {
+    ...(rootConfigRoutes ? { rootConfigRoutes } : {}),
+    serverFunctionName: activeServerFunctionName,
+    version: 1,
+  } satisfies VercelWorkflowOutputState)
+  await cleanVercelWorkflowRootConfig(rootDir, removedRootConfigRoutes)
+  await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
+}
+
 async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
@@ -1155,8 +1319,19 @@ async function generateProviderOutputsWithinLock(
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
-  const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
+  const inferredWorkflowConfig = options.hosting
+    ? resolveWorkflowConfig(options.workflow, options.hosting)
+    : undefined
+  const cloudflareWorkflowConfig = inferredWorkflowConfig === undefined
+    ? resolveWorkflowConfig(options.workflow, "cloudflare")
+    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "cloudflare"
+      ? inferredWorkflowConfig
+      : false
+  const vercelWorkflowConfig = inferredWorkflowConfig === undefined
+    ? resolveWorkflowConfig(options.workflow, "vercel")
+    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "vercel"
+      ? inferredWorkflowConfig
+      : false
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
     ? createCloudflareOutput(options.rootDir, artifacts, {
         ...options.providerImportAliases,
@@ -1174,32 +1349,51 @@ async function generateProviderOutputsWithinLock(
     : undefined
   const writeOutputs = async () => {
     const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
+    const activeServerFunctionName = vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined
+    const activeFunctionRoot = activeServerFunctionName
+      ? resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", activeServerFunctionName)
+      : undefined
+    const previouslyOwnedActiveFunction = activeFunctionRoot
+      ? Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
+      : false
     if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
       ...options.providerImportAliases,
       ...options.providerRuntimeImportAliases?.vercel,
     }, artifacts.vercelNativeFiles)) {
       assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
     }
-    await writeProviderDeploymentOutputs({
-      clientOutDir: options.clientOutDir,
-      cloudflare: cloudflareOutput,
-      cleanup: {
-        cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
-      },
-      afterWrite: async () => {
-        if (vercelOutput) {
-          await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
-            ...options.providerImportAliases,
-            ...options.providerRuntimeImportAliases?.vercel,
-          }, artifacts.vercelNativeFiles, previousNativeOutput)
-        }
-        else {
-          await cleanVercelNativeWorkflowOutput(options.rootDir)
-        }
-      },
-      rootDir: options.rootDir,
-      ...(vercelOutput ? { vercel: vercelOutput } : {}),
-    })
+    try {
+      await writeProviderDeploymentOutputs({
+        clientOutDir: options.clientOutDir,
+        cloudflare: cloudflareOutput,
+        cleanup: {
+          cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
+        },
+        afterWrite: async () => {
+          if (vercelOutput) {
+            await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
+              ...options.providerImportAliases,
+              ...options.providerRuntimeImportAliases?.vercel,
+            }, artifacts.vercelNativeFiles, previousNativeOutput)
+          }
+          else {
+            await cleanVercelNativeWorkflowOutput(options.rootDir)
+          }
+          await updateVercelWorkflowFunctionOwnership(options.rootDir, vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined, Boolean(vercelOutput && !options.serverFunctionName))
+        },
+        rootDir: options.rootDir,
+        ...(vercelOutput ? { vercel: vercelOutput } : {}),
+      })
+    }
+    catch (error) {
+      if (activeFunctionRoot) {
+        const hasRecoverableActiveFunction = previouslyOwnedActiveFunction
+          && Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
+        if (!hasRecoverableActiveFunction) await rm(activeFunctionRoot, { force: true, recursive: true })
+        if (!hasRecoverableActiveFunction && !options.serverFunctionName) await cleanVercelWorkflowRootConfig(options.rootDir, vercelRootWorkflowRoutes)
+      }
+      throw error
+    }
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()

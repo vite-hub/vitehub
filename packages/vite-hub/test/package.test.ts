@@ -173,7 +173,16 @@ describe("framework package contract", () => {
       .filter(({ source }) => !exportedForwarders.has(source))
       .map(({ subpath }) => subpath)
       .sort(),
-    ).toEqual([".", "./_internal/database/runtime/state", "./_internal/kv/runtime/disabled-upstash", "./agent", "./console", "./console/server", "./nuxt"])
+    ).toEqual([
+      ".",
+      "./_internal/database/runtime/state",
+      "./_internal/kv/runtime/disabled-upstash",
+      "./agent",
+      "./console",
+      "./console/server",
+      "./database/drizzle",
+      "./nuxt",
+    ])
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
