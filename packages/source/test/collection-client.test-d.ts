@@ -43,6 +43,34 @@ const toJSONOmittedItems = defineCollection(async () => [] as Array<{ toJSON(): 
   cursorSchema: v.string(),
 })
 
+const nonPlainItems = defineCollection(
+  async () => {
+    // SAFETY: This type-only fixture declares unsupported Map rows for client projection coverage.
+    return [] as Array<Map<string, number>>
+  },
+  {
+    cursor: () => "done",
+    cursorSchema: v.string(),
+  },
+)
+
+class NonPlainItem {
+  get id(): number {
+    return 1
+  }
+}
+
+const nonPlainClassItems = defineCollection(
+  async () => {
+    // SAFETY: This type-only fixture declares class-instance rows for client projection coverage.
+    return [] as NonPlainItem[]
+  },
+  {
+    cursor: item => item.id,
+    cursorSchema: v.number(),
+  },
+)
+
 const transformedQuery = defineCollection(async ({ query }) => [{ id: query.search }], {
   cursor: item => item.id,
   cursorSchema: v.string(),
@@ -66,6 +94,8 @@ declare global {
     toJSONOmittedItems: typeof toJSONOmittedItems
     transformedQuery: typeof transformedQuery
     nonWireQuery: typeof nonWireQuery
+    nonPlainItems: typeof nonPlainItems
+    nonPlainClassItems: typeof nonPlainClassItems
   }
 }
 
@@ -81,6 +111,8 @@ describe("useCollection types", () => {
     }
     expectTypeOf(useCollection("jsonValues").items.value).toEqualTypeOf<JSONValue[]>()
     expectTypeOf(useCollection("toJSONOmittedItems").items.value).toMatchTypeOf<null[]>()
+    expectTypeOf(useCollection("nonPlainItems").items.value).toEqualTypeOf<never[]>()
+    expectTypeOf(useCollection("nonPlainClassItems").items.value).toEqualTypeOf<never[]>()
     expectTypeOf<CollectionQuery<typeof nonWireQuery>>().toEqualTypeOf<never>()
     useCollection("transformedQuery", { filter: { q: "Ada" } })
 

@@ -36,8 +36,21 @@ function invalidRequest(cause: unknown): never {
   })
 }
 
+function isJSONContainer(value: unknown): value is object {
+  return Object(value) === value && !(value instanceof Function)
+}
+
 function serializeCollectionPage(value: unknown): unknown {
-  const serialized = JSON.stringify(value)
+  const serialized = JSON.stringify(value, (_key, entry: unknown) => {
+    if (!isJSONContainer(entry) || Array.isArray(entry)) return entry
+    const prototype = Object.getPrototypeOf(entry)
+    if (prototype !== null && Object.getPrototypeOf(prototype) !== null) {
+      throw new TypeError(
+        "[vitehub] Collection pages may only contain plain objects, arrays, and toJSON() values. Use transform() for class instances and other object types.",
+      )
+    }
+    return entry
+  })
   if (serialized === undefined) {
     throw new TypeError("[vitehub] Collection page is not JSON-serializable.")
   }

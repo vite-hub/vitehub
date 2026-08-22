@@ -25,6 +25,12 @@ function createApp() {
   return new H3().get("/items", defineCollectionHandler(collection))
 }
 
+class NonPlainItem {
+  get id() {
+    return 1
+  }
+}
+
 describe("defineCollectionHandler", () => {
   it("rejects a non-Collection before accepting requests", () => {
     // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
@@ -111,6 +117,16 @@ describe("defineCollectionHandler", () => {
     const app = new H3().get("/bigints", defineCollectionHandler(collection))
 
     const response = await app.request("/bigints")
+    expect(response.status).toBe(500)
+  })
+
+  it.each([new Map([["id", 1]]), new NonPlainItem()])("rejects non-plain Collection item objects", async item => {
+    const collection = defineCollection(async () => [item], {
+      cursor: () => "done",
+      cursorSchema: v.string(),
+    })
+    const response = await new H3().get("/objects", defineCollectionHandler(collection)).request("/objects")
+
     expect(response.status).toBe(500)
   })
 

@@ -66,7 +66,7 @@ type JSONSerialized<T> = T extends { toJSON(): infer TJSON }
         ? T
         : T extends readonly (infer TItem)[]
           ? Array<JSONSerializedArrayItem<TItem>>
-          : T extends object
+          : T extends Record<string, unknown>
             ? JSONSerializedObject<T>
             : never
 
