@@ -32,8 +32,8 @@ export interface AgentInvocationConfiguration {
     id: string;
     metadata?: Readonly<Record<string, AgentInspectionValue>>;
   }[];
-  driver: {
-    kind: string;
+  driver?: {
+    kind?: string;
     model?: {
       id?: string;
       provider?: string;
@@ -41,12 +41,12 @@ export interface AgentInvocationConfiguration {
     provider?: string;
   };
   instructions?: readonly string[];
-  runtime: {
-    name: string;
+  runtime?: {
+    name?: string;
   };
   tools?: readonly { name: string }[];
   workspace?: {
-    mode: string;
+    mode?: string;
     name?: string;
     sources?: readonly string[];
   };

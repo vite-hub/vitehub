@@ -57,10 +57,11 @@ function formatDuration(startedAt: string | undefined, completedAt: string | und
 }
 
 function configurationLabel(configuration: AgentInvocationConfiguration): string | undefined {
-  const model = configuration.driver.model;
+  const driver = configuration.driver;
+  const model = driver?.model;
   return [
-    configuration.driver.kind,
-    model?.provider ?? configuration.driver.provider,
+    driver?.kind,
+    model?.provider ?? driver?.provider,
     model?.id,
   ].filter(Boolean).join(" · ") || undefined;
 }
@@ -145,7 +146,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
   return [
     inspectorSection("Environment", h("dl", { class: "vh-invocation-inspector__list" }, [
       driver ? h("div", [h("dt", "Driver"), h("dd", driver)]) : null,
-      configuration.runtime.name ? h("div", [h("dt", "Runtime"), h("dd", configuration.runtime.name)]) : null,
+      configuration.runtime?.name ? h("div", [h("dt", "Runtime"), h("dd", configuration.runtime.name)]) : null,
       workspace ? h("div", [h("dt", "Workspace"), h("dd", workspace)]) : null,
     ])),
     configuration.workspace?.sources?.length
