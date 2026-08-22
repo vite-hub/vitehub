@@ -14,6 +14,7 @@ interface Article {
 
 type JSONValueRow = {
   array: Array<number | undefined | (() => void) | symbol>
+  invalidUnion: bigint | string
   omitted: undefined
   optional: string | undefined
   toJSONOmitted: { toJSON(): undefined }
@@ -25,14 +26,19 @@ interface InterfaceFilters {
 }
 
 type AliasFilters = {
+  author?: string
   q: string
-  tags?: string[]
+}
+
+type CardinalityFilters = {
+  tags?: string | string[]
 }
 
 declare const filterKey: unique symbol
+type ArrayFilters = { tags?: string[] }
 type SymbolFilters = { [filterKey]: string }
 type NumericFilters = { 0: string }
-type MixedFilters = { author?: string } | { page: number } | { tags: string[] }
+type MixedFilters = { author?: string } | { page: number } | { tags: string | string[] }
 
 function defineQueryFixture<TInput extends object>(querySchema: StandardSchemaV1<TInput, TInput>) {
   // SAFETY: This type-only fixture declares the rows returned by its synthetic loader.
@@ -45,12 +51,16 @@ function defineQueryFixture<TInput extends object>(querySchema: StandardSchemaV1
 
 declare const interfaceFilterSchema: StandardSchemaV1<InterfaceFilters, InterfaceFilters>
 declare const aliasFilterSchema: StandardSchemaV1<AliasFilters, AliasFilters>
+declare const cardinalityFilterSchema: StandardSchemaV1<CardinalityFilters, CardinalityFilters>
+declare const arrayFilterSchema: StandardSchemaV1<ArrayFilters, ArrayFilters>
 declare const symbolFilterSchema: StandardSchemaV1<SymbolFilters, SymbolFilters>
 declare const numericFilterSchema: StandardSchemaV1<NumericFilters, NumericFilters>
 declare const mixedFilterSchema: StandardSchemaV1<MixedFilters, MixedFilters>
 
 const interfaceQuery = defineQueryFixture(interfaceFilterSchema)
 const aliasQuery = defineQueryFixture(aliasFilterSchema)
+const cardinalityQuery = defineQueryFixture(cardinalityFilterSchema)
+const arrayQuery = defineQueryFixture(arrayFilterSchema)
 const symbolQuery = defineQueryFixture(symbolFilterSchema)
 const numericQuery = defineQueryFixture(numericFilterSchema)
 const mixedQuery = defineQueryFixture(mixedFilterSchema)
@@ -139,6 +149,7 @@ declare global {
   interface ViteHubCollectionMap {
     articles: typeof articles
     interfaceQuery: typeof interfaceQuery
+    cardinalityQuery: typeof cardinalityQuery
     events: typeof events
     jsonValues: typeof jsonValues
     toJSONOmittedItems: typeof toJSONOmittedItems
@@ -156,6 +167,7 @@ describe("useCollection types", () => {
     expectTypeOf(useCollection("events").items.value).toEqualTypeOf<Array<{ at: string; id: never }>>()
     type JSONValue = {
       array: Array<number | null>
+      invalidUnion: never
       optional?: string
       value: number | null
     }
@@ -167,12 +179,15 @@ describe("useCollection types", () => {
     expectTypeOf(useCollection("nonPlainItems").items.value).toEqualTypeOf<never[]>()
     expectTypeOf<CollectionQuery<typeof interfaceQuery>>().toEqualTypeOf<InterfaceFilters>()
     expectTypeOf<CollectionQuery<typeof aliasQuery>>().toEqualTypeOf<AliasFilters>()
+    expectTypeOf<CollectionQuery<typeof cardinalityQuery>>().toEqualTypeOf<CardinalityFilters>()
+    expectTypeOf<CollectionQuery<typeof arrayQuery>>().toEqualTypeOf<never>()
     expectTypeOf<CollectionQuery<typeof symbolQuery>>().toEqualTypeOf<never>()
     expectTypeOf<CollectionQuery<typeof numericQuery>>().toEqualTypeOf<never>()
-    expectTypeOf<CollectionQuery<typeof mixedQuery>>().toEqualTypeOf<
-      { author?: string } | { tags: string[] }
-    >()
+    expectTypeOf<CollectionQuery<typeof mixedQuery>>().toEqualTypeOf<{ author?: string }>()
     expectTypeOf<CollectionQuery<typeof nonWireQuery>>().toEqualTypeOf<never>()
+    useCollection("cardinalityQuery", { filter: { tags: [] } })
+    useCollection("cardinalityQuery", { filter: { tags: ["one"] } })
+    useCollection("cardinalityQuery", { filter: { tags: ["one", "two"] } })
     useCollection("interfaceQuery", { filter: { author: "Ada" } })
     useCollection("transformedQuery", { filter: { q: "Ada" } })
 

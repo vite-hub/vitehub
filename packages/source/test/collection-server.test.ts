@@ -52,6 +52,30 @@ describe("defineCollectionHandler", () => {
     expect(await secondResponse.json()).toEqual({ items: [{ id: 2 }], nextCursor: null })
   })
 
+  it.each([
+    ["/filters", {}],
+    ["/filters?tags=one", { tags: "one" }],
+    ["/filters?tags=one&tags=two", { tags: ["one", "two"] }],
+  ])("accepts raw query cardinality from %s", async (path, expectedQuery) => {
+    let receivedQuery: unknown
+    const collection = defineCollection(
+      async ({ query }) => {
+        receivedQuery = query
+        return []
+      },
+      {
+        cursor: () => "done",
+        cursorSchema: v.string(),
+        querySchema: v.object({ tags: v.optional(v.union([v.string(), v.array(v.string())])) }),
+      },
+    )
+
+    const response = await new H3().get("/filters", defineCollectionHandler(collection)).request(path)
+
+    expect(response.status).toBe(200)
+    expect(receivedQuery).toEqual(expectedQuery)
+  })
+
   it("serializes Collection items before clients consume them", async () => {
     const collection = defineCollection(
       async () => [
@@ -132,6 +156,17 @@ describe("defineCollectionHandler", () => {
     const app = new H3().get("/bigints", defineCollectionHandler(collection))
 
     const response = await app.request("/bigints")
+    expect(response.status).toBe(500)
+  })
+
+  it("rejects an active bigint branch from a Collection item union", async () => {
+    const id: bigint | string = 1n
+    const collection = defineCollection(async () => [{ id }], {
+      cursor: () => "done",
+      cursorSchema: v.string(),
+    })
+    const response = await new H3().get("/unions", defineCollectionHandler(collection)).request("/unions")
+
     expect(response.status).toBe(500)
   })
 

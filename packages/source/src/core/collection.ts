@@ -63,31 +63,37 @@ type JSONUnsupportedObject =
   | WeakMap<object, unknown>
   | WeakSet<object>
 
+type JSONUnsupportedBranch<T> = T extends { toJSON(): infer TJSON }
+  ? JSONUnsupportedBranch<TJSON>
+  : T extends bigint | JSONUnsupportedObject
+    ? T
+    : never
+
 type JSONOmittedBranch<T> = T extends { toJSON(): infer TJSON }
   ? JSONOmittedBranch<TJSON>
   : T extends JSONOmitted
     ? T
     : never
 
-type JSONSerialized<T> = T extends { toJSON(): infer TJSON }
-  ? JSONSerialized<TJSON>
-  : T extends bigint
-    ? never
-    : T extends number
-      ? number | null
-      : T extends boolean | null | string
-        ? T
-        : T extends readonly (infer TItem)[]
-          ? Array<JSONSerializedArrayItem<TItem>>
-          : T extends JSONUnsupportedObject
-            ? never
-            : T extends object
-              ? JSONSerializedObject<T>
-              : never
+type JSONSerialized<T> = [JSONUnsupportedBranch<T>] extends [never] ? JSONSerializedValue<T> : never
 
-type JSONSerializedArrayItem<T> = T extends { toJSON(): infer TJSON }
-  ? JSONSerializedArrayValue<TJSON>
-  : JSONSerializedArrayValue<T>
+type JSONSerializedValue<T> = T extends { toJSON(): infer TJSON }
+  ? JSONSerialized<TJSON>
+  : T extends number
+    ? number | null
+    : T extends boolean | null | string
+      ? T
+      : T extends readonly (infer TItem)[]
+        ? Array<JSONSerializedArrayItem<TItem>>
+        : T extends object
+          ? JSONSerializedObject<T>
+          : never
+
+type JSONSerializedArrayItem<T> = [JSONUnsupportedBranch<T>] extends [never]
+  ? T extends { toJSON(): infer TJSON }
+    ? JSONSerializedArrayValue<TJSON>
+    : JSONSerializedArrayValue<T>
+  : never
 
 type JSONSerializedArrayValue<T> = T extends JSONOmitted ? null : JSONSerialized<T>
 
@@ -153,10 +159,22 @@ type CursorOutput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferOut
   ? StandardSchemaV1.InferOutput<TSchema>
   : never
 
+type AmbiguousArrayQueryKey<TInput extends object> = {
+  [TKey in keyof TInput]-?: string[] extends TInput[TKey]
+    ? string extends TInput[TKey]
+      ? undefined extends TInput[TKey]
+        ? never
+        : TKey
+      : TKey
+    : never
+}[keyof TInput]
+
 type WireQueryInput<TInput> = TInput extends object
   ? [Exclude<keyof TInput, string>] extends [never]
     ? [TInput[keyof TInput]] extends [CollectionRequestQuery[string]]
-      ? TInput
+      ? [AmbiguousArrayQueryKey<TInput>] extends [never]
+        ? TInput
+        : never
       : never
     : never
   : never
