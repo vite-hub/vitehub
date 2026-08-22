@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  defaultMaxOwners,
   type PullRequest,
   pullRequestFingerprint,
   resolveRepositories,
   runPullRequestJobs,
   selectPullRequestJobs,
 } from '../server/babysitter.queue.ts'
+
+test('starts with one owner on an unmeasured host', () => {
+  assert.equal(defaultMaxOwners, '1')
+})
 
 function pullRequest(number: number): PullRequest {
   return {

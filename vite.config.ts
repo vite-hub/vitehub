@@ -4,12 +4,13 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
+import { defaultMaxOwners } from './server/babysitter.queue.ts'
 
 export default defineConfig({
   env: {
     server: {
       babysitter: {
-        maxOwners: env({ default: '6', source: env.source('BABYSITTER_MAX_OWNERS') }),
+        maxOwners: env({ default: defaultMaxOwners, source: env.source('BABYSITTER_MAX_OWNERS') }),
         repositories: env({ default: '', source: env.source('BABYSITTER_REPOS') }),
         repository: env({ default: 'vite-hub/vitehub', source: env.source('BABYSITTER_REPO') }),
       },

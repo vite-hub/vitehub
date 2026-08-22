@@ -9,6 +9,10 @@ import blocker from './agents/babysitter/blocker.md?raw'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import { withPullRequestCheckout } from './babysitter.checkout.ts'
 import {
+  logOperationalError,
+  logOperationalEvent,
+} from './babysitter.operations.ts'
+import {
   type PullRequest,
   pullRequestFingerprint,
   resolveMaxOwners,
@@ -27,55 +31,91 @@ export default defineSchedule({
     const {maxOwners, repositories: configuredRepositories, repository} = useServerEnv().babysitter
     const repositories = resolveRepositories(configuredRepositories, repository)
     const jobs = await selectPullRequestJobs(repositories, listPullRequests, readCompletion)
+    const ownerLimit = resolveMaxOwners(maxOwners)
+    let activeOwners = 0
+    const batchStartedAt = Date.now()
 
-    await runPullRequestJobs(jobs, resolveMaxOwners(maxOwners), async job => {
-      const { pullRequest, repository } = job
-      const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
-      try {
-        await withPullRequestCheckout(repository, pullRequest, async checkout => {
-          const context = {
-            pullRequestHead: pullRequest.headRefOid,
-            pullRequestNumber: pullRequest.number,
-            pullRequestRepository: repository,
-            pullRequestSourceBranch: pullRequest.headRefName,
-            pullRequestSourceRepository: pullRequest.headRepository?.nameWithOwner || '(unavailable)',
-            pullRequestTitle: pullRequest.title,
-            pullRequestUrl: pullRequest.url,
-          }
-          await runScheduledAgent(createBabysitterAgent(checkout), {
-            ...schedule,
-            runId,
-          }, {
-            run: {
-              annotations: {
-                'github.head': pullRequest.headRefOid,
-                'github.pullRequest': pullRequest.number,
-                'github.repository': repository,
-                'github.title': pullRequest.title,
-                'github.url': pullRequest.url,
-              },
-              runId,
-            },
-          }, {
-            abortSignal: AbortSignal.timeout(60 * 60 * 1000),
-            context,
-            messages: [createMessage({ role: 'user', text: await renderPrompt({ blocker, context }) })],
-          })
-        })
-
-        const current = await readPullRequest(repository, pullRequest.number)
-        if (current.state === 'OPEN' && blockerPattern.test(current.body)) {
-          const [error] = await kv.set(job.completionKey, pullRequestFingerprint(repository, current))
-          if (error) throw error
-        }
-      }
-      catch (error) {
-        console.error(new Error(`Babysitter failed for ${repository} PR #${pullRequest.number}.`, { cause: error }))
-        if (error instanceof AggregateError) {
-          for (const detail of error.errors) console.error(detail)
-        }
-      }
+    logOperationalEvent('babysitter.batch.started', {
+      jobs: jobs.length,
+      maxOwners: ownerLimit,
+      repositories,
+      scheduleId: schedule.runId || schedule.id,
     })
+    try {
+      await runPullRequestJobs(jobs, ownerLimit, async job => {
+        const { pullRequest, repository } = job
+        const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
+        const owner = { pullRequest: pullRequest.number, repository, runId }
+        const startedAt = Date.now()
+        let outcome = 'completed'
+        activeOwners += 1
+        logOperationalEvent('babysitter.owner.started', {
+          activeOwners,
+          head: pullRequest.headRefOid,
+          maxOwners: ownerLimit,
+          ...owner,
+        })
+        try {
+          await withPullRequestCheckout(repository, pullRequest, async checkout => {
+            const context = {
+              pullRequestHead: pullRequest.headRefOid,
+              pullRequestNumber: pullRequest.number,
+              pullRequestRepository: repository,
+              pullRequestSourceBranch: pullRequest.headRefName,
+              pullRequestSourceRepository: pullRequest.headRepository?.nameWithOwner || '(unavailable)',
+              pullRequestTitle: pullRequest.title,
+              pullRequestUrl: pullRequest.url,
+            }
+            await runScheduledAgent(createBabysitterAgent(checkout), {
+              ...schedule,
+              runId,
+            }, {
+              run: {
+                annotations: {
+                  'github.head': pullRequest.headRefOid,
+                  'github.pullRequest': pullRequest.number,
+                  'github.repository': repository,
+                  'github.title': pullRequest.title,
+                  'github.url': pullRequest.url,
+                },
+                runId,
+              },
+            }, {
+              abortSignal: AbortSignal.timeout(60 * 60 * 1000),
+              context,
+              messages: [createMessage({ role: 'user', text: await renderPrompt({ blocker, context }) })],
+            })
+          })
+
+          const current = await readPullRequest(repository, pullRequest.number)
+          if (current.state === 'OPEN' && blockerPattern.test(current.body)) {
+            const [error] = await kv.set(job.completionKey, pullRequestFingerprint(repository, current))
+            if (error) throw error
+          }
+        }
+        catch (error) {
+          outcome = 'failed'
+          logOperationalError('babysitter.owner.failed', error, owner)
+        }
+        finally {
+          activeOwners -= 1
+          logOperationalEvent('babysitter.owner.finished', {
+            durationMs: Date.now() - startedAt,
+            outcome,
+            ...owner,
+          })
+        }
+      })
+    }
+    finally {
+      logOperationalEvent('babysitter.batch.finished', {
+        durationMs: Date.now() - batchStartedAt,
+        jobs: jobs.length,
+        maxOwners: ownerLimit,
+        repositories,
+        scheduleId: schedule.runId || schedule.id,
+      })
+    }
   },
 })
 

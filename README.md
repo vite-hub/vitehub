@@ -42,13 +42,12 @@ flowchart TD
 
 1. Read and adapt the [agent prompt](server/agents/babysitter/prompt.template.md) so its permissions, review policy, and merge rules match your repository.
 
-2. Install the dependencies and start Babysitter with repository names. `BABYSITTER_REPOS` accepts comma- or space-separated `OWNER/REPOSITORY` values, and `BABYSITTER_MAX_OWNERS` caps the global batch. The singular `BABYSITTER_REPO` remains supported and defaults to `vite-hub/vitehub` when the plural setting is empty.
+2. Install the dependencies and start Babysitter with repository names. `BABYSITTER_REPOS` accepts comma- or space-separated `OWNER/REPOSITORY` values. `BABYSITTER_MAX_OWNERS` caps the global batch and defaults to `1`, which is the safe starting point for an unmeasured host. The singular `BABYSITTER_REPO` remains supported and defaults to `vite-hub/vitehub` when the plural setting is empty.
 
    ```sh
    corepack enable
    pnpm install
    BABYSITTER_REPOS=OWNER/REPOSITORY,OWNER/ANOTHER_REPOSITORY \
-   BABYSITTER_MAX_OWNERS=2 \
    pnpm dev
    ```
 
@@ -61,3 +60,21 @@ flowchart TD
    ```
 
 To use Claude Code instead, install `@ai-sdk/harness-claude-code`, then replace `codexDriver()` with `claudeCodeDriver()` in the [agent definition](server/agents/babysitter/agent.ts).
+
+## Operational logs
+
+Babysitter writes one-line JSON events prefixed with `[babysitter]`. A batch records its configured owner limit and backlog. Each owner records its repository, pull request, run ID, start time, outcome, and elapsed time. The ViteHub `diagnostics()` Capability samples resources every ten seconds and writes:
+
+- one `agent.resource.snapshot` heartbeat per minute with process, host, and service-scoped cgroup observations;
+- `agent.resource.peak` when a peak grows by at least 64 MiB;
+- `agent.invocation.terminal` with the run ID, outcome, duration, and bounded nested failure details.
+
+Linux cgroup and `/proc` fields are optional. Babysitter still runs on hosts that do not expose them. Service-scoped observations correlate pressure with a run; they do not claim per-invocation attribution when multiple owners share the process.
+
+On a systemd host, follow the events with:
+
+```sh
+journalctl -u babysitter.service -f -o cat | rg '^\[babysitter\]'
+```
+
+Keep `BABYSITTER_MAX_OWNERS=1` until representative runs finish without OOM events, sustained swap growth, or low available memory. Raise it one owner at a time. The limit applies across every configured repository.

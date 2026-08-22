@@ -2,13 +2,18 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import github from '@github-tools/eve-extension'
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { otlp, title } from 'vite-hub/agent/capabilities'
+import { diagnostics, otlp, title } from 'vite-hub/agent/capabilities'
+import { nodeRuntimeResources } from '@vite-hub/runtime/node'
+import { reportOperationalDiagnostic } from '../../babysitter.operations.ts'
 import { consoleClient } from '../../console.ts'
 import { invocations } from '../../invocations.ts'
 
 const exec = promisify(execFile)
 const githubToken = process.env.GITHUB_TOKEN || (await exec('gh', ['auth', 'token'])).stdout.trim()
-const capabilities = [title({
+const capabilities = [diagnostics({
+  reporter: reportOperationalDiagnostic,
+  resources: nodeRuntimeResources(),
+}), title({
   execute: ({ input }) => {
     const context = input.context as { pullRequestTitle: string }
     return context.pullRequestTitle

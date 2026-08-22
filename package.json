@@ -19,6 +19,7 @@
     "@github-tools/eve-extension": "0.3.0",
     "@nuxt/ui": "4.10.0",
     "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@5cbf712",
+    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2",
     "ai": "7.0.38",
     "eve": "^0.31.3",
     "h3": "^2.0.1-rc.25",

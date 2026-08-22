@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+export const defaultMaxOwners = '1'
+
 export type PullRequest = {
   body: string
   headRefName: string
