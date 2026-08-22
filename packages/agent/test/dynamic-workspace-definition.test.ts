@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { defineAgent, runAgent } from "../src/index.ts"
+import { custom } from "@vite-hub/workspace"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
@@ -22,15 +23,29 @@ it("keeps colocated Workspace Definitions invocation-local when agent names repe
   await writeFile(join(firstRoot, "checkout.txt"), "first")
   await writeFile(join(secondRoot, "checkout.txt"), "second")
   const name = `dynamic-workspace-${Math.random().toString(36).slice(2)}`
-  const createAgent = (root: string) => defineAgent({
+  const createAgent = (root: string, withSource = false) => defineAgent({
     name,
     runtime: false,
     workspace: {
       mode: "read",
+      ...(withSource
+        ? {
+            sources: {
+              firstOnly: custom({
+                files: [{ content: "first source", path: "secret.txt" }],
+                materialize: "lazy",
+                mount: "first-only",
+              }),
+            },
+          }
+        : {}),
       store: { provider: "local", root },
     },
     driver: {
-      run: async ({ workspace }) => await workspace!.fs.readFile("checkout.txt"),
+      run: async ({ workspace }) => [
+        await workspace!.fs.readFile("checkout.txt"),
+        await workspace!.fs.exists("first-only/secret.txt"),
+      ].join(":"),
     },
   })
   const context = {
@@ -41,8 +56,8 @@ it("keeps colocated Workspace Definitions invocation-local when agent names repe
     waitUntil: vi.fn(),
   }
 
-  await expect(runAgent(createAgent(firstRoot), context, {})).resolves.toBe("first")
-  await expect(runAgent(createAgent(secondRoot), context, {})).resolves.toBe("second")
+  await expect(runAgent(createAgent(firstRoot, true), context, {})).resolves.toBe("first:true")
+  await expect(runAgent(createAgent(secondRoot), context, {})).resolves.toBe("second:false")
 })
 
 it("keeps concurrent colocated Workspace Definitions invocation-local when agent names repeat", async () => {

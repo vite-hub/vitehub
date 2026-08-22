@@ -2018,40 +2018,18 @@ function mergeAgentWorkspaceDefinition(
   }
 }
 
-function mergeOwnedAgentWorkspaceDefinition(
-  name: string,
-  registered: WorkspaceDefinition | undefined,
-  configured: WorkspaceDefinition | undefined,
-): WorkspaceDefinition | undefined {
-  if (!registered) return configured ? { ...configured, name } : undefined
-  if (!configured) return { ...registered, name: registered.name || name }
-
-  const { name: _configuredName, sources, mode: _mode, ...fields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
-  return {
-    ...registered,
-    ...fields,
-    name: registered.name || name,
-    sources: registered.sources || sources
-      ? { ...registered.sources, ...sources }
-      : undefined,
-  }
-}
-
 const ownedAgentWorkspaceDefinitions = new WeakMap<object, Map<string, WorkspaceDefinition>>()
 
 function resolveOwnedAgentWorkspaceDefinition(
   agent: unknown,
   name: string,
-  registered: WorkspaceDefinition | undefined,
   configured: WorkspaceDefinition | undefined,
 ): WorkspaceDefinition | undefined {
-  if (typeof agent !== "object" || agent === null) {
-    return mergeOwnedAgentWorkspaceDefinition(name, registered, configured)
-  }
+  const resolved = configured ? { ...configured, name } : undefined
+  if (typeof agent !== "object" || agent === null) return resolved
   const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
   const existing = definitions.get(name)
   if (existing) return existing
-  const resolved = mergeOwnedAgentWorkspaceDefinition(name, registered, configured)
   if (resolved) setOwnedAgentWorkspaceDefinition(agent, name, resolved)
   return resolved
 }
@@ -2270,7 +2248,7 @@ async function createAgentInvocationContext<
       ? ownsWorkspaceDefinition
         ? usesRegisteredOwnedDefinition
           ? registeredWorkspaceDefinition
-          : resolveOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
+          : resolveOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, configuredWorkspaceDefinition)
         : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
     if (workspaceName && ownsWorkspaceDefinition && resolvedWorkspaceDefinition && !registeredWorkspaceDefinition) {
