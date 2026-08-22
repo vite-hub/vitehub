@@ -4413,14 +4413,15 @@ async function handleChatSdkMessage(
           const deliveryIds = durableSteerDeliveryIds(previous?.message)
           const sameInvoker =
             !previous?.message?.input || (previous.message.settlementStatus === undefined && durableSteerInvokerKey(previous.message) === workflowInvokerKey)
-          if (sameInvoker) workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
+          const coalesceHead = sameInvoker && (await state.state.queueDepth(steerQueue)) === 1
+          if (coalesceHead) workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
           const queued: DurableSteerQueueEntry = {
             enqueuedAt: Date.now(),
             expiresAt: Number.MAX_SAFE_INTEGER,
             message: {
               capabilities: workflowCapabilities,
-              deliveryIds: sameInvoker ? deliveryIds : [],
-              errorDeliveries: sameInvoker
+              deliveryIds: coalesceHead ? deliveryIds : [],
+              errorDeliveries: coalesceHead
                 ? mergeDurableSteerErrorDeliveries(previous?.message?.errorDeliveries, [currentErrorDelivery])
                 : [currentErrorDelivery],
               input: workflowInput,
@@ -4430,7 +4431,7 @@ async function handleChatSdkMessage(
               run,
             },
           }
-          if (sameInvoker) {
+          if (coalesceHead) {
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             if (!(await atomicQueue.queueReplaceHead(steerQueue, previous as never, [queued as never], durableSteerQueueMaximum))) {
               throw new Error("[vitehub] Durable steered Channel delivery queue changed while its matching invocation was being coalesced.")

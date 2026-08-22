@@ -12328,17 +12328,20 @@ describe("server helpers", () => {
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
       const queue = `${ownershipKey}:queue`
-      expect(await state.queueDepth(queue)).toBe(2)
+      expect(await state.queueDepth(queue)).toBe(3)
       await state.forceReleaseLock(ownershipKey!)
       await handler(request(91_134, "alpha"), "telegram", runtime)
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91130", "91134"])
-      expect(await state.queueDepth(queue)).toBe(2)
+      expect(await state.queueDepth(queue)).toBe(3)
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
       const first = (await state.dequeue(queue)) as { message?: { input?: AgentRunInput } } | null
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
       const second = (await state.dequeue(queue)) as { message?: { input?: AgentRunInput } } | null
-      expect(first?.message?.input?.messages?.map((message) => message.id)).toEqual(["91131", "91133"])
+      expect(first?.message?.input?.messages?.map((message) => message.id)).toEqual(["91131"])
       expect(second?.message?.input?.messages?.at(-1)?.id).toBe("91132")
+      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+      const third = (await state.dequeue(queue)) as { message?: { input?: AgentRunInput } } | null
+      expect(third?.message?.input?.messages?.map((message) => message.id)).toEqual(["91133"])
     } finally {
       resetWorkflowRuntime()
       await state.disconnect()
