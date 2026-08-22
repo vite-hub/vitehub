@@ -838,7 +838,14 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
 
-    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+    expect(useWorkspace).toHaveBeenCalledWith("docs", {
+      definition: {
+        mode: "write",
+        name: "docs",
+        rules: { "inbox/**": { commit: "chore: archive audio", write: true } },
+      },
+      mode: "write",
+    })
     expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "docs",
@@ -1446,7 +1453,10 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!(context())
 
-    expect(useWorkspace).toHaveBeenCalledWith("docs")
+    expect(useWorkspace).toHaveBeenCalledWith("docs", {
+      definition: { mode: "read", name: "docs" },
+      mode: "read",
+    })
   })
 
   it("marks synthetic workspace runs with the shared runtime symbol", async () => {

@@ -267,7 +267,10 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       "workspace-diff",
       "workspace-snapshot",
     ])
-    expect(useWorkspace).toHaveBeenCalledWith("review", { mode: "write" })
+    expect(useWorkspace).toHaveBeenCalledWith("review", {
+      definition: { mode: "write", name: "review" },
+      mode: "write",
+    })
     expect(replyEffect).not.toHaveBeenCalled()
   })
 
