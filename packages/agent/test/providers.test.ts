@@ -12245,7 +12245,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("starts the recovered steer head before a reclaiming different invoker", async () => {
+  it("starts the recovered steer head with its request before a reclaiming different invoker", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { resolveInputAgentInvoker } = await import("../src/invoker.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
@@ -12258,8 +12258,8 @@ describe("server helpers", () => {
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
     const adapter = createTestChatAdapter()
-    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
-    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
+    const workflowPayloads: Array<{ input?: AgentRunInput; requestUrl?: string }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput; requestUrl?: string } }>) => {
       workflowPayloads.push(params)
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
@@ -12279,8 +12279,8 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
-    const request = (messageId: number, invoker: string) => {
-      const webhook = chatWebhookRequest(messageId)
+    const request = (messageId: number, invoker: string, origin: string) => {
+      const webhook = new Request(`${origin}/api/agent/calories/channels/telegram`, chatWebhookRequest(messageId))
       webhook.headers.set("x-invoker", invoker)
       return webhook
     }
@@ -12295,16 +12295,17 @@ describe("server helpers", () => {
           },
         },
       }
-      await handler(request(91_135, "alpha"), "telegram", runtime)
-      await handler(request(91_137, "alpha"), "telegram", runtime)
+      await handler(request(91_135, "alpha", "https://original.example"), "telegram", runtime)
+      await handler(request(91_137, "alpha", "https://recovered.example"), "telegram", runtime)
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
 
       await state.forceReleaseLock(ownershipKey!)
-      await handler(request(91_136, "beta"), "telegram", runtime)
+      await handler(request(91_136, "beta", "https://reclaimer.example"), "telegram", runtime)
 
       expect(workflowPayloads).toHaveLength(2)
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91135", "91137"])
+      expect(workflowPayloads[1]?.requestUrl).toBe("https://recovered.example/api/agent/calories/channels/telegram")
       expect(resolveInputAgentInvoker(workflowPayloads[1]?.input?.context)).toMatchObject({ id: "alpha" })
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
       const queued = (await state.dequeue(`${ownershipKey}:queue`)) as { message?: { input?: AgentRunInput } } | null
@@ -12325,7 +12326,7 @@ describe("server helpers", () => {
           async () => "completed",
         ),
       ).resolves.toBe("completed")
-      const deliveries = await handler.deliveries(request(91_135, "alpha"), "telegram", runtime)
+      const deliveries = await handler.deliveries(request(91_135, "alpha", "https://original.example"), "telegram", runtime)
       for (const runId of ["telegram:91135", "telegram:91137"]) {
         const recovered = deliveries.find((delivery) => delivery.events.some((event) => event.runId === runId))
         expect(recovered?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
@@ -12834,116 +12835,132 @@ describe("server helpers", () => {
     }
   })
 
-  it("retries fallback progress before settling failed recovered and reclaiming deliveries", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { telegram } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
-    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-start-failure-"))
-    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
-    const acquireLock = vi.spyOn(state, "acquireLock")
-    const replaceQueueHead = state.queueReplaceHead.bind(state)
-    let rejectFallbackProgress = true
-    const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
-      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-      const replacement = args[2] as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>
-      if (rejectFallbackProgress && replacement.some((entry) => entry.message?.errorDeliveries?.some((item) => item.fallbackAttempted))) {
-        rejectFallbackProgress = false
-        return false
-      }
-      return await replaceQueueHead(...args)
-    })
-    const adapter = createTestChatAdapter()
-    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
-    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
-      workflowPayloads.push(params)
-      if (createBatch.mock.calls.length > 1) throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
-      return [{ id, status: async () => ({ status: "queued" }) }]
-    })
-    const errorFallbackText = vi.fn(() => "Could not process message.")
-    const agent = defineAgent({
-      channels: {
-        telegram: testTelegram(telegram, {
-          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          adapter: () => adapter as never,
-          messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
-        }),
-      },
-      driver: { run: () => "unused" },
-      invoker: {
-        resolve: ({ request }) => ({ id: request?.headers.get("x-invoker") || "anonymous" }),
-      },
-    })
-    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
-    const request = (messageId: number, invoker: string) => {
-      const webhook = chatWebhookRequest(messageId)
-      webhook.headers.set("x-invoker", invoker)
-      return webhook
-    }
-
-    try {
-      await state.connect()
-      const runtime = {
-        agentIdentity: { name: "calories" },
-        cloudflare: {
-          env: {
-            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
-          },
-        },
-      }
-      await handler(request(91_146, "alpha"), "telegram", runtime)
-      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
-      expect(ownershipKey).toBeDefined()
-      await state.forceReleaseLock(ownershipKey!)
-
-      await expect(handler(request(91_147, "beta"), "telegram", runtime)).resolves.toMatchObject({ status: 200 })
-      expect(createBatch.mock.calls.length).toBeGreaterThan(1)
-      const queue = `${ownershipKey}:queue`
-      expect(await state.queueDepth(queue)).toBe(0)
-      expect(await state.queueDepth(`${queue}:pending`)).toBe(0)
-      expect(errorFallbackText).toHaveBeenCalledTimes(2)
-      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
-      expect(rejectFallbackProgress).toBe(false)
-      expect(queueReplaceHead).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.anything(),
-        [
-          expect.objectContaining({
-            message: expect.objectContaining({
-              errorDeliveries: expect.arrayContaining([expect.objectContaining({ fallbackAttempted: true })]),
-            }),
+  it.each([
+    { persistentProgressFailure: false, title: "retries fallback progress before settling failed recovered and reclaiming deliveries" },
+    { persistentProgressFailure: true, title: "skips unjournaled fallbacks before settling failed recovered and reclaiming deliveries" },
+  ])(
+    "$title",
+    async ({ persistentProgressFailure }) => {
+      const { defineAgent } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+      const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+      const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+      const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-start-failure-"))
+      const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+      const acquireLock = vi.spyOn(state, "acquireLock")
+      const replaceQueueHead = state.queueReplaceHead.bind(state)
+      let rejectFallbackProgress = true
+      const queueReplaceHead = vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
+        // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+        const current = args[1] as { message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } } | null
+        // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+        const replacement = args[2] as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>
+        const currentProgress = current?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
+        const replacementProgress = replacement[0]?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
+        if (rejectFallbackProgress && replacementProgress > currentProgress) {
+          if (!persistentProgressFailure) rejectFallbackProgress = false
+          return false
+        }
+        return await replaceQueueHead(...args)
+      })
+      const adapter = createTestChatAdapter()
+      const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+      const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
+        workflowPayloads.push(params)
+        if (createBatch.mock.calls.length > 1) throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
+        return [{ id, status: async () => ({ status: "queued" }) }]
+      })
+      const errorFallbackText = vi.fn(() => "Could not process message.")
+      const agent = defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
           }),
-        ],
-        expect.any(Number),
-      )
-      expect(
-        queueReplaceHead.mock.calls.filter(([, , replacement]) =>
-          // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-          (replacement as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>).some((entry) =>
-            entry.message?.errorDeliveries?.some((item) => item.fallbackAttempted),
-          ),
-        ),
-      ).toHaveLength(3)
-
-      const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", runtime)
-      for (const runId of ["telegram:91146", "telegram:91147"]) {
-        const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
-        expect(delivery).toMatchObject({ status: "failed" })
-        expect(delivery?.events.filter((event) => event.type === "invocation.failed")).toHaveLength(1)
-        expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
+        },
+        driver: { run: () => "unused" },
+        invoker: {
+          resolve: ({ request }) => ({ id: request?.headers.get("x-invoker") || "anonymous" }),
+        },
+      })
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const handler = createChannelWebhookRouteHandler(agent as never)
+      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      const request = (messageId: number, invoker: string) => {
+        const webhook = chatWebhookRequest(messageId)
+        webhook.headers.set("x-invoker", invoker)
+        return webhook
       }
-    } finally {
-      resetWorkflowRuntime()
-      await state.disconnect()
-      await rm(stateDir, { force: true, recursive: true })
-    }
-  }, 10_000)
+
+      try {
+        await state.connect()
+        const runtime = {
+          agentIdentity: { name: "calories" },
+          cloudflare: {
+            env: {
+              [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
+            },
+          },
+        }
+        await handler(request(91_146, "alpha"), "telegram", runtime)
+        const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+        expect(ownershipKey).toBeDefined()
+        await state.forceReleaseLock(ownershipKey!)
+
+        await expect(handler(request(91_147, "beta"), "telegram", runtime)).resolves.toMatchObject({ status: 200 })
+        expect(createBatch.mock.calls.length).toBeGreaterThan(1)
+        const queue = `${ownershipKey}:queue`
+        expect(await state.queueDepth(queue)).toBe(0)
+        expect(await state.queueDepth(`${queue}:pending`)).toBe(0)
+        expect(errorFallbackText).toHaveBeenCalledTimes(persistentProgressFailure ? 0 : 2)
+        expect(adapter.postMessage).toHaveBeenCalledTimes(persistentProgressFailure ? 0 : 2)
+        if (!persistentProgressFailure) {
+          expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
+          expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
+        }
+        expect(rejectFallbackProgress).toBe(persistentProgressFailure)
+        expect(queueReplaceHead).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.anything(),
+          [
+            expect.objectContaining({
+              message: expect.objectContaining({
+                errorDeliveries: expect.arrayContaining([expect.objectContaining({ fallbackAttempted: true })]),
+              }),
+            }),
+          ],
+          expect.any(Number),
+        )
+        expect(
+          queueReplaceHead.mock.calls.filter(([, current, replacement]) => {
+            // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+            const currentEntry = current as { message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } } | null
+            // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+            const replacementEntries = replacement as Array<{ message?: { errorDeliveries?: Array<{ fallbackAttempted?: true }> } }>
+            const currentProgress = currentEntry?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
+            const replacementProgress = replacementEntries[0]?.message?.errorDeliveries?.filter((item) => item.fallbackAttempted).length ?? 0
+            return replacementProgress > currentProgress
+          }),
+        ).toHaveLength(persistentProgressFailure ? 4 : 3)
+
+        const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", runtime)
+        for (const runId of ["telegram:91146", "telegram:91147"]) {
+          const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
+          expect(delivery).toMatchObject({ status: "failed" })
+          expect(delivery?.events.filter((event) => event.type === "invocation.failed")).toHaveLength(1)
+          expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
+        }
+      } finally {
+        resetWorkflowRuntime()
+        await state.disconnect()
+        await rm(stateDir, { force: true, recursive: true })
+      }
+    },
+    10_000,
+  )
 
   it("does not settle merged steer deliveries after ownership is reclaimed", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -13540,7 +13557,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("preserves pending steer input when terminal settlement cannot read its delivery", async () => {
+  it("restarts pending steer input when terminal settlement cannot read its delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
@@ -13565,8 +13582,8 @@ describe("server helpers", () => {
     })
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
-      if (createBatch.mock.calls.length > 1) {
-        failDeliveryRead = true
+      if (createBatch.mock.calls.length === 2) failDeliveryRead = true
+      if (createBatch.mock.calls.length === 2 || createBatch.mock.calls.length === 3) {
         throw Object.assign(new Error("successor provider unavailable"), { status: 503 })
       }
       return [{ id, status: async () => ({ status: "queued" }) }]
@@ -13620,7 +13637,9 @@ describe("server helpers", () => {
         ),
       ).resolves.toBe("completed")
 
+      expect(createBatch).toHaveBeenCalledTimes(4)
       expect(failDeliveryRead).toBe(false)
+      expect(workflowPayloads[3]?.input?.messages?.map((message) => message.id)).toEqual(["91144"])
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
