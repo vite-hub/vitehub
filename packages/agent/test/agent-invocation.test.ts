@@ -44,6 +44,7 @@ describe("Agent Invocation controllers", () => {
     expect(agentInvocationControlId(first)).toBe("ainv_first")
     expect(agentInvocationControlId(second)).toBe("ainv_second")
     expect(first.run.runId).toBe(second.run.runId)
+    expect(agentInvocationControlId({ run: { runId: "provider-run" } })).toBe("provider-run")
   })
 
   it("starts fresh inline invocations and inspects their authoritative lifecycle", async () => {
