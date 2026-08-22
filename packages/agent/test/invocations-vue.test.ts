@@ -19,7 +19,7 @@ interface RequestCall {
 
 function controlledRequester() {
   const calls: RequestCall[] = [];
-  const request: AgentInvocationRequester = (path, options, parse) =>
+  const request: AgentInvocationRequester = (path, options) =>
     new Promise<unknown>((resolve, reject) => {
       options.signal?.addEventListener(
         "abort",
@@ -27,28 +27,28 @@ function controlledRequester() {
         { once: true },
       );
       calls.push({ options, path, reject, resolve });
-    }).then(parse);
+    });
   return { calls, request };
 }
 
 function record(id: string): AgentInvocationRecord {
   return {
-    createdAt: "2026-08-22T00:00:00.000Z",
+    createdAt: "2026-08-22T12:00:00.000Z",
     cursor: id,
     id,
     observations: [],
     status: "running",
     traceId: `trace-${id}`,
-    updatedAt: "2026-08-22T00:00:00.000Z",
+    updatedAt: "2026-08-22T12:00:00.000Z",
   };
 }
 
 function observation(sequence: number): TraceEventLogEntry {
   return {
-    name: `observation-${sequence}`,
+    name: "agent.invocation.running",
     sequence,
-    timestamp: "2026-08-22T00:00:00.000Z",
-    type: "run",
+    timestamp: "2026-08-22T12:00:00.000Z",
+    type: "lifecycle",
   };
 }
 
@@ -229,11 +229,11 @@ describe("Agent Invocation Vue composables", () => {
 
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
-    const requestMock = vi.fn();
-    const request: AgentInvocationRequester = async (_path, _options, parse) => {
-      requestMock();
-      return parse({ cursor: "next", invocations: [record("inv-1")] });
-    };
+    const requestMock = vi.fn(async () => ({
+      cursor: "next",
+      invocations: [record("inv-1")],
+    }) as AgentInvocationListResult);
+    const request: AgentInvocationRequester = (_path, _options) => requestMock();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
 

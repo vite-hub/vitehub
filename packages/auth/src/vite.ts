@@ -56,7 +56,7 @@ export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
   return (viteConfigResult && typeof viteConfigResult === "object" && "nitro" in viteConfigResult ? viteConfigResult.nitro : options.nitro) as Record<string, unknown>
 }
 
-type InternalAuthModuleOptions = AuthModuleOptions & {
+interface InternalAuthModuleOptions {
   importBase?: string
 }
 
@@ -274,8 +274,8 @@ function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
   return value.default ?? value.definition
 }
 
-export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
-  const importBase = (options as InternalAuthModuleOptions | undefined)?.importBase ?? authPackageName
+export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
+  const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
   let serverDirs: string[] | undefined

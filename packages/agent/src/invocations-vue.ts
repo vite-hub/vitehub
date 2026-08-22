@@ -12,13 +12,10 @@ export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
 }
 
-export type AgentInvocationResponseParser<T> = (value: unknown) => T;
-
-export type AgentInvocationRequester = <T>(
+export type AgentInvocationRequester = (
   path: string,
   options: AgentInvocationRequestOptions,
-  parse: AgentInvocationResponseParser<T>,
-) => Promise<T>;
+) => Promise<unknown>;
 
 type QueryValue = boolean | number | string | null | undefined;
 
@@ -288,11 +285,13 @@ export function useAgentInvocations(
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
-    load: signal => request<AgentInvocationListResult>(
-      appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
-      { signal },
-      parseInvocationListResult,
-    ),
+    load: async (signal) =>
+      parseInvocationListResult(
+        await request(
+          appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
+          { signal },
+        ),
+      ),
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,
@@ -310,10 +309,11 @@ export function useAgentInvocations(
     resource.error.value = null;
     try {
       const query = options.query ? toValue(options.query) : undefined;
-      const result = await request<AgentInvocationListResult>(
-        appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
-        { signal: controller.signal },
-        parseInvocationListResult,
+      const result = parseInvocationListResult(
+        await request(
+          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
+          { signal: controller.signal },
+        ),
       );
       if (loadMoreController !== controller || revision !== currentRevision) return;
       const ids = new Set(invocations.value.map(invocation => invocation.id));
@@ -375,9 +375,9 @@ export function useAgentInvocation(
     load(signal) {
       const resolvedId = toValue(id);
       if (resolvedId === undefined) return Promise.resolve(undefined);
-      return request<AgentInvocationDetailResult>(detailPath(toValue(baseURL), resolvedId), {
-        signal,
-      }, parseInvocationDetailResult);
+      return request(detailPath(toValue(baseURL), resolvedId), { signal }).then(
+        parseInvocationDetailResult,
+      );
     },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), toValue(id)],

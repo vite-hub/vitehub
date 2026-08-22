@@ -8,7 +8,7 @@ import {
 import type { ViteHubUIOptions } from "./config.ts";
 
 export interface ViteHubUINuxtModule {
-  (inlineOptions?: ViteHubUIOptions, nuxt?: unknown): Promise<void> | void;
+  (inlineOptions: ViteHubUIOptions, nuxt: never): unknown;
   getMeta?: () => Promise<Record<string, unknown>>;
 }
 
@@ -27,7 +27,7 @@ const componentNames = [
   "AgentTrace",
 ] as const;
 
-const viteHubUINuxtModule = defineNuxtModule<ViteHubUIOptions>({
+const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUIOptions>({
   meta: { configKey: "viteHubUI", name: "@vite-hub/ui" },
   defaults: {},
   async setup(options, nuxt) {
@@ -39,6 +39,6 @@ const viteHubUINuxtModule = defineNuxtModule<ViteHubUIOptions>({
     for (const name of componentNames)
       addComponent({ export: name, filePath: "@vite-hub/ui", name });
   },
-}) as unknown as ViteHubUINuxtModule;
+});
 
 export default viteHubUINuxtModule;

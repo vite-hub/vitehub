@@ -72,8 +72,10 @@ beforeEach(() => {
 
 describe("Pierre lifecycle adapters", () => {
   it("unmounts external FileTree models and cleans up component-owned replacements", async () => {
-    const first = new FileTree({ paths: ["first.ts"] }) as unknown as TreeModelStub;
-    const second = new FileTree({ paths: ["second.ts"] }) as unknown as TreeModelStub;
+    new FileTree({ paths: ["first.ts"] });
+    const first = treeState.instances[0]!;
+    new FileTree({ paths: ["second.ts"] });
+    const second = treeState.instances[1]!;
     const wrapper = mount(AgentFileTree, { props: { model: first as never } });
 
     expect(first.render).toHaveBeenCalledOnce();

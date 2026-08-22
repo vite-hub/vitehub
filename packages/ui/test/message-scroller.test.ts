@@ -14,7 +14,7 @@ import {
   MessageScrollerViewport,
 } from "../src/headless/message-scroller.ts";
 
-class ResizeObserverStub {
+class ResizeObserverStub implements ResizeObserver {
   callback: ResizeObserverCallback;
   targets = new Set<Element>();
 
@@ -29,6 +29,10 @@ class ResizeObserverStub {
 
   observe(target: Element) {
     this.targets.add(target);
+  }
+
+  unobserve(target: Element) {
+    this.targets.delete(target);
   }
 }
 
@@ -162,14 +166,14 @@ describe("message scroller behavior", () => {
     scrollTo.mockClear();
     await viewport.trigger("wheel", { deltaY: -10 });
     scrollHeight = 600;
-    observer.callback([], observer as unknown as ResizeObserver);
+    observer.callback([], observer);
     expect(scrollTo).not.toHaveBeenCalled();
 
     scrollTop = 500;
     await viewport.trigger("scroll");
     scrollTo.mockClear();
     scrollHeight = 700;
-    observer.callback([], observer as unknown as ResizeObserver);
+    observer.callback([], observer);
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 700 });
   });
 });

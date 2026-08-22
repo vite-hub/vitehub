@@ -304,6 +304,12 @@ function terminalStatus(status: AgentInvocationRecordStatus): boolean {
   return status === "completed" || status === "failed" || status === "cancelled"
 }
 
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  // SAFETY: Node timers expose optional unref; browser timers are numbers and therefore have no method.
+  const unref = (timer as { unref?: () => void }).unref
+  if (unref) unref.call(timer)
+}
+
 export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
@@ -458,11 +464,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
         if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
-        const unref = (heartbeat as unknown as { unref?: () => void }).unref
-        if (unref) unref.call(heartbeat)
+        unrefTimer(heartbeat)
         heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
-        const unrefTimeout = (heartbeatTimeout as unknown as { unref?: () => void }).unref
-        if (unrefTimeout) unrefTimeout.call(heartbeatTimeout)
+        unrefTimer(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
         if (created || creationTimedOut) return created
@@ -605,8 +609,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                const unref = (timer as unknown as { unref?: () => void }).unref
-                if (unref) unref.call(timer)
+                unrefTimer(timer)
               })
               await finishOnce()
             }
@@ -634,8 +637,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                const unref = (timer as unknown as { unref?: () => void }).unref
-                if (unref) unref.call(timer)
+                unrefTimer(timer)
               })
               if (finished) return
               if (await markRunning()) return
