@@ -41,6 +41,7 @@
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
+    "vite-doctor": "catalog:",
     "vite-hub": "workspace:*",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

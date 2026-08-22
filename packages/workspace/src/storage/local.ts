@@ -5,7 +5,7 @@ import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
-import { contentStreamChunks, contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
+import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
   DiffOptions,
@@ -64,18 +64,19 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
   }
 }
 
-async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
+async function walk(root: string, current = root, excluded: readonly string[] = [], recursive = true): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
   const entries: WorkspaceEntry[] = []
   const dirents = await readdir(current, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return []
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return []
     throw error
   })
 
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
+    if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
@@ -84,7 +85,7 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      entries.push(...await walk(root, absolute))
+      if (recursive) entries.push(...await walk(root, absolute, excluded))
       continue
     }
     if (dirent.isFile()) {
@@ -241,7 +242,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
-    const all = await walk(this.root)
+    const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
+    const all = await walk(this.root, current, options.exclude, options.recursive === true)
     return all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")

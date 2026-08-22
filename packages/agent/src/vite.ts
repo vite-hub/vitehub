@@ -1698,10 +1698,14 @@ async function generateAgentDeploymentCatalog(
     throw new TypeError("[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents.")
   }
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
+  const registeredAgentWorkspaceEntries = definitions.flatMap(definition => definition.workspace
+    ? [`markDiscoveredWorkspaceAgentDefinitionRegistered(agents[${JSON.stringify(definition.name)}], ${JSON.stringify({ name: definition.name, workspace: definition.workspace })})`]
+    : [])
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const serverInternalImports = [
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute"] : []),
+    ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
   ].filter(Boolean).join(", ")
 
   return {
@@ -1710,7 +1714,7 @@ async function generateAgentDeploymentCatalog(
       ...(options.inspection
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
-      ...(channelHandlers || options.inspection
+      ...(channelHandlers || options.inspection || workspaceEntries
         ? [`import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
         : []),
       ...(options.workspaceRuntimeImport ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
@@ -1736,17 +1740,23 @@ async function generateAgentDeploymentCatalog(
       "",
       ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions", typescript),
       "",
-      `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
-      "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
-      "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
-      "  return [name, async () => ({ ...module, default: agent })]",
-      "}",
-      "",
+      ...(workspaceEntries
+        ? [
+            `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
+            "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
+            "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
+            "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
+            "  return [workspaceName, async () => ({ ...module, default: agent })]",
+            "}",
+            "",
+          ]
+        : []),
       ...hostedWorkspaceRuntime.setup,
       ...(options.workspaceRuntimeImport
         ? [`setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`, ""]
         : []),
       `const agents${typescript ? ": Record<string, AgentInput>" : ""} = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+      ...registeredAgentWorkspaceEntries,
       `const agentIdentities${typescript ? ": Record<string, AgentHostIdentity>" : ""} = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
       ...(channelHandlers
         ? [
