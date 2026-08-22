@@ -789,7 +789,7 @@ describe("Database Nuxt integration", () => {
 
       expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
       await expect(readFile(join(projectRoot, ".vitehub/types/database.d.ts"), "utf8"))
-        .resolves.toContain('declare module "#vitehub/database/databases"')
+        .resolves.toContain('declare module "vite-hub/database/drizzle"')
 
       const nitroConfig = { alias: {}, modules: [], preset: "cloudflare_module" }
       await callHook(hooks, "nitro:config", nitroConfig)
