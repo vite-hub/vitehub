@@ -78,7 +78,7 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "@nuxt/ui": "^4.9.0",
+    "@nuxt/ui": "^4.11.0",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite",
     "vue": "catalog:ui"

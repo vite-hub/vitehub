@@ -2,7 +2,8 @@ import { createSSRApp, defineComponent, h } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import { AgentChat } from "../src/components/agent-chat.ts";
-import { AgentInvocation } from "../src/components/agent-invocation.ts";
+import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
+import type { AgentInvocationView } from "../src/types.ts";
 
 describe("UI server rendering", () => {
   it("renders AI SDK messages without browser globals", async () => {
@@ -35,9 +36,8 @@ describe("UI server rendering", () => {
 
   it("renders a persisted invocation as a coding session", async () => {
     const app = createSSRApp({
-      render: () =>
-        h(AgentInvocation, {
-          invocation: {
+      render: () => {
+        const invocation: AgentInvocationView = {
             agentName: "support",
             configuration: {
               agent: { name: "support", version: "1.0.0" },
@@ -97,8 +97,12 @@ describe("UI server rendering", () => {
             status: "completed",
             traceId: "trace_1",
             updatedAt: "2026-08-22T00:00:01.000Z",
-          },
-        }),
+          };
+        return h("div", [
+          h(AgentInvocation, { invocation }),
+          h(AgentInvocationInspector, { invocation }),
+        ]);
+      },
     });
     const html = await renderToString(app);
     expect(html).toContain("support");
@@ -108,7 +112,9 @@ describe("UI server rendering", () => {
     expect(html).not.toContain("12:00 AM");
     expect(html).toContain("Ran command");
     expect(html).toContain("git status --short");
-    expect(html).toContain("1.2K tokens");
+    expect(html).toContain(">1,200<");
+    expect(html).toContain('data-icon="command"');
+    expect(html).not.toContain("vh-invocation-event__dot");
     expect(html).toContain("workspace-shell");
     expect(html).toContain("Work through the repository carefully.");
     expect(html).toContain("repository");

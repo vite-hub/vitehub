@@ -6,22 +6,21 @@ navigation.group: Agent work
 icon: i-ph-activity-light
 ---
 
-`AgentInvocation` accepts the structural shape of ViteHub's `AgentInvocationRecord`. It turns append-only observations into a coding-session thread: assistant prose stays unlabelled, user input remains visually distinct, commands and file changes expand in place, and usage snapshots show token counts instead of repeating timestamps.
+`AgentInvocation` accepts the structural shape of ViteHub's `AgentInvocationRecord`. It turns append-only observations into a coding-session thread: assistant prose stays unlabelled, user input remains visually distinct, and compact tool rows expand in place. `AgentInvocationInspector` presents the invocation metadata separately so the host can put it in a splitter, drawer, or its own route.
 
 ```vue
-<AgentInvocation :invocation="record">
-  <template #title="{ invocation }">
-    {{ invocation.title || invocation.agentName }}
-  </template>
+<AgentInvocation :invocation="record" />
+
+<AgentInvocationInspector :invocation="record">
   <template #metadata="{ invocation }">
     <DeploymentMetadata :invocation="invocation" />
   </template>
-</AgentInvocation>
+</AgentInvocationInspector>
 ```
 
-The component displays pending, running, completed, failed, and cancelled states, terminal errors, conversation messages, reasoning, commands, product actions, approvals, file changes, and usage snapshots. The optional `configuration` field populates the inspector with the resolved Agent Definition, driver, model, runtime, Capabilities, tools, Workspace, Sources, and instruction document.
+The components display pending, running, completed, failed, and cancelled states, terminal errors, conversation messages, reasoning, commands, product actions, approvals, file changes, and usage snapshots. The optional `configuration` field populates the inspector with the resolved Agent Definition, driver, model, runtime, Capabilities, tools, Workspace, Sources, and instruction document.
 
-The renderer does not own session navigation. Put it beside the application's session list so the left rail can remain visible while people move between invocations.
+The renderers do not own session navigation or panel state. Put the thread beside the application's session list and compose the inspector with the host framework's responsive panel primitives.
 
 ## Inspection configuration
 
