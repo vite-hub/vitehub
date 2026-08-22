@@ -222,6 +222,69 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("prioritizes outcome evidence ahead of a saturated pending observation queue", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseActive!: () => void
+      let reportActiveStarted!: () => void
+      let reportTerminalPersisted!: () => void
+      const activeGate = new Promise<void>((resolve) => { releaseActive = resolve })
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const terminalPersisted = new Promise<void>((resolve) => { reportTerminalPersisted = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              await activeGate
+            }
+            else if (input.observation
+              && input.observation.name !== "agent.stream.error"
+              && input.observation.name !== "agent.invocation.finish") {
+              return new Promise(() => {})
+            }
+            const updated = await memory.update(id, input, claimId)
+            if (input.observation?.name === "agent.invocation.finish") reportTerminalPersisted()
+            return updated
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("prioritized-outcome-observations"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      for (let index = 0; index < 255; index++) {
+        await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+      }
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "provider stream failed" },
+        name: "agent.stream.error",
+        type: "error",
+      })
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+      const finishing = journal.finish("failed", new Error("provider stream failed"))
+      releaseActive()
+      await terminalPersisted
+      await vi.advanceTimersByTimeAsync(1_000)
+      await finishing
+
+      const record = await invocations.getByRunId("prioritized-outcome-observations")
+      expect(record).toMatchObject({ status: "failed" })
+      expect(record?.observations.map(observation => observation.name)).toEqual([
+        "active",
+        "agent.stream.error",
+        "agent.invocation.finish",
+      ])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("terminalizes records created after the store timeout", async () => {
     const memory = createMemoryAgentInvocationStore()
     let releaseCreate!: () => void

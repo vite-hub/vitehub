@@ -294,6 +294,11 @@ function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
     || (observation.name === "agent.stream.error" && observation.attributes?.["error.recoverable"] !== true)
 }
 
+function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
+  if (failureEvidenceObservation(observation)) return 0
+  if (terminalObservation(observation)) return 1
+}
+
 function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   return {
     ...observation,
@@ -311,7 +316,17 @@ export function applyAgentInvocationStoreUpdate(
     : record.status
   const observations = input.observation
     ? record.observations.length < MAX_OBSERVATIONS
-      ? [...record.observations, cloneObservation(boundedObservation(input.observation))]
+      ? (() => {
+          const observation = cloneObservation(boundedObservation(input.observation))
+          const priority = outcomeObservationPriority(observation)
+          const insertAt = record.observations.findIndex((candidate) => {
+            const candidatePriority = outcomeObservationPriority(candidate)
+            return candidatePriority !== undefined && (priority === undefined || candidatePriority > priority)
+          })
+          return insertAt < 0
+            ? [...record.observations, observation]
+            : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
+        })()
       : (() => {
           const failureEvidence = failureEvidenceObservation(input.observation)
             ? input.observation
@@ -595,11 +610,25 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) return
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
+        const priority = outcomeObservationPriority(observation)
+        const queuedObservation = priority !== undefined && (atCapacity || observationsTruncated)
+          ? truncatedObservation(observation)
+          : observation
         if (atCapacity) {
-          if (observationsTruncated && !terminalObservation(observation) && !failureEvidenceObservation(observation)) return
           observationsTruncated = true
+          if (priority === undefined) return
+          const ordinaryIndex = pendingObservations.findLastIndex(candidate => outcomeObservationPriority(candidate) === undefined)
+          if (ordinaryIndex >= 0) pendingObservations.splice(ordinaryIndex, 1)
+          const insertAt = pendingObservations.findIndex((candidate) => {
+            const candidatePriority = outcomeObservationPriority(candidate)
+            return candidatePriority === undefined || candidatePriority > priority
+          })
+          if (insertAt >= 0) pendingObservations.splice(insertAt, 0, queuedObservation)
+          else pendingObservations.push(queuedObservation)
+          writeNextObservation()
+          return
         }
-        pendingObservations.push(observation)
+        pendingObservations.push(queuedObservation)
         writeNextObservation()
       }
       return {
