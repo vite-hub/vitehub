@@ -195,14 +195,38 @@ describe("anti-slop lexical type resolution", () => {
     expect(result.filter((code) => code === "anti-slop(no-unknown-parameters)")).toHaveLength(1);
   });
 
+  test("preserves caller substitutions inside compound alias arguments", () => {
+    const result = diagnostics(`
+        type Identity<T> = T;
+        type Container<T> = T;
+        type Wrapper<T> = Identity<Container<T>>;
+        type Hidden = Wrapper<unknown>;
+        function unknownInput(value: Wrapper<unknown>) { return value; }
+        function objectInput(value: Wrapper<object>) { return value; }
+        function unknownOutput(): Wrapper<unknown> { throw new Error(); }
+      `);
+    for (const code of [
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unknown-type-aliases)",
+    ]) {
+      expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
+    }
+  });
+
   test("resolves namespace imports for test framework objects", () => {
     const result = diagnostics(`
         import * as vitest from "vitest";
         import * as jestGlobals from "@jest/globals";
         vitest.vi.mock("./vitest-dependency");
         jestGlobals.jest.unstable_mockModule("./jest-dependency");
+        const { vi: framework } = vitest;
+        const { jest: testFramework } = jestGlobals;
+        framework.mock("./destructured-vitest-dependency");
+        testFramework.mock("./destructured-jest-dependency");
       `);
-    expect(result.filter((code) => code === "anti-slop(no-module-mocking)")).toHaveLength(2);
+    expect(result.filter((code) => code === "anti-slop(no-module-mocking)")).toHaveLength(4);
   });
 
   test("keeps static-block aliases inside the static block", () => {
@@ -302,6 +326,7 @@ describe("anti-slop lexical type resolution", () => {
     const result = diagnostics(`
         namespace Contracts {
           export type Identity<T> = T;
+          export type Dictionary<T> = Record<string, T>;
           export type UnsafeValue = object;
           export type Nested = UnsafeValue;
         }
@@ -312,9 +337,23 @@ describe("anti-slop lexical type resolution", () => {
         const dictionary: Record<string, Contracts.UnsafeValue> = {};
         const genericWidening: Contracts.Identity<object> = { id: "lost" };
         const nestedWidening: Contracts.Nested = { id: "lost" };
+        interface QualifiedUnsafeEnvironment extends Contracts.Dictionary<unknown> {}
+        interface QualifiedSafeEnvironment extends Contracts.Dictionary<string> {}
+        namespace Outer {
+          export namespace Contracts {
+            export type Identity<T> = T;
+          }
+          type RelativeHidden = Contracts.Identity<unknown>;
+          function relativeInput(value: Contracts.Identity<unknown>) { return value; }
+          function relativeObjectInput(value: Contracts.Identity<object>) { return value; }
+          function relativeOutput(): Contracts.Identity<unknown> { throw new Error(); }
+        }
         void dictionary;
         void genericWidening;
         void nestedWidening;
+        void (null as unknown as QualifiedUnsafeEnvironment);
+        void (null as unknown as QualifiedSafeEnvironment);
+        void Outer;
       `);
     for (const code of [
       "anti-slop(no-unknown-type-aliases)",
@@ -326,5 +365,32 @@ describe("anti-slop lexical type resolution", () => {
       expect(result).toContain(code);
     }
     expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(2);
+  });
+
+  test("resolves qualified aliases relative to their enclosing namespace", () => {
+    const result = diagnostics(`
+        namespace Outer {
+          export namespace Contracts {
+            export type Identity<T> = T;
+            export type Dictionary<T> = Record<string, T>;
+          }
+          type Hidden = Contracts.Identity<unknown>;
+          function unknownInput(value: Contracts.Identity<unknown>) { return value; }
+          function objectInput(value: Contracts.Identity<object>) { return value; }
+          function unknownOutput(): Contracts.Identity<unknown> { throw new Error(); }
+          interface UnsafeEnvironment extends Contracts.Dictionary<unknown> {}
+          interface SafeEnvironment extends Contracts.Dictionary<string> {}
+        }
+        void Outer;
+      `);
+    for (const code of [
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-unsafe-dictionary-type)",
+    ]) {
+      expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
+    }
   });
 });

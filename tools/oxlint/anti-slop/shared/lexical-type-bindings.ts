@@ -98,7 +98,15 @@ export function visibleTypeBindingForName(
 	bindings: readonly TypeBinding[],
 ): TypeBinding | undefined {
 	const parts = qualifiedTypeNameParts(name);
-	if (parts === null || parts.length === 0) return undefined;
+	return parts === null ? undefined : visibleTypeBindingForParts(parts, site, bindings);
+}
+
+export function visibleTypeBindingForParts(
+	parts: readonly string[],
+	site: ESTree.Node,
+	bindings: readonly TypeBinding[],
+): TypeBinding | undefined {
+	if (parts.length === 0) return undefined;
 	if (parts.length === 1) return visibleTypeBinding(parts[0] ?? "", site, bindings);
 	const root = parts[0];
 	const leaf = parts.at(-1);
@@ -112,11 +120,16 @@ export function visibleTypeBindingForName(
 	return bindings.find((binding) => {
 		if (typeBindingName(binding) !== leaf) return false;
 		const path = enclosingNamespacePath(binding);
-		return (
-			path !== null &&
-			path.length === namespacePath.length &&
-			path.every((part, index) => part === namespacePath[index])
-		);
+		if (path === null) return false;
+		return visibleRoots.some((visibleRoot) => {
+			const enclosingPath = enclosingNamespacePath(visibleRoot);
+			if (enclosingPath === null) return false;
+			const targetPath = [...enclosingPath, ...namespacePath];
+			return (
+				path.length === targetPath.length &&
+				path.every((part, index) => part === targetPath[index])
+			);
+		});
 	});
 }
 

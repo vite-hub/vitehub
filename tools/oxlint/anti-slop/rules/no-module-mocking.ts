@@ -29,6 +29,26 @@ function memberName(expression: ESTree.MemberExpression): string | null {
     : null;
 }
 
+function objectPatternPropertyName(
+  pattern: ESTree.ObjectPattern,
+  bindingName: string,
+): string | null {
+  for (const property of pattern.properties) {
+    if (property.type !== "Property") continue;
+    const value = property.value.type === "AssignmentPattern"
+      ? property.value.left
+      : property.value;
+    if (value.type !== "Identifier" || value.name !== bindingName) continue;
+    const name = !property.computed && property.key.type === "Identifier"
+      ? property.key.name
+      : property.key.type === "Literal"
+        ? property.key.value
+        : null;
+    return typeof name === "string" ? name : null;
+  }
+  return null;
+}
+
 function isTestFrameworkNamespace(
   sourceCode: SourceCode,
   expression: ESTree.Expression,
@@ -114,14 +134,26 @@ function isTestFrameworkObject(
         (source === "@jest/globals" && name === "jest")
       );
     }
-    return (
-      definition.type === "Variable" &&
-      definition.node.type === "VariableDeclarator" &&
-      definition.node.id.type === "Identifier" &&
-      definition.parent?.type === "VariableDeclaration" &&
-      definition.parent.kind === "const" &&
-      definition.node.init !== null &&
-      isTestFrameworkObject(sourceCode, definition.node.init, visited)
+    if (
+      definition.type !== "Variable" ||
+      definition.node.type !== "VariableDeclarator" ||
+      definition.parent?.type !== "VariableDeclaration" ||
+      definition.parent.kind !== "const" ||
+      definition.node.init === null
+    ) {
+      return false;
+    }
+    if (definition.node.id.type === "Identifier") {
+      return isTestFrameworkObject(sourceCode, definition.node.init, visited);
+    }
+    if (definition.node.id.type !== "ObjectPattern") return false;
+    const name = objectPatternPropertyName(definition.node.id, expression.name);
+    const expectedSource = name === "vi" ? "vitest" : name === "jest" ? "@jest/globals" : null;
+    return expectedSource !== null && isTestFrameworkNamespace(
+      sourceCode,
+      definition.node.init,
+      expectedSource,
+      visited,
     );
   });
 }
@@ -157,15 +189,8 @@ function moduleMockCall(
       if (init === null) return false;
       if (id.type === "Identifier") return moduleMockCall(sourceCode, init, visited);
       if (id.type !== "ObjectPattern" || !isTestFrameworkObject(sourceCode, init)) return false;
-      return id.properties.some((property) => {
-		if (property.type !== "Property") return false;
-		const value = property.value.type === "AssignmentPattern"
-			? property.value.left
-			: property.value;
-		if (value.type !== "Identifier" || value.name !== callee.name) return false;
-        const method = property.key.type === "Identifier" ? property.key.name : property.key.value;
-        return typeof method === "string" && moduleMockMethods.has(method);
-      });
+      const method = objectPatternPropertyName(id, callee.name);
+      return method !== null && moduleMockMethods.has(method);
     }) ?? false;
   }
   if (!("property" in callee) || !("object" in callee) || !("computed" in callee)) return false;

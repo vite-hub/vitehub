@@ -5,6 +5,7 @@ import {
 	collectTypeBindings,
 	typeBindingName,
 	visibleTypeBindingForName,
+	visibleTypeBindingForParts,
 	visibleTypeBinding,
 	visibleTypeBindings,
 	type TypeBinding,
@@ -166,6 +167,21 @@ export function typeEnvironmentAt(
 
 function typeReferenceName(type: ESTree.TSTypeReference): string | null {
 	return type.typeName.type === "Identifier" ? type.typeName.name : null;
+}
+
+function heritageExpressionParts(expression: ESTree.Expression): readonly string[] | null {
+	if (expression.type === "Identifier") return [expression.name];
+	if (expression.type !== "MemberExpression" || expression.object.type === "Super") return null;
+	const object = heritageExpressionParts(expression.object);
+	if (object === null) return null;
+	const property = expression.computed
+		? expression.property.type === "Literal" && typeof expression.property.value === "string"
+			? expression.property.value
+			: null
+		: expression.property.type === "Identifier"
+			? expression.property.name
+			: null;
+	return property === null ? null : [...object, property];
 }
 
 function referencedAlias(
@@ -447,15 +463,32 @@ export function classifyUnsafeDictionaryHeritage(
 	heritage: ESTree.TSInterfaceHeritage,
 	environment: TypeEnvironment,
 ): UnsafeDictionary | null {
-	if (heritage.expression.type !== "Identifier") return null;
 	environment = typeEnvironmentAt(environment, heritage);
-	for (const valueType of dictionaryValueTypesForReference(
-		heritage.expression.name,
-		heritage.typeArguments,
-		environment,
-		new Map(),
-		new Set(),
-	)) {
+	const parts = heritageExpressionParts(heritage.expression);
+	if (parts === null || parts.length === 0) return null;
+	let valueTypes: readonly ResolvedType[];
+	if (parts.length === 1) {
+		valueTypes = dictionaryValueTypesForReference(
+			parts[0] ?? "",
+			heritage.typeArguments,
+			environment,
+			new Map(),
+			new Set(),
+		);
+	} else {
+		const binding = visibleTypeBindingForParts(parts, heritage, environment.typeBindings);
+		const alias = binding?.type === "TSTypeAliasDeclaration" ? binding : undefined;
+		if (alias === undefined) return null;
+		const substitutions = aliasSubstitution(alias, heritage.typeArguments, new Map());
+		if (substitutions === null) return null;
+		valueTypes = dictionaryValueTypes(
+			alias.typeAnnotation,
+			environment,
+			substitutions,
+			new Set([alias.id.name]),
+		);
+	}
+	for (const valueType of valueTypes) {
 		const unsafeValue = unsafeDirectValue(
 			valueType.type,
 			environment,

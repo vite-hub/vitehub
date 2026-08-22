@@ -7,29 +7,19 @@ import {
 	type VisitorKeys,
 } from "./lexical-type-bindings.ts";
 
-type Substitutions = ReadonlyMap<string, ESTree.TSType>;
+type Substitution = {
+	readonly substitutions: Substitutions;
+	readonly type: ESTree.TSType;
+};
 
-function resolvedSubstitution(
-	type: ESTree.TSType,
-	substitutions: Substitutions,
-	resolving = new Set<string>(),
-): ESTree.TSType {
-	if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return type;
-	const name = type.typeName.name;
-	if (resolving.has(name)) return type;
-	const substitution = substitutions.get(name);
-	if (substitution === undefined) return type;
-	const nextResolving = new Set(resolving);
-	nextResolving.add(name);
-	return resolvedSubstitution(substitution, substitutions, nextResolving);
-}
+type Substitutions = ReadonlyMap<string, Substitution>;
 
 function aliasSubstitutions(
 	alias: ESTree.TSTypeAliasDeclaration,
 	typeArguments: ESTree.TSTypeParameterInstantiation | null | undefined,
 	outer: Substitutions,
 ): Substitutions | null {
-	const next = new Map<string, ESTree.TSType>();
+	const next = new Map<string, Substitution>();
 	const parameters = alias.typeParameters?.params ?? [];
 	const arguments_ = typeArguments?.params ?? [];
 	for (const [index, parameter] of parameters.entries()) {
@@ -37,10 +27,10 @@ function aliasSubstitutions(
 		const argument = suppliedArgument ?? parameter.default;
 		if (argument === null || argument === undefined) return null;
 		// Explicit arguments resolve at the call site. Defaults can reference earlier parameters.
-		next.set(
-			parameter.name.name,
-			resolvedSubstitution(argument, suppliedArgument === undefined ? next : outer),
-		);
+		next.set(parameter.name.name, {
+			substitutions: suppliedArgument === undefined ? new Map(next) : outer,
+			type: argument,
+		});
 	}
 	return next;
 }
@@ -90,9 +80,14 @@ export function resolvesThroughTypeAliases(
 	}
 	const substitution = substitutions.get(name);
 	if (substitution !== undefined) {
-		const resolved = resolvedSubstitution(substitution, substitutions);
-		return resolved !== type && resolvesThroughTypeAliases(
-			resolved, bindings, visitorKeys, matches, transparentBuiltIns, substitutions, visited,
+		return substitution.type !== type && resolvesThroughTypeAliases(
+			substitution.type,
+			bindings,
+			visitorKeys,
+			matches,
+			transparentBuiltIns,
+			substitution.substitutions,
+			visited,
 		);
 	}
 
