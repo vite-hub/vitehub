@@ -11,6 +11,9 @@ patchedDependencies:
   '@vite-hub/runtime@0.0.1':
     hash: a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6
     path: patches/@vite-hub__runtime@0.0.1.patch
+  '@vite-hub/ui@0.0.1':
+    hash: 470ca13714eb9a9d524123ff157622515187c70d4069deddf5ad6e69558f278e
+    path: patches/@vite-hub__ui@0.0.1.patch
   '@vite-hub/workspace':
     hash: 147f6be5125b0450e80e64e3db99b9fdeb96548b5440482f173822d816e26f1c
     path: patches/@vite-hub__workspace.patch
@@ -39,7 +42,7 @@ importers:
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       '@vite-hub/ui':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@d50dee5d784bf827ec6d006f2bc7d1d1569d6290
-        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@d50dee5d784bf827ec6d006f2bc7d1d1569d6290(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@d50dee5d784bf827ec6d006f2bc7d1d1569d6290(patch_hash=470ca13714eb9a9d524123ff157622515187c70d4069deddf5ad6e69558f278e)(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
       ai:
         specifier: 7.0.38
         version: 7.0.38(zod@4.4.3)
@@ -10965,7 +10968,7 @@ snapshots:
       '@vite-hub/runtime': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       effect: 4.0.0-beta.99
 
-  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@d50dee5d784bf827ec6d006f2bc7d1d1569d6290(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))':
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@d50dee5d784bf827ec6d006f2bc7d1d1569d6290(patch_hash=470ca13714eb9a9d524123ff157622515187c70d4069deddf5ad6e69558f278e)(@nuxt/ui@4.11.0(ee91faf06903dceeaf2ff603596e0efb))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))':
     dependencies:
       '@comark/vue': 0.6.2(vue@3.5.40(typescript@6.0.3))
       '@nuxt/kit': 4.4.8

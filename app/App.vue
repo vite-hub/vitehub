@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
         <template #default="{ collapsed }">
           <div v-if="!collapsed" class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
             <UInput v-model="query" class="min-w-0 flex-1" icon="i-lucide-search" placeholder="Search sessions" size="sm" variant="none" :ui="{ base: 'bg-transparent hover:bg-elevated/60 focus:bg-elevated/60' }" />
-            <UTooltip text="Refresh sessions"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :loading="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" /></UTooltip>
+            <UTooltip text="Refresh sessions"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :disabled="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" /></UTooltip>
           </div>
           <div v-if="!collapsed && listErrorMessage" class="px-2"><UAlert color="error" variant="subtle" icon="i-lucide-cloud-off" title="Could not load sessions" :description="listErrorMessage" /></div>
           <div v-else-if="!collapsed && loadingList && invocations.length === 0" class="grid gap-px px-2"><USkeleton v-for="index in 4" :key="index" class="h-[4.875rem] rounded-md" /></div>
@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
 
         <template #footer="{ collapsed, collapse }">
           <template v-if="!collapsed"><span class="flex items-center gap-1.5 text-xs text-muted"><UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only</span><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-dimmed'">{{ syncLabel }}</span></template>
-          <UTooltip v-if="collapsed" text="Refresh sessions"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs" :loading="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" /></UTooltip>
+          <UTooltip v-if="collapsed" text="Refresh sessions"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs" :disabled="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" /></UTooltip>
           <UButton class="max-lg:hidden" :class="collapsed ? '' : 'ml-1'" :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" color="neutral" variant="ghost" size="xs" :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'" @click="collapse(!collapsed)" />
         </template>
       </UDashboardSidebar>
@@ -212,7 +212,7 @@ onBeforeUnmount(() => {
             </template>
             <template #right>
               <UTooltip v-if="pullRequestUrl" text="Open pull request"><UButton :to="pullRequestUrl" target="_blank" icon="i-simple-icons-github" color="neutral" variant="ghost" size="sm" aria-label="Open pull request" /></UTooltip>
-              <UTooltip text="Refresh session"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :loading="loadingList || loadingDetail" aria-label="Refresh session" @click="refresh()" /></UTooltip>
+              <UTooltip text="Refresh session"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :disabled="loadingList || loadingDetail" aria-label="Refresh session" @click="refresh()" /></UTooltip>
               <UTooltip v-if="invocationView" text="Session details"><UButton icon="i-lucide-panel-right" color="neutral" :variant="detailsOpen ? 'soft' : 'ghost'" size="sm" aria-label="Session details" :aria-pressed="detailsOpen" @click="detailsOpen = !detailsOpen" /></UTooltip>
             </template>
           </UDashboardNavbar>
