@@ -161,6 +161,55 @@ describe("useCollection", () => {
     scope.stop()
   })
 
+  it("rejects a cursor that does not advance during loadMore", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    calls[0]!.resolve(page([{ id: 1 }], "repeat"))
+    await refresh
+
+    const loadMore = collection.loadMore()
+    expect(calls[1]!.options.query).toMatchObject({ cursor: "repeat" })
+    calls[1]!.resolve(page([{ id: 2 }], "repeat"))
+    await loadMore
+
+    expect(collection.items.value).toEqual([{ id: 1 }])
+    expect(collection.error.value).toEqual(
+      new TypeError("[vitehub] Collection returned the same cursor twice."),
+    )
+    scope.stop()
+  })
+
+  it("prevents pagination after a failed filter reset", async () => {
+    const { calls, request } = controlledRequester()
+    const filter = ref({ search: "first" })
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { filter, request })
+    })
+
+    calls[0]!.resolve(page([{ id: 1 }], "old-next"))
+    await settle()
+    filter.value = { search: "second" }
+    await nextTick()
+    expect(collection.hasMore.value).toBe(false)
+    const failure = new Error("filtered request failed")
+    calls[1]!.reject(failure)
+    await settle()
+
+    expect(collection.items.value).toEqual([{ id: 1 }])
+    expect(collection.error.value).toBe(failure)
+    await expect(collection.loadMore()).resolves.toBeUndefined()
+    expect(calls).toHaveLength(2)
+    scope.stop()
+  })
+
   it("refreshes when typed filter input changes and aborts the old request", async () => {
     const { calls, request } = controlledRequester()
     const filter = ref({ search: "first" })

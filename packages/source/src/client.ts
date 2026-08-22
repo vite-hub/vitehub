@@ -88,6 +88,10 @@ export function useCollection<TName extends CollectionName>(
   async function load(reset: boolean): Promise<TPage | undefined> {
     if (!reset && (pending.value || (loaded && !nextCursor.value))) return
 
+    if (reset) {
+      nextCursor.value = null
+      loaded = true
+    }
     active?.abort()
     const controller = new AbortController()
     active = controller
@@ -98,7 +102,7 @@ export function useCollection<TName extends CollectionName>(
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
       let response: TPage
-      const seenCursors = new Set<string>()
+      const seenCursors = new Set(cursor ? [cursor] : [])
       do {
         response = await request<TPage>(endpoint, {
           query: {
