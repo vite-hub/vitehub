@@ -25,9 +25,7 @@ function mealsCollection() {
         { createdAt: 20, id: "two", photoPath: "two/original" },
         { createdAt: 10, id: "one", photoPath: "one/original" },
       ]
-      const offset = cursor
-        ? rows.findIndex((row) => row.createdAt === cursor[0] && row.id === cursor[1]) + 1
-        : 0
+      const offset = cursor ? rows.findIndex(row => row.createdAt === cursor[0] && row.id === cursor[1]) + 1 : 0
       return rows.slice(offset, offset + limit)
     },
   )
@@ -99,15 +97,12 @@ describe("Collections", () => {
     await expect(
       collection.page({ cursor: wrongShape, query: await collection.parseQuery({}) }),
     ).rejects.toBeInstanceOf(CollectionCursorError)
-    const nonFinite = btoa("[1e400,\"id\"]").replaceAll("=", "")
-    await expect(
-      collection.page({ cursor: nonFinite, query: await collection.parseQuery({}) }),
-    ).rejects.toBeInstanceOf(CollectionCursorError)
+    const nonFinite = btoa('[1e400,"id"]').replaceAll("=", "")
+    await expect(collection.page({ cursor: nonFinite, query: await collection.parseQuery({}) })).rejects.toBeInstanceOf(
+      CollectionCursorError,
+    )
 
-    const negativeZero = defineCollection(async () => [
-      { id: -0 },
-      { id: 1 },
-    ], {
+    const negativeZero = defineCollection(async () => [{ id: -0 }, { id: 1 }], {
       cursor: row => row.id,
       cursorSchema: v.number(),
       defaultLimit: 1,
@@ -118,6 +113,7 @@ describe("Collections", () => {
     )
 
     expect(() =>
+      // SAFETY: This empty fixture preserves the row contract needed to test invalid limits.
       defineCollection(async () => [] as Array<{ id: string }>, {
         cursor: (row: { id: string }) => row.id,
         cursorSchema: v.string(),

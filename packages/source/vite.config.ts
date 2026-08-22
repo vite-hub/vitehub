@@ -28,7 +28,7 @@ export default defineConfig({
       customExports(exports) {
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
-            if (typeof value !== "string" || !value.endsWith(".js")) {
+            if (String(value) !== value || !value.endsWith(".js")) {
               return [key, value];
             }
             return [

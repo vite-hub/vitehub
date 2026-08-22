@@ -8,6 +8,7 @@ import { useCollection } from "../src/client.ts"
 import type { CollectionPage } from "../src/index.ts"
 import type { CollectionRequester, UseCollectionReturn } from "../src/client.ts"
 
+// SAFETY: The fixture loader intentionally returns no rows while retaining its row contract.
 const definition = defineCollection(async () => [] as Array<{ id: number }>, {
   cursor: (item: { id: number }) => item.id,
   cursorSchema: v.number(),
@@ -24,28 +25,21 @@ interface RequestCall {
   endpoint: string
   options: Parameters<CollectionRequester>[1]
   reject: (error: unknown) => void
-  resolve: (value: any) => void
+  resolve: (value: unknown) => void
 }
 
 function controlledRequester() {
   const calls: RequestCall[] = []
-  const request = (<T>(endpoint: string, options: Parameters<CollectionRequester>[1]) =>
-    new Promise<T>((resolve, reject) => {
+  const request: CollectionRequester = (endpoint, options) =>
+    new Promise<unknown>((resolve, reject) => {
       const call: RequestCall = { endpoint, options, reject, resolve }
-      options.signal.addEventListener(
-        "abort",
-        () => reject(new DOMException("Aborted", "AbortError")),
-        { once: true },
-      )
+      options.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
       calls.push(call)
-    })) as CollectionRequester
+    })
   return { calls, request }
 }
 
-function page(
-  items: Array<{ id: number }>,
-  nextCursor: string | null,
-): CollectionPage<{ id: number }> {
+function page(items: Array<{ id: number }>, nextCursor: string | null): CollectionPage<{ id: number }> {
   return { items, nextCursor }
 }
 
@@ -102,8 +96,7 @@ describe("useCollection", () => {
       calls[0]!.resolve(page([], null))
       await refresh
       scope.stop()
-    }
-    finally {
+    } finally {
       vi.unstubAllGlobals()
     }
   })
@@ -155,9 +148,7 @@ describe("useCollection", () => {
     await refresh
 
     expect(collection.items.value).toEqual([])
-    expect(collection.error.value).toEqual(
-      new TypeError("[vitehub] Collection returned the same cursor twice."),
-    )
+    expect(collection.error.value).toEqual(new TypeError("[vitehub] Collection returned the same cursor twice."))
     scope.stop()
   })
 
@@ -179,9 +170,7 @@ describe("useCollection", () => {
     await loadMore
 
     expect(collection.items.value).toEqual([{ id: 1 }])
-    expect(collection.error.value).toEqual(
-      new TypeError("[vitehub] Collection returned the same cursor twice."),
-    )
+    expect(collection.error.value).toEqual(new TypeError("[vitehub] Collection returned the same cursor twice."))
     scope.stop()
   })
 
@@ -207,9 +196,7 @@ describe("useCollection", () => {
     await secondLoadMore
 
     expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }])
-    expect(collection.error.value).toEqual(
-      new TypeError("[vitehub] Collection returned the same cursor twice."),
-    )
+    expect(collection.error.value).toEqual(new TypeError("[vitehub] Collection returned the same cursor twice."))
     scope.stop()
   })
 

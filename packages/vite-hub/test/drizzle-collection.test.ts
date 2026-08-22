@@ -21,11 +21,16 @@ let tempDir = ""
 let closeDatabase = () => {}
 let runtimeDatabase: object = {}
 
-;(vi.mock as any)("@vite-hub/database/drizzle", () => ({
-  databases: {},
-  schema: collectionSchema,
-  useDatabase: () => runtimeDatabase,
-}), { virtual: true })
+// SAFETY: Vitest supports the virtual-module option at runtime before its public type includes it.
+;(vi.mock as any)(
+  "@vite-hub/database/drizzle",
+  () => ({
+    databases: {},
+    schema: collectionSchema,
+    useDatabase: () => runtimeDatabase,
+  }),
+  { virtual: true },
+)
 
 afterEach(async () => {
   closeDatabase()
@@ -86,12 +91,14 @@ describe("table Collection source", () => {
     expect(second.nextCursor).toBeNull()
 
     const wrongCursorTypes = btoa(JSON.stringify(["3000", "c"])).replaceAll("=", "")
-    await expect(meals.page({ cursor: wrongCursorTypes, query: {} }))
-      .rejects.toMatchObject({ name: "TypeError" })
+    await expect(meals.page({ cursor: wrongCursorTypes, query: {} })).rejects.toMatchObject({
+      name: "TypeError",
+    })
 
     const nullableCursor = btoa(JSON.stringify([3_000, null])).replaceAll("=", "")
-    await expect(meals.page({ cursor: nullableCursor, query: {} }))
-      .rejects.toMatchObject({ name: "TypeError" })
+    await expect(meals.page({ cursor: nullableCursor, query: {} })).rejects.toMatchObject({
+      name: "TypeError",
+    })
 
     const publishedMeals = defineCollection({
       source: table({
@@ -105,13 +112,13 @@ describe("table Collection source", () => {
       }),
     })
     const nonCanonicalBoolean = btoa(JSON.stringify([2, "c"])).replaceAll("=", "")
-    await expect(publishedMeals.page({ cursor: nonCanonicalBoolean, query: {} }))
-      .rejects.toMatchObject({ name: "TypeError" })
+    await expect(publishedMeals.page({ cursor: nonCanonicalBoolean, query: {} })).rejects.toMatchObject({
+      name: "TypeError",
+    })
 
     const controller = new AbortController()
     controller.abort(new Error("collection request stopped"))
-    await expect(meals.page({ query: {}, signal: controller.signal }))
-      .rejects.toThrow("collection request stopped")
+    await expect(meals.page({ query: {}, signal: controller.signal })).rejects.toThrow("collection request stopped")
 
     const dinners = defineCollection({
       source: table({
@@ -123,8 +130,7 @@ describe("table Collection source", () => {
           tieBreaker: schema.meals.id,
         },
         table: schema.meals,
-        where: ({ query, table }) =>
-          typeof query.kind === "string" ? eq(table.kind, query.kind) : undefined,
+        where: ({ query, table }) => (String(query.kind) === query.kind ? eq(table.kind, query.kind) : undefined),
       }),
     })
     const dinnerPage = await dinners.page({ query: { kind: "dinner" } })
@@ -140,16 +146,18 @@ describe("table Collection source", () => {
     const { db, schema } = await createTestDatabase()
     const { defineCollection, table } = await import("../src/source.ts")
 
-    expect(() => defineCollection({
-      source: table({
-        db,
-        orderBy: {
-          column: schema.meals.createdAt,
-          direction: "desc",
-          tieBreaker: schema.meals.kind,
-        },
-        table: schema.meals,
+    expect(() =>
+      defineCollection({
+        source: table({
+          db,
+          orderBy: {
+            column: schema.meals.createdAt,
+            direction: "desc",
+            tieBreaker: schema.meals.kind,
+          },
+          table: schema.meals,
+        }),
       }),
-    })).toThrow("Collection orderBy tieBreaker must be unique")
+    ).toThrow("Collection orderBy tieBreaker must be unique")
   })
 })

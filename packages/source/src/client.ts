@@ -2,12 +2,7 @@ import { $fetch } from "ofetch"
 import { computed, onScopeDispose, ref, toValue, watch } from "vue"
 
 import type { ComputedRef, MaybeRefOrGetter, Ref } from "vue"
-import type {
-  AnyCollection,
-  CollectionClientItem,
-  CollectionPage,
-  CollectionQuery,
-} from "./core/collection.ts"
+import type { AnyCollection, CollectionClientItem, CollectionPage, CollectionQuery } from "./core/collection.ts"
 
 declare const __VITEHUB_APP_BASE_URL__: string
 
@@ -16,10 +11,7 @@ export interface CollectionRequestOptions {
   signal: AbortSignal
 }
 
-export type CollectionRequester = <T>(
-  endpoint: string,
-  options: CollectionRequestOptions,
-) => Promise<T>
+export type CollectionRequester = (endpoint: string, options: CollectionRequestOptions) => Promise<unknown>
 
 declare global {
   interface ViteHubCollectionMap {}
@@ -27,10 +19,7 @@ declare global {
 
 export type CollectionName = Extract<keyof ViteHubCollectionMap, string>
 
-type RegisteredCollection<TName extends CollectionName> = Extract<
-  ViteHubCollectionMap[TName],
-  AnyCollection
->
+type RegisteredCollection<TName extends CollectionName> = Extract<ViteHubCollectionMap[TName], AnyCollection>
 
 export interface UseCollectionOptions<TCollection extends AnyCollection> {
   all?: boolean
@@ -49,22 +38,37 @@ export interface UseCollectionReturn<TCollection extends AnyCollection> {
   refresh: () => Promise<CollectionPage<CollectionClientItem<TCollection>> | undefined>
 }
 
-const defaultRequester: CollectionRequester = async <T>(
-  endpoint: string,
-  options: CollectionRequestOptions,
-) => {
-  return await $fetch<T>(endpoint, options)
+const defaultRequester: CollectionRequester = async (endpoint: string, options: CollectionRequestOptions) => {
+  return await $fetch<unknown>(endpoint, options)
 }
 
 function isAbortError(error: unknown): boolean {
-  return Boolean(
-    error && typeof error === "object" && "name" in error && error.name === "AbortError",
-  )
+  return Object(error) === error && Reflect.get(Object(error), "name") === "AbortError"
+}
+
+function parseCollectionPage(value: unknown): CollectionPage<unknown> {
+  if (Object(value) !== value) {
+    throw new TypeError("[vitehub] Collection response must be an object.")
+  }
+  const items = Reflect.get(Object(value), "items")
+  const nextCursor = Reflect.get(Object(value), "nextCursor")
+  if (!Array.isArray(items) || !(nextCursor === null || String(nextCursor) === nextCursor)) {
+    throw new TypeError("[vitehub] Collection response must contain items and nextCursor.")
+  }
+  return { items, nextCursor }
+}
+
+function appBaseURL(): string {
+  try {
+    return __VITEHUB_APP_BASE_URL__
+  } catch {
+    return "/"
+  }
 }
 
 function collectionEndpoint(name: CollectionName): string {
   const path = `/api/${String(name).split("/").map(encodeURIComponent).join("/")}`
-  const baseURL = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
+  const baseURL = appBaseURL()
   return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
 }
 
@@ -77,6 +81,7 @@ export function useCollection<TName extends CollectionName>(
   type TPage = CollectionPage<TItem>
 
   const endpoint = collectionEndpoint(name)
+  // SAFETY: Vue unwraps array values but preserves the Collection item contract exposed by this Ref.
   const items = ref<TItem[]>([]) as Ref<TItem[]>
   const nextCursor = ref<string | null>(null)
   const pending = ref(false)
@@ -107,14 +112,18 @@ export function useCollection<TName extends CollectionName>(
       const seenCursors = new Set(cursors)
       if (cursor) seenCursors.add(cursor)
       do {
-        response = await request<TPage>(endpoint, {
-          query: {
-            ...filter,
-            cursor,
-            limit: options.limit,
-          },
-          signal: controller.signal,
-        })
+        const parsed = parseCollectionPage(
+          await request(endpoint, {
+            query: {
+              ...filter,
+              cursor,
+              limit: options.limit,
+            },
+            signal: controller.signal,
+          }),
+        )
+        // SAFETY: The generated endpoint derives its item contract from this registered Collection.
+        response = { items: parsed.items as TItem[], nextCursor: parsed.nextCursor }
         if (active !== controller) return
         loadedItems = [...loadedItems, ...response.items]
         cursor = response.nextCursor || undefined
@@ -147,8 +156,7 @@ export function useCollection<TName extends CollectionName>(
     },
     {
       deep: true,
-      immediate:
-        options.immediate !== false && (options.request !== undefined || "window" in globalThis),
+      immediate: options.immediate !== false && (options.request !== undefined || "window" in globalThis),
     },
   )
   onScopeDispose(() => {

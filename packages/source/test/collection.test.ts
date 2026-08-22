@@ -39,8 +39,14 @@ describe("combined Sources", () => {
     const collection = combineSources({ sources: { keyed } })
 
     await expect(collection.get(["keyed", "july"])).resolves.toBe("/recaps:JULY")
-    await expect(collection.items()).rejects.toMatchObject({ code: "SOURCE_FAILED", name: "ViteHubError" })
-    await expect(collection.get(["missing" as "keyed", "july"])).rejects.toThrow("Combined Source alias \"missing\" is not defined")
+    await expect(collection.items()).rejects.toMatchObject({
+      code: "SOURCE_FAILED",
+      name: "ViteHubError",
+    })
+    // SAFETY: The test deliberately supplies a missing alias to exercise runtime validation.
+    const missingIdentity = ["missing" as "keyed", "july"] as const
+    await expect(collection.get(missingIdentity)).rejects.toThrow('Combined Source alias "missing" is not defined')
+    // SAFETY: The test deliberately supplies the pre-tuple legacy shape to exercise runtime validation.
     await expect(collection.get("keyed:july" as never)).rejects.toBeInstanceOf(TypeError)
   })
 
@@ -48,12 +54,21 @@ describe("combined Sources", () => {
     const items = vi.fn(async () => [{ key: "one" }])
     const collection = combineSources({
       sources: {
-        enumerable: { async get(key: string) { return key }, items },
-        keyed: { async get(key: string) { return key } },
+        enumerable: {
+          async get(key: string) {
+            return key
+          },
+          items,
+        },
+        keyed: {
+          async get(key: string) {
+            return key
+          },
+        },
       },
     })
 
-    await expect(collection.items()).rejects.toThrow("Combined Source alias \"keyed\" is not enumerable")
+    await expect(collection.items()).rejects.toThrow('Combined Source alias "keyed" is not enumerable')
     expect(items).not.toHaveBeenCalled()
   })
 })

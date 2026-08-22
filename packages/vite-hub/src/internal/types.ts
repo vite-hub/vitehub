@@ -1,7 +1,11 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import {
+  resolveViteHubProjectRoot,
+  VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_SERVER_DIRS,
+} from "@vite-hub/internal/build/vite"
 import { findExportNames } from "mlly"
 
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
@@ -42,9 +46,10 @@ function collectionRouteGuard(collectionHandlers: GeneratedCollectionHandler[]) 
     setup(nitro: NitroRouteGuard) {
       nitro.hooks.hook("build:before", () => {
         for (const collectionHandler of collectionHandlers) {
-          const duplicate = nitro.scannedHandlers.some(candidate =>
-            candidate.route === collectionHandler.route
-            && (!candidate.method || candidate.method.toLowerCase() === collectionHandler.method),
+          const duplicate = nitro.scannedHandlers.some(
+            candidate =>
+              candidate.route === collectionHandler.route &&
+              (!candidate.method || candidate.method.toLowerCase() === collectionHandler.method),
           )
           if (duplicate) {
             throw new TypeError(
@@ -61,22 +66,22 @@ export function mergeGeneratedCollectionNitroConfig(
   value: unknown,
   collectionHandlers: GeneratedCollectionHandler[],
 ): NitroCollectionConfig {
-  const nitro = value && typeof value === "object" && !Array.isArray(value)
-    ? { ...value } as NitroCollectionConfig
-    : {}
+  const nitro: NitroCollectionConfig = {}
+  if (Object(value) === value && !Array.isArray(value)) Object.assign(nitro, value)
   if (collectionHandlers.length === 0) return nitro
   const handlers = Array.isArray(nitro.handlers) ? [...nitro.handlers] : []
 
   for (const handler of collectionHandlers) {
-    const exact = handlers.some(candidate =>
-      candidate.handler === handler.handler
-      && candidate.route === handler.route
-      && candidate.method?.toLowerCase() === handler.method,
+    const exact = handlers.some(
+      candidate =>
+        candidate.handler === handler.handler &&
+        candidate.route === handler.route &&
+        candidate.method?.toLowerCase() === handler.method,
     )
     if (exact) continue
-    const duplicate = handlers.some(candidate =>
-      candidate.route === handler.route
-      && (!candidate.method || candidate.method.toLowerCase() === handler.method),
+    const duplicate = handlers.some(
+      candidate =>
+        candidate.route === handler.route && (!candidate.method || candidate.method.toLowerCase() === handler.method),
     )
     if (duplicate) {
       throw new TypeError(
@@ -88,8 +93,8 @@ export function mergeGeneratedCollectionNitroConfig(
 
   const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []
   if (
-    !modules.some(module =>
-      Boolean(module && typeof module === "object" && "name" in module && module.name === "vite-hub/collection-route-guard"),
+    !modules.some(
+      module => Object(module) === module && Reflect.get(Object(module), "name") === "vite-hub/collection-route-guard",
     )
   ) {
     modules.push(collectionRouteGuard(collectionHandlers))
@@ -108,13 +113,21 @@ interface ViteHubTypesOptions {
   serverDirs?: string[]
 }
 
+interface ViteHubPluginConfig {
+  base?: string
+  define?: Record<string, string>
+  nitro?: unknown
+  root?: string
+  [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+  [VITEHUB_SERVER_DIRS]?: string[]
+}
+
 async function collectCollectionFiles(directory: string): Promise<string[]> {
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+  } catch (error) {
+    if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return []
     throw error
   }
 
@@ -122,9 +135,8 @@ async function collectCollectionFiles(directory: string): Promise<string[]> {
   for (const entry of entries) {
     const path = join(directory, entry.name)
     if (entry.isDirectory()) {
-      files.push(...await collectCollectionFiles(path))
-    }
-    else if (entry.isFile() && /\.(?:[cm]?[jt]s)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+      files.push(...(await collectCollectionFiles(path)))
+    } else if (entry.isFile() && /\.(?:[cm]?[jt]s)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) {
       files.push(path)
     }
   }
@@ -133,32 +145,39 @@ async function collectCollectionFiles(directory: string): Promise<string[]> {
 
 async function discoverCollections(options: ViteHubTypesOptions): Promise<DiscoveredCollection[]> {
   const { projectRoot } = options
-  const serverDirs = options.serverDirs === undefined
-    ? [resolve(projectRoot, "server")]
-    : options.serverDirs.map(directory => resolve(projectRoot, directory))
-  const collections = (await Promise.all(serverDirs.map(async (serverDir) => {
-    const collectionsDirectory = resolve(serverDir, "collections")
-    const files = (await collectCollectionFiles(collectionsDirectory)).sort()
-    return await Promise.all(files.map(async (file) => {
-      const extension = extname(file)
-      const exportName = basename(file, extension)
-      if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
-        throw new TypeError(
-          `[vitehub] Collection file ${JSON.stringify(relative(projectRoot, file))} must use a valid JavaScript identifier as its filename.`,
+  const serverDirs =
+    options.serverDirs === undefined
+      ? [resolve(projectRoot, "server")]
+      : options.serverDirs.map(directory => resolve(projectRoot, directory))
+  const collections = (
+    await Promise.all(
+      serverDirs.map(async serverDir => {
+        const collectionsDirectory = resolve(serverDir, "collections")
+        const files = (await collectCollectionFiles(collectionsDirectory)).sort()
+        return await Promise.all(
+          files.map(async file => {
+            const extension = extname(file)
+            const exportName = basename(file, extension)
+            if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
+              throw new TypeError(
+                `[vitehub] Collection file ${JSON.stringify(relative(projectRoot, file))} must use a valid JavaScript identifier as its filename.`,
+              )
+            }
+            const name = relative(collectionsDirectory, file).slice(0, -extension.length).replaceAll("\\", "/")
+            const source = await readFile(file, "utf8")
+            if (!findExportNames(source).includes(exportName)) {
+              throw new TypeError(
+                `[vitehub] Collection file ${JSON.stringify(relative(projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.`,
+              )
+            }
+            return { exportName, file, name }
+          }),
         )
-      }
-      const name = relative(collectionsDirectory, file)
-        .slice(0, -extension.length)
-        .replaceAll("\\", "/")
-      const source = await readFile(file, "utf8")
-      if (!findExportNames(source).includes(exportName)) {
-        throw new TypeError(
-          `[vitehub] Collection file ${JSON.stringify(relative(projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.`,
-        )
-      }
-      return { exportName, file, name }
-    }))
-  }))).flat().sort((left, right) => left.name.localeCompare(right.name))
+      }),
+    )
+  )
+    .flat()
+    .sort((left, right) => left.name.localeCompare(right.name))
 
   for (let index = 1; index < collections.length; index++) {
     if (collections[index - 1]!.name === collections[index]!.name) {
@@ -180,43 +199,51 @@ async function writeCollectionArtifacts(options: ViteHubTypesOptions): Promise<G
     return []
   }
 
-  await writeFileIfChanged(output, [
-    `declare global {`,
-    `  interface ViteHubCollectionMap {`,
-    ...collections.map(({ exportName, file, name }) =>
-      `    ${JSON.stringify(name)}: typeof import(${JSON.stringify(file)})[${JSON.stringify(exportName)}]`,
-    ),
-    `  }`,
-    `}`,
-    ``,
-    `export {}`,
-    ``,
-  ].join("\n"))
+  await writeFileIfChanged(
+    output,
+    [
+      `declare global {`,
+      `  interface ViteHubCollectionMap {`,
+      ...collections.map(
+        ({ exportName, file, name }) =>
+          `    ${JSON.stringify(name)}: typeof import(${JSON.stringify(file)})[${JSON.stringify(exportName)}]`,
+      ),
+      `  }`,
+      `}`,
+      ``,
+      `export {}`,
+      ``,
+    ].join("\n"),
+  )
 
-  return await Promise.all(collections.map(async ({ exportName, file, name }) => {
-    const handler = resolve(routesDirectory, `${name}.mjs`)
-    await writeFileIfChanged(handler, [
-      `import { defineCollectionHandler } from "vite-hub/source/server"`,
-      `import { ${exportName} as collection } from ${JSON.stringify(file)}`,
-      ``,
-      `export default defineCollectionHandler(collection)`,
-      ``,
-    ].join("\n"))
-    return {
-      handler,
-      method: "get" as const,
-      route: `/api/${name.split("/").map(encodeURIComponent).join("/")}`,
-    }
-  }))
+  return await Promise.all(
+    collections.map(async ({ exportName, file, name }) => {
+      const handler = resolve(routesDirectory, `${name}.mjs`)
+      await writeFileIfChanged(
+        handler,
+        [
+          `import { defineCollectionHandler } from "vite-hub/source/server"`,
+          `import { ${exportName} as collection } from ${JSON.stringify(file)}`,
+          ``,
+          `export default defineCollectionHandler(collection)`,
+          ``,
+        ].join("\n"),
+      )
+      return {
+        handler,
+        method: "get" as const,
+        route: `/api/${name.split("/").map(encodeURIComponent).join("/")}`,
+      }
+    }),
+  )
 }
 
 async function collectGeneratedTypeFiles(directory: string, root = directory): Promise<string[]> {
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+  } catch (error) {
+    if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return []
     throw error
   }
 
@@ -224,9 +251,8 @@ async function collectGeneratedTypeFiles(directory: string, root = directory): P
   for (const entry of entries) {
     const path = join(directory, entry.name)
     if (entry.isDirectory() && !(directory === root && entry.name === "data")) {
-      files.push(...await collectGeneratedTypeFiles(path, root))
-    }
-    else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
+      files.push(...(await collectGeneratedTypeFiles(path, root)))
+    } else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
       const generatedPath = relative(root, path).replaceAll("\\", "/")
       if (generatedPath !== "types.d.ts") files.push(generatedPath)
     }
@@ -238,17 +264,20 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
   let current: string | undefined
   try {
     current = await readFile(path, "utf8")
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  } catch (error) {
+    if (!(error instanceof Error) || Reflect.get(error, "code") !== "ENOENT") throw error
   }
   if (current === contents) return
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, contents, "utf8")
 }
 
+function isString(value: unknown): value is string {
+  return String(value) === value
+}
+
 async function writeViteHubTypes(input: string | ViteHubTypesOptions): Promise<GeneratedCollectionHandler[]> {
-  const options = typeof input === "string" ? { projectRoot: input } : input
+  const options = isString(input) ? { projectRoot: input } : input
   const handlers = await writeCollectionArtifacts(options)
   const directory = resolve(options.projectRoot, ".vitehub")
   const files = (await collectGeneratedTypeFiles(directory)).sort()
@@ -260,9 +289,10 @@ async function writeViteHubTypes(input: string | ViteHubTypesOptions): Promise<G
   return handlers
 }
 
-export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
-  api: { prepareTypes: typeof writeViteHubTypes }
-} {
+export function viteHubTypesPlugin(): Plugin &
+  ViteHubCliContributingPlugin & {
+    api: { prepareTypes: typeof writeViteHubTypes }
+  } {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   const refreshGeneratedTypes = async () => {
@@ -276,19 +306,27 @@ export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
       prepareTypes: writeViteHubTypes,
     },
     async config(config) {
-      if ((config as typeof config & { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT]) return
-      projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
-      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      const rawConfig: unknown = config
+      // SAFETY: Vite plugin composition adds these symbol-keyed ViteHub fields to UserConfig.
+      const viteConfig = rawConfig as ViteHubPluginConfig
+      if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
+      projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await writeViteHubTypes({ projectRoot, serverDirs })
-      const viteConfig = config as typeof config & { nitro?: unknown }
+      viteConfig.define = {
+        ...viteConfig.define,
+        __VITEHUB_APP_BASE_URL__: JSON.stringify(viteConfig.base || "/"),
+      }
       viteConfig.nitro = mergeGeneratedCollectionNitroConfig(viteConfig.nitro, handlers)
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
-      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      const rawConfig: unknown = config
+      // SAFETY: ViteHub adds these symbol-keyed fields before Vite resolves the config.
+      const viteConfig = rawConfig as ViteHubPluginConfig
+      serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await writeViteHubTypes({ projectRoot, serverDirs })
-      if (!(config as typeof config & { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT]) {
-        const viteConfig = config as typeof config & { nitro?: unknown }
+      if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
         viteConfig.nitro = mergeGeneratedCollectionNitroConfig(viteConfig.nitro, handlers)
       }
     },
@@ -296,20 +334,24 @@ export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
     buildEnd: refreshGeneratedTypes,
     vitehub: {
       cli: {
-        namespaces: [{
-          description: "Generate ViteHub TypeScript declarations.",
-          features: [{
-            description: "Prepare generated declarations for editors and type checking.",
-            name: "prepare",
-            async run(_args, context) {
-              const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
-              await writeViteHubTypes({ projectRoot: root, serverDirs })
-              context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)
-            },
-            usage: "vitehub types prepare",
-          }],
-          name: "types",
-        }],
+        namespaces: [
+          {
+            description: "Generate ViteHub TypeScript declarations.",
+            features: [
+              {
+                description: "Prepare generated declarations for editors and type checking.",
+                name: "prepare",
+                async run(_args, context) {
+                  const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
+                  await writeViteHubTypes({ projectRoot: root, serverDirs })
+                  context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)
+                },
+                usage: "vitehub types prepare",
+              },
+            ],
+            name: "types",
+          },
+        ],
       },
     },
   }

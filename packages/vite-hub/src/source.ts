@@ -1,12 +1,7 @@
 import { defineCollection as defineCoreCollection } from "@vite-hub/source"
 import { and, asc, desc, eq, getTableColumns, gt, lt, or } from "drizzle-orm"
 
-import type {
-  Collection,
-  CollectionCursorValue,
-  CollectionLoader,
-  CollectionRequestQuery,
-} from "@vite-hub/source"
+import type { Collection, CollectionCursorValue, CollectionLoader, CollectionRequestQuery } from "@vite-hub/source"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { SQL } from "drizzle-orm"
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
@@ -34,13 +29,10 @@ interface TableShape {
   readonly $inferSelect: Record<string, unknown>
 }
 
-type TableColumn<TTable extends TableShape> =
-  TTable["_"]["columns"][keyof TTable["_"]["columns"]]
+type TableColumn<TTable extends TableShape> = TTable["_"]["columns"][keyof TTable["_"]["columns"]]
 
 type QueryOutput<TSchema extends StandardSchemaV1<unknown, object> | undefined> =
-  TSchema extends StandardSchemaV1<unknown, infer TOutput extends object>
-    ? TOutput
-    : CollectionRequestQuery
+  TSchema extends StandardSchemaV1<unknown, infer TOutput extends object> ? TOutput : CollectionRequestQuery
 
 export interface TableSourceOptions<
   TTable extends TableShape,
@@ -58,10 +50,7 @@ export interface TableSourceOptions<
   }
   querySchema?: TQuerySchema
   table: TTable
-  where?: (context: {
-    query: QueryOutput<TQuerySchema>
-    table: TTable
-  }) => { getSQL(): unknown } | undefined
+  where?: (context: { query: QueryOutput<TQuerySchema>; table: TTable }) => { getSQL(): unknown } | undefined
 }
 
 type KeysetCursor = readonly (boolean | null | number | string)[]
@@ -71,18 +60,23 @@ const requestQuerySchema: StandardSchemaV1<unknown, CollectionRequestQuery> = {
     version: 1,
     vendor: "vite-hub",
     validate(value) {
-      return value && typeof value === "object" && !Array.isArray(value)
-        ? { value: value as CollectionRequestQuery }
-        : { issues: [{ message: "Collection query must be an object." }] }
+      if (Object(value) !== value || Array.isArray(value)) {
+        return { issues: [{ message: "Collection query must be an object." }] }
+      }
+      // SAFETY: The default query contract permits every own string key on this validated object.
+      return { value: value as CollectionRequestQuery }
     },
   },
 }
 
 function isCursorScalar(value: unknown): value is boolean | null | number | string {
-  return value === null
-    || typeof value === "boolean"
-    || typeof value === "string"
-    || (typeof value === "number" && Number.isFinite(value))
+  return (
+    value === null ||
+    value === true ||
+    value === false ||
+    String(value) === value ||
+    (Number(value) === value && Number.isFinite(Number(value)))
+  )
 }
 
 function driverType(column: AnySQLiteColumn): "number" | "string" {
@@ -91,18 +85,15 @@ function driverType(column: AnySQLiteColumn): "number" | "string" {
   throw new TypeError("[vitehub] Collection orderBy columns must encode as number or string values.")
 }
 
-function isColumnDriverValue(
-  column: AnySQLiteColumn,
-  type: "number" | "string",
-  value: unknown,
-): boolean {
-  if (typeof value !== type || (typeof value === "number" && !Number.isFinite(value))) {
+function isColumnDriverValue(column: AnySQLiteColumn, type: "number" | "string", value: unknown): boolean {
+  const representationMatches =
+    type === "string" ? String(value) === value : Number(value) === value && Number.isFinite(Number(value))
+  if (!representationMatches) {
     return false
   }
   try {
     return Object.is(column.mapToDriverValue(column.mapFromDriverValue(value)), value)
-  }
-  catch {
+  } catch {
     return false
   }
 }
@@ -114,19 +105,23 @@ function keysetCursorSchema(columns: readonly AnySQLiteColumn[]): StandardSchema
       version: 1,
       vendor: "vite-hub",
       validate(value) {
-        return Array.isArray(value)
-          && value.length === columns.length
-          && value.every((entry, index) => isColumnDriverValue(columns[index]!, types[index]!, entry))
-          ? { value: value as unknown as KeysetCursor }
-          : { issues: [{ message: "Collection keyset cursor is malformed." }] }
+        if (
+          !Array.isArray(value) ||
+          value.length !== columns.length ||
+          !value.every((entry, index) => isColumnDriverValue(columns[index]!, types[index]!, entry))
+        ) {
+          return { issues: [{ message: "Collection keyset cursor is malformed." }] }
+        }
+        const validated: unknown = value
+        // SAFETY: Every tuple entry passed its owning Drizzle column driver roundtrip above.
+        return { value: validated as KeysetCursor }
       },
     },
   }
 }
 
 function columnKey(table: SQLiteTable, column: AnySQLiteColumn): string {
-  const entry = Object.entries(getTableColumns(table))
-    .find(([, candidate]) => candidate === column)
+  const entry = Object.entries(getTableColumns(table)).find(([, candidate]) => candidate === column)
   if (!entry) {
     throw new TypeError("[vitehub] Collection orderBy columns must belong to its table.")
   }
@@ -147,40 +142,37 @@ function cursorWhere(
   direction: "asc" | "desc",
 ): SQL | undefined {
   const compare = direction === "asc" ? gt : lt
-  return or(...columns.map((column, index) => and(
-    ...columns.slice(0, index).map((previous, previousIndex) =>
-      eq(previous, previous.mapFromDriverValue(cursor[previousIndex])),
+  return or(
+    ...columns.map((column, index) =>
+      and(
+        ...columns
+          .slice(0, index)
+          .map((previous, previousIndex) => eq(previous, previous.mapFromDriverValue(cursor[previousIndex]))),
+        compare(column, column.mapFromDriverValue(cursor[index])),
+      ),
     ),
-    compare(column, column.mapFromDriverValue(cursor[index])),
-  )))
+  )
 }
 
-export function table<
-  TTable extends TableShape,
-  TQuerySchema extends StandardSchemaV1<unknown, object>,
->(options: TableSourceOptions<TTable, TQuerySchema> & {
-  querySchema: TQuerySchema
-}): CollectionSource<
-  TTable["$inferSelect"],
-  StandardSchemaV1.InferOutput<TQuerySchema>,
-  KeysetCursor
->
-export function table<
-  TTable extends TableShape,
->(options: TableSourceOptions<TTable> & {
-  querySchema?: undefined
-}): CollectionSource<TTable["$inferSelect"], CollectionRequestQuery, KeysetCursor>
-export function table(input: unknown): CollectionSource<
-  any,
-  any,
-  KeysetCursor
-> {
-  const options = input as TableSourceOptions<
-    TableShape,
-    StandardSchemaV1<unknown, object> | undefined
-  >
-  const databaseTable = options.table as unknown as SQLiteTable
+export function table<TTable extends TableShape, TQuerySchema extends StandardSchemaV1<unknown, object>>(
+  options: TableSourceOptions<TTable, TQuerySchema> & {
+    querySchema: TQuerySchema
+  },
+): CollectionSource<TTable["$inferSelect"], StandardSchemaV1.InferOutput<TQuerySchema>, KeysetCursor>
+export function table<TTable extends TableShape>(
+  options: TableSourceOptions<TTable> & {
+    querySchema?: undefined
+  },
+): CollectionSource<TTable["$inferSelect"], CollectionRequestQuery, KeysetCursor>
+export function table(input: unknown): CollectionSource<any, any, KeysetCursor> {
+  // SAFETY: Public overloads constrain input to TableSourceOptions before this implementation runs.
+  const options = input as TableSourceOptions<TableShape, StandardSchemaV1<unknown, object> | undefined>
+  const rawTable: unknown = options.table
+  // SAFETY: TableShape is the structural subset supplied by every supported Drizzle SQLite table.
+  const databaseTable = rawTable as SQLiteTable
+  // SAFETY: TableSourceOptions requires the Drizzle select entry point used below.
   const database = options.db as { select(): any }
+  // SAFETY: TableSourceOptions constrains both order columns to this table's column union.
   const columns = [options.orderBy.column, options.orderBy.tieBreaker] as AnySQLiteColumn[]
   const keys = columns.map(column => columnKey(databaseTable, column))
 
@@ -195,7 +187,8 @@ export function table(input: unknown): CollectionSource<
   }
 
   const direction = options.orderBy.direction
-  const order = columns.map(column => direction === "asc" ? asc(column) : desc(column))
+  const order = columns.map(column => (direction === "asc" ? asc(column) : desc(column)))
+  // SAFETY: Both the custom and default schemas return object-shaped Collection queries.
   const querySchema = (options.querySchema ?? requestQuerySchema) as StandardSchemaV1<unknown, object>
 
   return {
@@ -204,14 +197,16 @@ export function table(input: unknown): CollectionSource<
     defaultLimit: options.defaultLimit,
     async load({ cursor, limit, query, signal }) {
       signal?.throwIfAborted()
+      // SAFETY: The where hook contract returns a Drizzle SQL expression when it returns a value.
       const filter = options.where?.({ query, table: options.table }) as SQL | undefined
       const after = cursor ? cursorWhere(columns, cursor, direction) : undefined
-      const rows = await database
+      // SAFETY: Drizzle selects the table's declared $inferSelect row shape.
+      const rows = (await database
         .select()
         .from(databaseTable)
         .where(and(filter, after))
         .orderBy(...order)
-        .limit(limit) as TableShape["$inferSelect"][]
+        .limit(limit)) as TableShape["$inferSelect"][]
       signal?.throwIfAborted()
       return rows
     },
@@ -227,9 +222,7 @@ type SourceQuery<TSource extends AnyCollectionSource> =
   TSource extends CollectionSource<any, infer TQuery, any, any> ? TQuery : never
 
 interface DefineSourceCollection {
-  <TSource extends AnyCollectionSource, TTransform extends (
-    item: NoInfer<SourceItem<TSource>>,
-  ) => unknown>(options: {
+  <TSource extends AnyCollectionSource, TTransform extends (item: NoInfer<SourceItem<TSource>>) => unknown>(options: {
     source: TSource
     transform: TTransform
   }): Collection<Awaited<ReturnType<TTransform>>, SourceQuery<TSource>>
@@ -239,12 +232,16 @@ interface DefineSourceCollection {
   }): Collection<SourceItem<TSource>, SourceQuery<TSource>>
 }
 
-export const defineCollection = ((
-  input: Parameters<typeof defineCoreCollection>[0] | { source: AnyCollectionSource, transform?: (item: any) => unknown },
+const defineCollectionImplementation = (
+  input:
+    | Parameters<typeof defineCoreCollection>[0]
+    | { source: AnyCollectionSource; transform?: (item: any) => unknown },
   options?: Parameters<typeof defineCoreCollection>[1],
 ) => {
-  const callCore = defineCoreCollection as unknown as (...args: unknown[]) => unknown
-  if (typeof input === "function") return callCore(input, options)
+  const core: unknown = defineCoreCollection
+  // SAFETY: This adapter forwards one of the public defineCollection overload argument sets.
+  const callCore = core as (...args: unknown[]) => unknown
+  if (input instanceof Function) return callCore(input, options)
   const { source, transform } = input
   return callCore(source.load, {
     cursor: source.cursor,
@@ -254,4 +251,7 @@ export const defineCollection = ((
     querySchema: source.querySchema,
     transform,
   })
-}) as typeof defineCoreCollection & DefineSourceCollection
+}
+
+// SAFETY: The implementation dispatches the core loader and Source object overloads above.
+export const defineCollection = defineCollectionImplementation as typeof defineCoreCollection & DefineSourceCollection
