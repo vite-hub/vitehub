@@ -172,6 +172,7 @@ import type {
   AgentSettings,
   AgentStaticCapabilitiesList,
   IsTypedAgentStaticCapabilitiesList,
+  AgentTelemetryConfiguration,
   AgentTelemetryContentOptions,
   AgentToolSet,
   AgentToolStepItem,
@@ -2204,6 +2205,54 @@ function withAgentTelemetryLogContent(
   }))
 }
 
+function agentTelemetryConfigurationLogRecord(
+  invocationId: string,
+  configuration: AgentTelemetryConfiguration,
+  correlation: OpenTelemetryLogRecordView,
+): OpenTelemetryLogRecordView {
+  return {
+    attributes: {
+      "agent.invocation.id": invocationId,
+      "vitehub.agent.configuration": configuration,
+      "vitehub.event.sequence": 0,
+      "vitehub.event.type": "capability",
+    },
+    eventName: "vitehub.agent.configured",
+    spanId: correlation.spanId,
+    time: correlation.time,
+    traceId: correlation.traceId,
+  }
+}
+
+function agentTelemetryConfigurationValue(
+  context: AgentInvocationContextStore,
+  registration: AgentCapabilityRegistries["telemetry"][number]["registration"],
+): AgentTelemetryConfiguration | undefined {
+  const configuration = getAgentTelemetryConfiguration(context)?.value
+  if (!configuration || registration.content?.instructions) return configuration
+  const { instructions: _instructions, ...metadataConfiguration } = configuration
+  return metadataConfiguration
+}
+
+function agentTelemetryCorrelationRecord(
+  events: readonly TraceEventLogEntry[],
+  registration: AgentCapabilityRegistries["telemetry"][number]["registration"],
+): OpenTelemetryLogRecordView | undefined {
+  const first = events[0]
+  const last = events.at(-1)
+  if (!first || !last) return
+  const correlationEvents = first === last ? [first] : [first, last]
+  const metadataRecords = traceEventsToOpenTelemetryLogRecords(correlationEvents, { content: "metadata" })
+  const records = registration.content?.inputs || registration.content?.outputs
+    ? withAgentTelemetryLogContent(
+        metadataRecords,
+        traceEventsToOpenTelemetryLogRecords(correlationEvents, { content: "content" }),
+        registration.content,
+      )
+    : metadataRecords
+  return records.at(-1)
+}
+
 async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeConfig>(
   telemetry: AgentCapabilityRegistries["telemetry"],
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
@@ -2211,6 +2260,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
   agent: { name?: string, version?: string },
   invocationId: string,
   liveLogCursors?: Map<AgentCapabilityRegistries["telemetry"][number], number>,
+  configurationDelivered?: Set<AgentCapabilityRegistries["telemetry"][number]>,
 ): Promise<void> {
   if (!telemetry.length || !runtime.traceLog) return
   const events = runtime.traceLog.entries().filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
@@ -2271,7 +2321,12 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
           })
       : baseSpans
     const spans = registration.live && (liveLogCursors?.get(item) || 0) >= terminalSequence
-      ? configuredSpans.map(span => ({ ...span, events: undefined }))
+      ? configuredSpans.map((span, index) => ({
+          ...span,
+          events: !index && configurationValue && !configurationDelivered?.has(item)
+            ? span.events?.slice(0, 1)
+            : undefined,
+        }))
       : configuredSpans
     try {
       await registration.exporter({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, signal: "traces", spans })
@@ -2291,22 +2346,24 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
   invocationId: string,
   throughSequence: number,
   cursors: Map<AgentCapabilityRegistries["telemetry"][number], number>,
+  configurationDelivered: Set<AgentCapabilityRegistries["telemetry"][number]>,
   includeConfiguration = false,
 ): Promise<void> {
   if (!telemetry.length || !runtime.traceLog) return
   const name = runtime.agentIdentity?.name || agent.name
-  const configuration = getAgentTelemetryConfiguration(context)
   const invocationEvents = runtime.traceLog.entries().filter(event => event.sequence <= throughSequence
     && event.attributes?.["agent.invocation.id"] === invocationId)
   const exports = await Promise.allSettled(telemetry.map(async (item) => {
     const { capabilityId, registration } = item
+    const configurationValue = agentTelemetryConfigurationValue(context, registration)
     let afterSequence = cursors.get(item) || 0
     while (true) {
       const nextIndex = invocationEvents.findIndex(event => event.sequence > afterSequence)
       if (nextIndex < 0) return
       const remainingCount = invocationEvents.length - nextIndex
-      const reservesConfigurationSlot = includeConfiguration && remainingCount <= agentTelemetryMaxBatchSize
-      const finalBatchIncludesConfiguration = includeConfiguration && remainingCount < agentTelemetryMaxBatchSize
+      const needsConfiguration = includeConfiguration && configurationValue && !configurationDelivered.has(item)
+      const reservesConfigurationSlot = needsConfiguration && remainingCount <= agentTelemetryMaxBatchSize
+      const finalBatchIncludesConfiguration = needsConfiguration && remainingCount < agentTelemetryMaxBatchSize
       const eventLimit = reservesConfigurationSlot ? agentTelemetryMaxBatchSize - 1 : agentTelemetryMaxBatchSize
       const events = invocationEvents.slice(nextIndex, nextIndex + eventLimit)
       const anchor = invocationEvents[0]
@@ -2323,24 +2380,8 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
             registration.content,
           )
         : metadataRecords
-      let configurationValue = configuration?.value
-      if (configurationValue && !registration.content?.instructions) {
-        const { instructions: _instructions, ...metadataConfiguration } = configurationValue
-        configurationValue = metadataConfiguration
-      }
       const configuredRecords = configurationValue && finalBatchIncludesConfiguration && records[0]
-        ? [{
-            attributes: {
-              "agent.invocation.id": invocationId,
-              "vitehub.agent.configuration": configurationValue,
-              "vitehub.event.sequence": 0,
-              "vitehub.event.type": "capability",
-            },
-            eventName: "vitehub.agent.configured",
-            spanId: records[0].spanId,
-            time: records[0].time,
-            traceId: records[0].traceId,
-          }, ...records]
+        ? [agentTelemetryConfigurationLogRecord(invocationId, configurationValue, records[0]), ...records]
         : records
       try {
         await registration.exporter({
@@ -2356,7 +2397,45 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
       }
       afterSequence = events.at(-1)!.sequence
       cursors.set(item, afterSequence)
+      if (finalBatchIncludesConfiguration) configurationDelivered.add(item)
     }
+  }))
+  throwAgentTelemetryFailures(exports)
+}
+
+async function exportAgentTelemetryConfiguration<TRuntimeConfig extends AgentRuntimeConfig>(
+  telemetry: AgentCapabilityRegistries["telemetry"],
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  context: AgentInvocationContextStore,
+  agent: { name?: string, version?: string },
+  invocationId: string,
+  cursors: Map<AgentCapabilityRegistries["telemetry"][number], number>,
+  configurationDelivered: Set<AgentCapabilityRegistries["telemetry"][number]>,
+): Promise<void> {
+  if (!telemetry.length || !runtime.traceLog) return
+  const name = runtime.agentIdentity?.name || agent.name
+  const events = runtime.traceLog.entries().filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
+  const terminalSequence = events.at(-1)?.sequence
+  if (terminalSequence === undefined) return
+  const exports = await Promise.allSettled(telemetry.map(async (item) => {
+    if (configurationDelivered.has(item) || (cursors.get(item) || 0) < terminalSequence) return
+    const { capabilityId, registration } = item
+    const configuration = agentTelemetryConfigurationValue(context, registration)
+    const correlation = agentTelemetryCorrelationRecord(events, registration)
+    if (!configuration || !correlation) return
+    try {
+      await registration.exporter({
+        agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) },
+        records: [agentTelemetryConfigurationLogRecord(invocationId, configuration, correlation)],
+        run: runtime.run,
+        runtime,
+        signal: "logs",
+      })
+    }
+    catch (error) {
+      throw new AgentTelemetryCapabilityError(capabilityId, error)
+    }
+    configurationDelivered.add(item)
   }))
   throwAgentTelemetryFailures(exports)
 }
@@ -2437,6 +2516,7 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
 ): AgentTelemetryScheduler {
   const liveTelemetry = telemetry.filter(({ registration }) => registration.live === true)
   const cursors = new Map<AgentCapabilityRegistries["telemetry"][number], number>()
+  const configurationDelivered = new Set<AgentCapabilityRegistries["telemetry"][number]>()
   let finished = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let exports = Promise.resolve()
@@ -2460,7 +2540,7 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
           const phase = finished ? "terminal" : "live"
           pendingCount = 0
           pendingThroughSequence = undefined
-          await exportAgentTelemetryLogs(liveTelemetry, runtime, context, agent, invocationId, throughSequence, cursors, finished)
+          await exportAgentTelemetryLogs(liveTelemetry, runtime, context, agent, invocationId, throughSequence, cursors, configurationDelivered, finished)
             .catch(error => reportAgentTelemetryFailure(error, runtime, agent, invocationId, phase))
         }
       }
@@ -2495,7 +2575,24 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
       if (timer) clearTimeout(timer)
       timer = undefined
       flushLogs()
-      if (telemetry.length) queue("terminal", () => exportAgentTelemetryTraces(telemetry, runtime, context, agent, invocationId, cursors))
+      if (liveTelemetry.length) queue("terminal", () => exportAgentTelemetryConfiguration(
+        liveTelemetry,
+        runtime,
+        context,
+        agent,
+        invocationId,
+        cursors,
+        configurationDelivered,
+      ))
+      if (telemetry.length) queue("terminal", () => exportAgentTelemetryTraces(
+        telemetry,
+        runtime,
+        context,
+        agent,
+        invocationId,
+        cursors,
+        configurationDelivered,
+      ))
     },
   }
 }

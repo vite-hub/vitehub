@@ -837,6 +837,110 @@ describe("Agent telemetry", () => {
     }
   })
 
+  it("exports final configuration after the terminal event starts a live flush", async () => {
+    let releaseExport!: () => void
+    let markExportStarted!: () => void
+    const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+    const exportStarted = new Promise<void>(resolve => { markExportStarted = resolve })
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn(async (context: Parameters<AgentTelemetry>[0]) => {
+      const liveCalls = telemetry.mock.calls.filter(call => call[0].signal === "logs")
+      if (context.signal === "logs" && liveCalls.length === 1) {
+        markExportStarted()
+        await exportGate
+      }
+    })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "live-telemetry",
+        telemetry: { exporter: telemetry, live: true },
+      })],
+      driver: {
+        async run(context) {
+          for (let index = 0; index < 510; index += 1) {
+            await context.traceLog?.append({ name: `application.progress.${index}`, type: "run" })
+          }
+          return "ok"
+        },
+      },
+    })
+
+    const active = runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-terminal-batch-boundary" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await exportStarted
+    await active
+    releaseExport()
+    await Promise.all(tasks)
+
+    const exports = telemetry.mock.calls.map(call => call[0])
+    const logs = exports.filter(exported => exported.signal === "logs")
+    expect(logs.map(exported => exported.records.length)).toEqual([512, 1])
+    expect(logs.flatMap(exported => exported.records)
+      .filter(record => record.eventName === "vitehub.agent.configured")).toHaveLength(1)
+    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ events: undefined })] })
+  })
+
+  it("keeps final configuration in the terminal trace when its live retry fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      let releaseExport!: () => void
+      let markExportStarted!: () => void
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+      const exportStarted = new Promise<void>(resolve => { markExportStarted = resolve })
+      const accepted: Parameters<AgentTelemetry>[0][] = []
+      const tasks: Promise<unknown>[] = []
+      const telemetry = vi.fn(async (context: Parameters<AgentTelemetry>[0]) => {
+        const liveCalls = telemetry.mock.calls.filter(call => call[0].signal === "logs")
+        if (context.signal === "logs" && liveCalls.length === 1) {
+          markExportStarted()
+          await exportGate
+        }
+        if (context.signal === "logs" && liveCalls.length === 2) throw new Error("configuration export failed")
+        accepted.push(context)
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "live-telemetry",
+          telemetry: { exporter: telemetry, live: true },
+        })],
+        driver: {
+          async run(context) {
+            for (let index = 0; index < 510; index += 1) {
+              await context.traceLog?.append({ name: `application.progress.${index}`, type: "run" })
+            }
+            return "ok"
+          },
+        },
+      })
+
+      const active = runAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: "run-terminal-configuration-fallback" },
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})
+      await exportStarted
+      await active
+      releaseExport()
+      await Promise.all(tasks)
+
+      expect(accepted.filter(exported => exported.signal === "logs")
+        .map(exported => exported.records.length)).toEqual([512])
+      const traceEvents = accepted.filter(exported => exported.signal === "traces")
+        .flatMap(exported => exported.spans)
+        .flatMap(span => span.events || [])
+      expect(traceEvents).toEqual([expect.objectContaining({ name: "vitehub.agent.configured" })])
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({ phase: "terminal" }))
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("waits for every live exporter to settle before starting the terminal export", async () => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
