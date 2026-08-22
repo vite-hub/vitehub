@@ -1,5 +1,5 @@
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
-import { normalizeWorkspacePath, matchesAny, sha256 } from "../core/path.ts"
+import { isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
 
 import type {
@@ -69,6 +69,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     const result: WorkspaceEntry[] = []
     for (const [path, node] of this.#nodes) {
       if (!path || path === normalizedPrefix) continue
+      if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
       if (!options.recursive && normalizeWorkspacePath(path.slice(normalizedPrefix.length)).replace(/^\//, "").includes("/")) continue
       result.push(await this.#entry(path, node))

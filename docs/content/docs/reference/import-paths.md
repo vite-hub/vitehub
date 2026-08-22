@@ -78,7 +78,7 @@ for libraries, focused integrations, and advanced composition.
 
 | Import path | Owner | Use |
 | --- | --- | --- |
-| `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, Agent Actor types, and legacy Agent Invoker compatibility types. |
+| `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, and trusted caller types. |
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, `inputCommands()`, and `subagents()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
@@ -108,7 +108,6 @@ for libraries, focused integrations, and advanced composition.
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
 | `@vite-hub/markdown-template` | Markdown Template Package | Deterministic Markdown rendering from explicit template strings. |
-| `#vitehub/templates` | Markdown Template Package | Generated named-template renderer and `TemplateName` union for `server/templates/**/*.md`. |
 | `@vite-hub/queue` | Queue Package | Queue Definition and enqueue Runtime Helper. |
 | `@vite-hub/rate-limit` | Rate Limit Package | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
@@ -139,7 +138,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/email/vite` | Configure one Unemail provider and generate its runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
 | `@vite-hub/kv/vite` | Register the KV Vite Integration. |
-| `@vite-hub/markdown-template/vite` | Register Markdown template discovery, generated types, and direct `.template.md` imports. |
+| `@vite-hub/markdown-template/vite` | Register generated types and direct `.template.md` imports. |
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
 | `@vite-hub/rate-limit/vite` | Register Rate Limit source collection and provider output. |
 | `@vite-hub/realtime/vite` | Register Realtime Definition discovery and generated runtime wiring. |
@@ -173,4 +172,3 @@ composition and the owner-package paths above for advanced integration control.
 - [File conventions](/docs/reference/file-conventions)
 - [Package reference](/docs/reference)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-- [Migrate to `vite-hub`](/docs/getting-started/migration)

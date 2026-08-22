@@ -116,8 +116,6 @@ async function createViteRoot() {
     `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
-  await writeFile(join(rootDir, "src", "vitehub-workspace.d.ts"), `stale src generated types\n`)
-  await writeFile(join(rootDir, "vitehub-workspace.d.ts"), `stale root generated types\n`)
   return rootDir
 }
 
@@ -129,7 +127,6 @@ async function createViteRootWithoutSrc() {
     `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
-  await writeFile(join(rootDir, "vitehub-workspace.d.ts"), `stale root generated types\n`)
   return rootDir
 }
 
@@ -209,8 +206,6 @@ describe("hubWorkspace", () => {
       },
     })
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
-    await expect(readFile(join(root, "src", "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
 
     const rootId = resolveId("#vitehub/workspaces")!
     expect(load(rootId)).toContain('"docs"')
@@ -417,7 +412,6 @@ describe("hubWorkspace", () => {
     await configResolved({ root } as never)
 
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
-    await expect(readFile(join(root, "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
   })
 
   it("discovers documented server workspace config files in the Vite integration", async () => {

@@ -34,7 +34,7 @@ instead of one root barrel.
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
 | `@vite-hub/history` | Shared history records, cursors, pages, and store contracts for stateful features | `@vite-hub/history` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
-| `@vite-hub/markdown-template` | Markdown templates with data bindings, conditions, fragments, and Vite discovery | `@vite-hub/markdown-template`, `@vite-hub/markdown-template/vite` |
+| `@vite-hub/markdown-template` | Markdown templates with data bindings, conditions, fragments, and direct Vite imports | `@vite-hub/markdown-template`, `@vite-hub/markdown-template/vite` |
 | `@vite-hub/queue` | Queue Definitions, queue dispatch Runtime Helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, and provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, and Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
@@ -69,4 +69,3 @@ For example, Blob Provider SDK Adapters belong behind Blob Driver Modules, and W
 - [Config options](/docs/reference/config-options)
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-- [Migrate to `vite-hub`](/docs/getting-started/migration)

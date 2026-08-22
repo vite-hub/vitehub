@@ -61,6 +61,7 @@ type AgentChannelDeliveryWorkflowOwnershipResolver = (
 
 export interface AgentChannelDeliveryWorkflowOwnership {
   abortSignal?: AbortSignal
+  settlementStatus?: "completed" | "failed"
   settle(status: "completed" | "failed"): Promise<void>
 }
 

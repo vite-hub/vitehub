@@ -94,7 +94,7 @@ export function workspaceDevTokenServerId(port?: number | string | null): string
   return `${process.pid}:${port ?? "unknown"}`
 }
 
-async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<{ file: string, key: string, legacyFile: string }> {
+async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<{ file: string, key: string }> {
   const [{ createHash }, { tmpdir }, { join, resolve }] = await Promise.all([
     import("node:crypto"),
     import("node:os"),
@@ -106,7 +106,6 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
   return {
     file: join(tmpdir(), "vitehub-workspace-dev", rootKey, serverKey, "dev-token"),
     key: `${rootKey}:${serverKey}`,
-    legacyFile: join(resolvedRoot, ".vitehub", "dev-token"),
   }
 }
 
@@ -126,13 +125,12 @@ export async function refreshWorkspaceDevToken(rootDir: string, options: Workspa
   const token = randomToken()
   const tokenRoot = await workspaceDevTokenRoot(rootDir, options)
   workspaceDevTokens().set(tokenRoot.key, token)
-  const [{ mkdir, rm, writeFile }, { dirname }] = await Promise.all([
+  const [{ mkdir, writeFile }, { dirname }] = await Promise.all([
     import("node:fs/promises"),
     import("node:path"),
   ])
   const file = tokenRoot.file
   await mkdir(dirname(file), { mode: 0o700, recursive: true })
-  await rm(tokenRoot.legacyFile, { force: true })
   await writeFile(file, `${token}\n`, { mode: 0o600 })
   return token
 }

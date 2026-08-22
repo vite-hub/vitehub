@@ -333,6 +333,10 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
 
   let channelDeliveryStatus: "completed" | "failed" = "failed"
   try {
+    if (channelOwnership?.settlementStatus) {
+      channelDeliveryStatus = channelOwnership.settlementStatus
+      return
+    }
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
     const inlineResult = await runAgentInline(
       agent,
@@ -348,7 +352,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     channelDeliveryStatus = "completed"
     return result
   } catch (error) {
-    if (channelDelivery) {
+    if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery
         .event({
           error: error instanceof Error ? error.message : String(error),

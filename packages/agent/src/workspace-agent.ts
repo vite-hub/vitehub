@@ -210,6 +210,41 @@ export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
 }
 
+const registeredWorkspaceAgentNames = Symbol("vitehub.registeredWorkspaceAgentNames")
+
+type RegisteredWorkspaceAgent = {
+  [registeredWorkspaceAgentNames]?: Set<string>
+}
+
+export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: string): void {
+  if (typeof agent !== "object" || agent === null) return
+  const registeredAgent = agent as RegisteredWorkspaceAgent
+  const names = registeredAgent[registeredWorkspaceAgentNames] || new Set<string>()
+  names.add(name)
+  if (registeredAgent[registeredWorkspaceAgentNames]) return
+  Object.defineProperty(registeredAgent, registeredWorkspaceAgentNames, {
+    configurable: true,
+    value: names,
+  })
+}
+
+export function markDiscoveredWorkspaceAgentDefinitionRegistered(
+  agent: unknown,
+  defaults: WorkspaceAgentDefaults = {},
+): string | undefined {
+  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return
+  const options = (agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions
+  const name = workspaceNameFromOptions(options, defaults)
+  markWorkspaceAgentDefinitionRegistered(agent, name)
+  return name
+}
+
+export function workspaceAgentUsesRegisteredDefinition(agent: unknown, name: string): boolean {
+  return typeof agent === "object"
+    && agent !== null
+    && Boolean((agent as RegisteredWorkspaceAgent)[registeredWorkspaceAgentNames]?.has(name))
+}
+
 export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir: string, colocatedInstructions?: string): Agent {
   if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return agent
 
@@ -314,7 +349,6 @@ function withCapabilityWorkspaceSources(
   workspace: NormalizedWorkspaceOptions,
   capabilities: AgentCapabilityDefinition[] | undefined,
 ): NormalizedWorkspaceOptions {
-  assertNoLegacyWorkspaceSourceInstructions(workspace.sources)
   const contributed = capabilityWorkspaceSources(capabilities)
   if (!contributed) return workspace
   const sources = { ...workspace.sources }
@@ -324,18 +358,9 @@ function withCapabilityWorkspaceSources(
     }
     sources[key] = source
   }
-  assertNoLegacyWorkspaceSourceInstructions(sources)
   return {
     ...workspace,
     sources,
-  }
-}
-
-function assertNoLegacyWorkspaceSourceInstructions(sources: WorkspaceDefinition["sources"] | undefined): void {
-  for (const [key, source] of Object.entries(sources || {})) {
-    if (source && typeof source === "object" && "instructions" in source) {
-      throw new TypeError(`[vitehub] Workspace source "${key}" instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::source coverage.`)
-    }
   }
 }
 
@@ -414,7 +439,7 @@ function modelDriverInstructions<
       ? (driver as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
       : undefined
   }
-  return (options as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
+  return undefined
 }
 
 function shouldUseColocatedAgentInstructions<

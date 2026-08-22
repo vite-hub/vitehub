@@ -49,7 +49,6 @@ export interface InputCommand {
   channels?: readonly string[]
   description?: string
   hooks?: InputCommandHooks
-  run?: InputCommandCall
 }
 
 export type InputCommandResult = Partial<AgentRunInput> | Response | string | void
@@ -299,7 +298,7 @@ function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunI
 }
 
 function inputCommandCall(command: InputCommand): InputCommandCall {
-  return command.call || command.run || (() => undefined)
+  return command.call || (() => undefined)
 }
 
 function activeChannelId(context: AgentCapabilityRuntimeContext): string | undefined {

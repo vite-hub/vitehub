@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
 import { createJiti } from "jiti"
@@ -653,44 +653,6 @@ describe("sources, loaders, and publishers", () => {
     const loader = createWorkspaceDefinitionLoader(root)
 
     await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
-      rootDir: "Workspace review",
-    })
-  })
-
-  it("renders named Markdown templates in Workspace Definitions", async () => {
-    const root = await createRoot()
-    const directory = join(root, "server", "agents", "review")
-    const templates = join(root, "server", "templates")
-    await mkdir(directory, { recursive: true })
-    await mkdir(templates, { recursive: true })
-    await writeFile(join(templates, "workspace.md"), "Workspace {{ context.name }}\n")
-    const registry = join(root, ".vitehub", "markdown-template", "templates.mjs")
-    await mkdir(join(root, ".vitehub", "markdown-template"), { recursive: true })
-    await writeFile(registry, [
-      `import { renderMarkdownTemplate } from "@vite-hub/markdown-template"`,
-      `export function renderTemplate(name, data) {`,
-      `  if (name !== "workspace") throw new TypeError("Unknown template")`,
-      `  return renderMarkdownTemplate("Workspace {{ context.name }}\\n", { data })`,
-      `}`,
-      ``,
-    ].join("\n"))
-    await writeFile(join(directory, "config.ts"), [
-      `import { renderTemplate } from "#vitehub/templates"`,
-      `export default { rootDir: await renderTemplate("workspace", { context: { name: "review" } }) }`,
-      ``,
-    ].join("\n"))
-
-    const definition = {
-      handler: join(directory, "config.ts"),
-      name: "review",
-      path: join(directory, "config.ts"),
-      source: "test",
-      sourceRootDir: directory,
-    }
-
-    await expect(loadDiscoveredWorkspaceDefinition(createWorkspaceDefinitionLoader(root, {
-      "@vite-hub/markdown-template": fileURLToPath(import.meta.resolve("@vite-hub/markdown-template")),
-    }), definition)).resolves.toMatchObject({
       rootDir: "Workspace review",
     })
   })

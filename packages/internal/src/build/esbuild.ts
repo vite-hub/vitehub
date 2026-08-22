@@ -4,8 +4,6 @@ import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
 
-import { resolveViteHubProjectRoot } from "./vite.ts"
-
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
   banner?: string
@@ -25,8 +23,6 @@ const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateFileSuffix = ".template.md"
 const markdownTemplateModuleQuery = "markdown-template"
-const markdownTemplateRegistryId = "#vitehub/templates"
-const markdownTemplateRegistryPath = ".vitehub/markdown-template/templates.mjs"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
@@ -233,11 +229,7 @@ export async function bundleEsmEntry(
 ): Promise<void> {
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
-  const markdownTemplateRoot = options.rootDir && resolveViteHubProjectRoot(options.rootDir)
-  const aliases = resolveEsbuildAliases({
-    ...(markdownTemplateRoot ? { [markdownTemplateRegistryId]: resolve(markdownTemplateRoot, markdownTemplateRegistryPath) } : {}),
-    ...options.alias,
-  })
+  const aliases = resolveEsbuildAliases(options.alias)
   const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({

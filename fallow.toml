@@ -155,6 +155,8 @@ ignoreDependencies = [
   "publint",
   "ssh2",
   "uploadthing",
+  # Invoked by the root Vite+ verification task.
+  "vite-doctor",
   "workflow",
 ]
 

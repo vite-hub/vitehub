@@ -126,4 +126,24 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.readFile(".vitehub/snapshots/x.json")).rejects.toThrow("Workspace path escapes")
     await expect(store.stat(".git/config")).rejects.toThrow("Workspace path escapes")
   })
+
+  it("synthesizes immediate directories below a listing prefix", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({
+      prefix: "workspace/e2e",
+      provider: "vercel-blob",
+      token: "********",
+    }, "docs")
+
+    await store.writeFile("docs/guides/a.md", { path: "docs/guides/a.md", content: "guide" })
+
+    await expect(store.list("docs")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guides", type: "directory" }),
+    ])
+    await expect(store.list("docs/guides")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guides/a.md", type: "file" }),
+    ])
+    await expect(store.list("docs", { exclude: ["docs/guides"] })).resolves.toEqual([])
+  })
 })

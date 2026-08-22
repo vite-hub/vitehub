@@ -113,6 +113,7 @@ import {
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
+  workspaceAgentUsesRegisteredDefinition,
   workspaceDefinitionFromOptions,
   workspaceDefinitionWithAutoCommitRules,
   workspaceModeFromOptions,
@@ -1110,7 +1111,9 @@ async function applyChannelDeliveryEffectIntents<
     let delivered = true
     for (const handler of handlers) {
       let handlerCompleted = false
+      let skippedForAbort = false
       try {
+        if (context.input.abortSignal?.aborted) return
         try {
           await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
         }
@@ -1122,6 +1125,10 @@ async function applyChannelDeliveryEffectIntents<
           owner: "channel",
           phase: "effect",
         }, async () => {
+          if (context.input.abortSignal?.aborted) {
+            skippedForAbort = true
+            return
+          }
           await handler({
             ...context.runtimeContext,
             channel: active.channel,
@@ -1140,6 +1147,7 @@ async function applyChannelDeliveryEffectIntents<
           })
           await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
         })
+        if (skippedForAbort) return
         handlerCompleted = true
       }
       catch (error) {
@@ -2009,17 +2017,66 @@ function mergeAgentWorkspaceDefinition(
   }
 }
 
+const ownedAgentWorkspaceDefinitions = new WeakMap<object, Map<string, WorkspaceDefinition>>()
+
+function resolveOwnedAgentWorkspaceDefinition(
+  agent: unknown,
+  name: string,
+  configured: WorkspaceDefinition | undefined,
+): WorkspaceDefinition | undefined {
+  const resolved = configured ? { ...configured, name } : undefined
+  if (typeof agent !== "object" || agent === null) return resolved
+  const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
+  const existing = definitions.get(name)
+  if (existing) return existing
+  if (resolved) setOwnedAgentWorkspaceDefinition(agent, name, resolved)
+  return resolved
+}
+
+function setOwnedAgentWorkspaceDefinition(agent: object, name: string, definition: WorkspaceDefinition): void {
+  const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
+  definitions.set(name, definition)
+  ownedAgentWorkspaceDefinitions.set(agent, definitions)
+}
+
 function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
   if (!definition) return false
   const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
 }
 
-async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
+async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<WorkspaceDefinition | undefined> {
   if (!definition) return
   const { name: _name, ...workspace } = definition
   const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
-  registerWorkspace(name, workspace)
+  return registerWorkspace(name, workspace)
+}
+
+const ownedAgentWorkspaceRegistrations = new WeakMap<object, Map<string, Promise<WorkspaceDefinition | undefined>>>()
+
+async function awaitOwnedAgentWorkspaceRegistration(agent: object, name: string): Promise<void> {
+  await ownedAgentWorkspaceRegistrations.get(agent)?.get(name)
+}
+
+async function registerOwnedAgentWorkspaceDefinition(
+  agent: object,
+  name: string,
+  definition: WorkspaceDefinition,
+): Promise<WorkspaceDefinition | undefined> {
+  const registrations = ownedAgentWorkspaceRegistrations.get(agent) || new Map<string, Promise<WorkspaceDefinition | undefined>>()
+  let registration = registrations.get(name)
+  if (!registration) {
+    registration = registerResolvedAgentWorkspaceDefinition(name, definition).then((registered) => {
+      if (registered) setOwnedAgentWorkspaceDefinition(agent, name, registered)
+      return registered
+    })
+    registrations.set(name, registration)
+    ownedAgentWorkspaceRegistrations.set(agent, registrations)
+    void registration.catch(() => {
+      if (registrations.get(name) === registration) registrations.delete(name)
+    })
+  }
+  return await registration
 }
 
 function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, "waitUntil">, task: Promise<unknown>): void {
@@ -2172,21 +2229,43 @@ async function createAgentInvocationContext<
     const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
       : undefined
+    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
     const registeredWorkspaceDefinition = workspaceName
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
-    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
-    const configuredDefinitionForMerge = ownsWorkspaceDefinition && registeredWorkspaceDefinition
-      ? undefined
-      : configuredWorkspaceDefinition
-    const baseResolvedWorkspaceDefinition = workspaceName
-      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
-      : undefined
-    const resolvedWorkspaceDefinition = baseResolvedWorkspaceDefinition
-    if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
-      await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+    if (workspaceName && ownsWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+      await awaitOwnedAgentWorkspaceRegistration(workspaceDefinition, workspaceName)
     }
-    const workspaceUseOptions = !ownsWorkspaceDefinition && hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge) && resolvedWorkspaceDefinition
+    const usesRegisteredOwnedDefinition = Boolean(
+      workspaceName
+      && ownsWorkspaceDefinition
+      && registeredWorkspaceDefinition
+      && workspaceAgentUsesRegisteredDefinition(workspaceDefinition, workspaceName),
+    )
+    const configuredDefinitionForMerge = ownsWorkspaceDefinition ? undefined : configuredWorkspaceDefinition
+    let resolvedWorkspaceDefinition = workspaceName
+      ? ownsWorkspaceDefinition
+        ? usesRegisteredOwnedDefinition
+          ? registeredWorkspaceDefinition
+          : resolveOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, configuredWorkspaceDefinition)
+        : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
+      : undefined
+    if (workspaceName && ownsWorkspaceDefinition && resolvedWorkspaceDefinition && !registeredWorkspaceDefinition) {
+      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+        resolvedWorkspaceDefinition = await registerOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
+      }
+      else {
+        resolvedWorkspaceDefinition = await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+      }
+      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
+        setOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
+      }
+    }
+    const workspaceUseOptions = resolvedWorkspaceDefinition && (
+      ownsWorkspaceDefinition
+        ? !usesRegisteredOwnedDefinition
+        : hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge)
+    )
       ? { definition: resolvedWorkspaceDefinition }
       : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
@@ -2877,9 +2956,10 @@ async function commitWorkspaceChanges<
     workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
     diff,
   )
-  if (!commit) return
+  if (!commit || context.input.abortSignal?.aborted) return
   for (let attempt = 0; ; attempt++) {
     try {
+      if (context.input.abortSignal?.aborted) return
       await context.workspace.snapshot({ name: commit.message })
       return
     }
@@ -3159,6 +3239,17 @@ async function finishAgentInvocation<
   let runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   let text = runResult?.text
   let closeError: unknown
+  const cancelIfAborted = () => {
+    if (failed || !context.input.abortSignal?.aborted) return
+    failed = true
+    result = undefined
+    usage = undefined
+    runResult = undefined
+    text = undefined
+    error = context.input.abortSignal.reason instanceof Error
+      ? context.input.abortSignal.reason
+      : new Error("[vitehub] Agent invocation aborted.")
+  }
   try {
     await context.startTask
     try {
@@ -3174,6 +3265,7 @@ async function finishAgentInvocation<
         error = cleanupError
       }
     }
+    cancelIfAborted()
     let resultKind: string | undefined
     if (failed) usage = undefined
     if (!failed) {
@@ -3185,7 +3277,7 @@ async function finishAgentInvocation<
         // Invocation data must not change Agent output or mask the original failure.
       }
     }
-    if (hasFinishWork(context)) {
+    if (!context.input.abortSignal?.aborted && hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
         ...(failed ? { error } : {}),
@@ -3275,6 +3367,7 @@ async function finishAgentInvocation<
         }
       }
     }
+    cancelIfAborted()
     if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {

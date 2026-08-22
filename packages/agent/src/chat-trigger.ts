@@ -319,12 +319,6 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
-function assertNoLegacyChatHistoryOption(options: AgentChatOptions): void {
-  if (Object.prototype.hasOwnProperty.call(options, "history")) {
-    throw new TypeError("[vitehub] messages.history was replaced by messages.triggerHistory. Use triggerHistory to configure the chat.message trigger input window.")
-  }
-}
-
 export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.delivery === "manual" && (options.stream === true || options.commentary !== undefined)) {
     throw new TypeError("[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary.")
@@ -353,7 +347,6 @@ export function defineChatCapability<
 >(
   options: TOptions = {} as TOptions,
 ): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<AgentChatOptionsOrigin<TOptions>>> {
-  assertNoLegacyChatHistoryOption(options)
   assertChatDeliveryOptions(options)
   return defineCapability({
     id: "chat",
@@ -380,11 +373,5 @@ export function chat<
 >(
   options: TOptions = {} as TOptions,
 ): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<string>> {
-  if (Object.prototype.hasOwnProperty.call(options, "platforms")) {
-    throw new TypeError("[vitehub] chat({ platforms }) was removed. Use defineAgent({ channels }) with an adapter-backed Channel instead.")
-  }
-  if (Object.prototype.hasOwnProperty.call(options, "webhooks")) {
-    throw new TypeError("[vitehub] chat({ webhooks }) was removed. Use defineAgent({ channels }) with an adapter-backed Channel instead.")
-  }
   return defineChatCapability(options as AgentChatOptions<TRuntimeConfig>) as AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<string>>
 }

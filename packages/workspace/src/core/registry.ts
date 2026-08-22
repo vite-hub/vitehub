@@ -77,11 +77,13 @@ function mergeWorkspaceSources(
   return { ...injected, ...configured }
 }
 
-export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): void {
+export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): WorkspaceDefinition {
   if (!name || typeof name !== "string") {
     throw new TypeError("[vitehub] registerWorkspace requires a string name.")
   }
-  workspaceRegistryState().registeredDefinitions.set(name, normalizeWorkspaceDefinition(name, definition))
+  const registered = normalizeWorkspaceDefinition(name, definition)
+  workspaceRegistryState().registeredDefinitions.set(name, registered)
+  return registered
 }
 
 export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {

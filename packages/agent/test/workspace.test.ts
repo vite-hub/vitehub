@@ -838,7 +838,14 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
 
-    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+    expect(useWorkspace).toHaveBeenCalledWith("docs", {
+      definition: {
+        mode: "write",
+        name: "docs",
+        rules: { "inbox/**": { commit: "chore: archive audio", write: true } },
+      },
+      mode: "write",
+    })
     expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "docs",
@@ -1446,7 +1453,10 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!(context())
 
-    expect(useWorkspace).toHaveBeenCalledWith("docs")
+    expect(useWorkspace).toHaveBeenCalledWith("docs", {
+      definition: { mode: "read", name: "docs" },
+      mode: "read",
+    })
   })
 
   it("marks synthetic workspace runs with the shared runtime symbol", async () => {
@@ -1557,27 +1567,6 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).toHaveBeenCalledWith(workspaceName, { mode: "write" })
   })
 
-  it("rejects source or capability config prose", async () => {
-    const { defineAgent, defineCapability } = await import("../src/index.ts")
-
-    expect(() => defineCapability({
-      id: "support",
-      instructions: "Use support capability guidance." as never,
-    } as never)).toThrow("Capability instructions were removed")
-
-    expect(() => withExplicitWorkspaceName(defineAgent({
-      workspace: {
-        sources: {
-          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
-        },
-      },
-      driver: {
-        instructions: "Answer from the workspace.",
-        model: {} as never,
-      },
-    }), { workspace: "docs" })).toThrow('Workspace source "docs" instructions were removed')
-  })
-
   it("applies model Agent Driver instructions and execution settings", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const model = { id: "driver-model" }
@@ -1608,30 +1597,6 @@ describe("defineAgent workspace option", () => {
       stopWhen: { count: 4 },
       temperature: 0.3,
     })
-  })
-
-  it("rejects legacy source and capability instruction slots", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { workspaceShell } = await import("../src/capabilities.ts")
-
-    const sourceSlotAgent = withExplicitWorkspaceName(defineAgent({
-      workspace: { sources: { docs: { name: "docs" } as never } },
-      driver: {
-        instructions: "Answer from the workspace.\n\n{{ workspace.sources }}",
-        model: {} as never,
-      },
-    }), { workspace: "docs" })
-    await expect(sourceSlotAgent.run!(context())).rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
-
-    const capabilitySlotAgent = withExplicitWorkspaceName(defineAgent({
-      workspace: {},
-      capabilities: [workspaceShell()],
-      driver: {
-        instructions: "Answer from the workspace.\n\n{{ capabilities.workspaceShell }}",
-        model: {} as never,
-      },
-    }), { workspace: "docs" })
-    await expect(capabilitySlotAgent.run!(context())).rejects.toThrow("{{ capabilities.workspaceShell }}\" is no longer supported")
   })
 
   it("synthesizes an answer when tool loop stops without text after tool results", async () => {
