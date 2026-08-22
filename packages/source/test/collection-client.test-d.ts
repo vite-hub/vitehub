@@ -62,10 +62,14 @@ const toJSONValues = defineCollection(
 )
 
 type UnsupportedItem =
+  | ArrayBuffer
+  | DataView
   | Error
   | Map<string, number>
   | RegExp
   | Set<number>
+  | SharedArrayBuffer
+  | Uint8Array
   | WeakMap<object, number>
   | WeakSet<object>
 

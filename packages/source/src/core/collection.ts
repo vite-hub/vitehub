@@ -53,10 +53,13 @@ type JSONOmitted = undefined | ((...args: any[]) => any) | symbol
 // TypeScript cannot structurally distinguish every class instance from a POJO interface. The handler rejects
 // non-plain prototypes at runtime; these built-ins are the unsupported object shapes it can also identify statically.
 type JSONUnsupportedObject =
+  | ArrayBuffer
+  | ArrayBufferView
   | Error
   | ReadonlyMap<unknown, unknown>
   | ReadonlySet<unknown>
   | RegExp
+  | SharedArrayBuffer
   | WeakMap<object, unknown>
   | WeakSet<object>
 

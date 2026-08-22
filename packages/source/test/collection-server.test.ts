@@ -136,8 +136,12 @@ describe("defineCollectionHandler", () => {
   })
 
   it.each([
+    new ArrayBuffer(1),
+    new DataView(new ArrayBuffer(1)),
     new Map([["id", 1]]),
     new Set([1]),
+    new SharedArrayBuffer(1),
+    new Uint8Array([1]),
     new WeakMap([[{}, 1]]),
     new WeakSet([{}]),
     /collection/,
