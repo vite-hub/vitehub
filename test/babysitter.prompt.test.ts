@@ -15,10 +15,11 @@ test('preserves open child pull requests before merging a stacked base', async (
 test('ends a repair pass after one commit, push, and review request', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
-  assert.match(prompt, /Create at most one new repair commit/)
+  assert.match(prompt, /for one pass, then stop/)
+  assert.match(prompt, /at most one new commit/)
   assert.match(prompt, /push once/)
   assert.match(prompt, /request one `@codex review`/)
-  assert.match(prompt, /finish the pass immediately/)
+  assert.match(prompt, /Stop after the review request/)
   assert.doesNotMatch(prompt, /repeat until the merge gate holds/)
 })
 
@@ -26,6 +27,6 @@ test('yields pending checks and reviews to the next schedule', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
   assert.match(prompt, /checks or reviews are pending/)
-  assert.match(prompt, /finish unchanged/)
-  assert.match(prompt, /scheduler will wake this pull request when its observed GitHub state changes/)
+  assert.match(prompt, /stop unchanged/)
+  assert.match(prompt, /GitHub state change wakes the next pass/)
 })
