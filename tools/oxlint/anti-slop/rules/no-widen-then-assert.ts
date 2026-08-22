@@ -9,7 +9,8 @@ import {
 } from "../shared/dictionary-types.ts";
 
 import type { TypeEnvironment } from "../shared/dictionary-types.ts";
-import { visibleTypeBindingForName } from "../shared/lexical-type-bindings.ts";
+import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
+import { visibleTypeBindingsForName } from "../shared/lexical-type-bindings.ts";
 import { resolvesThroughTypeAliases } from "../shared/type-alias-resolution.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
@@ -179,9 +180,49 @@ function typesHaveSameSyntax(
   );
 }
 
+type ObjectTypeSubstitution = {
+  readonly substitutions: ObjectTypeSubstitutions;
+  readonly type: ESTree.TSType;
+};
+
+type ObjectTypeSubstitutions = ReadonlyMap<string, ObjectTypeSubstitution>;
+
+function objectTypeAliasSubstitutions(
+  alias: ESTree.TSTypeAliasDeclaration,
+  typeArguments: ESTree.TSTypeParameterInstantiation | null | undefined,
+  outer: ObjectTypeSubstitutions,
+): ObjectTypeSubstitutions | null {
+  const next = new Map<string, ObjectTypeSubstitution>();
+  const parameters = alias.typeParameters?.params ?? [];
+  const arguments_ = typeArguments?.params ?? [];
+  for (const [index, parameter] of parameters.entries()) {
+    const suppliedArgument = arguments_[index];
+    const argument = suppliedArgument ?? parameter.default;
+    if (argument === null || argument === undefined) return null;
+    next.set(parameter.name.name, {
+      substitutions: suppliedArgument === undefined ? new Map(next) : outer,
+      type: argument,
+    });
+  }
+  return next;
+}
+
+function classHasObjectMembers(binding: {
+  readonly body: ESTree.ClassBody;
+  readonly superClass: ESTree.Expression | null;
+}): boolean {
+  if (binding.superClass !== null) return true;
+  return binding.body.body.some((member) => {
+    if (member.type === "StaticBlock") return false;
+    if (member.type !== "TSIndexSignature" && member.static) return false;
+    return member.type !== "MethodDefinition" || member.kind !== "constructor";
+  });
+}
+
 function isDefinitelyObjectType(
   type: ESTree.TSType,
   environment: TypeEnvironment,
+  substitutions: ObjectTypeSubstitutions = new Map(),
   resolvingAliases = new Set<ESTree.TSTypeAliasDeclaration>(),
 ): boolean {
   const unwrapped = unwrapTypeParentheses(type);
@@ -197,31 +238,75 @@ function isDefinitelyObjectType(
       return unwrapped.members.length > 0;
     case "TSIntersectionType":
       return unwrapped.types.every((member) =>
-        isDefinitelyObjectType(member, environment, resolvingAliases),
+        isDefinitelyObjectType(member, environment, substitutions, resolvingAliases),
       );
     case "TSTypeOperator":
       return (
         unwrapped.operator === "readonly" &&
-        isDefinitelyObjectType(unwrapped.typeAnnotation, environment, resolvingAliases)
+        isDefinitelyObjectType(
+          unwrapped.typeAnnotation,
+          environment,
+          substitutions,
+          resolvingAliases,
+        )
       );
     case "TSTypeReference": {
-      const binding = visibleTypeBindingForName(
+      const name = typeReferenceName(unwrapped);
+      const substitution = name === null ? undefined : substitutions.get(name);
+      if (substitution !== undefined) {
+        return isDefinitelyObjectType(
+          substitution.type,
+          environment,
+          substitution.substitutions,
+          resolvingAliases,
+        );
+      }
+      if (
+        name !== null &&
+        lexicalTypeParameterNames(unwrapped, environment.visitorKeys).has(name)
+      ) {
+        return false;
+      }
+      const bindings = visibleTypeBindingsForName(
         unwrapped.typeName,
         unwrapped,
         environment.typeBindings,
       );
+      const interfaces = bindings.filter(
+        (binding): binding is ESTree.TSInterfaceDeclaration =>
+          binding.type === "TSInterfaceDeclaration",
+      );
       if (
-        binding?.type === "TSInterfaceDeclaration" ||
-        binding?.type === "ClassDeclaration"
+        interfaces.some(
+          (binding) => binding.extends.length > 0 || binding.body.body.length > 0,
+        )
       ) {
         return true;
       }
+      const classBinding = bindings.find(
+        (binding) => binding.type === "ClassDeclaration",
+      );
+      if (classBinding !== undefined && classHasObjectMembers(classBinding)) return true;
+      const binding = bindings.find(
+        (candidate) => candidate.type === "TSTypeAliasDeclaration",
+      );
       if (binding?.type !== "TSTypeAliasDeclaration" || resolvingAliases.has(binding)) {
         return false;
       }
+      const nextSubstitutions = objectTypeAliasSubstitutions(
+        binding,
+        unwrapped.typeArguments,
+        substitutions,
+      );
+      if (nextSubstitutions === null) return false;
       const nextResolving = new Set(resolvingAliases);
       nextResolving.add(binding);
-      return isDefinitelyObjectType(binding.typeAnnotation, environment, nextResolving);
+      return isDefinitelyObjectType(
+        binding.typeAnnotation,
+        environment,
+        nextSubstitutions,
+        nextResolving,
+      );
     }
     default:
       return false;
@@ -314,9 +399,13 @@ function knownValueEvidence(
     return { type: null };
   }
 
-  if (unwrapped.type === "ConditionalExpression") {
+  if (unwrapped.type === "ConditionalExpression" || unwrapped.type === "LogicalExpression") {
+    const left =
+      unwrapped.type === "ConditionalExpression" ? unwrapped.consequent : unwrapped.left;
+    const right =
+      unwrapped.type === "ConditionalExpression" ? unwrapped.alternate : unwrapped.right;
     const consequent = knownValueEvidence(
-      unwrapped.consequent,
+      left,
       scopes,
       boundary,
       new Set(visitedVariables),
@@ -325,7 +414,7 @@ function knownValueEvidence(
     );
     if (consequent === null) return null;
     const alternate = knownValueEvidence(
-      unwrapped.alternate,
+      right,
       scopes,
       boundary,
       new Set(visitedVariables),

@@ -389,6 +389,22 @@ describe("anti-slop lexical type resolution", () => {
     expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
   });
 
+  test("preserves recursively known logical evidence", () => {
+    const result = diagnostics(`
+        declare function loadUnknown(): unknown;
+        const widened: unknown = Math.random() > 0.5 && { id: "known" };
+        // SAFETY: fixture intentionally recreates the discarded logical value.
+        const restored = widened as { id: string };
+        const uncertain: unknown = Math.random() > 0.5 && loadUnknown();
+        // SAFETY: fixture verifies that both operands must establish evidence.
+        const unresolved = uncertain as { id: string };
+        void restored;
+        void unresolved;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(2);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
+  });
+
   test("checks assignments to annotated class fields", () => {
     const result = diagnostics(`
         class Store {
@@ -646,13 +662,19 @@ describe("anti-slop lexical type resolution", () => {
   test("resolves named object assertion targets", () => {
     const result = diagnostics(`
         interface DomainValue { id: string }
+        interface EmptyContract {}
         type AliasValue = DomainValue;
+        type EmptyAlias = EmptyContract;
         type ScalarValue = string;
         class ClassValue { id = "class"; }
+        class EmptyClass {}
         const domain: object = { id: "domain" };
         const alias: object = { id: "alias" };
         const instance: object = new ClassValue();
         const scalar: object = { id: "scalar" };
+        const emptyInterface: object = {};
+        const emptyAlias: object = {};
+        const emptyClass: object = {};
         // SAFETY: fixtures intentionally recreate discarded named object types.
         const restoredDomain = domain as DomainValue;
         // SAFETY: fixtures intentionally recreate discarded named object types.
@@ -661,12 +683,42 @@ describe("anti-slop lexical type resolution", () => {
         const restoredClass = instance as ClassValue;
         // SAFETY: fixture verifies that scalar aliases are not object contracts.
         const unresolved = scalar as ScalarValue;
+        // SAFETY: fixture verifies primitive-compatible interfaces remain excluded.
+        const unresolvedInterface = emptyInterface as EmptyContract;
+        // SAFETY: fixture verifies aliases preserve primitive-compatible targets.
+        const unresolvedAlias = emptyAlias as EmptyAlias;
+        // SAFETY: fixture verifies primitive-compatible classes remain excluded.
+        const unresolvedClass = emptyClass as EmptyClass;
         void restoredDomain;
         void restoredAlias;
         void restoredClass;
         void unresolved;
+        void unresolvedInterface;
+        void unresolvedAlias;
+        void unresolvedClass;
       `);
     expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(3);
+  });
+
+  test("substitutes generic object assertion targets", () => {
+    const result = diagnostics(`
+        type Identity<T> = T;
+        type Defaulted<T = { id: string }> = T;
+        type ScalarIdentity<T> = T;
+        const explicit: object = { id: "explicit" };
+        const defaulted: object = { id: "defaulted" };
+        const scalar: object = { id: "scalar" };
+        // SAFETY: fixture intentionally recreates a supplied generic object type.
+        const restoredExplicit = explicit as Identity<{ id: string }>;
+        // SAFETY: fixture intentionally recreates a defaulted generic object type.
+        const restoredDefault = defaulted as Defaulted;
+        // SAFETY: fixture verifies scalar generic arguments are not object contracts.
+        const unresolved = scalar as ScalarIdentity<string>;
+        void restoredExplicit;
+        void restoredDefault;
+        void unresolved;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(2);
   });
 
   test("recognizes unshadowed host-global Reflect objects", () => {

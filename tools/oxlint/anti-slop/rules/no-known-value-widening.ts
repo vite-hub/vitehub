@@ -64,10 +64,14 @@ function hasKnownEvidence(
 	visitedVariables = new Set<Variable>(),
 ): boolean {
 	const unwrapped = unwrapExpression(expression);
-	if (unwrapped.type === "ConditionalExpression") {
+	if (unwrapped.type === "ConditionalExpression" || unwrapped.type === "LogicalExpression") {
+		const left =
+			unwrapped.type === "ConditionalExpression" ? unwrapped.consequent : unwrapped.left;
+		const right =
+			unwrapped.type === "ConditionalExpression" ? unwrapped.alternate : unwrapped.right;
 		return (
-			hasKnownEvidence(sourceCode, unwrapped.consequent, new Set(visitedVariables)) &&
-			hasKnownEvidence(sourceCode, unwrapped.alternate, new Set(visitedVariables))
+			hasKnownEvidence(sourceCode, left, new Set(visitedVariables)) &&
+			hasKnownEvidence(sourceCode, right, new Set(visitedVariables))
 		);
 	}
 	if (isKnownEvidenceExpression(unwrapped)) return true;
