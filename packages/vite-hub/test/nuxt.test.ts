@@ -683,7 +683,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(steps).toEqual(["email", "types"])
   })
 
-  it("registers generated Collection handlers without replacing configured handlers", async () => {
+  it("registers generated Collection handlers without replacing unrelated handlers", async () => {
     const generated = {
       handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/meals.mjs",
       method: "get" as const,
@@ -701,8 +701,30 @@ describe("ViteHub Nuxt integration", () => {
     const nitroConfig = { handlers: [existing] }
     await runNitroConfigHook(nitroConfig)
 
-    expect(prepareTypes).toHaveBeenCalledWith("/tmp/vitehub-nuxt")
+    expect(prepareTypes).toHaveBeenCalledWith({
+      projectRoot: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
     expect(nitroConfig.handlers).toEqual([existing, generated])
+  })
+
+  it("rejects handlers that bypass a generated Collection route", async () => {
+    const generated = {
+      handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/meals.mjs",
+      method: "get" as const,
+      route: "/api/meals",
+    }
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes: vi.fn(async () => [generated]) },
+      name: "vite-hub/types",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+
+    await expect(runNitroConfigHook({
+      handlers: [{ handler: "server/api/meals.get.ts", method: "get", route: "/api/meals" }],
+    })).rejects.toThrow('Generated Collection route "/api/meals" conflicts with an existing GET handler')
   })
 
   it("replaces existing Env array declarations instead of concatenating data values", async () => {

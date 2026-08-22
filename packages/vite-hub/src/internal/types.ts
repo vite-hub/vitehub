@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -20,6 +20,11 @@ interface DiscoveredCollection {
   exportName: string
   file: string
   name: string
+}
+
+interface ViteHubTypesOptions {
+  projectRoot: string
+  serverDirs?: string[]
 }
 
 async function collectCollectionFiles(directory: string): Promise<string[]> {
@@ -45,28 +50,43 @@ async function collectCollectionFiles(directory: string): Promise<string[]> {
   return files
 }
 
-async function discoverCollections(root: string): Promise<DiscoveredCollection[]> {
-  const collectionsDirectory = resolve(root, "server/collections")
-  const files = (await collectCollectionFiles(collectionsDirectory)).sort()
-  return files.map((file) => {
-    const extension = extname(file)
-    const exportName = basename(file, extension)
-    if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
+async function discoverCollections(options: ViteHubTypesOptions): Promise<DiscoveredCollection[]> {
+  const { projectRoot } = options
+  const serverDirs = options.serverDirs?.length
+    ? options.serverDirs.map(directory => resolve(projectRoot, directory))
+    : [resolve(projectRoot, "server")]
+  const collections = (await Promise.all(serverDirs.map(async (serverDir) => {
+    const collectionsDirectory = resolve(serverDir, "collections")
+    const files = (await collectCollectionFiles(collectionsDirectory)).sort()
+    return files.map((file) => {
+      const extension = extname(file)
+      const exportName = basename(file, extension)
+      if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
+        throw new TypeError(
+          `[vitehub] Collection file ${JSON.stringify(relative(projectRoot, file))} must use a valid JavaScript identifier as its filename.`,
+        )
+      }
+      const name = relative(collectionsDirectory, file)
+        .slice(0, -extension.length)
+        .replaceAll("\\", "/")
+      return { exportName, file, name }
+    })
+  }))).flat().sort((left, right) => left.name.localeCompare(right.name))
+
+  for (let index = 1; index < collections.length; index++) {
+    if (collections[index - 1]!.name === collections[index]!.name) {
       throw new TypeError(
-        `[vitehub] Collection file ${JSON.stringify(relative(root, file))} must use a valid JavaScript identifier as its filename.`,
+        `[vitehub] Collection name ${JSON.stringify(collections[index]!.name)} is defined in more than one server directory.`,
       )
     }
-    const name = relative(collectionsDirectory, file)
-      .slice(0, -extension.length)
-      .replaceAll("\\", "/")
-    return { exportName, file, name }
-  })
+  }
+  return collections
 }
 
-async function writeCollectionArtifacts(root: string): Promise<GeneratedCollectionHandler[]> {
-  const collections = await discoverCollections(root)
-  const output = resolve(root, collectionTypesEntry)
-  const routesDirectory = resolve(root, collectionRoutesDirectory)
+async function writeCollectionArtifacts(options: ViteHubTypesOptions): Promise<GeneratedCollectionHandler[]> {
+  const collections = await discoverCollections(options)
+  const output = resolve(options.projectRoot, collectionTypesEntry)
+  const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
   await rm(routesDirectory, { force: true, recursive: true })
   if (collections.length === 0) {
     await rm(output, { force: true })
@@ -140,13 +160,14 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
   await writeFile(path, contents, "utf8")
 }
 
-async function writeViteHubTypes(root: string): Promise<GeneratedCollectionHandler[]> {
-  const handlers = await writeCollectionArtifacts(root)
-  const directory = resolve(root, ".vitehub")
+async function writeViteHubTypes(input: string | ViteHubTypesOptions): Promise<GeneratedCollectionHandler[]> {
+  const options = typeof input === "string" ? { projectRoot: input } : input
+  const handlers = await writeCollectionArtifacts(options)
+  const directory = resolve(options.projectRoot, ".vitehub")
   const files = (await collectGeneratedTypeFiles(directory)).sort()
   const references = files.map(file => `/// <reference path="./${file}" />`).join("\n")
   await writeFileIfChanged(
-    resolve(root, viteHubTypesEntry),
+    resolve(options.projectRoot, viteHubTypesEntry),
     `${references}${references ? "\n\n" : ""}export {}\n`,
   )
   return handlers
@@ -156,8 +177,9 @@ export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
   api: { prepareTypes: typeof writeViteHubTypes }
 } {
   let projectRoot: string | undefined
+  let serverDirs: string[] | undefined
   const refreshGeneratedTypes = async () => {
-    if (projectRoot) await writeViteHubTypes(projectRoot)
+    if (projectRoot) await writeViteHubTypes({ projectRoot, serverDirs })
   }
 
   return {
@@ -168,6 +190,7 @@ export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       await refreshGeneratedTypes()
     },
     buildStart: refreshGeneratedTypes,
@@ -181,7 +204,7 @@ export function viteHubTypesPlugin(): Plugin & ViteHubCliContributingPlugin & {
             name: "prepare",
             async run(_args, context) {
               const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
-              await writeViteHubTypes(root)
+              await writeViteHubTypes({ projectRoot: root, serverDirs })
               context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)
             },
             usage: "vitehub types prepare",

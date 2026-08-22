@@ -396,9 +396,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   } | undefined
   if (!emailPlugin) await emailCleanupPlugin?.api?.prepareTypes?.(projectRoot)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
-    api?: { prepareTypes?: (root: string) => Promise<GeneratedCollectionHandler[]> }
+    api?: { prepareTypes?: (options: { projectRoot: string, serverDirs?: string[] }) => Promise<GeneratedCollectionHandler[]> }
   } | undefined
-  const collectionHandlers = await typesPlugin?.api?.prepareTypes?.(projectRoot) ?? []
+  const collectionHandlers = await typesPlugin?.api?.prepareTypes?.({
+    projectRoot,
+    serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+  }) ?? []
 
   viteConfig.define = {
     ...viteConfig.define,
@@ -446,7 +449,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         candidate.route === handler.route
         && (!candidate.method || candidate.method.toLowerCase() === handler.method),
       )
-      if (!duplicate) handlers.push(handler)
+      if (duplicate) {
+        throw new TypeError(
+          `[vitehub] Generated Collection route ${JSON.stringify(handler.route)} conflicts with an existing GET handler. Remove the matching server route.`,
+        )
+      }
+      handlers.push(handler)
     }
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))

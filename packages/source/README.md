@@ -111,10 +111,13 @@ export const useArticles = () => useCollection("articles", {
 })
 ```
 
-ViteHub discovers named exports in `server/collections` and generates the
-collection registry and GET handler, binding each filename to its endpoint and
-definition type. Everything in that directory is a public read model; keep
-private definitions elsewhere and do not repeat the route under `server/api`.
+ViteHub discovers modules in `server/collections` and generates the collection
+registry and GET handler. The module must export a Collection with the same name
+as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`.
+Everything in that directory is a public read model; keep private definitions
+elsewhere and do not repeat the route under `server/api`. Restart Nuxt after
+adding, removing, or renaming a Collection module so Nitro rebuilds its handler
+manifest.
 Callers do not repeat URL strings or generic imports. `filter` is validated by
 the Collection's query schema before the loader runs and remains fixed across
 cursor pages. Set `all: true` for bounded Collections that should materialize

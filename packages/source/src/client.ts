@@ -9,6 +9,8 @@ import type {
   CollectionQuery,
 } from "./core/collection.ts"
 
+declare const __VITEHUB_APP_BASE_URL__: string
+
 export interface CollectionRequestOptions {
   query?: Record<string, unknown>
   signal: AbortSignal
@@ -61,7 +63,9 @@ function isAbortError(error: unknown): boolean {
 }
 
 function collectionEndpoint(name: CollectionName): string {
-  return `/api/${String(name).split("/").map(encodeURIComponent).join("/")}`
+  const path = `/api/${String(name).split("/").map(encodeURIComponent).join("/")}`
+  const baseURL = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
+  return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
 }
 
 export function useCollection<TName extends CollectionName>(

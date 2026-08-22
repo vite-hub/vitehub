@@ -120,7 +120,7 @@ function decodeBase64Url(value: string): string {
 }
 
 function isCursorValue(value: unknown): value is CollectionCursorValue {
-  if (typeof value === "number") return Number.isFinite(value)
+  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0)
   if (value === null || ["boolean", "string"].includes(typeof value)) return true
   if (Array.isArray(value)) return value.every(isCursorValue)
   if (!value || typeof value !== "object") return false

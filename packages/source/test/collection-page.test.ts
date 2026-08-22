@@ -104,6 +104,19 @@ describe("Collections", () => {
       collection.page({ cursor: nonFinite, query: await collection.parseQuery({}) }),
     ).rejects.toBeInstanceOf(CollectionCursorError)
 
+    const negativeZero = defineCollection(async () => [
+      { id: -0 },
+      { id: 1 },
+    ], {
+      cursor: row => row.id,
+      cursorSchema: v.number(),
+      defaultLimit: 1,
+      maxLimit: 1,
+    })
+    await expect(negativeZero.page({ query: {} })).rejects.toThrow(
+      "Collection cursor() must return a JSON-serializable value",
+    )
+
     expect(() =>
       defineCollection(async () => [] as Array<{ id: string }>, {
         cursor: (row: { id: string }) => row.id,

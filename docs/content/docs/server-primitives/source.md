@@ -311,12 +311,15 @@ const { items, pending, error, hasMore, loadMore } = useCollection('articles', {
 </script>
 ```
 
-ViteHub discovers named exports in `server/collections`, generates their name,
-type registry, and read-only GET route, and maps `articles` to `/api/articles`. The Nuxt module
-auto-imports `useCollection`; outside Nuxt, import it from
-`vite-hub/source/client`. Everything in `server/collections` is public through
-its transformed shape; keep private definitions elsewhere and do not create a
-matching `server/api` handler. Use `filter` for validated request input. It stays
+ViteHub discovers modules in `server/collections` and generates their type
+registry and read-only GET routes. Each module exports a Collection with the
+same name as its filename, so `articles.ts` exports `articles` and maps to
+`/api/articles`. The Nuxt module auto-imports `useCollection`; outside Nuxt,
+import it from `vite-hub/source/client`. Everything in `server/collections` is
+public through its transformed shape; keep private definitions elsewhere and do
+not create a matching `server/api` handler. Restart Nuxt after adding, removing,
+or renaming a Collection module so Nitro rebuilds its handler manifest. Use
+`filter` for validated request input. It stays
 fixed while `loadMore()` advances the opaque cursor. For a bounded Collection,
 set `all: true` to fetch every page asynchronously. `cursor` and `limit` are
 reserved route query parameters. Invalid limits, cursor encodings, and parsed

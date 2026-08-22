@@ -1,7 +1,6 @@
 import { defineCollection as defineCoreCollection } from "@vite-hub/source"
 import { and, asc, desc, eq, getTableColumns, gt, lt, or } from "drizzle-orm"
 
-import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
 import type {
   Collection,
   CollectionCursorValue,
@@ -44,11 +43,12 @@ type QueryOutput<TSchema extends StandardSchemaV1<unknown, object> | undefined> 
     : CollectionRequestQuery
 
 export interface TableSourceOptions<
-  TSchema extends Record<string, unknown>,
   TTable extends TableShape,
   TQuerySchema extends StandardSchemaV1<unknown, object> | undefined = undefined,
 > {
-  db: RuntimeDatabaseEntry<TSchema>["db"]
+  db: {
+    select(): unknown
+  }
   defaultLimit?: number
   maxLimit?: number
   orderBy: {
@@ -65,18 +65,6 @@ export interface TableSourceOptions<
 }
 
 type KeysetCursor = readonly (boolean | null | number | string)[]
-
-const keysetCursorSchema: StandardSchemaV1<KeysetCursor> = {
-  "~standard": {
-    version: 1,
-    vendor: "vite-hub",
-    validate(value) {
-      return Array.isArray(value) && value.length === 2 && value.every(isCursorScalar)
-        ? { value: value as unknown as KeysetCursor }
-        : { issues: [{ message: "Collection keyset cursor is malformed." }] }
-    },
-  },
-}
 
 const requestQuerySchema: StandardSchemaV1<unknown, CollectionRequestQuery> = {
   "~standard": {
@@ -95,6 +83,30 @@ function isCursorScalar(value: unknown): value is boolean | null | number | stri
     || typeof value === "boolean"
     || typeof value === "string"
     || (typeof value === "number" && Number.isFinite(value))
+}
+
+function driverType(column: AnySQLiteColumn): "number" | "string" {
+  if (["boolean", "date", "number"].includes(column.dataType)) return "number"
+  if (column.dataType === "string") return "string"
+  throw new TypeError("[vitehub] Collection orderBy columns must encode as number or string values.")
+}
+
+function keysetCursorSchema(columns: readonly AnySQLiteColumn[]): StandardSchemaV1<KeysetCursor> {
+  const types = columns.map(driverType)
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "vite-hub",
+      validate(value) {
+        return Array.isArray(value)
+          && value.length === columns.length
+          && value.every((entry, index) => typeof entry === types[index]
+            && (typeof entry !== "number" || Number.isFinite(entry)))
+          ? { value: value as unknown as KeysetCursor }
+          : { issues: [{ message: "Collection keyset cursor is malformed." }] }
+      },
+    },
+  }
 }
 
 function columnKey(table: SQLiteTable, column: AnySQLiteColumn): string {
@@ -129,10 +141,9 @@ function cursorWhere(
 }
 
 export function table<
-  TSchema extends Record<string, unknown>,
   TTable extends TableShape,
   TQuerySchema extends StandardSchemaV1<unknown, object>,
->(options: TableSourceOptions<TSchema, TTable, TQuerySchema> & {
+>(options: TableSourceOptions<TTable, TQuerySchema> & {
   querySchema: TQuerySchema
 }): CollectionSource<
   TTable["$inferSelect"],
@@ -140,9 +151,8 @@ export function table<
   KeysetCursor
 >
 export function table<
-  TSchema extends Record<string, unknown>,
   TTable extends TableShape,
->(options: TableSourceOptions<TSchema, TTable> & {
+>(options: TableSourceOptions<TTable> & {
   querySchema?: undefined
 }): CollectionSource<TTable["$inferSelect"], CollectionRequestQuery, KeysetCursor>
 export function table(input: unknown): CollectionSource<
@@ -151,11 +161,11 @@ export function table(input: unknown): CollectionSource<
   KeysetCursor
 > {
   const options = input as TableSourceOptions<
-    Record<string, unknown>,
     TableShape,
     StandardSchemaV1<unknown, object> | undefined
   >
   const databaseTable = options.table as unknown as SQLiteTable
+  const database = options.db as { select(): any }
   const columns = [options.orderBy.column, options.orderBy.tieBreaker] as AnySQLiteColumn[]
   const keys = columns.map(column => columnKey(databaseTable, column))
 
@@ -175,17 +185,20 @@ export function table(input: unknown): CollectionSource<
 
   return {
     cursor: row => columns.map((column, index) => driverValue(column, row[keys[index]!])),
-    cursorSchema: keysetCursorSchema,
+    cursorSchema: keysetCursorSchema(columns),
     defaultLimit: options.defaultLimit,
-    async load({ cursor, limit, query }) {
+    async load({ cursor, limit, query, signal }) {
+      signal?.throwIfAborted()
       const filter = options.where?.({ query, table: options.table }) as SQL | undefined
       const after = cursor ? cursorWhere(columns, cursor, direction) : undefined
-      return await options.db
+      const rows = await database
         .select()
         .from(databaseTable)
         .where(and(filter, after))
         .orderBy(...order)
         .limit(limit) as TableShape["$inferSelect"][]
+      signal?.throwIfAborted()
+      return rows
     },
     maxLimit: options.maxLimit,
     querySchema,

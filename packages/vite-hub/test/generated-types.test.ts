@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
@@ -26,7 +28,14 @@ async function createNestedProject() {
 }
 
 function configResolved(plugin: Plugin) {
-  return plugin.configResolved as (config: { root: string }) => Promise<void>
+  return plugin.configResolved as (config: {
+    root: string
+    [VITEHUB_SERVER_DIRS]?: string[]
+  }) => Promise<void>
+}
+
+function buildStart(plugin: Plugin) {
+  return plugin.buildStart as () => Promise<void>
 }
 
 function buildEnd(plugin: Plugin) {
@@ -139,5 +148,52 @@ describe("framework generated types", () => {
       `export default defineCollectionHandler(collection)`,
       ``,
     ].join("\n"))
+  })
+
+  it("discovers Collections from configured server directories", async () => {
+    const { root } = await createNestedProject()
+    const firstServerDir = join(root, "api")
+    const secondServerDir = join(root, "admin")
+    await Promise.all([
+      mkdir(join(firstServerDir, "collections"), { recursive: true }),
+      mkdir(join(secondServerDir, "collections"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(firstServerDir, "collections/meals.ts"), "export const meals = {}\n"),
+      writeFile(join(secondServerDir, "collections/audit.ts"), "export const audit = {}\n"),
+    ])
+
+    const plugin = viteHubTypesPlugin()
+    const handlers = await plugin.api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [firstServerDir, secondServerDir],
+    })
+
+    expect(handlers.map((handler: { route: string }) => handler.route)).toEqual(["/api/audit", "/api/meals"])
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8"))
+      .resolves.toContain(JSON.stringify(join(firstServerDir, "collections/meals.ts")))
+
+    await writeFile(join(secondServerDir, "collections/meals.ts"), "export const meals = {}\n")
+    await expect(plugin.api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [firstServerDir, secondServerDir],
+    })).rejects.toThrow('Collection name "meals" is defined in more than one server directory')
+  })
+
+  it("preserves configured server directories across Vite lifecycle refreshes", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const serverDir = join(root, "api")
+    await mkdir(join(serverDir, "collections"), { recursive: true })
+    await writeFile(join(serverDir, "collections/meals.ts"), "export const meals = {}\n")
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({
+      root: viteRoot,
+      [VITEHUB_SERVER_DIRS]: [serverDir],
+    })
+    await buildStart(plugin)()
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8"))
+      .resolves.toContain(JSON.stringify(join(serverDir, "collections/meals.ts")))
   })
 })

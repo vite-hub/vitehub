@@ -83,6 +83,15 @@ describe("table Collection source", () => {
     expect(second.items.map(meal => meal.id)).toEqual(["a", "z"])
     expect(second.nextCursor).toBeNull()
 
+    const wrongCursorTypes = btoa(JSON.stringify(["3000", "c"])).replaceAll("=", "")
+    await expect(meals.page({ cursor: wrongCursorTypes, query: {} }))
+      .rejects.toMatchObject({ name: "TypeError" })
+
+    const controller = new AbortController()
+    controller.abort(new Error("collection request stopped"))
+    await expect(meals.page({ query: {}, signal: controller.signal }))
+      .rejects.toThrow("collection request stopped")
+
     const dinners = defineCollection({
       source: table({
         db,

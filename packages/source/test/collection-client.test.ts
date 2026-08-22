@@ -1,5 +1,5 @@
 import { effectScope, nextTick, ref } from "vue"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../src/index.ts"
@@ -85,6 +85,27 @@ describe("useCollection", () => {
     expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }])
     expect(collection.hasMore.value).toBe(false)
     scope.stop()
+  })
+
+  it("prefixes the generated endpoint with the application base URL", async () => {
+    vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
+    try {
+      const { calls, request } = controlledRequester()
+      const scope = effectScope()
+      let collection!: UseCollectionReturn<typeof definition>
+      scope.run(() => {
+        collection = useCollection("items", { immediate: false, request })
+      })
+
+      const refresh = collection.refresh()
+      expect(calls[0]!.endpoint).toBe("/portal/api/items")
+      calls[0]!.resolve(page([], null))
+      await refresh
+      scope.stop()
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("loads every cursor page with one stable filter", async () => {
