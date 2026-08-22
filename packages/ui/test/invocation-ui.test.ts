@@ -23,6 +23,23 @@ describe("Agent Invocation UI", () => {
       .toBe("M21 12a9 9 0 1 1-6.219-8.56");
   });
 
+  it("reserves virtual row space for error descriptions", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [
+          { description: "The host stopped before this invocation finished.", id: "failed", status: "failed", title: "Failed session" },
+          { id: "completed", status: "completed", title: "Completed session" },
+        ],
+      },
+    });
+
+    await nextTick();
+
+    const rows = wrapper.findAll("li");
+    expect(rows[0]!.attributes("style")).toContain("height: 106px");
+    expect(rows[1]!.attributes("style")).toContain("transform: translateY(106px)");
+  });
+
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {
     const base = { timestamp: "2026-08-22T00:00:00.000Z", type: "lifecycle" as const };
     const invocation = {

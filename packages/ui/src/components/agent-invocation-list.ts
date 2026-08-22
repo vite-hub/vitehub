@@ -11,6 +11,25 @@ function statusLabel(status: AgentInvocationStatus): string {
   }[status];
 }
 
+const invocationListRowSize = 86;
+const invocationListRowWithDescriptionSize = 106;
+
+function rowSize(item: AgentInvocationListItem): number {
+  return item.description ? invocationListRowWithDescriptionSize : invocationListRowSize;
+}
+
+function rowIndexAtOffset(offsets: readonly number[], offset: number): number {
+  let low = 0;
+  let high = offsets.length - 2;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (offset < offsets[middle]!) high = middle - 1;
+    else if (offset >= offsets[middle + 1]!) low = middle + 1;
+    else return middle;
+  }
+  return Math.max(0, Math.min(low, offsets.length - 2));
+}
+
 function relativeTime(value: string | undefined, now: number | undefined): string | undefined {
   if (!value || now === undefined) return;
   const elapsed = now - Date.parse(value);
@@ -116,18 +135,25 @@ export const AgentInvocationList = defineComponent({
     const scrollRevision = ref(0);
     const scrollTop = ref(0);
     const viewportHeight = ref(0);
-    const rowSize = 86;
     const overscan = 6;
     let resizeObserver: ResizeObserver | undefined;
     let measureViewport: (() => void) | undefined;
+    const rowOffsets = computed(() => {
+      const offsets = [0];
+      for (const item of props.items) offsets.push(offsets.at(-1)! + rowSize(item));
+      return offsets;
+    });
     const virtualRows = computed(() => {
-      const visibleRows = Math.max(1, Math.ceil(viewportHeight.value / rowSize));
+      if (!props.items.length) return [];
+      const offsets = rowOffsets.value;
       const listScrollTop = Math.max(0, scrollTop.value - listOffset.value);
-      const start = Math.max(0, Math.floor(listScrollTop / rowSize) - overscan);
-      const end = Math.min(props.items.length, start + visibleRows + overscan * 2);
+      const firstVisible = rowIndexAtOffset(offsets, listScrollTop);
+      const lastVisible = rowIndexAtOffset(offsets, listScrollTop + Math.max(0, viewportHeight.value - 1));
+      const start = Math.max(0, firstVisible - overscan);
+      const end = Math.min(props.items.length, lastVisible + overscan + 1);
       return Array.from({ length: end - start }, (_, offset) => {
         const index = start + offset;
-        return { index, start: index * rowSize };
+        return { index, size: offsets[index + 1]! - offsets[index]!, start: offsets[index]! };
       });
     });
     watch(
@@ -182,7 +208,7 @@ export const AgentInvocationList = defineComponent({
         ? h("ul", {
             class: "vh-invocation-list__virtual",
             ref: list,
-            style: { height: `${props.items.length * rowSize}px` },
+            style: { height: `${rowOffsets.value.at(-1)}px` },
           }, virtualRows.value.map(row => renderItem(
             props.items[row.index]!,
             props.selectedId,
@@ -192,7 +218,7 @@ export const AgentInvocationList = defineComponent({
             slots.harness,
             {
               "data-index": row.index,
-              style: { height: `${rowSize}px`, transform: `translateY(${row.start}px)` },
+              style: { height: `${row.size}px`, transform: `translateY(${row.start}px)` },
             },
           )))
         : props.items.length
