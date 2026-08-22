@@ -1375,6 +1375,13 @@ async function generateProviderOutputsWithinLock(
     : undefined
   const writeOutputs = async () => {
     const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
+    const activeServerFunctionName = vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined
+    const activeFunctionRoot = activeServerFunctionName
+      ? resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", activeServerFunctionName)
+      : undefined
+    const previouslyOwnedActiveFunction = activeFunctionRoot
+      ? Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot, activeServerFunctionName === "__server.func" || activeServerFunctionName === "__workflow.func"))
+      : false
     if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
       ...options.providerImportAliases,
       ...options.providerRuntimeImportAliases?.vercel,
@@ -1405,10 +1412,11 @@ async function generateProviderOutputsWithinLock(
       })
     }
     catch (error) {
-      if (vercelOutput) {
-        const serverFunctionName = options.serverFunctionName ?? "__server.func"
-        await rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", serverFunctionName), { force: true, recursive: true })
-        if (!options.serverFunctionName) await cleanVercelWorkflowRootConfig(options.rootDir, vercelRootWorkflowRoutes)
+      if (activeFunctionRoot) {
+        const hasRecoverableActiveFunction = previouslyOwnedActiveFunction
+          && Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot, false))
+        if (!hasRecoverableActiveFunction) await rm(activeFunctionRoot, { force: true, recursive: true })
+        if (!hasRecoverableActiveFunction && !options.serverFunctionName) await cleanVercelWorkflowRootConfig(options.rootDir, vercelRootWorkflowRoutes)
       }
       throw error
     }

@@ -545,6 +545,30 @@ it("rolls back marker-owned output after an atomic state write fails", async () 
   expect(existsSync(functionRoot)).toBe(false)
 })
 
+it("preserves the active Vercel function after ownership state bookkeeping fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-active-state-error-")
+  const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+  const functionFile = join(functionRoot, "index.mjs")
+  const markerFile = join(functionRoot, ".vitehub-workflow-output.json")
+  const stateFile = join(rootDir, ".vitehub", "workflow", "vercel-output.json")
+
+  await generateProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  await rm(stateFile)
+  await mkdir(stateFile)
+
+  await expect(generateProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    hosting: "vercel",
+    rootDir,
+    workflow: {},
+  })).rejects.toThrow()
+
+  const functionContents = await readFile(functionFile)
+  const ownership = JSON.parse(await readFile(markerFile, "utf8")) as { digest: string }
+  expect(ownership.digest).toBe(createHash("sha256").update(functionContents).digest("hex"))
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
+})
+
 it("preserves the previous Vercel function when replacement ownership fails", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-replacement-state-error-")
   const previousFunctionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
