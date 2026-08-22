@@ -5,9 +5,7 @@ import { pathToFileURL } from "node:url"
 import { agentWithColocatedInstructions } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import {
-  markWorkspaceAgentDefinitionRegistered,
   workspaceAgentWithSourceRoot,
-  workspaceNameFromOptions,
 } from "../workspace-agent.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
@@ -91,15 +89,6 @@ export function createViteWorkspaceAgentLoader(
       withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
       workspaceSourceRoot(definition.handler),
     )
-    if (agent && typeof agent === "object" && "__vitehubWorkspaceAgentOptions" in agent) {
-      markWorkspaceAgentDefinitionRegistered(
-        agent,
-        workspaceNameFromOptions(agent.__vitehubWorkspaceAgentOptions as never, {
-          name: definition.name,
-          workspace: definition.workspace,
-        }),
-      )
-    }
     return {
       ...module,
       default: agent,

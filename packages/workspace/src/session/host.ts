@@ -435,7 +435,7 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
   const paths = normalizeSessionPaths(options)
   if (!paths) {
-    return (await workspace.list("", { recursive: true }))
+    return (await workspace.list("", { exclude: [...defaultExcludedSessionPaths], recursive: true }))
       .filter(entry => !isExcludedSessionSourcePath(entry.path))
   }
 
@@ -450,7 +450,7 @@ async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOp
     if (!stat) continue
     if (!excluded) entries.set(stat.path, stat)
     if (stat.type === "directory") {
-      for (const entry of await workspace.list(path, { recursive: true })) {
+      for (const entry of await workspace.list(path, { exclude: [...defaultExcludedSessionPaths], recursive: true })) {
         if (!isExcludedSessionSourcePath(entry.path)) entries.set(entry.path, entry)
       }
     }

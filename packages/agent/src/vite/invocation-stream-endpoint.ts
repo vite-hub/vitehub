@@ -13,7 +13,7 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
+import { markWorkspaceAgentDefinitionRegistered, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
@@ -268,6 +268,12 @@ async function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
   entries: Array<{ agent: AgentInput<ViteAgentRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
 ): Promise<WorkspaceRegistry> {
+  for (const { agent, aliases, definition } of entries) {
+    if (!definition.workspace || !workspaceAgentOwnsWorkspaceDefinition(agent)) continue
+    for (const name of [definition.workspace, ...(aliases || [])]) {
+      markWorkspaceAgentDefinitionRegistered(agent, name)
+    }
+  }
   const registry = {
     ...await loadViteWorkspaceRegistry(server),
     ...Object.fromEntries(entries

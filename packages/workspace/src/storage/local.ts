@@ -64,7 +64,11 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
   }
 }
 
-async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
+function isExcludedWalkPath(path: string, excluded: readonly string[]): boolean {
+  return excluded.some(item => path === item || path.startsWith(`${item}/`))
+}
+
+async function walk(root: string, current = root, excluded: readonly string[] = []): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
   const entries: WorkspaceEntry[] = []
@@ -76,6 +80,7 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
+    if (isExcludedWalkPath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
@@ -84,7 +89,7 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      entries.push(...await walk(root, absolute))
+      entries.push(...await walk(root, absolute, excluded))
       continue
     }
     if (dirent.isFile()) {
@@ -241,7 +246,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
-    const all = await walk(this.root)
+    const excluded = (options.exclude || []).map(path => normalizeWorkspacePath(path))
+    const all = await walk(this.root, resolveInside(this.root, normalizedPrefix), excluded)
     return all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")

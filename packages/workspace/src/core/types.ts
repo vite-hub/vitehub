@@ -25,6 +25,7 @@ export interface WriteFileOptions {
 export type WorkspaceSessionWriteFileOptions = Omit<WriteFileOptions, "ifDigest" | "preservePath">
 
 export interface ListOptions {
+  exclude?: string[]
   recursive?: boolean
 }
 

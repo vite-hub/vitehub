@@ -1683,7 +1683,10 @@ async function generateAgentDeploymentCatalog(
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
     const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
     const colocatedSkills = readColocatedAgentSkills(definition.handler)
-    const agentExpression = `withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(${moduleName}), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
+    const preparedAgentExpression = `withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(${moduleName}), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
+    const agentExpression = definition.workspace
+      ? `withRegisteredWorkspace(${preparedAgentExpression}, ${JSON.stringify(definition.workspace)})`
+      : preparedAgentExpression
     return {
       agentEntry: `${JSON.stringify(definition.name)}: ${agentExpression}`,
       import: `import * as ${moduleName} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`,
@@ -1706,7 +1709,7 @@ async function generateAgentDeploymentCatalog(
 
   return {
     imports: [
-      `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
+      `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions, markWorkspaceAgentDefinitionRegistered, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
       ...(options.inspection
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
@@ -1735,6 +1738,11 @@ async function generateAgentDeploymentCatalog(
       "}",
       "",
       ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions", typescript),
+      "",
+      `function withRegisteredWorkspace(agent${typescript ? ": AgentInput" : ""}, name${typescript ? ": string" : ""})${typescript ? ": AgentInput" : ""} {`,
+      "  markWorkspaceAgentDefinitionRegistered(agent, name)",
+      "  return agent",
+      "}",
       "",
       `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
       "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",

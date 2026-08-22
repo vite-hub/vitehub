@@ -447,6 +447,7 @@ export type { OtlpHttpJsonOptions, OtlpResourceAttributes } from "./telemetry.ts
 
 export {
   createAgentInspectionMetadata,
+  markWorkspaceAgentDefinitionRegistered,
   materializeAgentInspectionSourceMetadata,
   resolveAgentInspectionMetadata,
   workspaceAgentOwnsWorkspaceDefinition,
@@ -2065,6 +2066,13 @@ function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefin
   return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
 }
 
+async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
+  if (!definition) return
+  const { name: _name, ...workspace } = definition
+  const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+  registerWorkspace(name, workspace)
+}
+
 function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, "waitUntil">, task: Promise<unknown>): void {
   void task.catch(() => {})
   try {
@@ -2233,6 +2241,9 @@ async function createAgentInvocationContext<
           : resolveOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
         : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
+    if (workspaceName && ownsWorkspaceDefinition && resolvedWorkspaceDefinition && !registeredWorkspaceDefinition) {
+      await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+    }
     const workspaceUseOptions = resolvedWorkspaceDefinition && (
       ownsWorkspaceDefinition
         ? !usesRegisteredOwnedDefinition
