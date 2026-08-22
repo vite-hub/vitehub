@@ -46,7 +46,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { agentInvocationCallbackContextValues, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationResolvedModelContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
@@ -108,7 +108,7 @@ import {
   streamAgentTriggerWith,
 } from "./trigger-runtime.ts"
 import {
-  resolveAgentInspectionMetadata,
+  createInvocationInspectionMetadata,
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
@@ -153,6 +153,7 @@ import type {
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
+  AgentModelInput,
   AgentModelDriver,
   AgentOutputDefinition,
   AgentModelResolver,
@@ -1953,6 +1954,7 @@ type AgentInvocationContext<
   workspaceInstructionBindings?: Record<string, unknown>
   workspaceMaterializationPaths: readonly string[]
   workspaceMode: AgentCapabilityMode
+  inspectionCapabilities: AgentCapabilityDefinition<TRuntimeConfig>[]
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
 }
 
@@ -2359,6 +2361,7 @@ async function createAgentInvocationContext<
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+      inspectionCapabilities: resolvedCapabilityDefinitions,
       instructions,
       invoker,
       invocationJournal,
@@ -2385,9 +2388,12 @@ async function createAgentInvocationContext<
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }
-    if (definition && invocationJournal) await appendAgentConfigurationObservation(definition, invocation)
     invocationContext.set("agent.errorHook", Boolean(invocation.errorHook), { overwrite: true })
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
+    invocationContext.set(agentInvocationResolvedModelContextKey, async (model: AgentModelInput) => {
+      if (definition && invocationJournal) await traceAgentConfiguration(definition, invocation, model)
+    }, { overwrite: true })
+    if (definition && invocationJournal) await traceAgentConfiguration(definition, invocation)
     await traceAgentInvocationStart(toTraceContext(invocation))
     await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
     const startCapabilities = capabilities.start
@@ -4433,21 +4439,19 @@ async function executeAgentInvocationWithCapacityLease<
   })
 }
 
-async function appendAgentConfigurationObservation<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
+async function traceAgentConfiguration<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
   invocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  resolvedModel?: AgentModelInput,
 ): Promise<void> {
   try {
-    const inspected = await resolveAgentInspectionMetadata(definition, {
-      input: invocation.input,
-      resolveSources: false,
-      runtime: invocation.runtimeContext,
-    })
+    const inspected = createInvocationInspectionMetadata(
+      definition,
+      invocation.inspectionCapabilities,
+      Object.keys(invocation.tools || {}),
+      resolvedModel,
+    )
     const driver = inspected.config?.driver
-    const workspace = invocation.workspaceDefinition
     await invocation.runtimeContext.traceLog?.append({
       attributes: {
         "vitehub.agent.configuration": {
@@ -4456,22 +4460,22 @@ async function appendAgentConfigurationObservation<
             : {}),
           ...(inspected.capabilities?.length ? { capabilities: inspected.capabilities } : {}),
           ...(driver
-            ? {
-                driver: {
-                  kind: driver.kind,
-                  ...(driver.model ? { model: driver.model } : {}),
-                  ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
-                },
-              }
+            ? { driver: {
+                kind: driver.kind,
+                ...(driver.model ? { model: driver.model } : {}),
+                ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
+              } }
             : {}),
           ...(inspected.instructions?.length ? { instructions: inspected.instructions } : {}),
           ...(inspected.tools?.length ? { tools: inspected.tools.map(({ name }) => ({ name })) } : {}),
-          ...(workspace
+          ...(invocation.workspaceDefinition?.name
             ? {
                 workspace: {
                   mode: invocation.workspaceMode,
-                  name: workspace.name,
-                  ...(workspace.sources ? { sources: Object.keys(workspace.sources) } : {}),
+                  name: invocation.workspaceDefinition.name,
+                  ...(invocation.workspaceDefinition.sources
+                    ? { sources: Object.keys(invocation.workspaceDefinition.sources) }
+                    : {}),
                 },
               }
             : {}),
