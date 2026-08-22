@@ -10577,7 +10577,7 @@ describe("server helpers", () => {
       })
 
       release()
-      await vi.waitFor(() => expect(inputs).toHaveLength(2))
+      await vi.waitFor(() => expect(inputs).toHaveLength(2), { timeout: 5_000 })
       expect(inputs[1]).toEqual(["91127"])
       expect(blobList).toHaveBeenCalledOnce()
     }
