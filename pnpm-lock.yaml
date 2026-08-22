@@ -99,7 +99,7 @@ catalogs:
       specifier: ^4.9.0
       version: 4.9.0
     docus:
-      specifier: https://pkg.pr.new/docus@116b335
+      specifier: https://pkg.pr.new/docus@7343e51
       version: 5.12.3
     nuxt:
       specifier: ^4.4.8
@@ -524,7 +524,7 @@ importers:
         version: 0.17.4(bdbc85a752478fb9559e82b249c163ae)
       docus:
         specifier: catalog:nuxt
-        version: https://pkg.pr.new/docus@116b335(17e72aecb8488d88843b8e39db5af1ec)
+        version: https://pkg.pr.new/docus@7343e51(17e72aecb8488d88843b8e39db5af1ec)
       h3:
         specifier: catalog:h3-v1-compat
         version: 1.15.11
@@ -9518,8 +9518,8 @@ packages:
     resolution: {integrity: sha512-qHbFlFG2N7y3LjPySYsL6A1+BnX6bkTVgo842EX0CqVPk/KTMwZkojPHEXKsQUpWZNyz5BISNHK1cPpQw0+m4A==}
     engines: {node: '>=18'}
 
-  docus@https://pkg.pr.new/docus@116b335:
-    resolution: {integrity: sha512-sY1Gl5Me1l/1cRWEicLCfGkONWTKI6JRld/Hv3qdIRC5ZoOjrpZ0QJPpduwUUhazZ9IzZDGmNYia6SOLBdqlUQ==, tarball: https://pkg.pr.new/docus@116b335}
+  docus@https://pkg.pr.new/docus@7343e51:
+    resolution: {integrity: sha512-IaAK1cfZqkMvijGs+alS9Kos7DuP654KGsf/WjwuXbRQUXUzz/w7q+SGvFcakEOlu5Uj3KqrLCL0AUIyZGb1ow==, tarball: https://pkg.pr.new/docus@7343e51}
     version: 5.12.3
     peerDependencies:
       better-sqlite3: 12.x
@@ -23910,7 +23910,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  docus@https://pkg.pr.new/docus@116b335(17e72aecb8488d88843b8e39db5af1ec):
+  docus@https://pkg.pr.new/docus@7343e51(17e72aecb8488d88843b8e39db5af1ec):
     dependencies:
       '@ai-sdk/gateway': 4.0.29(zod@4.4.3)
       '@ai-sdk/mcp': 2.0.36(zod@4.4.3)
