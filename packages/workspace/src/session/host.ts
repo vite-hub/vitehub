@@ -441,13 +441,14 @@ async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOp
 
   const entries = new Map<string, WorkspaceEntry>()
   for (const path of paths) {
-    if (isExcludedSessionSourcePath(path)) continue
+    const excluded = isExcludedSessionSourcePath(path)
+    if (excluded && path !== ".vitehub") continue
     const stat = await workspace.stat(path).catch((error) => {
       if (isMissingWorkspacePathError(error)) return undefined
       throw error
     })
     if (!stat) continue
-    entries.set(stat.path, stat)
+    if (!excluded) entries.set(stat.path, stat)
     if (stat.type === "directory") {
       for (const entry of await workspace.list(path, { recursive: true })) {
         if (!isExcludedSessionSourcePath(entry.path)) entries.set(entry.path, entry)

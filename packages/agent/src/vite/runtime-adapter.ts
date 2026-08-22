@@ -4,7 +4,11 @@ import { pathToFileURL } from "node:url"
 
 import { agentWithColocatedInstructions } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
-import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
+import {
+  markWorkspaceAgentDefinitionRegistered,
+  workspaceAgentWithSourceRoot,
+  workspaceNameFromOptions,
+} from "../workspace-agent.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
@@ -83,12 +87,22 @@ export function createViteWorkspaceAgentLoader(
 ) {
   return async () => {
     const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
+    const agent = workspaceAgentWithSourceRoot(
+      withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
+      workspaceSourceRoot(definition.handler),
+    )
+    if (agent && typeof agent === "object" && "__vitehubWorkspaceAgentOptions" in agent) {
+      markWorkspaceAgentDefinitionRegistered(
+        agent,
+        workspaceNameFromOptions(agent.__vitehubWorkspaceAgentOptions as never, {
+          name: definition.name,
+          workspace: definition.workspace,
+        }),
+      )
+    }
     return {
       ...module,
-      default: workspaceAgentWithSourceRoot(
-        withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
-        workspaceSourceRoot(definition.handler),
-      ),
+      default: agent,
     }
   }
 }

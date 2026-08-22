@@ -668,6 +668,13 @@ describe("workspace host sessions", () => {
     await expect(session.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
     expect(archiveMaterializations).toBe(0)
     await session.close()
+
+    const scoped = await docs.startSession({ host: memoryHost(), paths: [".vitehub"] })
+    await expect(scoped.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+    await expect(scoped.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".vitehub/meta" }),
+    ]))
+    await scoped.close()
     vi.restoreAllMocks()
   })
 

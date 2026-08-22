@@ -109,7 +109,6 @@ import {
 } from "./trigger-runtime.ts"
 import {
   isWorkspaceAgentOptions,
-  markWorkspaceAgentDefinitionRegistered,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
@@ -2038,17 +2037,32 @@ function mergeOwnedAgentWorkspaceDefinition(
   }
 }
 
+const ownedAgentWorkspaceDefinitions = new WeakMap<object, Map<string, WorkspaceDefinition>>()
+
+function resolveOwnedAgentWorkspaceDefinition(
+  agent: unknown,
+  name: string,
+  registered: WorkspaceDefinition | undefined,
+  configured: WorkspaceDefinition | undefined,
+): WorkspaceDefinition | undefined {
+  if (typeof agent !== "object" || agent === null) {
+    return mergeOwnedAgentWorkspaceDefinition(name, registered, configured)
+  }
+  const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
+  const existing = definitions.get(name)
+  if (existing) return existing
+  const resolved = mergeOwnedAgentWorkspaceDefinition(name, registered, configured)
+  if (resolved) {
+    definitions.set(name, resolved)
+    ownedAgentWorkspaceDefinitions.set(agent, definitions)
+  }
+  return resolved
+}
+
 function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
   if (!definition) return false
   const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
-}
-
-async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
-  if (!definition) return
-  const { name: _name, ...workspace } = definition
-  const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
-  registerWorkspace(name, workspace)
 }
 
 function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, "waitUntil">, task: Promise<unknown>): void {
@@ -2216,13 +2230,9 @@ async function createAgentInvocationContext<
       ? ownsWorkspaceDefinition
         ? usesRegisteredOwnedDefinition
           ? registeredWorkspaceDefinition
-          : mergeOwnedAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
+          : resolveOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
         : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
-    if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
-      await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
-      markWorkspaceAgentDefinitionRegistered(workspaceDefinition, workspaceName)
-    }
     const workspaceUseOptions = resolvedWorkspaceDefinition && (
       ownsWorkspaceDefinition
         ? !usesRegisteredOwnedDefinition

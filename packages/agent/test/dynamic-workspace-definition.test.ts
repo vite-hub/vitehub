@@ -69,9 +69,15 @@ it("keeps concurrent colocated Workspace Definitions invocation-local when agent
     waitUntil: vi.fn(),
   }
 
+  const first = createAgent(firstRoot)
+  const second = createAgent(secondRoot)
   await expect(Promise.all([
-    runAgent(createAgent(firstRoot), context, {}),
-    runAgent(createAgent(secondRoot), context, {}),
+    runAgent(first, context, {}),
+    runAgent(second, context, {}),
+  ])).resolves.toEqual(["first", "second"])
+  await expect(Promise.all([
+    runAgent(first, context, {}),
+    runAgent(second, context, {}),
   ])).resolves.toEqual(["first", "second"])
 })
 
