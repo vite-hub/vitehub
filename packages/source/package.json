@@ -67,6 +67,7 @@
     "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "effect": "catalog:effect",
     "h3": "catalog:unjs",
@@ -83,6 +84,7 @@
     "publint": "catalog:tooling",
     "tinyglobby": "catalog:workspace",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"

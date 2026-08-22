@@ -86,29 +86,20 @@ paginated client read model:
 ```ts
 // server/collections/articles.ts
 import { defineCollection } from "@vite-hub/source"
+import * as v from "valibot"
 
-import type { CollectionLoadOptions } from "@vite-hub/source"
-
-export const articles = defineCollection(async ({ cursor, limit, query }: CollectionLoadOptions<
-  { author?: string },
-  readonly [createdAt: number, id: string]
->) => {
+export const articles = defineCollection(async ({ cursor, limit, query }) => {
   return db.listArticles({ after: cursor, author: query.author, limit })
 }, {
   cursor: article => [article.createdAt, article.id] as const,
-  parseCursor(input) {
-    if (!Array.isArray(input) || input.length !== 2
-      || typeof input[0] !== "number" || typeof input[1] !== "string") {
-      throw new TypeError("Article cursor must contain a timestamp and id.")
-    }
-    return [input[0], input[1]] as const
-  },
-  query(input): { author?: string } {
-    return typeof input.author === "string" ? { author: input.author } : {}
-  },
+  cursorSchema: v.tuple([v.number(), v.string()]),
+  querySchema: v.object({ author: v.optional(v.string()) }),
   transform: article => ({ id: article.id, title: article.title }),
 })
 ```
+
+`cursorSchema` and `querySchema` accept any Standard Schema validator. Their
+output types flow into the loader, so the loader needs no manual generic types.
 
 ```ts
 // server/api/articles.get.ts

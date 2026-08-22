@@ -57,7 +57,7 @@ export function defineCollectionHandler<TItem, TQuery extends object>(
     try {
       cursor = queryValue(requestQuery, "cursor")
       limit = queryLimit(requestQuery)
-      query = collection.parseQuery(collectionQuery(requestQuery))
+      query = await collection.parseQuery(collectionQuery(requestQuery))
     } catch (cause) {
       invalidRequest(cause)
     }

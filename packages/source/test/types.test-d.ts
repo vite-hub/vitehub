@@ -1,4 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
+import * as v from "valibot"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 
@@ -10,7 +11,6 @@ import {
   defineSource,
   defineSources,
   registerSources,
-  type CollectionLoadOptions,
   type Source,
   type SourceData,
   type SourceItem,
@@ -157,19 +157,15 @@ describe("@vite-hub/source types", () => {
   })
 
   it("infers Collection source rows, transformed items, cursors, and queries", async () => {
-    const collection = defineCollection(async ({ cursor, limit, query }: CollectionLoadOptions<
-      { day?: string },
-      readonly [number, string]
-    >) => {
-      expectTypeOf(cursor).toEqualTypeOf<readonly [number, string] | undefined>()
+    const collection = defineCollection(async ({ cursor, limit, query }) => {
+      expectTypeOf(cursor).toEqualTypeOf<[number, string] | undefined>()
       expectTypeOf(limit).toBeNumber()
       expectTypeOf(query).toEqualTypeOf<{ day?: string }>()
       return [{ createdAt: 1, id: "meal_1", photoPath: "private/original" }]
     }, {
       cursor: row => [row.createdAt, row.id] as const,
-      query(input): { day?: string } {
-        return typeof input.day === "string" ? { day: input.day } : {}
-      },
+      cursorSchema: v.tuple([v.number(), v.string()]),
+      querySchema: v.object({ day: v.optional(v.string()) }),
       transform(row) {
         return { createdAt: new Date(row.createdAt).toISOString(), id: row.id }
       },
@@ -177,7 +173,7 @@ describe("@vite-hub/source types", () => {
 
     const page = await collection.page({ query: { day: "2026-08-21" } })
     expectTypeOf(page.items).toEqualTypeOf<Array<{ createdAt: string, id: string }>>()
-    expectTypeOf(collection.parseQuery({ day: "2026-08-21" }))
+    expectTypeOf(await collection.parseQuery({ day: "2026-08-21" }))
       .toEqualTypeOf<{ day?: string }>()
   })
 

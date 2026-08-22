@@ -242,28 +242,16 @@ a Source reader, an SDK, or any other server-side origin.
 
 ```ts [server/collections/articles.ts]
 import { defineCollection } from 'vite-hub/source'
+import * as v from 'valibot'
 
-import type { CollectionLoadOptions } from 'vite-hub/source'
-
-export const articles = defineCollection(async ({ cursor, limit, query }: CollectionLoadOptions<
-  { author?: string },
-  readonly [createdAt: number, id: string]
->) => {
+export const articles = defineCollection(async ({ cursor, limit, query }) => {
   return db.listArticles({ after: cursor, author: query.author, limit })
 }, {
   cursor: article => [article.createdAt, article.id] as const,
+  cursorSchema: v.tuple([v.number(), v.string()]),
   defaultLimit: 25,
   maxLimit: 100,
-  parseCursor(input) {
-    if (!Array.isArray(input) || input.length !== 2
-      || typeof input[0] !== 'number' || typeof input[1] !== 'string') {
-      throw new TypeError('Article cursor must contain a timestamp and id.')
-    }
-    return [input[0], input[1]] as const
-  },
-  query(input): { author?: string } {
-    return typeof input.author === 'string' ? { author: input.author } : {}
-  },
+  querySchema: v.object({ author: v.optional(v.string()) }),
   transform: article => ({ id: article.id, title: article.title }),
 })
 ```
@@ -271,7 +259,9 @@ export const articles = defineCollection(async ({ cursor, limit, query }: Collec
 The Collection requests one extra row from the loader, enforces its configured
 limits, and turns the last visible row into an opaque cursor. `transform()` is
 the server-to-client boundary, so private columns and provider objects stay out
-of the response while its return type becomes the client item type.
+of the response while its return type becomes the client item type. Any Standard
+Schema validator can provide `cursorSchema` and `querySchema`; their output types
+flow into the loader without manual generic annotations.
 
 ```ts [server/api/articles.get.ts]
 import { defineCollectionHandler } from 'vite-hub/source/server'

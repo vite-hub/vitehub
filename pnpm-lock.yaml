@@ -1464,6 +1464,9 @@ importers:
 
   packages/source:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1507,6 +1510,9 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      valibot:
+        specifier: catalog:runtime
+        version: 1.4.2(typescript@6.0.3)
       vite-plus:
         specifier: catalog:tooling
         version: 0.1.24(439f01c5bb9c67c0ad54fb4a7afc5976)

@@ -1,5 +1,6 @@
 import { effectScope, nextTick, ref } from "vue"
 import { describe, expect, it } from "vitest"
+import * as v from "valibot"
 
 import { defineCollection } from "../src/index.ts"
 import { useCollection } from "../src/client.ts"
@@ -9,9 +10,8 @@ import type { CollectionRequester, UseCollectionReturn } from "../src/client.ts"
 
 const definition = defineCollection(async () => [] as Array<{ id: number }>, {
   cursor: (item: { id: number }) => item.id,
-  query(input) {
-    return { search: typeof input.search === "string" ? input.search : undefined }
-  },
+  cursorSchema: v.number(),
+  querySchema: v.object({ search: v.optional(v.string()) }),
 })
 
 interface RequestCall {

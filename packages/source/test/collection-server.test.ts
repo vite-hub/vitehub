@@ -1,14 +1,13 @@
 import { H3 } from "h3"
 import { describe, expect, it } from "vitest"
+import * as v from "valibot"
 
 import { defineCollection } from "../src/index.ts"
 import { defineCollectionHandler } from "../src/server.ts"
 
-import type { CollectionLoadOptions } from "../src/index.ts"
-
 function createApp() {
   const collection = defineCollection(
-    async ({ cursor, limit, query }: CollectionLoadOptions<{ minimum?: number }, number>) => {
+    async ({ cursor, limit, query }) => {
       return [{ id: 3 }, { id: 2 }, { id: 1 }]
         .filter(
           (item) =>
@@ -19,14 +18,12 @@ function createApp() {
     },
     {
       cursor: (item: { id: number }) => item.id,
+      cursorSchema: v.number(),
       defaultLimit: 1,
       maxLimit: 2,
-      query(input) {
-        const minimum = typeof input.minimum === "string" ? Number(input.minimum) : undefined
-        if (minimum !== undefined && !Number.isFinite(minimum))
-          throw new TypeError("minimum must be a number")
-        return { minimum }
-      },
+      querySchema: v.object({
+        minimum: v.optional(v.pipe(v.string(), v.transform(Number), v.number())),
+      }),
     },
   )
   return new H3().get("/items", defineCollectionHandler(collection))
