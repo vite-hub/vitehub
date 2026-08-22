@@ -13,6 +13,13 @@ import { resolvesThroughTypeAliases } from "../shared/type-alias-resolution.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
 
+const transparentBroadTypeWrappers = new Set([
+  "NonNullable",
+  "Partial",
+  "Readonly",
+  "Required",
+]);
+
 type KnownValueEvidence = {
   readonly type: ESTree.TSType | null;
 };
@@ -125,6 +132,7 @@ function broadTypeKind(type: ESTree.TSType, environment: TypeEnvironment): Broad
       environment.typeBindings,
       environment.visitorKeys,
       (candidate) => unwrapTypeParentheses(candidate).type === "TSAnyKeyword",
+      transparentBroadTypeWrappers,
     )
   ) {
     return "top";
@@ -270,7 +278,8 @@ function knownValueEvidence(
   if (
     unwrapped.type === "Literal" ||
     unwrapped.type === "TemplateLiteral" ||
-    unwrapped.type === "UnaryExpression"
+    unwrapped.type === "UnaryExpression" ||
+    unwrapped.type === "BinaryExpression"
   ) {
     return { type: null };
   }

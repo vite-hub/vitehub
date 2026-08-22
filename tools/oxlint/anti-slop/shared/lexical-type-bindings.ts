@@ -17,6 +17,15 @@ function isNode(value: unknown): value is ESTree.Node {
 	return typeof value === "object" && value !== null && "type" in value;
 }
 
+type QualifiedNameNode = ESTree.TSTypeName | ESTree.TSModuleDeclaration["id"];
+
+function qualifiedTypeNameParts(name: QualifiedNameNode): readonly string[] | null {
+	if (name.type === "Identifier") return [name.name];
+	if (name.type !== "TSQualifiedName") return null;
+	const left = qualifiedTypeNameParts(name.left);
+	return left === null ? null : [...left, name.right.name];
+}
+
 export function typeBindingName(binding: TypeBinding): string | null {
 	if (
 		binding.type === "ImportDefaultSpecifier" ||
@@ -24,6 +33,10 @@ export function typeBindingName(binding: TypeBinding): string | null {
 		binding.type === "ImportSpecifier"
 	) {
 		return binding.local.name;
+	}
+	if (binding.type === "TSModuleDeclaration") {
+		if (binding.id.type === "Literal") return null;
+		return qualifiedTypeNameParts(binding.id)?.[0] ?? null;
 	}
 	return binding.id.type === "Identifier" ? binding.id.name : null;
 }
@@ -57,26 +70,15 @@ export function collectTypeBindings(
 	}
 }
 
-function qualifiedTypeNameParts(name: ESTree.TSTypeName): readonly string[] | null {
-	if (name.type === "Identifier") return [name.name];
-	if (name.type !== "TSQualifiedName") return null;
-	const left = qualifiedTypeNameParts(name.left);
-	return left === null ? null : [...left, name.right.name];
-}
-
 function enclosingNamespacePath(binding: TypeBinding): readonly string[] | null {
 	const names: string[] = [];
 	let current: ESTree.Node | null = binding.parent;
 	while (current !== null) {
-		if (current.type === "TSModuleBlock") {
-			const declaration = current.parent;
-			if (
-				declaration.type !== "TSModuleDeclaration" ||
-				declaration.id.type !== "Identifier"
-			) {
-				return null;
-			}
-			names.unshift(declaration.id.name);
+		if (current.type === "TSModuleDeclaration") {
+			if (current.id.type === "Literal") return null;
+			const parts = qualifiedTypeNameParts(current.id);
+			if (parts === null) return null;
+			names.unshift(...parts);
 		}
 		current = current.parent;
 	}
@@ -114,17 +116,19 @@ function visibleNamespacePaths(
 }
 
 function lexicalTypeContainer(node: ESTree.Node): ESTree.Node {
-	let current = node;
+	let current: ESTree.Node | null = node.parent;
 	while (
+		current !== null &&
 		current.type !== "Program" &&
 		current.type !== "BlockStatement" &&
 		current.type !== "SwitchStatement" &&
 		current.type !== "StaticBlock" &&
-		current.type !== "TSModuleBlock"
+		current.type !== "TSModuleBlock" &&
+		current.type !== "TSModuleDeclaration"
 	) {
 		current = current.parent;
 	}
-	return current;
+	return current ?? node;
 }
 
 export function visibleTypeBinding(
@@ -183,7 +187,8 @@ export function visibleTypeBindings(
 			current.type === "BlockStatement" ||
 			current.type === "SwitchStatement" ||
 			current.type === "StaticBlock" ||
-			current.type === "TSModuleBlock"
+			current.type === "TSModuleBlock" ||
+			current.type === "TSModuleDeclaration"
 		) {
 			const matches = bindings.filter(
 				(candidate) =>

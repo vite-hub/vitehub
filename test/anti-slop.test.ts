@@ -295,16 +295,29 @@ describe("anti-slop lexical type resolution", () => {
   test("preserves any through widened binding aliases", () => {
     const result = diagnostics(`
         type Broad = any;
+        type WrappedBroad = NonNullable<any>;
         const direct: any = { id: "direct" };
         const aliased: Broad = { id: "aliased" };
+        const wrapped: WrappedBroad = { id: "wrapped" };
         // SAFETY: fixture intentionally recreates the discarded direct type.
         const directRestored = direct as { id: string };
         // SAFETY: fixture intentionally recreates the discarded aliased type.
         const aliasedRestored = aliased as { id: string };
+        // SAFETY: fixture intentionally recreates the discarded wrapped type.
+        const wrappedRestored = wrapped as { id: string };
+        namespace Scoped {
+          type NonNullable<T> = string;
+          type Safe = NonNullable<any>;
+          const safe: Safe = "kept";
+          // SAFETY: fixture verifies that a local wrapper is not treated as the built-in.
+          export const unchanged = safe as string;
+        }
         void directRestored;
         void aliasedRestored;
+        void wrappedRestored;
+        void Scoped;
       `);
-    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(2);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(3);
   });
 
   test("preserves unary evidence when tracking widened bindings", () => {
@@ -316,6 +329,22 @@ describe("anti-slop lexical type resolution", () => {
         const precise = !flag;
         // SAFETY: fixture verifies that precise evidence was not widened.
         const unchanged = precise as boolean;
+        void restored;
+        void unchanged;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(1);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
+  });
+
+  test("preserves binary evidence when tracking widened bindings", () => {
+    const result = diagnostics(`
+        declare const id: string;
+        const widened: unknown = "prefix-" + id;
+        // SAFETY: fixture intentionally recreates the discarded type.
+        const restored = widened as string;
+        const precise = "prefix-" + id;
+        // SAFETY: fixture verifies that precise evidence was not widened.
+        const unchanged = precise as string;
         void restored;
         void unchanged;
       `);
@@ -450,6 +479,56 @@ describe("anti-slop lexical type resolution", () => {
     ]) {
       expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
     }
+  });
+
+  test("resolves every segment of dotted namespace declarations", () => {
+    const result = diagnostics(`
+        namespace A.B {
+          export type Identity<T> = T;
+          export type Dictionary<T> = Record<string, T>;
+        }
+        type Hidden = A.B.Identity<unknown>;
+        type UnresolvedBare = B.Identity<unknown>;
+        function unknownInput(value: A.B.Identity<unknown>) { return value; }
+        function objectInput(value: A.B.Identity<object>) { return value; }
+        function unknownOutput(): A.B.Identity<unknown> { throw new Error(); }
+        interface UnsafeEnvironment extends A.B.Dictionary<unknown> {}
+        interface SafeEnvironment extends A.B.Dictionary<string> {}
+        void (null as unknown as UnresolvedBare);
+        void (null as unknown as UnsafeEnvironment);
+        void (null as unknown as SafeEnvironment);
+      `);
+    for (const code of [
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-unsafe-dictionary-type)",
+    ]) {
+      expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
+    }
+  });
+
+  test("recognizes unshadowed host-global Reflect objects", () => {
+    const result = diagnostics(`
+        declare const target: object;
+        declare const key: PropertyKey;
+        declare const fn: (...values: unknown[]) => unknown;
+        declare const receiver: unknown;
+        declare const args: unknown[];
+        window.Reflect.get(target, key);
+        self.Reflect.apply(fn, receiver, args);
+        function safe(window: { Reflect: { get(value: object, property: PropertyKey): unknown } }) {
+          return window.Reflect.get(target, key);
+        }
+        function safeWorker(self: { Reflect: { apply: typeof Reflect.apply } }) {
+          return self.Reflect.apply(fn, receiver, args);
+        }
+        void safe;
+        void safeWorker;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-reflect-get)")).toHaveLength(1);
+    expect(result.filter((code) => code === "anti-slop(no-reflect-apply)")).toHaveLength(1);
   });
 
   test("tracks qualified dictionary alias cycles by declaration", () => {

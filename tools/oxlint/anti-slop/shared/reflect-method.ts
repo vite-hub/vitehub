@@ -1,5 +1,7 @@
 import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
 
+const hostGlobalNames = new Set(["global", "globalThis", "self", "window"]);
+
 function resolveVariable(
   sourceCode: SourceCode,
   identifier: ESTree.IdentifierReference,
@@ -11,6 +13,16 @@ function resolveVariable(
     scope = scope.upper;
   }
   return null;
+}
+
+function isUnshadowedHostGlobal(
+  sourceCode: SourceCode,
+  expression: ESTree.Expression,
+): expression is ESTree.IdentifierReference {
+  if (expression.type !== "Identifier" || !hostGlobalNames.has(expression.name)) return false;
+  if (sourceCode.isGlobalReference(expression)) return true;
+  const variable = resolveVariable(sourceCode, expression);
+  return variable === null || variable.defs.length === 0;
 }
 
 function isGlobalReflect(
@@ -54,9 +66,7 @@ function isGlobalReflect(
     : property.type === "Identifier" && property.name === "Reflect";
   return (
     isReflectProperty &&
-    expression.object.type === "Identifier" &&
-    expression.object.name === "globalThis" &&
-    sourceCode.isGlobalReference(expression.object)
+    isUnshadowedHostGlobal(sourceCode, expression.object)
   );
 }
 
@@ -100,7 +110,12 @@ export function isGlobalReflectMethodCall(
         const binding =
           property.value.type === "AssignmentPattern" ? property.value.left : property.value;
         if (binding.type !== "Identifier" || binding.name !== callee.name) return false;
-        const name = property.key.type === "Identifier" ? property.key.name : property.key.value;
+        const name =
+          property.key.type === "Identifier"
+            ? property.key.name
+            : property.key.type === "Literal"
+              ? property.key.value
+              : null;
         return name === methodName;
       });
     });

@@ -699,6 +699,7 @@ export function isKnownEvidenceExpression(expression: ESTree.Expression): boolea
 		current.type === "NewExpression" ||
 		current.type === "Literal" ||
 		current.type === "TemplateLiteral" ||
-		current.type === "UnaryExpression"
+		current.type === "UnaryExpression" ||
+		current.type === "BinaryExpression"
 	);
 }
