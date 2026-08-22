@@ -69,7 +69,7 @@ function appBaseURL(): string {
 function collectionEndpoint(name: CollectionName): string {
   const path = `/api/${String(name).split("/").map(encodeURIComponent).join("/")}`
   const baseURL = appBaseURL()
-  return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
+  return !baseURL || baseURL === "/" || baseURL.startsWith(".") ? path : `${baseURL.replace(/\/+$/, "")}${path}`
 }
 
 export function useCollection<TName extends CollectionName>(

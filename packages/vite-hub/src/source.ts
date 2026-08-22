@@ -13,13 +13,14 @@ export interface CollectionSource<
   TQuery extends object,
   TCursorInput extends CollectionCursorValue,
   TCursorOutput extends CollectionCursorValue = TCursorInput,
+  TQueryInput extends object = TQuery,
 > {
   cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   defaultLimit?: number
   load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>
   maxLimit?: number
-  querySchema?: StandardSchemaV1<unknown, TQuery>
+  querySchema?: StandardSchemaV1<TQueryInput, TQuery>
 }
 
 interface TableShape {
@@ -33,6 +34,9 @@ type TableColumn<TTable extends TableShape> = TTable["_"]["columns"][keyof TTabl
 
 type QueryOutput<TSchema extends StandardSchemaV1<unknown, object> | undefined> =
   TSchema extends StandardSchemaV1<unknown, infer TOutput extends object> ? TOutput : CollectionRequestQuery
+
+type QueryInput<TSchema extends StandardSchemaV1<unknown, object> | undefined> =
+  TSchema extends StandardSchemaV1<infer TInput extends object, object> ? TInput : CollectionRequestQuery
 
 export interface TableSourceOptions<
   TTable extends TableShape,
@@ -158,7 +162,13 @@ export function table<TTable extends TableShape, TQuerySchema extends StandardSc
   options: TableSourceOptions<TTable, TQuerySchema> & {
     querySchema: TQuerySchema
   },
-): CollectionSource<TTable["$inferSelect"], StandardSchemaV1.InferOutput<TQuerySchema>, KeysetCursor>
+): CollectionSource<
+  TTable["$inferSelect"],
+  StandardSchemaV1.InferOutput<TQuerySchema>,
+  KeysetCursor,
+  KeysetCursor,
+  QueryInput<TQuerySchema>
+>
 export function table<TTable extends TableShape>(
   options: TableSourceOptions<TTable> & {
     querySchema?: undefined
@@ -215,21 +225,23 @@ export function table(input: unknown): CollectionSource<any, any, KeysetCursor> 
   }
 }
 
-type AnyCollectionSource = CollectionSource<any, any, any, any>
+type AnyCollectionSource = CollectionSource<any, any, any, any, any>
 type SourceItem<TSource extends AnyCollectionSource> =
-  TSource extends CollectionSource<infer TItem, any, any, any> ? TItem : never
+  TSource extends CollectionSource<infer TItem, any, any, any, any> ? TItem : never
 type SourceQuery<TSource extends AnyCollectionSource> =
-  TSource extends CollectionSource<any, infer TQuery, any, any> ? TQuery : never
+  TSource extends CollectionSource<any, infer TQuery, any, any, any> ? TQuery : never
+type SourceQueryInput<TSource extends AnyCollectionSource> =
+  TSource extends CollectionSource<any, any, any, any, infer TQueryInput> ? TQueryInput : never
 
 interface DefineSourceCollection {
   <TSource extends AnyCollectionSource, TTransform extends (item: NoInfer<SourceItem<TSource>>) => unknown>(options: {
     source: TSource
     transform: TTransform
-  }): Collection<Awaited<ReturnType<TTransform>>, SourceQuery<TSource>>
+  }): Collection<Awaited<ReturnType<TTransform>>, SourceQuery<TSource>, SourceQueryInput<TSource>>
   <TSource extends AnyCollectionSource>(options: {
     source: TSource
     transform?: undefined
-  }): Collection<SourceItem<TSource>, SourceQuery<TSource>>
+  }): Collection<SourceItem<TSource>, SourceQuery<TSource>, SourceQueryInput<TSource>>
 }
 
 const defineCollectionImplementation = (

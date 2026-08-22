@@ -44,7 +44,7 @@ function serializeCollectionPage(value: unknown): unknown {
   return JSON.parse(serialized)
 }
 
-function assertCollection(value: unknown): asserts value is Collection<unknown, object> {
+function assertCollection(value: unknown): asserts value is Collection<unknown, object, object> {
   if (
     Object(value) !== value ||
     !(Reflect.get(Object(value), "page") instanceof Function) ||
@@ -54,8 +54,8 @@ function assertCollection(value: unknown): asserts value is Collection<unknown, 
   }
 }
 
-export function defineCollectionHandler<TItem, TQuery extends object>(
-  collection: Collection<TItem, TQuery>,
+export function defineCollectionHandler<TItem, TQuery extends object, TQueryInput extends object>(
+  collection: Collection<TItem, TQuery, TQueryInput>,
 ): ReturnType<typeof defineEventHandler> {
   assertCollection(collection)
   return defineEventHandler(async (event: H3Event) => {

@@ -63,7 +63,7 @@ const meals = defineCollection({
 })
 expectTypeOf<CollectionItem<typeof meals>>().toEqualTypeOf<{ id: string }>()
 
-declare const mealQuerySchema: StandardSchemaV1<unknown, { day?: string }>
+declare const mealQuerySchema: StandardSchemaV1<{ day?: string }, { day?: string }>
 const filteredMeals = defineCollection({
   source: table({
     db,
@@ -81,3 +81,22 @@ const filteredMeals = defineCollection({
   }),
 })
 expectTypeOf<CollectionQuery<typeof filteredMeals>>().toEqualTypeOf<{ day?: string }>()
+
+declare const transformedMealQuerySchema: StandardSchemaV1<{ q: string }, { search: string }>
+const searchedMeals = defineCollection({
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    querySchema: transformedMealQuerySchema,
+    table: schema.meals,
+    where({ query }) {
+      expectTypeOf(query).toEqualTypeOf<{ search: string }>()
+      return undefined
+    },
+  }),
+})
+expectTypeOf<CollectionQuery<typeof searchedMeals>>().toEqualTypeOf<{ q: string }>()

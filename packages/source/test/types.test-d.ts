@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 import {
   combineSources,
+  type CollectionQuery,
   createSource,
   custom,
   defineCollection,
@@ -242,6 +243,22 @@ describe("@vite-hub/source types", () => {
     expectTypeOf(await collection.parseQuery({ day: "2026-08-21" })).toEqualTypeOf<{
       day?: string
     }>()
+
+    const transformedQuery = defineCollection(
+      async ({ query }) => {
+        expectTypeOf(query).toEqualTypeOf<{ search: string }>()
+        return [{ id: query.search }]
+      },
+      {
+        cursor: row => row.id,
+        cursorSchema: v.string(),
+        querySchema: v.pipe(
+          v.object({ q: v.string() }),
+          v.transform(({ q }) => ({ search: q })),
+        ),
+      },
+    )
+    expectTypeOf<CollectionQuery<typeof transformedQuery>>().toEqualTypeOf<{ q: string }>()
 
     defineCollection(
       async ({ cursor }) => {

@@ -24,6 +24,8 @@ const jsonValues = defineCollection(
     return [] as Array<{
       array: Array<number | undefined | (() => void) | symbol>
       omitted: undefined
+      optional: string | undefined
+      toJSONOmitted: { toJSON(): undefined }
       value: number
     }>
   },
@@ -33,11 +35,28 @@ const jsonValues = defineCollection(
   },
 )
 
+// SAFETY: This type-only fixture covers item-level JSON array coercion.
+const toJSONOmittedItems = defineCollection(async () => [] as Array<{ toJSON(): undefined }>, {
+  cursor: () => "done",
+  cursorSchema: v.string(),
+})
+
+const transformedQuery = defineCollection(async ({ query }) => [{ id: query.search }], {
+  cursor: item => item.id,
+  cursorSchema: v.string(),
+  querySchema: v.pipe(
+    v.object({ q: v.string() }),
+    v.transform(({ q }) => ({ search: q })),
+  ),
+})
+
 declare global {
   interface ViteHubCollectionMap {
     articles: typeof articles
     events: typeof events
     jsonValues: typeof jsonValues
+    toJSONOmittedItems: typeof toJSONOmittedItems
+    transformedQuery: typeof transformedQuery
   }
 }
 
@@ -46,13 +65,20 @@ describe("useCollection types", () => {
     const collection = useCollection("articles", { filter: { author: "Ada" } })
     expectTypeOf(collection.items.value).toEqualTypeOf<Array<{ id: number | null; title: string }>>()
     expectTypeOf(useCollection("events").items.value).toEqualTypeOf<Array<{ at: string; id: never }>>()
-    expectTypeOf(useCollection("jsonValues").items.value).toEqualTypeOf<
-      Array<{ array: Array<number | null>; value: number | null }>
-    >()
+    type JSONValue = {
+      array: Array<number | null>
+      optional?: string
+      value: number | null
+    }
+    expectTypeOf(useCollection("jsonValues").items.value).toEqualTypeOf<JSONValue[]>()
+    expectTypeOf(useCollection("toJSONOmittedItems").items.value).toMatchTypeOf<null[]>()
+    useCollection("transformedQuery", { filter: { q: "Ada" } })
 
     // @ts-expect-error Collection names come from ViteHubCollectionMap
     useCollection("missing")
     // @ts-expect-error Filters come from the registered Collection query schema
     useCollection("articles", { filter: { author: 42 } })
+    // @ts-expect-error Filters use the query schema input rather than its transformed output
+    useCollection("transformedQuery", { filter: { search: "Ada" } })
   })
 })

@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import {
   resolveViteHubProjectRoot,
@@ -122,6 +123,14 @@ interface ViteHubPluginConfig {
   [VITEHUB_SERVER_DIRS]?: string[]
 }
 
+export function toRuntimeModuleSpecifier(file: string): string {
+  return pathToFileURL(file, { windows: /^[A-Z]:[\\/]/i.test(file) }).href
+}
+
+export function toTypeModuleSpecifier(file: string): string {
+  return file.replaceAll("\\", "/")
+}
+
 async function collectCollectionFiles(directory: string): Promise<string[]> {
   let entries
   try {
@@ -204,10 +213,10 @@ async function writeCollectionArtifacts(options: ViteHubTypesOptions): Promise<G
     [
       `declare global {`,
       `  interface ViteHubCollectionMap {`,
-      ...collections.map(
-        ({ exportName, file, name }) =>
-          `    ${JSON.stringify(name)}: typeof import(${JSON.stringify(file)})[${JSON.stringify(exportName)}]`,
-      ),
+      ...collections.map(({ exportName, file, name }) => {
+        const specifier = toTypeModuleSpecifier(file)
+        return `    ${JSON.stringify(name)}: typeof import(${JSON.stringify(specifier)})[${JSON.stringify(exportName)}]`
+      }),
       `  }`,
       `}`,
       ``,
@@ -219,11 +228,12 @@ async function writeCollectionArtifacts(options: ViteHubTypesOptions): Promise<G
   return await Promise.all(
     collections.map(async ({ exportName, file, name }) => {
       const handler = resolve(routesDirectory, `${name}.mjs`)
+      const specifier = toRuntimeModuleSpecifier(file)
       await writeFileIfChanged(
         handler,
         [
           `import { defineCollectionHandler } from "vite-hub/source/server"`,
-          `import { ${exportName} as collection } from ${JSON.stringify(file)}`,
+          `import { ${exportName} as collection } from ${JSON.stringify(specifier)}`,
           ``,
           `export default defineCollectionHandler(collection)`,
           ``,
@@ -315,7 +325,7 @@ export function viteHubTypesPlugin(): Plugin &
       const handlers = await writeViteHubTypes({ projectRoot, serverDirs })
       viteConfig.define = {
         ...viteConfig.define,
-        __VITEHUB_APP_BASE_URL__: JSON.stringify(viteConfig.base || "/"),
+        __VITEHUB_APP_BASE_URL__: JSON.stringify(viteConfig.base ?? "/"),
       }
       viteConfig.nitro = mergeGeneratedCollectionNitroConfig(viteConfig.nitro, handlers)
     },

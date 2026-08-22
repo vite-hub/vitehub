@@ -1,12 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { viteHubTypesPlugin } from "../src/internal/types.ts"
+import { toRuntimeModuleSpecifier, toTypeModuleSpecifier, viteHubTypesPlugin } from "../src/internal/types.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -93,6 +94,29 @@ describe("framework generated types", () => {
       EXISTING: "true",
       __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
     })
+  })
+
+  it("preserves an empty relative Vite base for runtime endpoint normalization", async () => {
+    const { viteRoot } = await createNestedProject()
+    const viteConfig = { base: "", root: viteRoot }
+
+    await config(viteHubTypesPlugin())(viteConfig)
+
+    expect(viteConfig).toMatchObject({
+      define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("") },
+    })
+  })
+
+  it("normalizes POSIX and Windows Collection files to ESM file URLs", () => {
+    expect(toRuntimeModuleSpecifier("/repo/server/collections/meals.ts")).toBe(
+      "file:///repo/server/collections/meals.ts",
+    )
+    expect(toRuntimeModuleSpecifier(String.raw`C:\repo\server\collections\meals.ts`)).toBe(
+      "file:///C:/repo/server/collections/meals.ts",
+    )
+    expect(toTypeModuleSpecifier(String.raw`C:\repo\server\collections\meals.ts`)).toBe(
+      "C:/repo/server/collections/meals.ts",
+    )
   })
 
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
@@ -187,12 +211,25 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
       [
         `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { meals as collection } from ${JSON.stringify(join(root, "server/collections/meals.ts"))}`,
+        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
         ``,
         `export default defineCollectionHandler(collection)`,
         ``,
       ].join("\n"),
     )
+  })
+
+  it("loads a generated Collection handler through its normalized module specifier", async () => {
+    const { root } = await createNestedProject()
+    await Promise.all([
+      mkdir(join(root, "server/collections"), { recursive: true }),
+      symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir"),
+    ])
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const [handler] = await viteHubTypesPlugin().api.prepareTypes(root)
+
+    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
   })
 
   it("registers generated Collection handlers in plain Vite Nitro config", async () => {
@@ -312,7 +349,7 @@ describe("framework generated types", () => {
     await buildStart(plugin)()
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
-      JSON.stringify(join(serverDir, "collections/meals.ts")),
+      JSON.stringify(pathToFileURL(join(serverDir, "collections/meals.ts")).href),
     )
   })
 })

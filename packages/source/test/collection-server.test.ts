@@ -61,13 +61,25 @@ describe("defineCollectionHandler", () => {
 
   it("matches JSON coercion and omission at the Collection boundary", async () => {
     const collection = defineCollection(
-      async () => [
-        {
-          array: [undefined, Number.NaN, Number.POSITIVE_INFINITY, () => undefined, Symbol("x")],
-          omitted: undefined,
-          value: Number.NEGATIVE_INFINITY,
-        },
-      ],
+      async () => {
+        const optional: string | undefined = undefined
+        return [
+          {
+            array: [
+              undefined,
+              Number.NaN,
+              Number.POSITIVE_INFINITY,
+              () => undefined,
+              Symbol("x"),
+              { toJSON: () => undefined },
+            ],
+            omitted: undefined,
+            optional,
+            toJSONOmitted: { toJSON: () => undefined },
+            value: Number.NEGATIVE_INFINITY,
+          },
+        ]
+      },
       {
         cursor: () => "done",
         cursorSchema: v.string(),
@@ -76,9 +88,19 @@ describe("defineCollectionHandler", () => {
     const response = await new H3().get("/values", defineCollectionHandler(collection)).request("/values")
 
     expect(await response.json()).toEqual({
-      items: [{ array: [null, null, null, null, null], value: null }],
+      items: [{ array: [null, null, null, null, null, null], value: null }],
       nextCursor: null,
     })
+  })
+
+  it("coerces an item whose toJSON returns undefined to null", async () => {
+    const collection = defineCollection(async () => [{ toJSON: () => undefined }], {
+      cursor: () => "done",
+      cursorSchema: v.string(),
+    })
+    const response = await new H3().get("/values", defineCollectionHandler(collection)).request("/values")
+
+    expect(await response.json()).toEqual({ items: [null], nextCursor: null })
   })
 
   it("rejects Collection pages containing bigint", async () => {

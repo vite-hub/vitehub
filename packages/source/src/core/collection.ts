@@ -2,6 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 const defaultPageLimit = 50
 const defaultMaxLimit = 100
+declare const collectionQueryInput: unique symbol
 
 export type CollectionRequestQuery = Record<string, string | string[] | undefined>
 
@@ -32,15 +33,28 @@ export interface CollectionPage<TItem> {
   nextCursor: string | null
 }
 
-export interface Collection<TItem, TQuery extends object = CollectionRequestQuery> {
+export interface Collection<
+  TItem,
+  TQuery extends object = CollectionRequestQuery,
+  TQueryInput extends object = TQuery,
+> {
+  readonly [collectionQueryInput]?: TQueryInput
   page(options: CollectionPageOptions<TQuery>): Promise<CollectionPage<TItem>>
   parseQuery(input: CollectionRequestQuery): Promise<TQuery>
 }
 
-export type AnyCollection = Collection<any, any>
+export type AnyCollection = Collection<any, any, any>
 
 export type CollectionItem<TCollection extends AnyCollection> =
-  TCollection extends Collection<infer TItem, any> ? TItem : never
+  TCollection extends Collection<infer TItem, any, any> ? TItem : never
+
+type JSONOmitted = undefined | ((...args: any[]) => any) | symbol
+
+type JSONOmittedBranch<T> = T extends { toJSON(): infer TJSON }
+  ? JSONOmittedBranch<TJSON>
+  : T extends JSONOmitted
+    ? T
+    : never
 
 type JSONSerialized<T> = T extends { toJSON(): infer TJSON }
   ? JSONSerialized<TJSON>
@@ -53,21 +67,39 @@ type JSONSerialized<T> = T extends { toJSON(): infer TJSON }
         : T extends readonly (infer TItem)[]
           ? Array<JSONSerializedArrayItem<TItem>>
           : T extends object
-            ? {
-                [TKey in keyof T as TKey extends symbol
-                  ? never
-                  : T[TKey] extends undefined | ((...args: any[]) => any) | symbol
-                    ? never
-                    : TKey]: JSONSerialized<T[TKey]>
-              }
+            ? JSONSerializedObject<T>
             : never
 
-type JSONSerializedArrayItem<T> = T extends undefined | ((...args: any[]) => any) | symbol ? null : JSONSerialized<T>
+type JSONSerializedArrayItem<T> = T extends { toJSON(): infer TJSON }
+  ? JSONSerializedArrayValue<TJSON>
+  : JSONSerializedArrayValue<T>
 
-export type CollectionClientItem<TCollection extends AnyCollection> = JSONSerialized<CollectionItem<TCollection>>
+type JSONSerializedArrayValue<T> = T extends JSONOmitted ? null : JSONSerialized<T>
+
+type Simplify<T> = { [TKey in keyof T]: T[TKey] }
+
+type JSONSerializedObject<T extends object> = Simplify<{
+  [TKey in keyof T as TKey extends symbol
+    ? never
+    : [JSONOmittedBranch<T[TKey]>] extends [never]
+      ? TKey
+      : never]: JSONSerialized<T[TKey]>
+} & {
+  [TKey in keyof T as TKey extends symbol
+    ? never
+    : [JSONOmittedBranch<T[TKey]>] extends [never]
+      ? never
+      : [JSONSerialized<T[TKey]>] extends [never]
+        ? never
+        : TKey]?: JSONSerialized<T[TKey]>
+}>
+
+export type CollectionClientItem<TCollection extends AnyCollection> = JSONSerializedArrayItem<
+  CollectionItem<TCollection>
+>
 
 export type CollectionQuery<TCollection extends AnyCollection> =
-  TCollection extends Collection<any, infer TQuery> ? TQuery : never
+  TCollection extends Collection<any, any, infer TQueryInput> ? TQueryInput : never
 
 export type CollectionLoader<TSourceItem, TQuery extends object, TCursor extends CollectionCursorValue> = (
   options: CollectionLoadOptions<TQuery, TCursor>,
@@ -104,6 +136,10 @@ type CursorOutput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferOut
   CollectionCursorValue,
 ]
   ? StandardSchemaV1.InferOutput<TSchema>
+  : never
+
+type QueryInput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferInput<TSchema>] extends [object]
+  ? StandardSchemaV1.InferInput<TSchema>
   : never
 
 export class CollectionCursorError extends TypeError {
@@ -192,7 +228,7 @@ export function defineCollection<
     querySchema: TQuerySchema
     transform: TTransform
   },
-): Collection<Awaited<ReturnType<TTransform>>, StandardSchemaV1.InferOutput<TQuerySchema>>
+): Collection<Awaited<ReturnType<TTransform>>, StandardSchemaV1.InferOutput<TQuerySchema>, QueryInput<TQuerySchema>>
 export function defineCollection<
   TSourceItem,
   TCursorSchema extends StandardSchemaV1,
@@ -204,7 +240,7 @@ export function defineCollection<
     querySchema: TQuerySchema
     transform?: undefined
   },
-): Collection<TSourceItem, StandardSchemaV1.InferOutput<TQuerySchema>>
+): Collection<TSourceItem, StandardSchemaV1.InferOutput<TQuerySchema>, QueryInput<TQuerySchema>>
 export function defineCollection<
   TSourceItem,
   TCursorSchema extends StandardSchemaV1,
@@ -216,7 +252,7 @@ export function defineCollection<
     querySchema?: undefined
     transform: TTransform
   },
-): Collection<Awaited<ReturnType<TTransform>>, CollectionRequestQuery>
+): Collection<Awaited<ReturnType<TTransform>>, CollectionRequestQuery, CollectionRequestQuery>
 export function defineCollection<TSourceItem, TCursorSchema extends StandardSchemaV1>(
   load: CollectionLoader<TSourceItem, CollectionRequestQuery, CursorOutput<TCursorSchema>>,
   options: CollectionDefinition<TSourceItem, CollectionRequestQuery, CursorInput<TCursorSchema>> & {
@@ -224,7 +260,7 @@ export function defineCollection<TSourceItem, TCursorSchema extends StandardSche
     querySchema?: undefined
     transform?: undefined
   },
-): Collection<TSourceItem, CollectionRequestQuery>
+): Collection<TSourceItem, CollectionRequestQuery, CollectionRequestQuery>
 export function defineCollection<
   TSourceItem,
   const TCursorInput extends CollectionCursorValue,
@@ -236,7 +272,7 @@ export function defineCollection<
   definition: CollectionOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> & {
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
-): Collection<TItem, TQuery> {
+): Collection<TItem, TQuery, object> {
   const defaultLimit = definition.defaultLimit ?? defaultPageLimit
   const maxLimit = definition.maxLimit ?? defaultMaxLimit
   assertPositiveInteger(defaultLimit, "defaultLimit")
