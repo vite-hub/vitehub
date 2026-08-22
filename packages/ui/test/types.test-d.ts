@@ -1,9 +1,18 @@
 import type { UIMessage } from "ai";
 import type {
+  AgentInvocationListItem,
   AgentInvocationView,
   ViteHubUIMessage,
   ViteHubUISession,
 } from "../src/index.ts";
+
+const listItem: AgentInvocationListItem = {
+  id: "invocation-1",
+  project: "vitehub",
+  status: "running",
+  title: "Improve the console",
+};
+void listItem;
 
 declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;
 const compatible: UIMessage = message;

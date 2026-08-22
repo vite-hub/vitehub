@@ -19,6 +19,8 @@ const componentNames = [
   "AgentDiff",
   "AgentFileTree",
   "AgentInvocation",
+  "AgentInvocationInspector",
+  "AgentInvocationList",
   "AgentMarkdown",
   "AgentMessageParts",
   "AgentSession",

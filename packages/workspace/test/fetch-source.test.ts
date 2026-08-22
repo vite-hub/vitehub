@@ -210,6 +210,7 @@ describe("fetch sources", () => {
     await expect(view.list("status")).resolves.toEqual([
       { path: "status/new.json", type: "file" },
     ])
+    await expect(view.list("status", { exclude: ["status"], recursive: true })).resolves.toEqual([])
     await expect(view.glob("status/*.json")).resolves.toEqual([
       { path: "status/new.json", type: "file" },
     ])
@@ -323,6 +324,7 @@ describe("fetch sources", () => {
     await expect(view.list(".vitehub/sources")).resolves.toEqual([
       { path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" },
     ])
+    await expect(view.list("", { exclude: [".vitehub"], recursive: true })).resolves.toEqual([])
     const descriptor = JSON.parse(await view.readFile(".vitehub/sources/inventoryHealthSummary.json"))
     expect(descriptor).toEqual({
       credentials: { cookies: ["auth_token"] },

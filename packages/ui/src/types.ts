@@ -15,6 +15,21 @@ export interface ViteHubUISession<Message extends UIMessage = UIMessage> {
   updatedAt?: Date | string;
 }
 
+export type AgentInvocationStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+export interface AgentInvocationListItem {
+  agent?: string;
+  context?: string;
+  description?: string;
+  id: string;
+  project?: string;
+  provider?: string;
+  startedAt?: string;
+  status: AgentInvocationStatus;
+  title: string;
+  updatedAt?: string;
+}
+
 export type AgentInspectionValue =
   | boolean
   | number
@@ -64,7 +79,7 @@ export interface AgentInvocationView {
   observations: readonly import("@vite-hub/runtime").TraceEventLogEntry[];
   origin?: string;
   startedAt?: string;
-  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  status: AgentInvocationStatus;
   threadId?: string;
   title?: string;
   traceId: string;

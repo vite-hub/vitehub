@@ -4,6 +4,7 @@ export * from "./components/agent-chat-prompt.ts";
 export * from "./components/agent-diff.ts";
 export * from "./components/agent-file-tree.ts";
 export * from "./components/agent-invocation.ts";
+export * from "./components/agent-invocation-list.ts";
 export * from "./components/agent-markdown.ts";
 export * from "./components/agent-message-parts.ts";
 export * from "./components/agent-session.ts";

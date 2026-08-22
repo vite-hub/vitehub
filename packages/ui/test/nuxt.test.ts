@@ -44,6 +44,7 @@ describe("ViteHub UI Nuxt module", () => {
       expect(components).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ export: "AgentChat", filePath: "@vite-hub/ui" }),
+          expect.objectContaining({ export: "AgentInvocationList", filePath: "@vite-hub/ui" }),
           expect.objectContaining({ export: "AgentSession", filePath: "@vite-hub/ui" }),
           expect.objectContaining({ export: "AgentTrace", filePath: "@vite-hub/ui" }),
         ]),
