@@ -84,6 +84,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
         handler: (event: import("../src/console/runtime/server/local-request.ts").ConsoleRequestEvent) => void
         route?: string
       }> | undefined,
+      modules: undefined as unknown[] | undefined,
       nitro: {} as Record<string, unknown>,
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
