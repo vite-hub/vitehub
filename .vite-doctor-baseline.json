@@ -2533,6 +2533,11 @@
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workflow/test/config.test.ts",
+      "fingerprint": "38a5db38bc15e49acf5c91dacf1429e65c0cf39c29ca3f3ec0bdd0e56c3ab879"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "test/contracts.test.ts",
       "fingerprint": "ef40797640a32d8f9b516084524ea74c7d9476e0d0f774460c351423482e9695"
     },
