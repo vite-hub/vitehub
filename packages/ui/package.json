@@ -83,6 +83,17 @@
     "ai": "catalog:ai-compat",
     "vue": "catalog:ui"
   },
+  "peerDependenciesMeta": {
+    "@nuxt/ui": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
   "engines": {
     "node": ">=24.15.0"
   }
