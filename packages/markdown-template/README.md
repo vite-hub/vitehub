@@ -46,25 +46,9 @@ The renderer does not provide loops, helpers, macros, a compile phase, filesyste
 
 Comark provides the Markdown parser, component syntax, syntax tree, and serializer. ViteHub owns the constrained composition policy exposed by this package.
 
-## Named templates
+## Template modules
 
-Markdown files under `server/templates` are discovered by relative name and bundled before deployment:
-
-```ts
-import { renderTemplate, type TemplateName } from "#vitehub/templates"
-
-const markdown = await renderTemplate("review/pull-request", { pullRequest, sections })
-
-export function renderPrompt(name: TemplateName, data: Record<string, unknown>) {
-  return renderTemplate(name, data)
-}
-```
-
-ViteHub removes the `server/templates/` prefix and `.md` extension from each catalog name. For example, `server/templates/pull-request.md` becomes `pull-request`, while `server/templates/review/pull-request.md` becomes `review/pull-request`.
-
-`renderTemplate(name, data?)` returns a `Promise<string>`. The generated `TemplateName` union autocompletes valid names and rejects typos, while the optional data record defaults to `{}`. A JavaScript caller that passes an unknown name receives a `TypeError` at runtime.
-
-Use a `.template.md` file when a private prompt belongs beside its caller instead of in the application catalog:
+Place a `.template.md` file beside the module that renders it and import the asynchronous render function directly:
 
 ```ts
 import prompt from "./prompt.template.md"
@@ -72,8 +56,8 @@ import prompt from "./prompt.template.md"
 const markdown = await prompt({ pullRequest, sections })
 ```
 
-Relative Markdown imports work in both forms and can remain ordinary `.md` files.
+Relative Markdown imports can remain ordinary `.md` files. ViteHub bundles the template and its imports before deployment, so source Markdown is not read at runtime.
 
-Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code should use the `.template.md` suffix.
+When one caller owns several templates, a local `templates/` directory can group them without changing the API. Import each `.template.md` file explicitly. For fixed runtime selection, create an object whose values are imported renderers.
 
-The `vitehub()` preset installs the integration. Modular Vite configs can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`; both forms resolve `server/templates` and generated files from the ViteHub project root, including projects that use a nested Vite root. They generate template names and ambient module types under `.vitehub/types`; include `.vitehub/types/**/*.d.ts` in the application's `tsconfig.json` so TypeScript sees them.
+The `vitehub()` preset installs the integration. Modular Vite configs can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`; both forms generate the ambient module type under `.vitehub/types`. Include `.vitehub/types/**/*.d.ts` in the application's `tsconfig.json` so TypeScript sees it.

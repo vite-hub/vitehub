@@ -498,7 +498,7 @@ describe("vitehub", () => {
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
-    const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/templates", {} as never)
+    const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/env/server", {} as never)
     if (access === "deny") expect(resolved).toBeUndefined()
     else expect(resolved).toBe(fileURLToPath(import.meta.resolve(name)))
   })
