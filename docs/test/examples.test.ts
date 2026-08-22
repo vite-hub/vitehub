@@ -16,15 +16,38 @@ describe("examples catalog", () => {
     expect(sitemap).toContain('{ path: "/examples" }');
   });
 
-  it("keeps projects pending until their source is publishable", () => {
+  it("publishes the open projects while retaining future candidates", () => {
     expect(examples).toEqual([
       expect.objectContaining({
         name: "Drop",
         kind: "project",
-        status: "pending",
-        action: { kind: "source", label: "Source unavailable" },
-        builtWith: ["Blob", "Queue", "Rate Limit"],
-        publicationNote: "Pending an explicit license.",
+        status: "published",
+        action: {
+          kind: "source",
+          label: "View source",
+          to: "https://github.com/vite-hub/drop",
+        },
+        builtWith: ["Blob", "Queue", "Rate Limit", "Sandbox", "Schedule"],
+      }),
+      expect.objectContaining({
+        name: "Calories",
+        kind: "project",
+        status: "published",
+        action: {
+          kind: "source",
+          label: "View source",
+          to: "https://github.com/vite-hub/calories",
+        },
+      }),
+      expect.objectContaining({
+        name: "My Pull Requests",
+        kind: "project",
+        status: "published",
+        action: {
+          kind: "source",
+          label: "View source",
+          to: "https://github.com/vite-hub/my-pull-requests",
+        },
       }),
       expect.objectContaining({
         name: "Babysitter",
@@ -42,7 +65,7 @@ describe("examples catalog", () => {
     type Template = Extract<Example, { kind: "template" }>;
 
     expectTypeOf<Project["action"]["kind"]>().toEqualTypeOf<"source">();
-    expectTypeOf<PublishedProject["license"]>().toEqualTypeOf<string>();
+    expectTypeOf<PublishedProject["action"]["to"]>().toEqualTypeOf<string>();
     expectTypeOf<Template["action"]["kind"]>().toEqualTypeOf<"use">();
     expectTypeOf<Template["startPath"]>().toEqualTypeOf<string>();
   });
