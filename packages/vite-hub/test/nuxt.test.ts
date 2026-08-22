@@ -211,6 +211,8 @@ describe("ViteHub Nuxt integration", () => {
 
   it("installs the read-only console only during Nuxt development", async () => {
     const development = createNuxt(true)
+    const existingConsoleHandler = vi.fn()
+    development.nuxt.options.devServerHandlers = [{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }]
     await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
     const pages: Array<{ file: string, name: string, path: string }> = []
     development.runPagesHook(pages)
@@ -228,10 +230,13 @@ describe("ViteHub Nuxt integration", () => {
       plugins: ["/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs"],
     })
     expect(development.nuxt.options.devServerHandlers).toEqual([
+      { handler: existingConsoleHandler, route: "/api/_vitehub/console" },
       expect.objectContaining({ route: "/_vitehub" }),
       expect.objectContaining({ route: "/api/_vitehub/console" }),
     ])
-    const apiGuard = development.nuxt.options.devServerHandlers?.find(handler => handler.route === "/api/_vitehub/console")
+    const apiGuard = development.nuxt.options.devServerHandlers?.find(handler =>
+      handler.route === "/api/_vitehub/console" && handler.handler !== existingConsoleHandler,
+    )
     expect(() => apiGuard?.handler({
       context: { clientAddress: "127.0.0.1" },
       headers: new Headers({ host: "localhost", "x-forwarded-for": "127.0.0.1" }),

@@ -146,7 +146,7 @@ async function installConsole(nuxt: NuxtLike, projectRoot: string): Promise<void
   }
   const devServerHandlers = (nuxt.options.devServerHandlers ??= [])
   for (const route of ["/_vitehub", "/api/_vitehub/console"]) {
-    if (!devServerHandlers.some(candidate => candidate.route === route)) {
+    if (!devServerHandlers.some(candidate => candidate.route === route && candidate.handler === assertLocalConsolePeer)) {
       devServerHandlers.push({ handler: assertLocalConsolePeer, route })
     }
   }

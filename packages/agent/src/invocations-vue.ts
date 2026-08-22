@@ -193,7 +193,7 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
-  let loadedPages = 1;
+  let oldestLoadedId: string | undefined;
   let revision = 0;
   let stopped = false;
 
@@ -201,9 +201,10 @@ export function useAgentInvocations(
     apply(result) {
       invocations.value = result.invocations;
       cursor.value = result.cursor;
+      oldestLoadedId = result.invocations.at(-1)?.id;
     },
     clear() {
-      loadedPages = 1;
+      oldestLoadedId = undefined;
       invocations.value = [];
       cursor.value = undefined;
     },
@@ -214,7 +215,7 @@ export function useAgentInvocations(
       isLoadingMore.value = false;
     },
     beforeSourceChange() {
-      loadedPages = 1;
+      oldestLoadedId = undefined;
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
@@ -226,7 +227,10 @@ export function useAgentInvocations(
       );
       const refreshed = [...first.invocations];
       let nextCursor = first.cursor;
-      for (let page = 1; page < loadedPages && nextCursor; page++) {
+      const boundaryId = oldestLoadedId;
+      const seenCursors = new Set<string>();
+      while (boundaryId && !refreshed.some(invocation => invocation.id === boundaryId) && nextCursor && !seenCursors.has(nextCursor)) {
+        seenCursors.add(nextCursor);
         const next = await request<AgentInvocationListResult>(
           appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
           { signal },
@@ -264,7 +268,7 @@ export function useAgentInvocations(
         ...invocations.value,
         ...result.invocations.filter(invocation => !ids.has(invocation.id)),
       ];
-      loadedPages++;
+      oldestLoadedId = invocations.value.at(-1)?.id;
       cursor.value = result.cursor;
       return result;
     } catch (cause) {
