@@ -93,4 +93,30 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/env.d.ts")
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
   })
+
+  it("registers server Collections by filename", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    await mkdir(join(root, "server/collections/admin"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "server/collections/meals.ts"), "export const meals = {}\n"),
+      writeFile(join(root, "server/collections/admin/history.ts"), "export const history = {}\n"),
+    ])
+
+    await configResolved(viteHubTypesPlugin())({ root: viteRoot })
+
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toBe([
+      `declare global {`,
+      `  interface ViteHubCollectionMap {`,
+      `    "admin/history": typeof import(${JSON.stringify(join(root, "server/collections/admin/history.ts"))})["history"]`,
+      `    "meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
+      `  }`,
+      `}`,
+      ``,
+      `export {}`,
+      ``,
+    ].join("\n"))
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
+      `./source/collections.d.ts`,
+    )
+  })
 })

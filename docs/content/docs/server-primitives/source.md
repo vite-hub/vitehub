@@ -272,19 +272,21 @@ export default defineCollectionHandler(articles)
 
 ```vue [app/pages/articles.vue]
 <script setup lang="ts">
-import type { articles } from '../../server/collections/articles'
-
 const author = ref<string>()
-const { items, pending, error, hasMore, loadMore } = useCollection<typeof articles>(
-  '/api/articles',
-  { query: computed(() => ({ author: author.value })) },
-)
+const { items, pending, error, hasMore, loadMore } = useCollection('articles', {
+  filter: computed(() => ({ author: author.value })),
+})
 </script>
 ```
 
-The ViteHub Nuxt module auto-imports `useCollection`. Outside Nuxt, import it
-from `vite-hub/source/client`. `cursor` and `limit` are reserved route query
-parameters. Invalid limits, cursor encodings, and parsed queries return HTTP 400.
+ViteHub discovers named exports in `server/collections`, generates their name
+and type registry, and maps `articles` to `/api/articles`. The Nuxt module
+auto-imports `useCollection`; outside Nuxt, import it from
+`vite-hub/source/client`. Use `filter` for validated request input. It stays
+fixed while `loadMore()` advances the opaque cursor. For a bounded Collection,
+set `all: true` to fetch every page asynchronously. `cursor` and `limit` are
+reserved route query parameters. Invalid limits, cursor encodings, and parsed
+filters return HTTP 400.
 
 ## Use Sources with Workspace
 

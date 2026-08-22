@@ -14,6 +14,12 @@ const definition = defineCollection(async () => [] as Array<{ id: number }>, {
   querySchema: v.object({ search: v.optional(v.string()) }),
 })
 
+declare global {
+  interface ViteHubCollectionMap {
+    items: typeof definition
+  }
+}
+
 interface RequestCall {
   endpoint: string
   options: Parameters<CollectionRequester>[1]
@@ -55,7 +61,7 @@ describe("useCollection", () => {
     const scope = effectScope()
     let collection!: UseCollectionReturn<typeof definition>
     scope.run(() => {
-      collection = useCollection<typeof definition>("/api/items", {
+      collection = useCollection("items", {
         immediate: false,
         limit: 2,
         request,
@@ -81,16 +87,69 @@ describe("useCollection", () => {
     scope.stop()
   })
 
-  it("refreshes when typed query input changes and aborts the old request", async () => {
+  it("loads every cursor page with one stable filter", async () => {
     const { calls, request } = controlledRequester()
-    const query = ref({ search: "first" })
     const scope = effectScope()
     let collection!: UseCollectionReturn<typeof definition>
     scope.run(() => {
-      collection = useCollection<typeof definition>("/api/items", { query, request })
+      collection = useCollection("items", {
+        all: true,
+        filter: { search: "Ada" },
+        immediate: false,
+        limit: 2,
+        request,
+      })
     })
 
-    query.value = { search: "second" }
+    const refresh = collection.refresh()
+    expect(calls[0]!.options.query).toEqual({
+      cursor: undefined,
+      limit: 2,
+      search: "Ada",
+    })
+    calls[0]!.resolve(page([{ id: 1 }, { id: 2 }], "next"))
+    await settle()
+    expect(collection.items.value).toEqual([])
+    expect(calls[1]!.options.query).toEqual({ cursor: "next", limit: 2, search: "Ada" })
+    calls[1]!.resolve(page([{ id: 3 }], null))
+    await refresh
+
+    expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }])
+    expect(collection.hasMore.value).toBe(false)
+    scope.stop()
+  })
+
+  it("stops an all-pages load when the server repeats a cursor", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { all: true, immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    calls[0]!.resolve(page([{ id: 1 }], "repeat"))
+    await settle()
+    calls[1]!.resolve(page([{ id: 2 }], "repeat"))
+    await refresh
+
+    expect(collection.items.value).toEqual([])
+    expect(collection.error.value).toEqual(
+      new TypeError("[vitehub] Collection returned the same cursor twice."),
+    )
+    scope.stop()
+  })
+
+  it("refreshes when typed filter input changes and aborts the old request", async () => {
+    const { calls, request } = controlledRequester()
+    const filter = ref({ search: "first" })
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { filter, request })
+    })
+
+    filter.value = { search: "second" }
     await nextTick()
     expect(calls[0]!.options.signal.aborted).toBe(true)
     expect(collection.pending.value).toBe(true)

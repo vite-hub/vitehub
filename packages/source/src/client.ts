@@ -19,10 +19,22 @@ export type CollectionRequester = <T>(
   options: CollectionRequestOptions,
 ) => Promise<T>
 
+declare global {
+  interface ViteHubCollectionMap {}
+}
+
+export type CollectionName = Extract<keyof ViteHubCollectionMap, string>
+
+type RegisteredCollection<TName extends CollectionName> = Extract<
+  ViteHubCollectionMap[TName],
+  AnyCollection
+>
+
 export interface UseCollectionOptions<TCollection extends AnyCollection> {
+  all?: boolean
+  filter?: MaybeRefOrGetter<CollectionQuery<TCollection>>
   immediate?: boolean
   limit?: number
-  query?: MaybeRefOrGetter<CollectionQuery<TCollection>>
   request?: CollectionRequester
 }
 
@@ -48,13 +60,19 @@ function isAbortError(error: unknown): boolean {
   )
 }
 
-export function useCollection<TCollection extends AnyCollection>(
-  endpoint: string,
-  options: UseCollectionOptions<TCollection> = {},
-): UseCollectionReturn<TCollection> {
+function collectionEndpoint(name: CollectionName): string {
+  return `/api/${String(name).split("/").map(encodeURIComponent).join("/")}`
+}
+
+export function useCollection<TName extends CollectionName>(
+  name: TName,
+  options: UseCollectionOptions<RegisteredCollection<TName>> = {},
+): UseCollectionReturn<RegisteredCollection<TName>> {
+  type TCollection = RegisteredCollection<TName>
   type TItem = CollectionItem<TCollection>
   type TPage = CollectionPage<TItem>
 
+  const endpoint = collectionEndpoint(name)
   const items = ref<TItem[]>([]) as Ref<TItem[]>
   const nextCursor = ref<string | null>(null)
   const pending = ref(false)
@@ -72,19 +90,33 @@ export function useCollection<TCollection extends AnyCollection>(
     pending.value = true
     error.value = null
     try {
-      const response = await request<TPage>(endpoint, {
-        query: {
-          ...(options.query ? toValue(options.query) : {}),
-          cursor: reset ? undefined : nextCursor.value || undefined,
-          limit: options.limit,
-        },
-        signal: controller.signal,
-      })
-      if (active !== controller) return
-      items.value = reset ? response.items : [...items.value, ...response.items]
+      const filter = options.filter ? toValue(options.filter) : {}
+      let cursor = reset ? undefined : nextCursor.value || undefined
+      let loadedItems = reset ? [] : [...items.value]
+      let response: TPage
+      const seenCursors = new Set<string>()
+      do {
+        response = await request<TPage>(endpoint, {
+          query: {
+            ...filter,
+            cursor,
+            limit: options.limit,
+          },
+          signal: controller.signal,
+        })
+        if (active !== controller) return
+        loadedItems = [...loadedItems, ...response.items]
+        cursor = response.nextCursor || undefined
+        if (cursor && seenCursors.has(cursor)) {
+          throw new TypeError("[vitehub] Collection returned the same cursor twice.")
+        }
+        if (cursor) seenCursors.add(cursor)
+      } while (options.all === true && cursor)
+
+      items.value = loadedItems
       nextCursor.value = response.nextCursor
       loaded = true
-      return response
+      return { items: loadedItems, nextCursor: response.nextCursor }
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return
       error.value = cause
@@ -97,7 +129,7 @@ export function useCollection<TCollection extends AnyCollection>(
   }
 
   const stop = watch(
-    () => (options.query ? toValue(options.query) : undefined),
+    () => (options.filter ? toValue(options.filter) : undefined),
     () => {
       void load(true)
     },

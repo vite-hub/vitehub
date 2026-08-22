@@ -113,16 +113,21 @@ export default defineCollectionHandler(articles)
 // app/composables/articles.ts
 import { useCollection } from "@vite-hub/source/client"
 
-import type { articles } from "../../server/collections/articles"
-
-export const useArticles = () => useCollection<typeof articles>("/api/articles", {
-  query: { author: "Ada" },
+export const useArticles = () => useCollection("articles", {
+  all: true,
+  filter: { author: "Ada" },
 })
 ```
 
-The loader owns the origin-specific query. Collection owns limit enforcement,
-opaque cursor transport, response shaping, and the exact item and query types
-consumed by `useCollection()`.
+ViteHub discovers named exports in `server/collections` and generates the
+collection registry, binding each filename to its endpoint and definition type.
+Callers do not repeat URL strings or generic imports. `filter` is validated by
+the Collection's query schema before the loader runs and remains fixed across
+cursor pages. Set `all: true` for bounded Collections that should materialize
+every page; otherwise call `loadMore()` explicitly. The loader owns the
+origin-specific query. Collection owns limit enforcement, opaque cursor
+transport, response shaping, and the exact item and filter types consumed by
+`useCollection()`.
 
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
