@@ -196,6 +196,8 @@ export default defineNuxtConfig({
       wrangler: {
         name: "vitehub-docs",
         compatibility_date: "2026-07-19",
+        workers_dev: false,
+        preview_urls: true,
         d1_databases: [
           {
             binding: "DB",
