@@ -139,6 +139,18 @@ const toJSONValues = defineCollection(
   },
 )
 
+// SAFETY: This type-only fixture declares rows whose root serializer returns a known non-plain object.
+const toJSONDateItems = defineCollection(async () => [] as Array<{ toJSON(): Date }>, {
+  cursor: () => "done",
+  cursorSchema: v.string(),
+})
+
+// SAFETY: This type-only fixture declares rows whose serialized child gets its own toJSON step.
+const toJSONNestedDateItems = defineCollection(async () => [] as Array<{ toJSON(): { nested: Date } }>, {
+  cursor: () => "done",
+  cursorSchema: v.string(),
+})
+
 type UnsupportedItem =
   | ArrayBuffer
   | DataView
@@ -186,6 +198,8 @@ declare global {
     events: typeof events
     jsonValues: typeof jsonValues
     toJSONOmittedItems: typeof toJSONOmittedItems
+    toJSONDateItems: typeof toJSONDateItems
+    toJSONNestedDateItems: typeof toJSONNestedDateItems
     toJSONValues: typeof toJSONValues
     transformedQuery: typeof transformedQuery
     nonWireQuery: typeof nonWireQuery
@@ -209,6 +223,8 @@ describe("useCollection types", () => {
     }
     expectTypeOf(useCollection("jsonValues").items.value).toEqualTypeOf<JSONValue[]>()
     expectTypeOf(useCollection("toJSONOmittedItems").items.value).toMatchTypeOf<null[]>()
+    expectTypeOf(useCollection("toJSONDateItems").items.value).toEqualTypeOf<never[]>()
+    expectTypeOf(useCollection("toJSONNestedDateItems").items.value).toEqualTypeOf<Array<{ nested: string }>>()
     expectTypeOf(useCollection("toJSONValues").items.value).toEqualTypeOf<
       Array<{ custom: { id: string }; url: string }>
     >()

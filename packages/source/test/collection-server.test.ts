@@ -148,6 +148,30 @@ describe("defineCollectionHandler", () => {
     expect(await response.json()).toEqual({ items: [null], nextCursor: null })
   })
 
+  it("applies toJSON once to each serialized property", async () => {
+    const rejected = defineCollection(async () => [{ toJSON: () => new Date("2026-08-22T00:00:00.000Z") }], {
+      cursor: () => "done",
+      cursorSchema: v.string(),
+    })
+    const accepted = defineCollection(
+      async () => [{ toJSON: () => ({ nested: new Date("2026-08-22T00:00:00.000Z") }) }],
+      {
+        cursor: () => "done",
+        cursorSchema: v.string(),
+      },
+    )
+
+    const rejectedResponse = await new H3().get("/rejected", defineCollectionHandler(rejected)).request("/rejected")
+    const acceptedResponse = await new H3().get("/accepted", defineCollectionHandler(accepted)).request("/accepted")
+
+    expect(rejectedResponse.status).toBe(500)
+    expect(acceptedResponse.status).toBe(200)
+    expect(await acceptedResponse.json()).toEqual({
+      items: [{ nested: "2026-08-22T00:00:00.000Z" }],
+      nextCursor: null,
+    })
+  })
+
   it("rejects Collection pages containing bigint", async () => {
     const collection = defineCollection(async () => [{ id: 1n }], {
       cursor: () => "done",

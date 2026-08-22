@@ -55,16 +55,20 @@ type JSONOmitted = undefined | ((...args: any[]) => any) | symbol
 type JSONUnsupportedObject =
   | ArrayBuffer
   | ArrayBufferView
+  | Date
   | Error
   | ReadonlyMap<unknown, unknown>
   | ReadonlySet<unknown>
   | RegExp
   | SharedArrayBuffer
+  | URL
   | WeakMap<object, unknown>
   | WeakSet<object>
 
 type JSONOmittedBranch<T> = T extends { toJSON(): infer TJSON }
-  ? JSONOmittedBranch<TJSON>
+  ? TJSON extends JSONOmitted
+    ? TJSON
+    : never
   : T extends JSONOmitted
     ? T
     : never
@@ -72,18 +76,20 @@ type JSONOmittedBranch<T> = T extends { toJSON(): infer TJSON }
 // This projection describes decoded successful response bodies. Unsupported active values fail serialization,
 // so distributive union members that cannot occur in a successful body project to never.
 type JSONSerializedValue<T> = T extends { toJSON(): infer TJSON }
-  ? JSONSerializedValue<TJSON>
-  : T extends bigint | JSONUnsupportedObject
-    ? never
-    : T extends number
-      ? number | null
-      : T extends boolean | null | string
-        ? T
-        : T extends readonly (infer TItem)[]
-          ? Array<JSONSerializedArrayItem<TItem>>
-          : T extends object
-            ? JSONSerializedObject<T>
-            : never
+  ? JSONSerializedPostToJSON<TJSON>
+  : JSONSerializedPostToJSON<T>
+
+type JSONSerializedPostToJSON<T> = T extends bigint | JSONUnsupportedObject
+  ? never
+  : T extends number
+    ? number | null
+    : T extends boolean | null | string
+      ? T
+      : T extends readonly (infer TItem)[]
+        ? Array<JSONSerializedArrayItem<TItem>>
+        : T extends object
+          ? JSONSerializedObject<T>
+          : never
 
 type JSONSerialized<T> = T extends unknown ? JSONSerializedValue<T> : never
 
@@ -91,7 +97,7 @@ type JSONSerializedArrayItem<T> = T extends { toJSON(): infer TJSON }
   ? JSONSerializedArrayValue<TJSON>
   : JSONSerializedArrayValue<T>
 
-type JSONSerializedArrayValue<T> = T extends JSONOmitted ? null : JSONSerialized<T>
+type JSONSerializedArrayValue<T> = T extends JSONOmitted ? null : JSONSerializedPostToJSON<T>
 
 type Simplify<T> = { [TKey in keyof T]: T[TKey] }
 
