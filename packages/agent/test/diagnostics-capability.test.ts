@@ -229,7 +229,8 @@ describe("diagnostics Capability", () => {
     let maxReporters = 0
     let releaseFirst: (() => void) | undefined
     const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
-    const firstStarted = Promise.withResolvers<void>()
+    let startFirst: (() => void) | undefined
+    const firstStarted = new Promise<void>((resolve) => { startFirst = resolve })
     let reports = 0
     const agent = defineAgent({
       capabilities: [diagnostics({
@@ -238,7 +239,7 @@ describe("diagnostics Capability", () => {
           activeReporters += 1
           maxReporters = Math.max(maxReporters, activeReporters)
           if (reports === 1) {
-            firstStarted.resolve()
+            startFirst?.()
             await firstBlocked
           }
           activeReporters -= 1
@@ -250,7 +251,7 @@ describe("diagnostics Capability", () => {
     const runtime = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
 
     const first = runAgent(agent, runtime(), {})
-    await firstStarted.promise
+    await firstStarted
     const second = runAgent(agent, runtime(), {})
     const third = runAgent(agent, runtime(), {})
     releaseFirst?.()
