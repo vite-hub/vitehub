@@ -46,9 +46,21 @@ function invalidRequest(cause: unknown): never {
   })
 }
 
+function assertCollection(value: unknown): asserts value is Collection<unknown, object> {
+  if (
+    !value
+    || typeof value !== "object"
+    || typeof (value as Partial<Collection<unknown, object>>).page !== "function"
+    || typeof (value as Partial<Collection<unknown, object>>).parseQuery !== "function"
+  ) {
+    throw new TypeError("[vitehub] defineCollectionHandler() requires a Collection.")
+  }
+}
+
 export function defineCollectionHandler<TItem, TQuery extends object>(
   collection: Collection<TItem, TQuery>,
 ): ReturnType<typeof defineEventHandler> {
+  assertCollection(collection)
   return defineEventHandler(async (event: H3Event) => {
     const requestQuery = getQuery(event)
     let cursor: string | undefined

@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
 
@@ -27,9 +27,28 @@ async function createNestedProject() {
   return { root, viteRoot: join(root, "frontend") }
 }
 
+function collectionModule(name: string): string {
+  return [
+    `export const ${name} = {`,
+    `  async page() { return { items: [], nextCursor: null } },`,
+    `  async parseQuery(input: object) { return input },`,
+    `}`,
+    ``,
+  ].join("\n")
+}
+
 function configResolved(plugin: Plugin) {
   return plugin.configResolved as (config: {
     root: string
+    [VITEHUB_SERVER_DIRS]?: string[]
+  }) => Promise<void>
+}
+
+function config(plugin: Plugin) {
+  return plugin.config as (config: {
+    nitro?: Record<string, unknown>
+    root?: string
+    [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
     [VITEHUB_SERVER_DIRS]?: string[]
   }) => Promise<void>
 }
@@ -107,8 +126,8 @@ describe("framework generated types", () => {
     const { root, viteRoot } = await createNestedProject()
     await mkdir(join(root, "server/collections/admin"), { recursive: true })
     await Promise.all([
-      writeFile(join(root, "server/collections/meals.ts"), "export const meals = {}\n"),
-      writeFile(join(root, "server/collections/admin/history.ts"), "export const history = {}\n"),
+      writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
+      writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
     ])
 
     const plugin = viteHubTypesPlugin()
@@ -150,6 +169,41 @@ describe("framework generated types", () => {
     ].join("\n"))
   })
 
+  it("registers generated Collection handlers in plain Vite Nitro config", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const userConfig: {
+      nitro: { handlers: typeof existing[], modules?: Array<{ name?: string }> }
+      root: string
+    } = { nitro: { handlers: [existing] }, root }
+
+    await config(viteHubTypesPlugin())(userConfig)
+
+    expect(userConfig.nitro.handlers).toEqual([
+      existing,
+      {
+        handler: join(root, ".vitehub/source/routes/meals.mjs"),
+        method: "get",
+        route: "/api/meals",
+      },
+    ])
+    expect(userConfig.nitro.modules)
+      .toContainEqual(expect.objectContaining({ name: "vite-hub/collection-route-guard" }))
+  })
+
+  it("rejects a conflicting plain Vite Nitro handler", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await expect(config(viteHubTypesPlugin())({
+      nitro: { handlers: [{ handler: "server/api/meals.ts", route: "/api/meals" }] },
+      root,
+    })).rejects.toThrow('Generated Collection route "/api/meals" conflicts with an existing GET handler')
+  })
+
   it.each([
     "export const publicMeals = {}\n",
     "export type meals = {}\nexport const publicMeals = {}\n",
@@ -175,8 +229,8 @@ describe("framework generated types", () => {
       mkdir(join(secondServerDir, "collections"), { recursive: true }),
     ])
     await Promise.all([
-      writeFile(join(firstServerDir, "collections/meals.ts"), "export const meals = {}\n"),
-      writeFile(join(secondServerDir, "collections/audit.ts"), "export const audit = {}\n"),
+      writeFile(join(firstServerDir, "collections/meals.ts"), collectionModule("meals")),
+      writeFile(join(secondServerDir, "collections/audit.ts"), collectionModule("audit")),
     ])
 
     const plugin = viteHubTypesPlugin()
@@ -189,7 +243,7 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8"))
       .resolves.toContain(JSON.stringify(join(firstServerDir, "collections/meals.ts")))
 
-    await writeFile(join(secondServerDir, "collections/meals.ts"), "export const meals = {}\n")
+    await writeFile(join(secondServerDir, "collections/meals.ts"), collectionModule("meals"))
     await expect(plugin.api.prepareTypes({
       projectRoot: root,
       serverDirs: [firstServerDir, secondServerDir],
@@ -199,7 +253,7 @@ describe("framework generated types", () => {
   it("preserves an explicitly empty server directory selection", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), "export const meals = {}\n")
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
 
     const plugin = viteHubTypesPlugin()
     const handlers = await plugin.api.prepareTypes({
@@ -216,7 +270,7 @@ describe("framework generated types", () => {
     const { root, viteRoot } = await createNestedProject()
     const serverDir = join(root, "api")
     await mkdir(join(serverDir, "collections"), { recursive: true })
-    await writeFile(join(serverDir, "collections/meals.ts"), "export const meals = {}\n")
+    await writeFile(join(serverDir, "collections/meals.ts"), collectionModule("meals"))
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({

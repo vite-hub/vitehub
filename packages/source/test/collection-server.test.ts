@@ -30,6 +30,12 @@ function createApp() {
 }
 
 describe("defineCollectionHandler", () => {
+  it("rejects a non-Collection before accepting requests", () => {
+    expect(() => defineCollectionHandler({} as never)).toThrow(
+      "defineCollectionHandler() requires a Collection",
+    )
+  })
+
   it("serves bounded pages and forwards typed query input", async () => {
     const app = createApp()
     const firstResponse = await app.request("/items?limit=1&minimum=2")
@@ -45,6 +51,24 @@ describe("defineCollectionHandler", () => {
       `/items?limit=1&minimum=2&cursor=${encodeURIComponent(first.nextCursor)}`,
     )
     expect(await secondResponse.json()).toEqual({ items: [{ id: 2 }], nextCursor: null })
+  })
+
+  it("serializes Collection items before clients consume them", async () => {
+    const collection = defineCollection(
+      async () => [{ at: new Date("2026-08-22T00:00:00.000Z") }],
+      {
+        cursor: item => item.at.toISOString(),
+        cursorSchema: v.string(),
+      },
+    )
+    const response = await new H3()
+      .get("/events", defineCollectionHandler(collection))
+      .request("/events")
+
+    expect(await response.json()).toEqual({
+      items: [{ at: "2026-08-22T00:00:00.000Z" }],
+      nextCursor: null,
+    })
   })
 
   it("maps malformed limits, queries, and cursors to client errors", async () => {

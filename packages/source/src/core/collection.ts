@@ -45,6 +45,25 @@ export type AnyCollection = Collection<any, any>
 export type CollectionItem<TCollection extends AnyCollection> =
   TCollection extends Collection<infer TItem, any> ? TItem : never
 
+type JSONSerialized<T> =
+  T extends { toJSON(): infer TJSON }
+    ? JSONSerialized<TJSON>
+    : T extends bigint
+      ? never
+      : T extends boolean | null | number | string
+        ? T
+        : T extends readonly (infer TItem)[]
+          ? Array<JSONSerialized<TItem>>
+          : T extends object
+            ? {
+                [TKey in keyof T as T[TKey] extends undefined | ((...args: any[]) => any) | symbol ? never : TKey]:
+                JSONSerialized<T[TKey]>
+              }
+            : never
+
+export type CollectionClientItem<TCollection extends AnyCollection> =
+  JSONSerialized<CollectionItem<TCollection>>
+
 export type CollectionQuery<TCollection extends AnyCollection> =
   TCollection extends Collection<any, infer TQuery> ? TQuery : never
 

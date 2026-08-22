@@ -2,6 +2,7 @@ export { CollectionCursorError, defineCollection } from "./core/collection.ts"
 export type {
   AnyCollection,
   Collection,
+  CollectionClientItem,
   CollectionCursorValue,
   CollectionItem,
   CollectionLoader,

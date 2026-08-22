@@ -185,6 +185,34 @@ describe("useCollection", () => {
     scope.stop()
   })
 
+  it("retains cursor history across loadMore calls", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    calls[0]!.resolve(page([{ id: 1 }], "cursor-a"))
+    await refresh
+
+    const firstLoadMore = collection.loadMore()
+    calls[1]!.resolve(page([{ id: 2 }], "cursor-b"))
+    await firstLoadMore
+    expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }])
+
+    const secondLoadMore = collection.loadMore()
+    calls[2]!.resolve(page([{ id: 3 }], "cursor-a"))
+    await secondLoadMore
+
+    expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }])
+    expect(collection.error.value).toEqual(
+      new TypeError("[vitehub] Collection returned the same cursor twice."),
+    )
+    scope.stop()
+  })
+
   it("prevents pagination after a failed filter reset", async () => {
     const { calls, request } = controlledRequester()
     const filter = ref({ search: "first" })

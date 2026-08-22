@@ -4,7 +4,7 @@ import { computed, onScopeDispose, ref, toValue, watch } from "vue"
 import type { ComputedRef, MaybeRefOrGetter, Ref } from "vue"
 import type {
   AnyCollection,
-  CollectionItem,
+  CollectionClientItem,
   CollectionPage,
   CollectionQuery,
 } from "./core/collection.ts"
@@ -43,10 +43,10 @@ export interface UseCollectionOptions<TCollection extends AnyCollection> {
 export interface UseCollectionReturn<TCollection extends AnyCollection> {
   error: Ref<unknown>
   hasMore: ComputedRef<boolean>
-  items: Ref<Array<CollectionItem<TCollection>>>
-  loadMore: () => Promise<CollectionPage<CollectionItem<TCollection>> | undefined>
+  items: Ref<Array<CollectionClientItem<TCollection>>>
+  loadMore: () => Promise<CollectionPage<CollectionClientItem<TCollection>> | undefined>
   pending: Ref<boolean>
-  refresh: () => Promise<CollectionPage<CollectionItem<TCollection>> | undefined>
+  refresh: () => Promise<CollectionPage<CollectionClientItem<TCollection>> | undefined>
 }
 
 const defaultRequester: CollectionRequester = async <T>(
@@ -73,7 +73,7 @@ export function useCollection<TName extends CollectionName>(
   options: UseCollectionOptions<RegisteredCollection<TName>> = {},
 ): UseCollectionReturn<RegisteredCollection<TName>> {
   type TCollection = RegisteredCollection<TName>
-  type TItem = CollectionItem<TCollection>
+  type TItem = CollectionClientItem<TCollection>
   type TPage = CollectionPage<TItem>
 
   const endpoint = collectionEndpoint(name)
@@ -83,12 +83,14 @@ export function useCollection<TName extends CollectionName>(
   const error = ref<unknown>(null)
   const request = options.request || defaultRequester
   let active: AbortController | undefined
+  let cursors = new Set<string>()
   let loaded = false
 
   async function load(reset: boolean): Promise<TPage | undefined> {
     if (!reset && (pending.value || (loaded && !nextCursor.value))) return
 
     if (reset) {
+      cursors = new Set()
       nextCursor.value = null
       loaded = true
     }
@@ -102,7 +104,8 @@ export function useCollection<TName extends CollectionName>(
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
       let response: TPage
-      const seenCursors = new Set(cursor ? [cursor] : [])
+      const seenCursors = new Set(cursors)
+      if (cursor) seenCursors.add(cursor)
       do {
         response = await request<TPage>(endpoint, {
           query: {
@@ -122,6 +125,7 @@ export function useCollection<TName extends CollectionName>(
       } while (options.all === true && cursor)
 
       items.value = loadedItems
+      cursors = seenCursors
       nextCursor.value = response.nextCursor
       loaded = true
       return { items: loadedItems, nextCursor: response.nextCursor }
