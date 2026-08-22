@@ -3691,7 +3691,7 @@ describe("server helpers", () => {
     const ignoredReplyCommand = vi.fn()
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
-      capabilities: [inputCommands({ commands: { delete: { run: ignoredReplyCommand } } })],
+      capabilities: [inputCommands({ commands: { delete: { call: ignoredReplyCommand } } })],
       channels: { support: testTelegram(telegram, { adapter: () => adapter as never }) },
       driver: { run },
     })

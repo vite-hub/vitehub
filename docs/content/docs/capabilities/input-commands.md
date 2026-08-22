@@ -81,7 +81,6 @@ Check Agent inspection metadata for the `inputCommands` Capability and its comma
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 | `commands.*.description` | `string` | none | Optional command description for metadata and inspection. |
 | `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | remove command text | Handler that accepts, rejects, transforms, or enriches invocation input. |
-| `commands.*.run` | same as `call` | none | Accepted alias for `call`; when both are present, `call` wins. |
 | `commands.*.channels` | `string[]` | all channels | Optional configured Channel ID allowlist. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery primitives. |
 

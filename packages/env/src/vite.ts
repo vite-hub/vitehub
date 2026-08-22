@@ -1,4 +1,4 @@
-import { rm, stat } from "node:fs/promises"
+import { stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -201,10 +201,6 @@ async function prepareEnvGeneratedTypes(
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
-    ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
-    ...(packageRoot && packageRoot !== root
-      ? legacyEnvAmbientTypesPaths(packageRoot).map(path => rm(path, { force: true }))
-      : []),
   ])
 }
 
@@ -221,12 +217,6 @@ function resolveRuntimeImports(imports: EnvRuntimeImportSpecifiers | undefined):
     secret: imports?.secret ?? defaultRuntimeImports.secret,
     server: imports?.server ?? defaultRuntimeImports.server,
   }
-}
-
-function legacyEnvAmbientTypesPaths(root: string) {
-  return [
-    resolve(root, ".vitehub", "env", "vite.d.ts"),
-  ]
 }
 
 async function refreshEnvGeneratedFiles(
@@ -252,7 +242,6 @@ async function refreshEnvGeneratedFiles(
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
-    ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
   ])
 }
 

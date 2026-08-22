@@ -111,7 +111,7 @@ export default async function optimize(
 }
 ```
 
-`runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload. Existing non-function default exports remain supported; those entries can export `SandboxPayload` to provide the payload type, otherwise it is `unknown`.
+`runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload.
 
 Nested `Blob` and `Uint8Array` values in payloads and results are staged through invocation-local Box files. Node.js `Buffer` values retain their `Buffer` type. Application code keeps the binary values and does not convert them to base64 JSON. Other values keep the existing JSON-serialization contract.
 
@@ -124,28 +124,6 @@ The first package metadata schema contains only `vitehub.sandbox.timeout`. It mu
 Cloudflare, Vercel, Crabbox, and trusted host implement the Box Interface. The common contract covers binary files, directory operations, cwd/env/timeout command execution, abort, and lifecycle. Processes and ports are explicit optional capabilities.
 
 Provider selection and full image overrides are application or host configuration. For Cloudflare, configure the application-owned container with a complete Dockerfile; for Vercel, configure the Box runtime image. Sandbox has no Dockerfile-fragment helper because partial image syntax cannot be portable across providers.
-
-## Migrate from `defineSandbox()`
-
-Move canonical Definitions into a package folder and export the run function directly:
-
-```ts
-// Before
-import { defineSandbox } from '@vite-hub/sandbox'
-
-export default defineSandbox({
-  timeout: 30_000,
-  run,
-})
-
-// Now
-export default run
-```
-
-- Move `timeout` to `package.json#vitehub.sandbox.timeout`.
-- Remove the package entrypoint's `defineSandbox()` wrapper and `@vite-hub/sandbox` runtime dependency.
-- Default-export the run function; its first parameter and awaited return value become the generated invocation types.
-- Keep Blob and Uint8Array values native in application payloads and results.
 
 ## Public imports
 

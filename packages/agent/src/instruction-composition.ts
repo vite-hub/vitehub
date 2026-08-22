@@ -78,7 +78,6 @@ export async function composeInstructionDocument(content: string, options: Compo
     rethrowInstructionCompositionError(error, true)
   }
   await validateInstructionMarkdownBindings(imported)
-  await validateLegacyInstructionBindings(imported)
   const coverageMarker = createInstructionCoverageMarker()
   const marked = await markInstructionCoverage(imported, coverageMarker)
 
@@ -144,29 +143,6 @@ function createInstructionCoverageMarker(): InstructionCoverageMarker {
   return {
     entries: [],
     prefix: `vitehub-instruction-coverage-${crypto.randomUUID()}`,
-  }
-}
-
-async function validateLegacyInstructionBindings(content: string): Promise<void> {
-  const { tree } = await parseInstructionTemplate(content, true)
-  validateLegacyInstructionBindingNodes(tree.nodes)
-}
-
-function validateLegacyInstructionBindingNodes(nodes: ComarkNode[]): void {
-  for (const node of nodes) {
-    if (!isElement(node)) continue
-    const [tag, attrs, ...children] = node
-    if (tag === "code") continue
-    if (tag === "binding") {
-      const path = attrs[":value"]
-      if (typeof path === "string" && (path === "capabilities" || path.startsWith("capabilities."))) {
-        throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is no longer supported. Cover Capabilities with ::capability blocks in Agent Driver Instructions.`)
-      }
-      if (path === "workspace.sources") {
-        throw new Error("[vitehub] Instruction binding \"{{ workspace.sources }}\" is no longer supported. Cover Sources with ::source blocks in Agent Driver Instructions.")
-      }
-    }
-    validateLegacyInstructionBindingNodes(children)
   }
 }
 
