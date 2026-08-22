@@ -251,7 +251,7 @@ export const AgentInvocation = defineComponent({
 
     return () => {
       return h("article", {
-        class: "vh-invocation-session",
+        class: ["vh-invocation-session", { "vh-invocation-session--headerless": !props.header }],
         "data-status": props.invocation.status,
         "data-slot": "invocation",
       }, [

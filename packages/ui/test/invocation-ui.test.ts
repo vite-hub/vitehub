@@ -3,7 +3,7 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
-import { AgentInvocationInspector } from "../src/components/agent-invocation.ts";
+import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
 
 import type { AgentInvocationView } from "../src/types.ts";
 
@@ -57,5 +57,45 @@ describe("Agent Invocation UI", () => {
     await wrapper.setProps({ loading: false });
     await viewport.trigger("scroll");
     expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
+  it("keeps virtual rows in list coordinates when a header precedes them", async () => {
+    const offsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get() { return this.classList.contains("vh-invocation-list__virtual") ? 1000 : 0; },
+    });
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      id: `inv-${index}`,
+      status: "completed" as const,
+      title: `Invocation ${index}`,
+    }));
+    const wrapper = mount(AgentInvocationList, {
+      props: { items },
+      slots: { header: "Header" },
+    });
+    const viewport = wrapper.get("nav");
+    Object.defineProperty(viewport.element, "clientHeight", { configurable: true, value: 430 });
+    Object.defineProperty(viewport.element, "scrollTop", { configurable: true, value: 1860 });
+
+    await viewport.trigger("scroll");
+
+    expect(wrapper.get("li").attributes("data-index")).toBe("4");
+    wrapper.unmount();
+    if (offsetTop) Object.defineProperty(HTMLElement.prototype, "offsetTop", offsetTop);
+  });
+
+  it("uses one flexible grid row when the host owns the header", () => {
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "invocation",
+      observations: [],
+      status: "running",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:01.000Z",
+    };
+    const wrapper = mount(AgentInvocation, { props: { header: false, invocation } });
+
+    expect(wrapper.get("article").classes()).toContain("vh-invocation-session--headerless");
   });
 });

@@ -38,18 +38,28 @@ function invocationAttributes(context: AgentTraceContext, extra: Record<string, 
     "channel.delivery.source.id": context.runtime.channelDelivery?.sourceId,
     "input.hasMessages": Boolean(context.input.messages?.length),
     "input.hasPrompt": Boolean(context.input.prompt),
+    ...(context.input.messages?.length ? { "input.messages": context.input.messages } : {}),
+    ...(context.input.prompt ? { "input.prompt": context.input.prompt } : {}),
     "runtime.name": context.runtime.runtime,
     ...extra,
   }
 }
 
 function eventAttributes(event: StreamEvent): Record<string, unknown> {
+  if (event.type === "text-delta") {
+    return {
+      "message.content": event.text,
+      "message.id": event.messageId ?? event.id,
+      "message.role": event.role ?? "assistant",
+    }
+  }
   if (event.type === "tool-call" || event.type === "tool-input-start") {
     return {
       "step.id": event.id,
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasInput": event.input !== undefined,
+      ...(event.input !== undefined ? { "tool.input": event.input } : {}),
     }
   }
   if (event.type === "tool-result") {
@@ -58,6 +68,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasOutput": event.output !== undefined,
+      ...(event.output !== undefined ? { "tool.output": event.output } : {}),
       "tool.error": event.error,
     }
   }
@@ -183,6 +194,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     "tool-call": "agent.tool.start",
     "tool-input-start": "agent.tool.start",
     "tool-result": streamEvent.type === "tool-result" && streamEvent.error ? "agent.tool.error" : "agent.tool.finish",
+    "text-delta": "agent.message.delta",
     usage: "agent.usage.recorded",
   } as const
   const name = streamEvent.type in names ? names[streamEvent.type as keyof typeof names] : undefined

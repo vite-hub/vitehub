@@ -174,6 +174,28 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("removes first-page records that leave an active filter", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({
+      query: { status: "running" },
+      request,
+    }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-0")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await refresh;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-2", "inv-0"]);
+    scope.stop();
+  });
+
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
     const requestMock = vi.fn(async () => ({

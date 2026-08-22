@@ -97,7 +97,7 @@ describe("hubAuth", () => {
     const root = await createTempProject()
     await writeAuth(root)
 
-    const plugin = hubAuth({ importBase: "vite-hub/auth" } as never)
+    const plugin = hubAuth(undefined, { importBase: "vite-hub/auth" })
     await resolvePluginConfig(plugin, root, [{ name: "@vite-hub/env/vite" }])
 
     expect(loadAuthServer(plugin)).toContain("from \"vite-hub/auth/server\"")

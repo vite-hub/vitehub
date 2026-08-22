@@ -157,9 +157,8 @@ describe("hubBlob", () => {
     const plugin = hubBlob({
       bucketName: "assets",
       driver: "cloudflare-r2",
-      nitroOwned: true,
       serve: true,
-    } as never)
+    }, { nitroOwned: true })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
     const generatedPlugin = ".vitehub/nitro/blob/plugin.ts"
@@ -481,7 +480,10 @@ describe("hubBlob", () => {
   })
 
   it("lets a facade declare Nitro ownership without a separate Nitro Vite plugin", () => {
-    const plugin = hubBlob({ bucketName: "vitehub-blob", driver: "cloudflare-r2", nitroOwned: true } as never)
+    const plugin = hubBlob(
+      { bucketName: "vitehub-blob", driver: "cloudflare-r2" },
+      { nitroOwned: true },
+    )
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = { nitro: { preset: "cloudflare-module" } }
 
@@ -744,9 +746,8 @@ describe("hubBlob", () => {
     try {
       const plugin = hubBlob({
         driver: "fs",
-        importBase: "virtual:blob-test",
         serve: { headers },
-      } as never)
+      }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
         root,
@@ -811,9 +812,8 @@ describe("hubBlob", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-import-base-"))
     const plugin = hubBlob({
       driver: "fs",
-      importBase: "vite-hub/_internal/blob",
       serve: true,
-    } as never)
+    }, { importBase: "vite-hub/_internal/blob" })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
     await configResolved({

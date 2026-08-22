@@ -109,6 +109,8 @@ export const AgentInvocationList = defineComponent({
   },
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
+    const list = ref<HTMLElement | null>(null);
+    const listOffset = computed(() => list.value?.offsetTop ?? 0);
     const requestedLength = ref<number>();
     const scrollRevision = ref(0);
     const scrollTop = ref(0);
@@ -119,7 +121,8 @@ export const AgentInvocationList = defineComponent({
     let measureViewport: (() => void) | undefined;
     const virtualRows = computed(() => {
       const visibleRows = Math.max(1, Math.ceil(viewportHeight.value / rowSize));
-      const start = Math.max(0, Math.floor(scrollTop.value / rowSize) - overscan);
+      const listScrollTop = Math.max(0, scrollTop.value - listOffset.value);
+      const start = Math.max(0, Math.floor(listScrollTop / rowSize) - overscan);
       const end = Math.min(props.items.length, start + visibleRows + overscan * 2);
       return Array.from({ length: end - start }, (_, offset) => {
         const index = start + offset;
@@ -176,6 +179,7 @@ export const AgentInvocationList = defineComponent({
       props.items.length && (props.virtual && typeof window !== "undefined")
         ? h("ul", {
             class: "vh-invocation-list__virtual",
+            ref: list,
             style: { height: `${props.items.length * rowSize}px` },
           }, virtualRows.value.map(row => renderItem(
             props.items[row.index]!,

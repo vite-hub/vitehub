@@ -166,6 +166,8 @@ function activityKey(observation: TraceEventLogEntry): string {
       ?? attributes["tool.id"]
       ?? attributes["approval.id"]
       ?? attributes["model.call.id"]
+      ?? attributes["message.id"]
+      ?? (typeof attributes["message.content"] === "string" ? "message:assistant" : undefined)
       ?? `observation:${observation.sequence}`,
   );
 }
@@ -215,6 +217,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const sorted = observations.slice().sort((left, right) => left.sequence - right.sequence);
       const first = sorted[0]!;
       const attributes = Object.assign({}, ...sorted.map(item => item.attributes ?? {}));
+      const messageBody = sorted
+        .map(item => item.attributes?.["message.content"])
+        .filter((value): value is string => typeof value === "string")
+        .join("");
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
@@ -227,7 +233,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const command = commandDetails(attributes);
       const draft = {
         attributes,
-        body: patches.join("") || activityBody(attributes),
+        body: patches.join("") || messageBody || activityBody(attributes),
         command,
         id,
         kind,

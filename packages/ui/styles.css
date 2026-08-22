@@ -466,6 +466,10 @@
   overflow: hidden;
 }
 
+.vh-invocation-session--headerless {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .vh-invocation-header {
   align-items: center;
   border-block-end: 1px solid var(--vh-ui-border);
