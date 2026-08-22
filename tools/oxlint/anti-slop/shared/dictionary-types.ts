@@ -5,6 +5,7 @@ import {
 	collectTypeBindings,
 	typeBindingName,
 	visibleTypeBindingForName,
+	visibleTypeBindingsForName,
 	visibleTypeBindingForParts,
 	visibleTypeBinding,
 	visibleTypeBindings,
@@ -315,8 +316,15 @@ function unsafeDirectValue(
 				resolvingAliases,
 			);
 	}
-	const interfaceDeclarations = name === null ? undefined : environment.interfaces.get(name);
-	if (interfaceDeclarations !== undefined) {
+	const interfaceDeclarations = visibleTypeBindingsForName(
+		unwrapped.typeName,
+		unwrapped,
+		environment.typeBindings,
+	).filter(
+		(binding): binding is ESTree.TSInterfaceDeclaration =>
+			binding.type === "TSInterfaceDeclaration",
+	);
+	if (interfaceDeclarations.length > 0) {
 		return isEffectivelyEmptyInterface(interfaceDeclarations) ? "empty-object" : null;
 	}
 	const alias = referencedAlias(unwrapped, environment);
@@ -690,12 +698,6 @@ export function isKnownEvidenceExpression(expression: ESTree.Expression): boolea
 		current.type === "TSSatisfiesExpression"
 	) {
 		current = current.expression;
-	}
-	if (current.type === "ConditionalExpression") {
-		return (
-			isKnownEvidenceExpression(current.consequent) &&
-			isKnownEvidenceExpression(current.alternate)
-		);
 	}
 	if (current.type === "ObjectExpression") return true;
 	return (

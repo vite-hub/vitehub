@@ -9,6 +9,7 @@ import {
 } from "../shared/dictionary-types.ts";
 
 import type { TypeEnvironment } from "../shared/dictionary-types.ts";
+import { visibleTypeBindingForName } from "../shared/lexical-type-bindings.ts";
 import { resolvesThroughTypeAliases } from "../shared/type-alias-resolution.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
@@ -178,7 +179,11 @@ function typesHaveSameSyntax(
   );
 }
 
-function isDefinitelyObjectType(type: ESTree.TSType): boolean {
+function isDefinitelyObjectType(
+  type: ESTree.TSType,
+  environment: TypeEnvironment,
+  resolvingAliases = new Set<ESTree.TSTypeAliasDeclaration>(),
+): boolean {
   const unwrapped = unwrapTypeParentheses(type);
   switch (unwrapped.type) {
     case "TSArrayType":
@@ -191,9 +196,33 @@ function isDefinitelyObjectType(type: ESTree.TSType): boolean {
     case "TSTypeLiteral":
       return unwrapped.members.length > 0;
     case "TSIntersectionType":
-      return unwrapped.types.every(isDefinitelyObjectType);
+      return unwrapped.types.every((member) =>
+        isDefinitelyObjectType(member, environment, resolvingAliases),
+      );
     case "TSTypeOperator":
-      return unwrapped.operator === "readonly" && isDefinitelyObjectType(unwrapped.typeAnnotation);
+      return (
+        unwrapped.operator === "readonly" &&
+        isDefinitelyObjectType(unwrapped.typeAnnotation, environment, resolvingAliases)
+      );
+    case "TSTypeReference": {
+      const binding = visibleTypeBindingForName(
+        unwrapped.typeName,
+        unwrapped,
+        environment.typeBindings,
+      );
+      if (
+        binding?.type === "TSInterfaceDeclaration" ||
+        binding?.type === "ClassDeclaration"
+      ) {
+        return true;
+      }
+      if (binding?.type !== "TSTypeAliasDeclaration" || resolvingAliases.has(binding)) {
+        return false;
+      }
+      const nextResolving = new Set(resolvingAliases);
+      nextResolving.add(binding);
+      return isDefinitelyObjectType(binding.typeAnnotation, environment, nextResolving);
+    }
     default:
       return false;
   }
@@ -267,6 +296,7 @@ function knownValueEvidence(
   boundary: ESTree.Node | null,
   visitedVariables: ReadonlySet<Variable>,
   environmentAtNode: (node: ESTree.Node) => TypeEnvironment,
+  sourceText: string,
 ): KnownValueEvidence | null {
   const unwrapped = unwrapExpressionParentheses(expression);
 
@@ -289,19 +319,27 @@ function knownValueEvidence(
       unwrapped.consequent,
       scopes,
       boundary,
-      visitedVariables,
+      new Set(visitedVariables),
       environmentAtNode,
+      sourceText,
     );
     if (consequent === null) return null;
     const alternate = knownValueEvidence(
       unwrapped.alternate,
       scopes,
       boundary,
-      visitedVariables,
+      new Set(visitedVariables),
       environmentAtNode,
+      sourceText,
     );
     if (alternate === null) return null;
-    return { type: consequent.type === alternate.type ? consequent.type : null };
+    return {
+      type:
+        alternate.type !== null &&
+        typesHaveSameSyntax(sourceText, consequent.type, alternate.type)
+          ? consequent.type
+          : null,
+    };
   }
 
   if (
@@ -351,6 +389,7 @@ function knownValueEvidence(
     boundary,
     new Set([...visitedVariables, variable]),
     environmentAtNode,
+    sourceText,
   );
 }
 
@@ -358,6 +397,7 @@ function widenedBinding(
   variable: Variable,
   scopes: Parameters<typeof resolvedVariableForIdentifier>[0],
   environmentAtNode: (node: ESTree.Node) => TypeEnvironment,
+  sourceText: string,
 ): {
   readonly broadKind: BroadTypeKind;
   readonly evidence: KnownValueEvidence;
@@ -398,6 +438,7 @@ function widenedBinding(
     boundary,
     new Set([variable]),
     environmentAtNode,
+    sourceText,
   );
   return evidence === null ? null : { broadKind, evidence, declaredAt: declarator.end, boundary };
 }
@@ -412,7 +453,7 @@ function assertionIsNarrower(
   if (broadTypeKind(assertedType, environment) !== null) return false;
   if (broadKind === "top") return true;
   if (typesHaveSameSyntax(sourceText, evidence.type, assertedType)) return true;
-  if (broadKind === "object") return isDefinitelyObjectType(assertedType);
+  if (broadKind === "object") return isDefinitelyObjectType(assertedType, environment);
   return isDefinitelyNarrowerRecordType(assertedType, environment);
 }
 
@@ -450,6 +491,7 @@ export const noWidenThenAssertRule = defineRule({
         variable,
         scopes,
         (site) => typeEnvironmentAt(environment, site),
+        context.sourceCode.text,
       );
       if (
         widened === null ||

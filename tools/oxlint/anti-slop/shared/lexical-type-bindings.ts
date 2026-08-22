@@ -86,10 +86,18 @@ function enclosingNamespacePath(node: ESTree.Node): readonly string[] | null {
 }
 
 function isExportedTypeBinding(binding: TypeBinding): boolean {
-	return (
+	if (
 		binding.parent.type === "ExportNamedDeclaration" &&
 		binding.parent.declaration === binding
-	);
+	) {
+		return true;
+	}
+	let current: ESTree.Node | null = binding.parent;
+	while (current !== null) {
+		if (current.type === "TSModuleDeclaration" && current.declare) return true;
+		current = current.parent;
+	}
+	return false;
 }
 
 function namespacePathsMatch(
@@ -163,8 +171,16 @@ export function visibleTypeBindingForName(
 	site: ESTree.Node,
 	bindings: readonly TypeBinding[],
 ): TypeBinding | undefined {
+	return visibleTypeBindingsForName(name, site, bindings)[0];
+}
+
+export function visibleTypeBindingsForName(
+	name: ESTree.TSTypeName,
+	site: ESTree.Node,
+	bindings: readonly TypeBinding[],
+): readonly TypeBinding[] {
 	const parts = qualifiedTypeNameParts(name);
-	return parts === null ? undefined : visibleTypeBindingForParts(parts, site, bindings);
+	return parts === null ? [] : visibleTypeBindingsForParts(parts, site, bindings);
 }
 
 export function visibleTypeBindingForParts(
@@ -172,15 +188,23 @@ export function visibleTypeBindingForParts(
 	site: ESTree.Node,
 	bindings: readonly TypeBinding[],
 ): TypeBinding | undefined {
-	if (parts.length === 0) return undefined;
-	if (parts.length === 1) return visibleTypeBinding(parts[0] ?? "", site, bindings);
+	return visibleTypeBindingsForParts(parts, site, bindings)[0];
+}
+
+function visibleTypeBindingsForParts(
+	parts: readonly string[],
+	site: ESTree.Node,
+	bindings: readonly TypeBinding[],
+): readonly TypeBinding[] {
+	if (parts.length === 0) return [];
+	if (parts.length === 1) return visibleTypeBindings(parts[0] ?? "", site, bindings);
 	const root = parts[0];
 	const leaf = parts.at(-1);
-	if (root === undefined || leaf === undefined) return undefined;
+	if (root === undefined || leaf === undefined) return [];
 	const visibleRootPaths = visibleNamespacePaths(root, site, bindings);
-	if (visibleRootPaths.length === 0) return undefined;
+	if (visibleRootPaths.length === 0) return [];
 	const namespaceRest = parts.slice(1, -1);
-	return bindings.find((binding) => {
+	return bindings.filter((binding) => {
 		if (typeBindingName(binding) !== leaf) return false;
 		const path = enclosingNamespacePath(binding);
 		if (path === null) return false;

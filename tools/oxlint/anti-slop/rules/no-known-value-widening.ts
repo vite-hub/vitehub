@@ -63,8 +63,14 @@ function hasKnownEvidence(
 	expression: ESTree.Expression,
 	visitedVariables = new Set<Variable>(),
 ): boolean {
-	if (isKnownEvidenceExpression(expression)) return true;
 	const unwrapped = unwrapExpression(expression);
+	if (unwrapped.type === "ConditionalExpression") {
+		return (
+			hasKnownEvidence(sourceCode, unwrapped.consequent, new Set(visitedVariables)) &&
+			hasKnownEvidence(sourceCode, unwrapped.alternate, new Set(visitedVariables))
+		);
+	}
+	if (isKnownEvidenceExpression(unwrapped)) return true;
 	if (unwrapped.type !== "Identifier") return false;
 	const variable = resolveVariable(sourceCode, unwrapped);
 	if (variable === null || visitedVariables.has(variable)) return false;
@@ -76,8 +82,9 @@ function hasKnownEvidence(
 	) {
 		return false;
 	}
-	visitedVariables.add(variable);
-	return hasKnownEvidence(sourceCode, declarator.init, visitedVariables);
+	const nextVisited = new Set(visitedVariables);
+	nextVisited.add(variable);
+	return hasKnownEvidence(sourceCode, declarator.init, nextVisited);
 }
 
 function annotationTarget(

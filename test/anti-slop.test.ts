@@ -369,6 +369,26 @@ describe("anti-slop lexical type resolution", () => {
     expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
   });
 
+  test("preserves stable conditional branch evidence", () => {
+    const result = diagnostics(`
+        declare const flag: boolean;
+        declare function loadUnknown(): unknown;
+        interface Item { id: string }
+        const left: Item = { id: "left" };
+        const right: Item = { id: "right" };
+        const widened: object = flag ? left : right;
+        // SAFETY: fixture intentionally recreates the discarded branch type.
+        const restored = widened as Item;
+        const uncertain: object = flag ? left : loadUnknown();
+        // SAFETY: fixture verifies that every branch must establish evidence.
+        const unresolved = uncertain as Item;
+        void restored;
+        void unresolved;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-known-value-widening)")).toHaveLength(1);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(1);
+  });
+
   test("checks assignments to annotated class fields", () => {
     const result = diagnostics(`
         class Store {
@@ -558,6 +578,32 @@ describe("anti-slop lexical type resolution", () => {
     }
   });
 
+  test("resolves implicit exports across ambient namespace blocks", () => {
+    const result = diagnostics(`
+        declare namespace Contracts {
+          type Identity<T> = T;
+          type Dictionary<T> = Record<string, T>;
+        }
+        declare namespace Contracts {
+          type Hidden = Identity<unknown>;
+          function unknownInput(value: Identity<unknown>): void;
+          function objectInput(value: Identity<object>): void;
+          function unknownOutput(): Identity<unknown>;
+          interface UnsafeEnvironment extends Dictionary<unknown> {}
+          interface SafeEnvironment extends Dictionary<string> {}
+        }
+      `);
+    for (const code of [
+      "anti-slop(no-object-parameters)",
+      "anti-slop(no-unknown-parameters)",
+      "anti-slop(no-unknown-returns)",
+      "anti-slop(no-unknown-type-aliases)",
+      "anti-slop(no-unsafe-dictionary-type)",
+    ]) {
+      expect(result.filter((diagnostic) => diagnostic === code)).toHaveLength(1);
+    }
+  });
+
   test("classifies merged interfaces by all declarations", () => {
     const result = diagnostics(`
         interface EmptyValue {}
@@ -577,6 +623,50 @@ describe("anti-slop lexical type resolution", () => {
     expect(result.filter((code) => code === "anti-slop(no-unsafe-dictionary-type)")).toHaveLength(
       1,
     );
+  });
+
+  test("classifies qualified merged empty interfaces", () => {
+    const result = diagnostics(`
+        namespace Contracts {
+          export interface EmptyValue {}
+          export interface EmptyValue {}
+          export interface PopulatedValue {}
+          export interface PopulatedValue { id: string }
+        }
+        type Unsafe = Record<string, Contracts.EmptyValue>;
+        type Safe = Record<string, Contracts.PopulatedValue>;
+        void (null as unknown as Unsafe);
+        void (null as unknown as Safe);
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-unsafe-dictionary-type)")).toHaveLength(
+      1,
+    );
+  });
+
+  test("resolves named object assertion targets", () => {
+    const result = diagnostics(`
+        interface DomainValue { id: string }
+        type AliasValue = DomainValue;
+        type ScalarValue = string;
+        class ClassValue { id = "class"; }
+        const domain: object = { id: "domain" };
+        const alias: object = { id: "alias" };
+        const instance: object = new ClassValue();
+        const scalar: object = { id: "scalar" };
+        // SAFETY: fixtures intentionally recreate discarded named object types.
+        const restoredDomain = domain as DomainValue;
+        // SAFETY: fixtures intentionally recreate discarded named object types.
+        const restoredAlias = alias as AliasValue;
+        // SAFETY: fixtures intentionally recreate discarded named object types.
+        const restoredClass = instance as ClassValue;
+        // SAFETY: fixture verifies that scalar aliases are not object contracts.
+        const unresolved = scalar as ScalarValue;
+        void restoredDomain;
+        void restoredAlias;
+        void restoredClass;
+        void unresolved;
+      `);
+    expect(result.filter((code) => code === "anti-slop(no-widen-then-assert)")).toHaveLength(3);
   });
 
   test("recognizes unshadowed host-global Reflect objects", () => {
