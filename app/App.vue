@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AgentInvocation, type AgentInvocationView } from '@vite-hub/ui'
+import { AgentInvocation, type AgentInvocationConfiguration, type AgentInvocationView } from '@vite-hub/ui'
 import { useAgentInvocation, useAgentInvocations } from 'vite-hub/agent/vue'
 import { computed, ref, watch } from 'vue'
 import { invocationContext, invocationSummary, invocationTitle } from './invocation-display'
@@ -28,17 +28,35 @@ const loadingDetail = detail.isLoading
 const listErrorMessage = computed(() => errorMessage(list.error.value))
 const detailErrorMessage = computed(() => errorMessage(detail.error.value))
 const matchingDetail = computed(() => selected.value?.id === selectedId.value ? selected.value : undefined)
-const invocationView = computed<AgentInvocationView | undefined>(() => matchingDetail.value
-  ? { ...matchingDetail.value, observations: observations.value }
-  : undefined)
+const invocationView = computed<AgentInvocationView | undefined>(() => {
+  if (!matchingDetail.value) return
+  const persistedConfiguration = record(record(matchingDetail.value)?.configuration)
+  const configuration = persistedConfiguration as AgentInvocationConfiguration | undefined
+    ?? observedConfiguration(observations.value)
+  return {
+    ...matchingDetail.value,
+    ...(configuration ? { configuration } : {}),
+    observations: observations.value,
+  }
+})
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function observedConfiguration(entries: AgentInvocationView['observations']): AgentInvocationConfiguration | undefined {
+  for (const entry of entries) {
+    if (entry.name !== 'vitehub.agent.configured') continue
+    const configuration = record(entry.attributes?.['vitehub.agent.configuration'])
+    if (configuration) return configuration as AgentInvocationConfiguration
+  }
+}
 
 async function refresh() {
   await Promise.all([list.refresh(), selectedId.value ? detail.refresh() : Promise.resolve()])
   refreshedAt.value = new Date()
-}
-
-function selectInvocation(id?: string) {
-  selectedId.value = id
 }
 
 function loadOlder() {
@@ -70,7 +88,8 @@ function invocationUpdatedAt(invocation: AgentInvocationSummary) {
 }
 
 watch(invocations, (next) => {
-  if (selectedId.value && !next.some(invocation => invocation.id === selectedId.value)) selectedId.value = undefined
+  if (!next.length) selectedId.value = undefined
+  else if (!selectedId.value || !next.some(invocation => invocation.id === selectedId.value)) selectedId.value = next[0]!.id
   refreshedAt.value = new Date()
 }, { immediate: true })
 </script>
@@ -78,100 +97,78 @@ watch(invocations, (next) => {
 <template>
   <UApp>
     <div class="babysitter-shell">
-      <header class="app-header">
-        <button type="button" class="brand-lockup" aria-label="All sessions" @click="selectInvocation()">
+      <aside class="sessions-sidebar" aria-label="Agent sessions">
+        <div class="brand-lockup">
           <span class="brand-mark" aria-hidden="true"><i /><i /><i /></span>
           <span>
             <small>ViteHub</small>
             <strong>Babysitter</strong>
           </span>
-        </button>
-
-        <div class="header-actions">
-          <span class="read-only-label"><i aria-hidden="true" /> Read-only</span>
-          <span v-if="refreshedAt" class="refresh-time">Updated {{ formatTime(refreshedAt.toISOString()) }}</span>
-          <UTooltip text="Refresh sessions">
-            <UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :loading="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" />
-          </UTooltip>
         </div>
-      </header>
 
-      <main v-if="!selectedId" class="sessions-index">
-        <div class="sessions-index__inner">
-          <header class="sessions-heading">
-            <div>
-              <p><span aria-hidden="true" /> Agent activity</p>
-              <h1>Sessions</h1>
-              <div>Open a thread to inspect its conversation, work, and result.</div>
-            </div>
-            <span class="session-count">{{ invocations.length }}</span>
-          </header>
-
-          <div v-if="listErrorMessage" class="notice" role="alert">
-            <strong>Could not load sessions</strong>
-            <p>{{ listErrorMessage }}</p>
-            <UButton color="neutral" variant="soft" size="sm" label="Try again" @click="refresh()" />
+        <div class="sidebar-heading">
+          <div>
+            <span>Agent activity</span>
+            <h1>Sessions</h1>
           </div>
+          <span class="session-count">{{ invocations.length }}</span>
+        </div>
 
-          <div v-else-if="loadingList && invocations.length === 0" class="session-skeletons" aria-label="Loading sessions">
-            <USkeleton v-for="index in 5" :key="index" class="h-20 w-full rounded-xl" />
-          </div>
+        <div v-if="listErrorMessage" class="sidebar-notice" role="alert">
+          <strong>Could not load sessions</strong>
+          <p>{{ listErrorMessage }}</p>
+        </div>
+        <div v-else-if="loadingList && invocations.length === 0" class="sidebar-notice">Loading sessions…</div>
+        <div v-else-if="invocations.length === 0" class="sidebar-notice">The first Agent Invocation will appear here.</div>
 
-          <div v-else-if="invocations.length === 0" class="empty-state">
-            <span aria-hidden="true">◇</span>
-            <strong>No sessions yet</strong>
-            <p>The first Agent Invocation will appear here when it is admitted by the runtime.</p>
-          </div>
-
-          <div v-else class="session-list">
-            <button v-for="invocation in invocations" :key="invocation.id" type="button" class="session-row" @click="selectInvocation(invocation.id)">
-              <span class="session-icon" :data-status="invocation.status">
-                <UIcon name="i-lucide-square-terminal" />
-                <i v-if="invocation.status === 'running'" aria-hidden="true" />
-              </span>
-              <span class="session-copy">
-                <span>
-                  <strong>{{ invocationTitle(invocation) }}</strong>
-                  <small :data-status="invocation.status">{{ statusLabel(invocation.status) }}</small>
-                </span>
-                <span>{{ invocationContext(invocation) }}</span>
-                <span v-if="invocation.error?.message" class="session-error">{{ invocationSummary(invocation) }}</span>
-              </span>
+        <nav v-else class="session-list">
+          <button
+            v-for="invocation in invocations"
+            :key="invocation.id"
+            type="button"
+            class="session-row"
+            :class="{ 'is-selected': selectedId === invocation.id }"
+            @click="selectedId = invocation.id"
+          >
+            <span class="session-status" :data-status="invocation.status" aria-hidden="true" />
+            <span class="session-copy">
+              <strong>{{ invocationTitle(invocation) }}</strong>
+              <span>{{ invocationContext(invocation) }}</span>
+              <span v-if="invocation.error?.message" class="session-error">{{ invocationSummary(invocation) }}</span>
+            </span>
+            <span class="session-meta">
+              <small>{{ statusLabel(invocation.status) }}</small>
               <time>{{ formatTime(invocationUpdatedAt(invocation)) }}</time>
-              <UIcon name="i-lucide-chevron-right" class="session-chevron" />
-            </button>
-          </div>
+            </span>
+          </button>
+        </nav>
 
-          <div v-if="listCursor" class="load-older">
-            <UButton color="neutral" variant="soft" size="sm" :loading="loadingMore" label="Load older sessions" @click="loadOlder()" />
-          </div>
+        <div v-if="listCursor" class="load-older">
+          <UButton color="neutral" variant="ghost" size="sm" :loading="loadingMore" label="Load older" @click="loadOlder()" />
         </div>
-      </main>
 
-      <main v-else class="session-detail" aria-live="polite">
-        <div v-if="detailErrorMessage" class="notice detail-notice" role="alert">
+        <footer class="sidebar-footer">
+          <span class="read-only-label"><i aria-hidden="true" /> Read-only</span>
+          <span v-if="refreshedAt">Updated {{ formatTime(refreshedAt.toISOString()) }}</span>
+          <UTooltip text="Refresh sessions">
+            <UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs" :loading="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" />
+          </UTooltip>
+        </footer>
+      </aside>
+
+      <main class="session-workspace" aria-live="polite">
+        <div v-if="detailErrorMessage" class="workspace-notice" role="alert">
           <strong>Could not load this session</strong>
           <p>{{ detailErrorMessage }}</p>
-          <div>
-            <UButton color="neutral" variant="ghost" size="sm" label="All sessions" @click="selectInvocation()" />
-            <UButton color="neutral" variant="soft" size="sm" label="Try again" @click="refresh()" />
-          </div>
+          <UButton color="neutral" variant="soft" size="sm" label="Try again" @click="refresh()" />
         </div>
-
-        <div v-else-if="loadingDetail && !invocationView" class="detail-loading" aria-label="Loading invocation">
+        <div v-else-if="loadingDetail && !invocationView" class="workspace-loading" aria-label="Loading invocation">
           <UIcon name="i-lucide-loader-circle" />
         </div>
-
         <AgentInvocation v-else-if="invocationView" :invocation="invocationView">
-          <template #navigation>
-            <UTooltip text="All sessions">
-              <UButton icon="i-lucide-arrow-left" color="neutral" variant="ghost" size="sm" aria-label="All sessions" @click="selectInvocation()" />
-            </UTooltip>
-          </template>
-          <template #title="{ invocation }">
-            {{ invocationTitle(invocation) }}
-          </template>
+          <template #title="{ invocation }">{{ invocationTitle(invocation) }}</template>
         </AgentInvocation>
+        <div v-else class="workspace-empty">Select a session to inspect its work.</div>
       </main>
     </div>
   </UApp>

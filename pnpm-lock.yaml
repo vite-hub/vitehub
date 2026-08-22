@@ -11,9 +11,6 @@ patchedDependencies:
   '@vite-hub/runtime@0.0.1':
     hash: a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6
     path: patches/@vite-hub__runtime@0.0.1.patch
-  '@vite-hub/ui@0.0.1':
-    hash: 84e49b58b41f92df507b83e13ec46c792302e53323a68f78d0d1ec794496a09d
-    path: patches/@vite-hub__ui@0.0.1.patch
   '@vite-hub/workspace':
     hash: 147f6be5125b0450e80e64e3db99b9fdeb96548b5440482f173822d816e26f1c
     path: patches/@vite-hub__workspace.patch
@@ -41,8 +38,8 @@ importers:
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       '@vite-hub/ui':
-        specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015
-        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(patch_hash=84e49b58b41f92df507b83e13ec46c792302e53323a68f78d0d1ec794496a09d)(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))
+        specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@c4949a1
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@c4949a1(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
       ai:
         specifier: 7.0.38
         version: 7.0.38(zod@4.4.3)
@@ -3166,16 +3163,19 @@ packages:
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
-  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015':
-    resolution: {integrity: sha512-s/GfN7wZJ4zy7Rg/pKeSXOEvbM5x59PyD+Fdw2UzARcU1cLja8d1rJbK/0Rfo4/VQu+b/+OBtrmHvpgsb5Knxw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015}
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@c4949a1':
+    resolution: {integrity: sha512-RbUFE+9IDbjyLybMw4njiEpYHaPZeRGLQUEIAnPT22Bgg0vZk1phLfg5isKSw6KF2mn8MxNNbfRADUA6hGGiMQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@c4949a1}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
       '@nuxt/ui': ^4.9.0
       ai: ^6.0.0 || ^7.0.0-0
+      vite: ^8.0.8
       vue: ^3.5.0
     peerDependenciesMeta:
       '@nuxt/ui':
+        optional: true
+      vite:
         optional: true
 
   '@vite-hub/workflow@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@5cbf7129916e12a6798cb936b5d9faa3654ca0a2':
@@ -10875,7 +10875,7 @@ snapshots:
       '@vite-hub/runtime': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2(patch_hash=a37399f43ff939f593945635f404c5c846da45e11990d022517eb98e7f0f32d6)
       effect: 4.0.0-beta.99
 
-  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@1015(patch_hash=84e49b58b41f92df507b83e13ec46c792302e53323a68f78d0d1ec794496a09d)(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vue@3.5.40(typescript@6.0.3))':
+  '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@c4949a1(@nuxt/ui@4.10.0(2b88d2307741de2aa2ff6d1c089118db))(ai@7.0.38(zod@4.4.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))':
     dependencies:
       '@comark/vue': 0.6.2(vue@3.5.40(typescript@6.0.3))
       '@nuxt/kit': 4.4.8
@@ -10883,6 +10883,7 @@ snapshots:
       vue: 3.5.40(typescript@6.0.3)
     optionalDependencies:
       '@nuxt/ui': 4.10.0(2b88d2307741de2aa2ff6d1c089118db)
+      vite: 8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)
     transitivePeerDependencies:
       - beautiful-mermaid
       - katex
