@@ -254,9 +254,31 @@ async function listHostEntries(
   recursive = false,
   include?: (entry: WorkspaceEntry) => boolean,
   includeGit = false,
+  excluded: readonly string[] = [],
 ): Promise<WorkspaceEntry[]> {
   await assertHostWorkspaceRoot(host, root)
-  const entries = (await host.files.list(toHostPath(root, path), { recursive }))
+  const workspacePath = normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })
+  if (isExcludedWorkspacePath(workspacePath, excluded)) return []
+  const listed: WorkspaceSessionHostFileEntry[] = []
+  if (recursive && excluded.length) {
+    const directories = [workspacePath]
+    for (let index = 0; index < directories.length; index++) {
+      const directory = directories[index]!
+      if (isExcludedWorkspacePath(directory, excluded)) continue
+      for (const entry of await host.files.list(toHostPath(root, directory), { recursive: false })) {
+        const workspaceEntry = toWorkspaceEntry(root, entry)
+        if (isExcludedWorkspacePath(workspaceEntry.path, excluded)) continue
+        listed.push(entry)
+        if (workspaceEntry.type === "directory") directories.push(workspaceEntry.path)
+      }
+    }
+  }
+  else {
+    for (const entry of await host.files.list(toHostPath(root, workspacePath), { recursive })) {
+      if (!isExcludedWorkspacePath(toWorkspaceEntry(root, entry).path, excluded)) listed.push(entry)
+    }
+  }
+  const entries = listed
     .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))
     .filter(({ workspaceEntry }) => !include || include(workspaceEntry))
   const resolved = await mapWithConcurrency(entries, hostInspectionConcurrency, async ({ executable, workspaceEntry }) => {
@@ -817,8 +839,10 @@ export async function createHostedWorkspaceSession(
     },
     async list(path = "", listOptions = {}) {
       assertOpen()
-      return filterSessionEntries(await listHostEntries(host, root, path, listOptions.recursive), sessionPaths)
-        .filter(entry => !isExcludedWorkspacePath(entry.path, listOptions.exclude))
+      return filterSessionEntries(
+        await listHostEntries(host, root, path, listOptions.recursive, undefined, false, listOptions.exclude),
+        sessionPaths,
+      )
     },
     async glob(pattern, globOptions) {
       assertOpen()

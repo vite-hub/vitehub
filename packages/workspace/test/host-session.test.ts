@@ -715,14 +715,31 @@ describe("workspace host sessions", () => {
 
   it("honors list exclusions in hosted Sessions", async () => {
     const docs = workspace()
+    const host = memoryHost()
     await docs.writeFile("public/readme.md", "public")
     await docs.writeFile("private/secret.txt", "private")
-    const session = await docs.startSession({ host: memoryHost() })
+    const session = await docs.startSession({ host })
+    const list = host.files.list.bind(host.files)
+    const inspected: string[] = []
+    host.files.list = async (path, options) => {
+      inspected.push(path)
+      if (path.startsWith("/workspace/private")) throw new Error("excluded subtree inspected")
+      return await list(path, options)
+    }
 
     await expect(session.list("", { exclude: ["private"], recursive: true })).resolves.toEqual([
       expect.objectContaining({ path: "public", type: "directory" }),
       expect.objectContaining({ path: "public/readme.md", type: "file" }),
     ])
+    expect(inspected).toEqual(["/workspace", "/workspace/public"])
+    inspected.length = 0
+    await expect(session.list("", { exclude: ["private"] })).resolves.toEqual([
+      expect.objectContaining({ path: "public", type: "directory" }),
+    ])
+    expect(inspected).toEqual(["/workspace"])
+    inspected.length = 0
+    await expect(session.list("private", { exclude: ["private"], recursive: true })).resolves.toEqual([])
+    expect(inspected).toEqual([])
     await session.close()
   })
 
