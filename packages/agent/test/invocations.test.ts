@@ -7,11 +7,11 @@ import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
 import { agentInvocationObservationWouldTruncate, bindAgentInvocations } from "../src/invocations.ts"
-import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
+import { applyAgentInvocationStoreUpdate, createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
-import type { AgentInvocationStore } from "../src/server.ts"
+import type { AgentInvocationRecord, AgentInvocationStore } from "../src/server.ts"
 import type { Client } from "@libsql/client"
 
 function runtime(runId: string, annotations?: Record<string, boolean | number | string | null>) {
@@ -545,13 +545,7 @@ describe("Agent Invocations", () => {
         if (input.status === "completed" && terminalFailures-- > 0) return
         const record = records.get(id)
         if (!record) return
-        const updated = {
-          ...record,
-          ...(input.error ? { error: input.error } : {}),
-          ...(input.observation ? { observations: [...record.observations, input.observation] } : {}),
-          ...(input.status ? { status: input.status } : {}),
-          updatedAt: input.timestamp,
-        }
+        const updated = applyAgentInvocationStoreUpdate(record, input)
         records.set(id, updated)
         return updated
       },
@@ -588,20 +582,41 @@ describe("Agent Invocations", () => {
   })
 
   it("marks overflow while the final custom-store observation write is in flight", async () => {
-    const memory = createMemoryAgentInvocationStore()
+    const records = new Map<string, AgentInvocationRecord>()
+    const claims = new Map<string, string>()
     let releaseFinalWrite!: () => void
     const finalWrite = new Promise<void>((resolve) => { releaseFinalWrite = resolve })
     let finalWriteStarted!: () => void
     const started = new Promise<void>((resolve) => { finalWriteStarted = resolve })
+    let releaseDriver!: () => void
+    const driverGate = new Promise<void>((resolve) => { releaseDriver = resolve })
     const store: AgentInvocationStore = {
-      ...memory,
+      claim(id, claimId) {
+        if (!records.has(id)) return false
+        claims.set(id, claimId)
+        return true
+      },
+      create(input) {
+        const record = { ...input, cursor: "1" }
+        records.set(input.id, record)
+        return { created: true, record }
+      },
+      get: id => records.get(id),
+      list: () => ({ invocations: [...records.values()].map(({ observations: _observations, ...record }) => record) }),
+      release(id, claimId) {
+        if (claims.get(id) === claimId) claims.delete(id)
+      },
       async update(id, input, claimId) {
         const snapshot = structuredClone(input)
         if (input.observation?.sequence === 256) {
           finalWriteStarted()
           await finalWrite
         }
-        return memory.update(id, snapshot, claimId)
+        const record = records.get(id)
+        if (!record || claims.get(id) !== claimId) return
+        const updated = applyAgentInvocationStoreUpdate(record, snapshot)
+        records.set(id, updated)
+        return structuredClone(updated)
       },
     }
     const invocations = defineAgentInvocations({ store })
@@ -612,6 +627,7 @@ describe("Agent Invocations", () => {
         for (let index = 0; index < 254; index++) {
           await context.traceLog?.append({ name: `event-${index}`, type: "run" })
         }
+        await driverGate
         return "done"
       } },
       invocations,
@@ -622,6 +638,13 @@ describe("Agent Invocations", () => {
     await started
     await traceLog?.append({ name: "overflow", type: "run" })
     releaseFinalWrite()
+    await vi.waitFor(async () => {
+      const active = await invocations.getByRunId("finish-overflow")
+      expect(active?.status).toBe("running")
+      expect(active?.observations).toHaveLength(256)
+      expect(active?.observations.at(-1)?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    })
+    releaseDriver()
     await run
 
     const record = await invocations.getByRunId("finish-overflow")

@@ -20,7 +20,7 @@ const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
-const OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
+export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
@@ -79,6 +79,7 @@ export interface AgentInvocationStoreCreateResult {
 export interface AgentInvocationStoreUpdateInput {
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
+  /** Marks the final retained observation after later observations were dropped. */
   observationsTruncated?: boolean
   status?: AgentInvocationRecordStatus
   timestamp: string
@@ -256,7 +257,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
         .slice(0, attributesTruncated ? MAX_OBSERVATION_ATTRIBUTES - 1 : MAX_OBSERVATION_ATTRIBUTES)
         .map(([key, value]) => [boundedString(key), boundedObservationValue(value)]))
     : undefined
-  if (attributesTruncated) attributes![OBSERVATION_TRUNCATED_ATTRIBUTE] = true
+  if (attributesTruncated) attributes![AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] = true
   return {
     ...observation,
     name: boundedString(observation.name)!,
@@ -332,7 +333,7 @@ export function applyAgentInvocationStoreUpdate(
             ...observation,
             attributes: {
               ...observation.attributes,
-              [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+              [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
             },
           }
         : observation)
@@ -342,7 +343,7 @@ export function applyAgentInvocationStoreUpdate(
             ...observation,
             attributes: {
               ...observation.attributes,
-              [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+              [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
             },
           }
         : observation)
@@ -634,7 +635,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             ...observation,
             attributes: {
               ...observation.attributes,
-              [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+              [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
             },
           }
           pendingObservations.length = 0
@@ -664,12 +665,24 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       let observationCapMarked = false
       let observationCapPersisted = false
+      let observationCapWrite: Promise<void> | undefined
       const persistObservationCap = async () => {
         if (!observationCapMarked || observationCapPersisted) return
-        observationCapPersisted = await update({
-          observationsTruncated: true,
-          timestamp: new Date().toISOString(),
-        })
+        if (!observationCapWrite) {
+          observationCapWrite = (async () => {
+            while (observationWrite || pendingObservations.length > 0) {
+              writeNextObservation(true)
+              if (observationWrite) await observationWrite
+            }
+            observationCapPersisted = await update({
+              observationsTruncated: true,
+              timestamp: new Date().toISOString(),
+            })
+          })().finally(() => {
+            observationCapWrite = undefined
+          })
+        }
+        await observationCapWrite
       }
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) return
@@ -681,12 +694,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               ...retained,
               attributes: {
                 ...retained.attributes,
-                [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+                [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
               },
             }
             observationCapMarked = true
           }
           else observationCapMarked = true
+          void persistObservationCap()
           return
         }
         acceptedObservationCount++
