@@ -136,17 +136,32 @@ describe("message scroller behavior", () => {
     });
     const wrapper = mount(Harness);
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    let scrollHeight = 500;
+    let scrollTop = 200;
     Object.defineProperties(viewport.element, {
       clientHeight: { configurable: true, value: 100 },
-      scrollHeight: { configurable: true, value: 500 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = value;
+        },
+      },
       scrollTo: { configurable: true, value: scrollTo },
     });
-    (viewport.element as HTMLElement).scrollTop = 200;
     await viewport.trigger("scroll");
     const button = wrapper.find("[data-slot='message-scroller-button']");
     expect(button.exists()).toBe(true);
     await button.trigger("click");
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 500 });
+
+    scrollTo.mockClear();
+    scrollTop = 300;
+    await viewport.trigger("scroll");
+    scrollHeight = 600;
+    resizeObservers[0]!.callback([], resizeObservers[0]!);
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 600 });
   });
 
   it("stops following before user scrolling and follows content-only growth at the edge", async () => {
@@ -198,6 +213,7 @@ describe("message scroller behavior", () => {
     expect(observer.targets.has(content.element)).toBe(true);
     scrollTo.mockClear();
     scrollTop = 250;
+    await viewport.trigger("wheel");
     await viewport.trigger("scroll");
     scrollHeight = 600;
     observer.callback([], observer);

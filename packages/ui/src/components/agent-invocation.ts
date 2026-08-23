@@ -57,7 +57,7 @@ function compactCommand(command: string): string {
 function formatTokens(value: number | undefined): string | undefined {
   if (value === undefined) return;
   if (value < 1_000) return `${value} tokens`;
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1, notation: "compact" }).format(value)} tokens`;
+  return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1, notation: "compact" }).format(value)} tokens`;
 }
 
 function formatDuration(startedAt: string | undefined, completedAt: string | undefined): string | undefined {
@@ -368,7 +368,7 @@ export const AgentInvocationInspector = defineComponent({
               inspectorRow("Messages", metrics.value.messages),
               inspectorRow("Steps", metrics.value.steps),
               metrics.value.changes ? inspectorRow("Changes", metrics.value.changes) : null,
-              metrics.value.tokens !== undefined ? inspectorRow("Tokens", new Intl.NumberFormat().format(metrics.value.tokens)) : null,
+              metrics.value.tokens !== undefined ? inspectorRow("Tokens", new Intl.NumberFormat("en").format(metrics.value.tokens)) : null,
             ])),
             ...(configuration ? renderConfiguration(configuration) : []),
             slots.metadata?.({ invocation: props.invocation }),

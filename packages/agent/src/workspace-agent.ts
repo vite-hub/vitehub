@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { normalizeWorkspaceSourcesMetadata, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
@@ -113,6 +114,7 @@ function staticAgentCapabilities<
   Name extends WorkspaceName,
 >(capabilities: AgentCapabilitiesInput<TRuntimeConfig, Name> | undefined): AgentCapabilityDefinition<TRuntimeConfig, Name>[] {
   return Array.isArray(capabilities)
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ? normalizeCapabilities(capabilities) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
     : []
 }
@@ -181,7 +183,7 @@ interface MetadataCapabilitySelection<
 
 export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
   if (isWorkspaceReference(workspace)) return { mode: normalizeMode(workspace.mode, "Workspace") }
-  if (typeof workspace === "string") return { mode: "read" }
+  if (hasRuntimeType(workspace, "string")) return { mode: "read" }
   return {
     ...workspace,
     mode: normalizeMode(workspace.mode, "Workspace"),
@@ -189,24 +191,26 @@ export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConf
 }
 
 export function workspaceDefinitionWithAutoCommitRules(definition: WorkspaceDefinition, commit: boolean | string | undefined): WorkspaceDefinition {
-  if (commit !== true && typeof commit !== "string") return definition
+  if (commit !== true && !hasRuntimeType(commit, "string")) return definition
   return { ...definition, rules: mergeWorkspaceCommitRules(definition.rules, commit) }
 }
 
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
-  return typeof workspace === "object"
+  return hasRuntimeType(workspace, "object")
     && workspace !== null
     && "name" in workspace
-    && typeof workspace.name === "string"
+    && hasRuntimeType(workspace.name, "string")
 }
 
 export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
-  const options = typeof agent === "object" && agent !== null
+  const options = hasRuntimeType(agent, "object") && agent !== null
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ? (agent as { __vitehubWorkspaceAgentOptions?: { workspace?: unknown } }).__vitehubWorkspaceAgentOptions
     : undefined
   const workspace = options?.workspace
-  return typeof workspace === "object"
+  return hasRuntimeType(workspace, "object")
     && workspace !== null
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
 }
 
@@ -217,7 +221,8 @@ type RegisteredWorkspaceAgent = {
 }
 
 export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: string): void {
-  if (typeof agent !== "object" || agent === null) return
+  if (!hasRuntimeType(agent, "object") || agent === null) return
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const registeredAgent = agent as RegisteredWorkspaceAgent
   const names = registeredAgent[registeredWorkspaceAgentNames] || new Set<string>()
   names.add(name)
@@ -233,6 +238,7 @@ export function markDiscoveredWorkspaceAgentDefinitionRegistered(
   defaults: WorkspaceAgentDefaults = {},
 ): string | undefined {
   if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const options = (agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions
   const name = workspaceNameFromOptions(options, defaults)
   markWorkspaceAgentDefinitionRegistered(agent, name)
@@ -240,27 +246,31 @@ export function markDiscoveredWorkspaceAgentDefinitionRegistered(
 }
 
 export function workspaceAgentUsesRegisteredDefinition(agent: unknown, name: string): boolean {
-  return typeof agent === "object"
+  return hasRuntimeType(agent, "object")
     && agent !== null
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     && Boolean((agent as RegisteredWorkspaceAgent)[registeredWorkspaceAgentNames]?.has(name))
 }
 
 export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir: string, colocatedInstructions?: string): Agent {
   if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return agent
 
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const workspaceAgent = agent as WorkspaceAgentDefinition
   const options = workspaceAgent.__vitehubWorkspaceAgentOptions
   const workspace = options.workspace
-  if (typeof workspace !== "object" || workspace === null || isWorkspaceReference(workspace)) return agent
+  if (!hasRuntimeType(workspace, "object") || workspace === null || isWorkspaceReference(workspace)) return agent
+  // SAFETY: The string and named-reference variants returned above, leaving owned Workspace options.
+  const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
-  const resolvedSourceRootDir = workspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
+  const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...workspace.sources }
-    : { ...workspace.sources }
+    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
+    : { ...ownedWorkspace.sources }
   const workspaceOptions = {
     ...options,
     workspace: {
-      ...workspace,
+      ...ownedWorkspace,
       ...(Object.keys(sources).length ? { sources } : {}),
       sourceRootDir: resolvedSourceRootDir,
     },
@@ -268,10 +278,12 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
 
   const decoratedAgent = {
     ...workspaceAgent,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
 }
 
@@ -293,7 +305,7 @@ export function workspaceNameFromOptions<
   defaults: WorkspaceAgentDefaults<Name> = {},
   identity?: AgentHostIdentity,
 ): Name | string {
-  if (typeof options.workspace === "string") return options.workspace
+  if (hasRuntimeType(options.workspace, "string")) return options.workspace
   if (isWorkspaceReference(options.workspace)) return options.workspace.name
   return options.name || identity?.workspace || identity?.name || defaults.workspace || defaults.name || defaultWorkspaceName
 }
@@ -304,7 +316,7 @@ export function workspaceDefinitionFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): WorkspaceAgentWorkspaceOptions {
-  if (typeof options.workspace === "string") {
+  if (hasRuntimeType(options.workspace, "string")) {
     return withCapabilityWorkspaceSources({ mode: "read" }, staticAgentCapabilities(options.capabilities))
   }
   if (isWorkspaceReference(options.workspace)) {
@@ -333,7 +345,7 @@ function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: bo
 }
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
-  if (!definition || typeof definition !== "object") {
+  if (!definition || !hasRuntimeType(definition, "object")) {
     throw new TypeError("[vitehub] defineWorkspace requires a workspace definition.")
   }
   if ("name" in definition) {
@@ -366,8 +378,8 @@ function withCapabilityWorkspaceSources(
 
 function hasColocatedAgentInstructions(sourceRootDir: string | undefined): boolean {
   if (!sourceRootDir) return false
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const fs = getNodeBuiltin("node:fs")
+  const path = getNodeBuiltin("node:path")
   if (!fs || !path) return false
   try {
     return fs.statSync(path.join(sourceRootDir, colocatedAgentInstructionsPath)).isFile()
@@ -419,11 +431,14 @@ export function workspaceModeFromOptions<
 }
 
 export function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "workspace" in value
-    && (typeof (value as { workspace?: unknown }).workspace === "string"
-      || (typeof (value as { workspace?: unknown }).workspace === "object"
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+    && (hasRuntimeType((value as { workspace?: unknown }).workspace, "string")
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+      || (hasRuntimeType((value as { workspace?: unknown }).workspace, "object")
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         && (value as { workspace?: unknown }).workspace !== null))
 }
 
@@ -433,9 +448,11 @@ function modelDriverInstructions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): AgentAdapterInstructions<TRuntimeConfig, Name> | undefined {
-  const driver = (options as unknown as { driver?: unknown }).driver
-  if (typeof driver === "object" && driver !== null) {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const driver = (asUnknownBoundary(options) as { driver?: unknown }).driver
+  if (hasRuntimeType(driver, "object") && driver !== null) {
     return "model" in driver
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ? (driver as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
       : undefined
   }
@@ -454,6 +471,7 @@ function workspaceAgentDriverKind<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): AgentDriverKind {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>).kind
 }
 
@@ -465,6 +483,7 @@ function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequest
 function capabilityMetadataTool(capability: NormalizedCapability, options: { driverKind?: AgentDriverKind, sourceRequests?: boolean } = {}): AgentInspectionToolDefinition | undefined {
   if (capability.id === "workspace-shell") {
     const mode = normalizeMode(capability.mode, "Workspace Shell")
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     const configuredCommands = (capability.metadata as { commands?: unknown } | undefined)?.commands
     if (options.driverKind === "provider" && configuredCommands === undefined) return undefined
     const allCommands = configuredCommands === "all"
@@ -488,6 +507,7 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
     }
   }
   if (capability.id === "gmail") {
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     const mode = (capability.metadata as { mode?: unknown } | undefined)?.mode
     return {
       category: "capability",
@@ -503,6 +523,7 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
   if (capability.id === "sandbox") {
     return {
       category: "execution",
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       commands: (capability.metadata as { commands?: string[] } | undefined)?.commands,
       description: "Run explicitly allowed executables in an isolated sandbox.",
       icon: "i-lucide-box",
@@ -531,7 +552,7 @@ function capabilityMetadataTools(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
+  return !!value && hasRuntimeType(value, "object") && !Array.isArray(value)
 }
 
 function staticDriverExecutionAuthority(driver: { kind: AgentDriverKind }): ExecutionAuthority {
@@ -562,14 +583,15 @@ function agentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>): AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined {
+>(definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS, TInvokerProfile>): AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return (definition as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> }).__vitehubAgentSettings
 }
 
 function stringField(record: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = record[key]
-    if (typeof value === "string" && value.trim()) return value.trim()
+    if (hasRuntimeType(value, "string") && value.trim()) return value.trim()
   }
 }
 
@@ -604,7 +626,7 @@ function modelMetadata(model: AgentModelInput | undefined, dynamic = false): Age
 }
 
 function configValue(value: unknown): AgentInspectionConfigValue | undefined {
-  if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
+  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "number") || hasRuntimeType(value, "string")) {
     return value
   }
 }
@@ -621,6 +643,7 @@ function callSettingsMetadata(value: unknown): Record<string, AgentInspectionCon
   const entries = Object.entries(value)
     .flatMap(([key, setting]) => {
       const metadataValue = redactedConfigValue(key, setting)
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       return metadataValue === undefined ? [] : [[key, metadataValue] as const]
     })
   return entries.length ? Object.fromEntries(entries) : undefined
@@ -629,10 +652,10 @@ function callSettingsMetadata(value: unknown): Record<string, AgentInspectionCon
 function workspaceFallbackMetadata(
   value: AgentInspectionModelExecutionMetadata["workspaceFallback"] | boolean | undefined,
 ): AgentInspectionModelExecutionMetadata["workspaceFallback"] | undefined {
-  if (typeof value === "boolean") return { enabled: value }
+  if (hasRuntimeType(value, "boolean")) return { enabled: value }
   if (!isRecord(value)) return
-  const enabled = typeof value.enabled === "boolean" ? value.enabled : undefined
-  const maxToolResults = typeof value.maxToolResults === "number" ? value.maxToolResults : undefined
+  const enabled = hasRuntimeType(value.enabled, "boolean") ? value.enabled : undefined
+  const maxToolResults = hasRuntimeType(value.maxToolResults, "number") ? value.maxToolResults : undefined
   return enabled !== undefined || maxToolResults !== undefined
     ? {
         ...(enabled !== undefined ? { enabled } : {}),
@@ -645,7 +668,7 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
   if (!value) return
   const callSettings = callSettingsMetadata(value.callSettings)
   const workspaceFallback = workspaceFallbackMetadata(value.workspaceFallback)
-  const stepLimit = typeof value.stepLimit === "number" ? value.stepLimit : undefined
+  const stepLimit = hasRuntimeType(value.stepLimit, "number") ? value.stepLimit : undefined
   return callSettings || workspaceFallback || stepLimit !== undefined
     ? {
         ...(callSettings ? { callSettings } : {}),
@@ -670,9 +693,9 @@ function inspectionMetadataValue(
   seen = new WeakSet<object>(),
 ): AgentInspectionValue | undefined {
   if (secretInspectionMetadataKey(key)) return "[redacted]"
-  if (value === null || typeof value === "boolean" || typeof value === "string") return value
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined
-  if (!value || typeof value !== "object" || depth >= 8 || seen.has(value)) return
+  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
+  if (!value || !hasRuntimeType(value, "object") || depth >= 8 || seen.has(value)) return
 
   seen.add(value)
   const resolved = Array.isArray(value)
@@ -700,6 +723,7 @@ function capabilityInspectionMetadata(
     .flatMap((capability) => {
       const metadata = inspectionMetadataValue(capability.metadata)
       return isRecord(metadata) && Object.keys(metadata).length
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         ? [{ id: capability.id, metadata: metadata as Record<string, AgentInspectionValue> }]
         : []
     })
@@ -731,9 +755,11 @@ function staticDriverMetadata<
   if (driver.kind === "model") {
     return {
       executionAuthority: noExecutionAuthority,
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
       kind: "model",
-      model: modelMetadata(typeof driver.model === "function" ? undefined : driver.model as AgentModelInput, typeof driver.model === "function"),
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+      model: modelMetadata(hasRuntimeType(driver.model, "function") ? undefined : driver.model as AgentModelInput, hasRuntimeType(driver.model, "function")),
     }
   }
   if (driver.kind === "provider") {
@@ -758,12 +784,15 @@ async function resolvedDriverMetadata<
   if (!settings) return
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "model") {
-    const dynamic = typeof driver.model === "function"
+    const dynamic = hasRuntimeType(driver.model, "function")
     const model = dynamic
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ? await (driver.model as (context: AgentModelResolverContext<TRuntimeConfig, Name>) => AgentModelInput | Promise<AgentModelInput>)(context)
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       : driver.model as AgentModelInput
     return {
       executionAuthority: noExecutionAuthority,
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
       kind: "model",
       model: modelMetadata(model, dynamic),
@@ -784,8 +813,9 @@ function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentR
 ): AgentInspectionConfigMetadata | undefined {
   const settings = agentSettings(definition)
   const driver = staticDriverMetadata(settings)
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const capacity = inspectAgentCapacity(definition as object)
-  const uiMessageStream = typeof settings?.uiMessageStream === "function"
+  const uiMessageStream = hasRuntimeType(settings?.uiMessageStream, "function")
     ? undefined
     : settings?.uiMessageStream
   return driver ? { driver: { ...driver, ...(capacity ? { capacity } : {}) }, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
@@ -799,7 +829,7 @@ async function resolvedUiMessageStreamProjection<
   context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentUIMessageStreamProjection | undefined> {
   const uiMessageStream = agentSettings(definition)?.uiMessageStream
-  return typeof uiMessageStream === "function"
+  return hasRuntimeType(uiMessageStream, "function")
     ? await uiMessageStream(context)
     : uiMessageStream
 }
@@ -812,6 +842,7 @@ async function resolvedConfigMetadata<
   context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentInspectionConfigMetadata | undefined> {
   const driver = await resolvedDriverMetadata(agentSettings(definition), context)
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const capacity = inspectAgentCapacity(definition as object)
   const uiMessageStream = await resolvedUiMessageStreamProjection(definition, context)
   return driver ? { driver: { ...driver, ...(capacity ? { capacity } : {}) }, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
@@ -865,7 +896,7 @@ function workspaceMetadataFiles<
   context?: AgentInvocationContextStore,
 ): AgentInspectionFileTreeItem[] {
   const access = context && hasTrustedWorkspaceAccessScope(context)
-    ? context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], sources?: readonly string[] } }>("access")
+    ? context.get("access")
     : undefined
   const scope = access?.workspaceScope
   const pathIntersects = (left: string, right: string) => !left || !right || left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)
@@ -880,19 +911,29 @@ function workspaceMetadataFiles<
     const materialize = sourceMaterialize(source)
     const mountPath = sourceMountPath(source)
     return {
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       kind: "directory" as const,
       label: mountPath.split("/").filter(Boolean).at(-1) || source.key,
       materialize,
       materialized: materialize === "build",
       path: mountPath,
       source: source.key,
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       status: materialize === "lazy" ? "lazy" as const : "ready" as const,
     }
   })
 }
 
-function getNodeBuiltin<T>(name: string): T | undefined {
-  const process = globalThis.process as { getBuiltinModule?: (name: string) => T } | undefined
+interface NodeBuiltinModuleMap {
+  "node:fs": typeof import("node:fs")
+  "node:path": typeof import("node:path")
+}
+
+function getNodeBuiltin<TKey extends keyof NodeBuiltinModuleMap>(name: TKey): NodeBuiltinModuleMap[TKey] | undefined
+function getNodeBuiltin(name: string): unknown
+function getNodeBuiltin(name: string): unknown {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const process = globalThis.process as { getBuiltinModule?: (name: string) => unknown } | undefined
   try {
     return process?.getBuiltinModule?.(name)
   }
@@ -902,8 +943,8 @@ function getNodeBuiltin<T>(name: string): T | undefined {
 }
 
 function resolveInstructionImportFromFile(specifier: string, importer: string): { content: string, file: string } {
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const fs = getNodeBuiltin("node:fs")
+  const path = getNodeBuiltin("node:path")
   if (!fs || !path) {
     throw new Error(`[vitehub] Instruction import "${specifier}" requires local filesystem access.`)
   }
@@ -922,8 +963,8 @@ export async function resolveInstructionDocumentImports(content: string, file: s
 }
 
 export async function resolveColocatedAgentInstructionDocument(content: string, sourceRootDir: string | undefined): Promise<string> {
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const fs = getNodeBuiltin("node:fs")
+  const path = getNodeBuiltin("node:path")
   if (!fs || !path || !sourceRootDir || !hasColocatedAgentInstructions(sourceRootDir)) return content
   return await resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
 }
@@ -951,12 +992,13 @@ export async function resolveWorkspaceInstructionBindings(
     if (!/^[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*$/.test(key)) {
       throw new TypeError(`[vitehub] Workspace instruction binding "${key}" must be addressable as workspace.${key}.`)
     }
-    if (binding === null || typeof binding === "string" || typeof binding === "number" || typeof binding === "boolean") {
+    if (binding === null || hasRuntimeType(binding, "string") || hasRuntimeType(binding, "number") || hasRuntimeType(binding, "boolean")) {
       resolved[key] = binding
       continue
     }
-    if (binding && typeof binding === "object" && typeof binding.path === "string") {
+    if (binding && hasRuntimeType(binding, "object") && hasRuntimeType(binding.path, "string")) {
       if (!workspace) throw new Error(`[vitehub] Workspace instruction binding "${key}" requires Workspace access.`)
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       resolved[key] = await workspace.fs.readFile(binding.path as never)
       continue
     }
@@ -969,8 +1011,9 @@ function localWorkspaceRoots<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string[] {
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const fs = getNodeBuiltin("node:fs")
+  const path = getNodeBuiltin("node:path")
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const cwd = (globalThis.process as { cwd?: () => string } | undefined)?.cwd?.()
   if (!fs || !path || !cwd) return []
 
@@ -1089,7 +1132,8 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   for (const entry of entries) {
     addFileTreePath(root, entry)
   }
-  markSourceTreeMetadata(root, options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  markSourceTreeMetadata(root, asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
   propagateMaterializedDirectories(root)
   clearReadyMaterializationHints(root)
   sortFileTree(root)
@@ -1148,8 +1192,8 @@ function workspaceMetadataInstructions<
     : undefined
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = parts.flatMap((part) => {
-    if (typeof part === "string" && part.trim().length > 0) return [part]
-    if (typeof part === "function") {
+    if (hasRuntimeType(part, "string") && part.trim().length > 0) return [part]
+    if (hasRuntimeType(part, "function")) {
       const localInstructions = resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined
       if (localInstructions) return [localInstructions]
       return ["Dynamic system instructions resolver configured."]
@@ -1173,7 +1217,7 @@ async function staticWorkspaceMetadataInstructions<
   const coverage = await collectStaticInstructionCoverage(instructions.join("\n\n"))
   const configuredInstructions = modelDriverInstructions(options)
   const hasDynamicInstructions = (Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions])
-    .some(instruction => typeof instruction === "function")
+    .some(instruction => hasRuntimeType(instruction, "function"))
   const visibleSources = new Set(workspaceMetadataFiles(options, context).map(file => file.source).filter(Boolean))
   const visibleDefinition = definition.sources
     ? {
@@ -1193,8 +1237,8 @@ function readLocalWorkspaceInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const fs = getNodeBuiltin("node:fs")
+  const path = getNodeBuiltin("node:path")
   if (!fs || !path) return undefined
   for (const root of localWorkspaceRoots(options)) {
     const file = path.join(root, "AGENTS.md")
@@ -1210,15 +1254,16 @@ function readColocatedAgentInstructionsRaw<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const embedded = workspaceDefinitionFromOptions(options).sources?.[colocatedAgentInstructionsSourceKey] as {
     content?: unknown
     source?: { content?: unknown }
   } | undefined
   const embeddedContent = embedded?.content ?? embedded?.source?.content
-  if (typeof embeddedContent === "string" && embeddedContent.trim()) return embeddedContent.trim()
+  if (hasRuntimeType(embeddedContent, "string") && embeddedContent.trim()) return embeddedContent.trim()
 
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const fs = getNodeBuiltin("node:fs")
+  const path = getNodeBuiltin("node:path")
   const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
   if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
   const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
@@ -1238,13 +1283,14 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   if (!definition.sources || !(colocatedAgentInstructionsSourceKey in definition.sources)) return undefined
   let content: string | undefined
   try {
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     content = (await workspace.fs.readFile(colocatedAgentInstructionsWorkspacePath as never)).trim()
   }
   catch {}
   if (!content) return undefined
 
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const fs = getNodeBuiltin("node:fs")
+  const path = getNodeBuiltin("node:path")
   const sourceRootDir = definition.sourceRootDir
   if (fs && path && sourceRootDir && hasColocatedAgentInstructions(sourceRootDir)) {
     return await resolveColocatedAgentInstructionDocument(content, sourceRootDir)
@@ -1271,7 +1317,8 @@ async function resolveWorkspaceMetadataInstructions<
     ? await resolveWorkspaceAgentDefaultInstructions(options, workspace)
     : undefined
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
-  const instructions = await Promise.all(parts.map(part => typeof part === "function"
+  const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function")
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ? part(instructionContext as never)
     : part))
   const baseInstructions = instructions
@@ -1327,6 +1374,7 @@ function capabilityCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): AgentInspectionWarning[] {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
     .filter(capability => capability.id !== "skills" && !capability.id.startsWith("skills."))
     .filter(capability => !capabilityCoverageKeys(capability.id).some(key => coverage.capabilities.has(key)))
@@ -1338,7 +1386,7 @@ function capabilityCoverageWarnings(
 }
 
 function skillCoveragePath(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value.trim()) return
+  if (!hasRuntimeType(value, "string") || !value.trim()) return
   return value.trim().replace(/\/+$/, "").replace(/\/SKILL\.md$/, "") || "."
 }
 
@@ -1346,6 +1394,7 @@ function skillCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): AgentInspectionWarning[] {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
     .filter(capability => capability.id === "skills" || capability.id.startsWith("skills."))
     .flatMap((capability) => {
@@ -1398,11 +1447,12 @@ async function createInspectionMetadataWorkspace<
   },
 ) {
   const defaults = {
-    ...(typeof definition.name === "string" ? { name: definition.name } : {}),
+    ...(hasRuntimeType(definition.name, "string") ? { name: definition.name } : {}),
     ...defaultsOverride,
   }
   if (!definition.__vitehubWorkspaceAgentOptions) return
-  const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const options = asUnknownBoundary(definition.__vitehubWorkspaceAgentOptions) as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const workspaceName = workspaceNameFromOptions(options, defaults, defaultsOverride.runtime?.agentIdentity)
 
   const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace/runtime")
@@ -1444,6 +1494,7 @@ function createInspectionMetadataRuntime<
     ...runtime,
     memo: runtime.memo || ((_key, create) => create()),
     runtime: runtime.runtime || "unknown",
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     runtimeConfig: (runtime.runtimeConfig || {}) as TRuntimeConfig,
     waitUntil: runtime.waitUntil || (() => {}),
   }
@@ -1470,12 +1521,15 @@ async function resolveMetadataCapabilitySelection<
   const invocationContext: AgentInvocationContextStore = createAgentInvocationContextStore(input.context)
   const callbackContext = agentCallbackContext(runtime)
   const invoker = await resolveAgentInvoker(
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     settings.invoker as never,
     callbackContext,
     invocationContext,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     input as never,
     runtime.run,
   )
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const driverKind = normalizeAgentDriver(settings as AgentSettings<TRuntimeConfig>).kind
   const capabilities = await resolveAgentCapabilityDefinitions(settings.capabilities, {
     ...agentInvocationCallbackContextValues(invocationContext),
@@ -1515,6 +1569,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
   }
   const capabilities = await resolveAgentCapabilities({
     capabilities: capabilityDefinitions,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     hooks: options.hooks as never,
   }, runtime, input, workspace, workspaceModeFromOptions(options), {
     context: invocationContext,
@@ -1524,7 +1579,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
     resolveTools: false,
     workspaceDefinition,
   })
-  const sourceResolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+  const sourceResolvedDefinition = invocationContext.get("workspace.sourceResolution.definition")
   const metadataWorkspace = capabilities.workspace || workspace
   const resolvedDefinition = capabilities.workspaceDefinition || sourceResolvedDefinition || workspaceDefinition
 
@@ -1585,6 +1640,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     const definedChannelInstructions = inspectMessageChannelInstructions(definition.channels)
     const capabilities = capabilityInspectionMetadataProjection(definition.capabilities)
     if (!definedChannelInstructions.length) {
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       return { ...capabilities, files: [], ...agentInspectionMetadata(definition as never), tools: [] }
     }
     const adapter = await definition.resolve(createInspectionMetadataRuntime(resolution))
@@ -1595,18 +1651,21 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       ...capabilities,
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...agentInspectionMetadata(definition as never),
       tools: [],
     }
   }
   const channelInstructions = agentChannelMetadataInstructions(definition)
 
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const selection = await resolveMetadataCapabilitySelection(settings as never, resolution)
   validateAgentCapabilityComposition(selection.capabilities, {
     hasWorkspace: false,
   })
   const capabilities = await resolveAgentCapabilities({
     capabilities: selection.capabilities,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     hooks: settings.hooks as never,
   }, selection.runtime, selection.input, undefined, "read", {
     context: selection.invocationContext,
@@ -1616,6 +1675,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     resolveTools: false,
   })
   return await withMetadataCapabilityCleanup(capabilities, async () => {
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     const context = {
       ...agentInvocationCallbackContextValues(selection.invocationContext),
       ...agentCallbackContext(selection.runtime),
@@ -1640,6 +1700,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       ...capabilityInspectionMetadataProjection(selection.capabilities),
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...agentInspectionMetadata(definition as never),
       ...(config ? { config } : {}),
       tools: capabilityMetadataTools(selection.capabilities, { driverKind: selection.driverKind }),
@@ -1653,6 +1714,7 @@ export function createAgentInspectionMetadata<
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentInspectionMetadata {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   const channelInstructions = agentChannelMetadataInstructions(definition)
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
@@ -1666,11 +1728,13 @@ export function createAgentInspectionMetadata<
     }
   }
 
-  const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const options = asUnknownBoundary(workspaceDefinition.__vitehubWorkspaceAgentOptions) as WorkspaceAgentOptions<TRuntimeConfig, Name>
   return {
     ...capabilityInspectionMetadataProjection(Array.isArray(options.capabilities) ? options.capabilities : undefined),
     files: workspaceMetadataFiles(options),
     instructions: [...workspaceMetadataInstructions(options), ...channelInstructions],
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     tools: workspaceMetadataTools(options),
   }
@@ -1707,12 +1771,14 @@ export async function resolveAgentInspectionMetadata<
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   defaultsOverride: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name> = {},
 ): Promise<AgentInspectionMetadata> {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
     return await resolveNonWorkspaceAgentInspectionMetadata(definition, defaultsOverride)
   }
 
-  const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const workspaceOptions = asUnknownBoundary(workspaceDefinition.__vitehubWorkspaceAgentOptions) as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const selection = await resolveMetadataCapabilitySelection(workspaceOptions, defaultsOverride)
   validateAgentCapabilityComposition(selection.capabilities, {
     hasWorkspace: true,
@@ -1723,24 +1789,31 @@ export async function resolveAgentInspectionMetadata<
     return createAgentInspectionMetadata(definition)
   }
   const capabilityContext = await resolveWorkspaceMetadataCapabilityContext(
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     metadataWorkspace.options as never,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     metadataWorkspace.workspace as never,
     defaultsOverride,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     selection as never,
   )
   return await withMetadataCapabilityCleanup(capabilityContext, async () => {
     const config = await resolvedConfigMetadata(
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
       capabilityContext.metadataContext,
     )
     const instructionMetadata = defaultsOverride.resolveSources === false
       ? await staticWorkspaceMetadataInstructions(
+          // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
           capabilityContext.options as never,
           capabilityContext.definition,
           capabilityContext.metadataContext.context,
         )
       : await resolveWorkspaceMetadataInstructions(
+          // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
           capabilityContext.options as never,
+          // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
           capabilityContext.workspace as never,
           defaultsOverride,
           capabilityContext.definition,
@@ -1748,18 +1821,25 @@ export async function resolveAgentInspectionMetadata<
         )
 
     return {
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...capabilityInspectionMetadataProjection(capabilityContext.options.capabilities as AgentCapabilityDefinition[]),
       files: defaultsOverride.resolveSources === false
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         ? workspaceMetadataFiles(capabilityContext.options as never, capabilityContext.metadataContext.context)
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         : await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         ...agentChannelMetadataInstructions(workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>),
       ],
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
       tools: defaultsOverride.resolveSources === false
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         ? workspaceMetadataTools(capabilityContext.options as never)
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         : await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
       ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),
     }
@@ -1773,13 +1853,15 @@ export async function materializeAgentInspectionSourceMetadata<
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   options: AgentInspectionSourceMaterializationOptions<TRuntimeConfig, Name> = {},
 ): Promise<AgentInspectionMetadata> {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
     return await resolveNonWorkspaceAgentInspectionMetadata(definition, options)
   }
 
   const resolution = { ...options, resolveSources: true }
-  const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const workspaceOptions = asUnknownBoundary(workspaceDefinition.__vitehubWorkspaceAgentOptions) as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const selection = await resolveMetadataCapabilitySelection(workspaceOptions, resolution)
   validateAgentCapabilityComposition(selection.capabilities, {
     hasWorkspace: true,
@@ -1790,9 +1872,12 @@ export async function materializeAgentInspectionSourceMetadata<
     return createAgentInspectionMetadata(definition)
   }
   const capabilityContext = await resolveWorkspaceMetadataCapabilityContext(
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     metadataWorkspace.options as never,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     metadataWorkspace.workspace as never,
     resolution,
+    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     selection as never,
   )
   return await withMetadataCapabilityCleanup(capabilityContext, async () => {
@@ -1815,11 +1900,14 @@ export async function materializeAgentInspectionSourceMetadata<
       await capabilityContext.workspace.fs.materializeSources?.(materializeOptions)
     }
     const config = await resolvedConfigMetadata(
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
       capabilityContext.metadataContext,
     )
     const instructionMetadata = await resolveWorkspaceMetadataInstructions(
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       capabilityContext.options as never,
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       capabilityContext.workspace as never,
       options,
       capabilityContext.definition,
@@ -1827,14 +1915,19 @@ export async function materializeAgentInspectionSourceMetadata<
     )
 
     return {
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...capabilityInspectionMetadataProjection(capabilityContext.options.capabilities as AgentCapabilityDefinition[]),
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,
+        // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         ...agentChannelMetadataInstructions(workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>),
       ],
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       tools: await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
       ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),
     }

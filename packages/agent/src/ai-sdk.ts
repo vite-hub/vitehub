@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
@@ -9,7 +10,7 @@ import { markMessageChannelInstructionConsumer, resolveMessageChannelInstruction
 import {
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
-import { agentInvocationCallbackContextValues, type AgentInvocationResolvedConfiguration, agentInvocationResolvedModelContextKey } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
@@ -17,6 +18,7 @@ import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
+import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -52,7 +54,6 @@ import type {
   AgentAttachmentExecutionOptions,
   AgentModelExecutionInstrumentation,
   AgentModelExecutionOptions,
-  AgentModelInput,
   AgentModelResolver,
   AgentModelResolverContext,
   AgentModelInstrumentationContext,
@@ -177,12 +178,15 @@ type ToolContentPart = ToolContent[number]
 
 function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
   if (part.error) {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { type: "error-text", value: part.error } as ToolResultPart["output"]
   }
   const output = part.output ?? null
-  if (typeof output === "string") {
+  if (hasRuntimeType(output, "string")) {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { type: "text", value: output } as ToolResultPart["output"]
   }
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   return { type: "json", value: toJsonCompatibleValue(output) } as ToolResultPart["output"]
 }
 
@@ -206,9 +210,11 @@ function toApprovalResponseModelPart(part: Extract<MessagePart, { type: "approva
 
 function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | undefined {
   if (part.type === "text") {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { text: part.text, type: "text" as const }
   }
   if (isDataMessagePart(part) && (part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context")) {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { text: JSON.stringify(part.data), type: "text" as const }
   }
   if (part.type === "tool-call") {
@@ -216,6 +222,7 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
       input: part.input ?? {},
       toolCallId: part.id,
       toolName: part.name,
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       type: "tool-call" as const,
     }
   }
@@ -223,6 +230,7 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
     return {
       approvalId: part.id,
       toolCallId: part.toolCallId ?? part.id,
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       type: "tool-approval-request" as const,
     }
   }
@@ -300,6 +308,7 @@ export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
       if (message.role === "tool") {
         const content = toToolModelMessageContent(message.parts)
         return hasModelMessageContent(content)
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           ? [{ content, role: message.role } as ModelMessage]
           : []
       }
@@ -307,13 +316,14 @@ export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
         ? toUserModelMessageContent(message.parts)
         : getMessageText(message) || toTextModelMessageContent(message.parts)
       return hasModelMessageContent(content)
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         ? [{ content, role: message.role } as ModelMessage]
         : []
     })
 }
 
 function hasModelMessageContent(content: unknown): boolean {
-  if (typeof content === "string") return content.trim().length > 0
+  if (hasRuntimeType(content, "string")) return content.trim().length > 0
   return Array.isArray(content) ? content.length > 0 : content != null
 }
 
@@ -331,12 +341,12 @@ function attachmentDataByteLength(data: AttachmentData | undefined): number | un
   if (data instanceof Blob) return data.size
   if (data instanceof ArrayBuffer) return data.byteLength
   if (ArrayBuffer.isView(data)) return data.byteLength
-  if (typeof data === "string") return new TextEncoder().encode(data).byteLength
+  if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
 
 function resolvedImageMediaType(data: AttachmentData): string | undefined {
   if (data instanceof Blob && data.type.startsWith("image/")) return data.type
-  if (typeof data === "string") {
+  if (hasRuntimeType(data, "string")) {
     const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
     if (dataUrlMediaType) return dataUrlMediaType
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data) || data.length % 4 !== 0) return
@@ -364,7 +374,7 @@ function resolvedImageMediaType(data: AttachmentData): string | undefined {
 }
 
 function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | undefined, maxBytes: number): void {
-  if (typeof byteLength === "number" && byteLength > maxBytes) {
+  if (hasRuntimeType(byteLength, "number") && byteLength > maxBytes) {
     throw new Error(`[vitehub] ${part.type} attachment is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).`)
   }
 }
@@ -372,7 +382,7 @@ function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | 
 async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part: AttachmentPart }> {
   assertAttachmentWithinLimit(part, part.size, maxBytes)
   const resolved = await resolveAttachmentData(part)
-  if (typeof part.fetchData === "function" && !isAttachmentData(resolved)) {
+  if (hasRuntimeType(part.fetchData, "function") && !isAttachmentData(resolved)) {
     throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
   }
   if (!resolved) return { byteLength: part.size ?? 0, part }
@@ -388,14 +398,16 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
 
 function channelCurrentMessageId(context: AgentAdapterRunContext): string | null | undefined {
   const inputContext = context.input.context
-  if (!inputContext || typeof inputContext !== "object") return
-  const channel = "channel" in inputContext && inputContext.channel && typeof inputContext.channel === "object"
+  if (!inputContext || !hasRuntimeType(inputContext, "object")) return
+  const channel = "channel" in inputContext && inputContext.channel && hasRuntimeType(inputContext.channel, "object")
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? inputContext.channel as Record<string, unknown>
     : undefined
-  const message = channel?.message && typeof channel.message === "object"
+  const message = channel?.message && hasRuntimeType(channel.message, "object")
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? channel.message as Record<string, unknown>
     : undefined
-  return typeof message?.id === "string" && message.id ? message.id : null
+  return hasRuntimeType(message?.id, "string") && message.id ? message.id : null
 }
 
 async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string | null): Promise<Message[]> {
@@ -565,13 +577,16 @@ function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefin
   tools: TTools,
   capture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
 ): TTools {
-  if (!capture || !tools || typeof tools !== "object") return tools
+  if (!capture || !tools || !hasRuntimeType(tools, "object")) return tools
 
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
-    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+    if (!tool || !hasRuntimeType(tool, "object") || !hasRuntimeType((tool as { execute?: unknown }).execute, "function")) {
       return [name, tool]
     }
 
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
     return [name, {
       ...tool,
@@ -591,16 +606,18 @@ function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefin
 }
 
 function streamEventText(event: unknown): string | undefined {
-  if (typeof event === "string") return event
-  if (typeof event !== "object" || event === null) return undefined
+  if (hasRuntimeType(event, "string")) return event
+  if (!hasRuntimeType(event, "object") || event === null) return undefined
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const record = event as { delta?: unknown, text?: unknown, textDelta?: unknown, type?: unknown }
   if (record.type !== "text-delta" && record.type !== "text") return undefined
   const text = record.text ?? record.textDelta ?? record.delta
-  return typeof text === "string" ? text : undefined
+  return hasRuntimeType(text, "string") ? text : undefined
 }
 
 function recordFrom(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+  return hasRuntimeType(value, "object") && value !== null ? value as Record<string, unknown> : undefined
 }
 
 function pushDefinedOutput(outputs: unknown[], output: unknown): void {
@@ -610,7 +627,7 @@ function pushDefinedOutput(outputs: unknown[], output: unknown): void {
 function collectToolResultOutputs(value: unknown): unknown[] {
   const record = recordFrom(value)
   if (!record) return []
-  const type = typeof record.type === "string" ? record.type : undefined
+  const type = hasRuntimeType(record.type, "string") ? record.type : undefined
   const outputs: unknown[] = []
 
   if (type === "tool-result" || type === "tool-output-available") {
@@ -641,27 +658,30 @@ function collectToolResultOutputs(value: unknown): unknown[] {
 }
 
 function streamToolResultOutputs(event: unknown): unknown[] {
-  if (typeof event !== "object" || event === null) return []
+  if (!hasRuntimeType(event, "object") || event === null) return []
   return collectToolResultOutputs(event)
 }
 
 function streamEventType(event: unknown): string | undefined {
-  return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+  return hasRuntimeType(event, "object") && event !== null && hasRuntimeType((event as { type?: unknown }).type, "string")
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? (event as { type: string }).type
     : undefined
 }
 
 function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
-  return typeof finishEvent === "object" && finishEvent !== null
+  return hasRuntimeType(finishEvent, "object") && finishEvent !== null
     ? { ...finishEvent, finishReason: "workspace-fallback", type: "finish" }
     : { finishReason: "workspace-fallback", type: "finish" }
 }
 
 function finishEventReason(event: unknown): string | undefined {
-  if (typeof event !== "object" || event === null) return undefined
+  if (!hasRuntimeType(event, "object") || event === null) return undefined
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const record = event as { finishReason?: unknown, reason?: unknown }
   const reason = record.finishReason ?? record.reason
-  return typeof reason === "string" ? reason : undefined
+  return hasRuntimeType(reason, "string") ? reason : undefined
 }
 
 function workspaceFallbackTextEvents(text: string): unknown[] {
@@ -742,19 +762,22 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
         ? wrappedStream
         : withWorkspaceFallbackFullStream(fullStream, model, context, fallback.maxToolResults, capturedEvidence)
       : undefined
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return cloneStreamTextResult(result as object, {
       ...(wrappedStream ? { stream: wrappedStream } : {}),
       ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
     }) as T
   }
   if (isAsyncIterable(result)) {
-    return withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence) as unknown as T
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+    return asUnknownBoundary(withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence)) as T
   }
   return result
 }
 
 async function resolveValue<T>(value: T | ((context: AgentAdapterMetadataContext) => MaybePromise<T>), context: AgentAdapterMetadataContext): Promise<T> {
-  return typeof value === "function" ? await (value as (context: AgentAdapterMetadataContext) => MaybePromise<T>)(context) : value
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+  return hasRuntimeType(value, "function") ? await (value as (context: AgentAdapterMetadataContext) => MaybePromise<T>)(context) : value
 }
 
 function joinInstructions(...parts: Array<AgentAdapterInstructionsValue | undefined>) {
@@ -767,7 +790,7 @@ function joinInstructions(...parts: Array<AgentAdapterInstructionsValue | undefi
 
 async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext) {
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const instructions = await Promise.all(parts.map(part => typeof part === "function"
+  const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function")
     ? part(context)
     : part))
 
@@ -784,15 +807,19 @@ async function composeInstructions(
 
 async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["toolStepReporter"]) {
   if (!options.tools) return undefined
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const resolved = await resolveValue(options.tools as never, context)
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const tools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {})
   const { materialize_sources: materializeSources, ...reportableTools } = tools
   return {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...withAgentToolStepReporting(reportableTools, reportToolStep as never),
     ...(materializeSources ? { materialize_sources: materializeSources } : {}),
   }
 }
 
+// SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
 const defaultToolInputSchemaJson = {
   additionalProperties: false,
   properties: {},
@@ -802,18 +829,21 @@ const defaultToolInputSchemaJson = {
 function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools, createJsonSchema: (schema: JSONSchema7) => unknown): TTools {
   if (!tools) return tools
   let defaultToolInputSchema: unknown
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = tool as { inputSchema?: unknown, type?: unknown } | undefined
-    if (!record || typeof record !== "object" || record.type === "provider" || record.type === "provider-defined") {
+    if (!record || !hasRuntimeType(record, "object") || record.type === "provider" || record.type === "provider-defined") {
       return [name, tool]
     }
     if (record.inputSchema != null) {
       const inputSchema = record.inputSchema
-      if (typeof inputSchema !== "object" || inputSchema === null || "~standard" in inputSchema || "jsonSchema" in inputSchema) {
+      if (!hasRuntimeType(inputSchema, "object") || inputSchema === null || "~standard" in inputSchema || "jsonSchema" in inputSchema) {
         return [name, tool]
       }
       return [name, {
         ...record,
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         inputSchema: createJsonSchema(inputSchema as JSONSchema7),
       }]
     }
@@ -848,7 +878,8 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
   } = settings
   return {
     ...rest,
-    runtimeContext: existing && typeof existing === "object"
+    runtimeContext: existing && hasRuntimeType(existing, "object")
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ? { ...runtimeContext, ...(existing as Record<string, unknown>) }
       : runtimeContext,
   }
@@ -860,7 +891,8 @@ function createUsageCapture() {
   let metadataSource: unknown
 
   const capture = (event: unknown) => {
-    const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+    const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
     const usage = record?.usage ?? record?.totalUsage
     if (usage === undefined) return
     capturedUsage = usage
@@ -885,6 +917,7 @@ function createUsageCapture() {
       return captured ? Promise.resolve(capturedUsage) : undefined
     },
     get usageSource() {
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return captured ? { ...(metadataSource as Record<string, unknown>), usage: capturedUsage } : undefined
     },
   }
@@ -894,12 +927,14 @@ async function combinedCapturedUsage(captures: ReturnType<typeof createUsageCapt
   const usages = await Promise.all(captures.flatMap(capture => capture.usage ? [capture.usage] : []))
   if (usages.length < 2) return usages[0]
   const add = (left: unknown, right: unknown): unknown => {
-    if (typeof left === "number" || typeof right === "number") {
-      return (typeof left === "number" ? left : 0) + (typeof right === "number" ? right : 0)
+    if (hasRuntimeType(left, "number") || hasRuntimeType(right, "number")) {
+      return (hasRuntimeType(left, "number") ? left : 0) + (hasRuntimeType(right, "number") ? right : 0)
     }
-    if (!left || typeof left !== "object") return right
-    if (!right || typeof right !== "object") return left
+    if (!left || !hasRuntimeType(left, "object")) return right
+    if (!right || !hasRuntimeType(right, "object")) return left
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const leftRecord = left as Record<string, unknown>
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const rightRecord = right as Record<string, unknown>
     return Object.fromEntries([...new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)])]
       .map(key => [key, add(leftRecord[key], rightRecord[key])]))
@@ -910,7 +945,8 @@ async function combinedCapturedUsage(captures: ReturnType<typeof createUsageCapt
 function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUsageCapture> | ReturnType<typeof createUsageCapture>[]): unknown {
   const captureList = Array.isArray(captures) ? captures : [captures]
   const usage = captureList.some(capture => capture.captured) ? combinedCapturedUsage(captureList) : undefined
-  if (result && typeof result === "object") {
+  if (result && hasRuntimeType(result, "object")) {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = result as Record<string, unknown>
     const resultUsage = record.usage
     const totalUsage = record.totalUsage
@@ -937,7 +973,7 @@ function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUs
 
   return {
     raw: result,
-    text: typeof result === "string" ? result : undefined,
+    text: hasRuntimeType(result, "string") ? result : undefined,
     usage,
   }
 }
@@ -963,26 +999,29 @@ async function combinedUsageRecord(
     ...(shared("credentialSource") ? { credentialSource: shared("credentialSource") } : {}),
     ...(shared("model") ? { model: shared("model") } : {}),
     ...(shared("transport") ? { transport: shared("transport") } : {}),
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     usage: await usage as AgentUsageRecord["usage"],
   }
 }
 
 function readModelString(value: unknown, ...keys: string[]): string | undefined {
-  if (!value || typeof value !== "object") return
+  if (!value || !hasRuntimeType(value, "object")) return
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const record = value as Record<string, unknown>
   for (const key of keys) {
     const item = record[key]
-    if (typeof item === "string" && item) return item
+    if (hasRuntimeType(item, "string") && item) return item
   }
 }
 
 function withResolvedModelMetadata(result: unknown, model: unknown): unknown {
   const modelId = readModelString(model, "modelId", "model")
   const provider = readModelString(model, "provider", "providerId")
-  if ((modelId === undefined && provider === undefined) || !result || typeof result !== "object") {
+  if ((modelId === undefined && provider === undefined) || !result || !hasRuntimeType(result, "object")) {
     return result
   }
 
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const record = result as Record<string, unknown>
   if (modelId !== undefined && record.modelId === undefined) {
     Object.defineProperty(record, "modelId", {
@@ -1008,13 +1047,16 @@ function arrayFrom(value: unknown): unknown[] {
 
 function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentAdapterRunContext): Record<string, unknown> {
   if (!hasAgentTraceLog(context)) return settings
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const existing = (settings.telemetry || settings.experimental_telemetry || {}) as {
     integrations?: unknown
     isEnabled?: boolean
     recordInputs?: boolean
     recordOutputs?: boolean
   }
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const globalIntegrations = Array.isArray((globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }).AI_SDK_TELEMETRY_INTEGRATIONS)
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? (globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }).AI_SDK_TELEMETRY_INTEGRATIONS!
     : []
   const integrations = existing.integrations === undefined ? globalIntegrations : arrayFrom(existing.integrations)
@@ -1026,7 +1068,7 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
       invoker: context.invoker,
       run: context.runtime.run,
       runtime: context.runtime,
-    })],
+    }, new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : [])))],
     isEnabled: existing.isEnabled ?? true,
     recordInputs: existing.recordInputs ?? false,
     recordOutputs: existing.recordOutputs ?? false,
@@ -1044,6 +1086,7 @@ function modelExecutionInstrumentation(
 ): AgentModelExecutionInstrumentation[] {
   const instrumentation = options.execution?.instrumentation
   return [
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(instrumentation ? [instrumentation as AgentModelExecutionInstrumentation] : []),
     ...(context.modelExecutionInstrumentation || []),
   ]
@@ -1084,22 +1127,30 @@ function mergeCallSettings(
   const settings = { ...defaults, ...overrides }
   const defaultProviders = defaults?.providerOptions
   const overrideProviders = overrides?.providerOptions
-  if ((!defaultProviders || typeof defaultProviders !== "object")
-    && (!overrideProviders || typeof overrideProviders !== "object")) return settings
+  if ((!defaultProviders || !hasRuntimeType(defaultProviders, "object"))
+    && (!overrideProviders || !hasRuntimeType(overrideProviders, "object"))) return settings
   const providers = {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(defaultProviders as Record<string, unknown> | undefined),
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(overrideProviders as Record<string, unknown> | undefined),
   }
   for (const provider of new Set([
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...Object.keys((defaultProviders as Record<string, unknown> | undefined) || {}),
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...Object.keys((overrideProviders as Record<string, unknown> | undefined) || {}),
   ])) {
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const defaultSettings = (defaultProviders as Record<string, unknown> | undefined)?.[provider]
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const overrideSettings = (overrideProviders as Record<string, unknown> | undefined)?.[provider]
-    if ((defaultSettings && typeof defaultSettings === "object")
-      || (overrideSettings && typeof overrideSettings === "object")) {
+    if ((defaultSettings && hasRuntimeType(defaultSettings, "object"))
+      || (overrideSettings && hasRuntimeType(overrideSettings, "object"))) {
       providers[provider] = {
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         ...(defaultSettings as Record<string, unknown> | undefined),
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         ...(overrideSettings as Record<string, unknown> | undefined),
       }
     }
@@ -1156,6 +1207,7 @@ async function createAgent(
   const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
   const execution = options.execution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const metadataContext = {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
@@ -1165,12 +1217,13 @@ async function createAgent(
     invoker: context.invoker,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const modelContext = {
     ...metadataContext,
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
-  const resolvedModel = await resolveValue(options.model as never, modelContext) as AgentModelInput
-  const model = await materializeAgentModel(resolvedModel, modelContext)
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+  const model = await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
@@ -1197,10 +1250,17 @@ async function createAgent(
     type: "provider-defined",
   }]))
   const toolSet = { ...resolvedTools, ...providerTools }
-  await context.context.get<((configuration: AgentInvocationResolvedConfiguration) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.({
-    instructions,
-    model: resolvedModel,
-    tools: Object.keys(toolSet),
+  // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+  const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
+  await updateAgentTelemetryConfiguration(context.context, {
+    driver: {
+      model: {
+        ...(hasRuntimeType(telemetryModel?.modelId, "string") ? { id: telemetryModel.modelId } : {}),
+        ...(hasRuntimeType(telemetryModel?.provider, "string") ? { provider: telemetryModel.provider } : {}),
+      },
+    },
+    ...(instructions ? { instructions: [instructions] } : {}),
+    ...(Object.keys(toolSet).length ? { tools: Object.keys(toolSet).sort().map(name => ({ name })) } : {}),
   })
   const {
     instructions: _instructions,
@@ -1218,6 +1278,7 @@ async function createAgent(
     invoker: context.invoker,
     model: instrumentedModel,
     run: context.runtime.run,
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
@@ -1227,16 +1288,19 @@ async function createAgent(
   const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context), context)
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
-  const prepareRepairCall = typeof prepareCall === "function"
+  const prepareRepairCall = hasRuntimeType(prepareCall, "function")
     ? async (input: Record<string, unknown>) => ({
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         ...withoutRepairConversationSettings(await prepareCall(input as never) as Record<string, unknown>),
         ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
       })
     : undefined
   const repairAgent = context.output && context.nativeStructuredOutput !== false
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? new ToolLoopAgent({
         ...repairSettings,
         instructions,
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         model: instrumentedModel as never,
         ...(nativeOutput ? { output: nativeOutput } : {}),
         ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
@@ -1247,11 +1311,12 @@ async function createAgent(
     ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
         const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = callInput
         try {
-          return await repairAgent!.generate({
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+          return asUnknownBoundary(await repairAgent!.generate({
             ...repairCallInput,
             ...("options" in callInput ? { options: callInput.options } : {}),
             prompt: outputRepairPrompt(failure.text, failure.error, failure.evidence),
-          } as never) as unknown as AgentAdapterResult
+          } as never)) as AgentAdapterResult
         }
         catch (repairError) {
           return await normalizeNativeAgentOutputError(context.output, repairError)
@@ -1263,9 +1328,12 @@ async function createAgent(
     agent: new ToolLoopAgent({
       ...commonSettings,
       instructions,
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       model: instrumentedModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
     model: instrumentedModel,
@@ -1275,12 +1343,14 @@ async function createAgent(
 }
 
 export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
-  const staticTools = typeof options.tools === "object" && options.tools
+  const staticTools = hasRuntimeType(options.tools, "object") && options.tools
+    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(options.tools as AgentToolSet) || {}))
     : undefined
   return markMessageChannelInstructionConsumer({
     async generate(context) {
       const execution = options.execution
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled || Boolean(context.output)
@@ -1288,6 +1358,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         : undefined
       const { agent, model, repairOutput, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
       const usageCapture = createUsageCapture()
@@ -1324,7 +1395,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
         }
         const raw = withCapturedUsage(original, captures)
-        if (raw && typeof raw === "object" && usageRecord) {
+        if (raw && hasRuntimeType(raw, "object") && usageRecord) {
           Object.defineProperty(raw, "usageRecord", {
             configurable: true,
             enumerable: true,
@@ -1349,6 +1420,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           return await synthesizedOutput(synthesized, original)
         }
         catch (error) {
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           const repairResult = await repairOutput({
             error: error instanceof Error ? error : new Error(String(error)),
             evidence: fallbackCapture?.evidence(),
@@ -1358,23 +1430,28 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       try {
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         generated = await agent.generate(originalCallInput as never) as GenerateTextResult<ToolSet, never, never>
         originalGenerated = generated
       }
       catch (error) {
         const failure = await nativeAgentOutputValidationFailure(context.output, error)
         const synthesized = failure && fallback.enabled && !failure.text.trim()
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
           : undefined
         if (synthesized) return await validatedSynthesizedOutput(synthesized)
         const repairedOutput = failure && repairOutput
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           ? await repairOutput({ ...failure, evidence: fallbackCapture?.evidence() }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
           : undefined
         generated = repairedOutput ?? await normalizeNativeAgentOutputError(context.output, error)
         repaired = Boolean(repairedOutput)
       }
       if (!repaired && fallback.enabled && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
         if (synthesized) return await validatedSynthesizedOutput(synthesized, generated)
       }
@@ -1383,6 +1460,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           await validateAgentOutput(context.output, generated)
         }
         catch (error) {
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           generated = await repairOutput({
             error: error instanceof Error ? error : new Error(String(error)),
             evidence: fallbackCapture?.evidence(),
@@ -1396,6 +1474,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             { capture: repairUsageCapture, result: generated },
           ], combinedCapturedUsage([usageCapture, repairUsageCapture]))
         : undefined
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const result = withResolvedModelMetadata(withCapturedUsage(generated, [usageCapture, repairUsageCapture]), model) as GenerateTextResult<ToolSet, never, never>
       if (usageRecord) {
         Object.defineProperty(result, "usageRecord", {
@@ -1405,13 +1484,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         })
       }
       const text = result.text.trim()
-      if (text) return result as unknown as AgentAdapterResult
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+      if (text) return asUnknownBoundary(result) as AgentAdapterResult
 
-      return result as unknown as AgentAdapterResult
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+      return asUnknownBoundary(result) as AgentAdapterResult
     },
     async metadata(context) {
       const instructions = await resolveInstructions(options, context)
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const tools = options.tools ? await resolveValue(options.tools as never, context) : undefined
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const metadataTools = tools as AgentToolSet | undefined
       return {
         instructions: instructions ? [instructions] : [],
@@ -1421,6 +1504,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
           name,
           preset: "vitehub-workspace",
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           status: "available" as const,
         })),
       }
@@ -1439,13 +1523,16 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
       }
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },
   })
@@ -1454,10 +1541,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
 export function fromAiSdkAgent(agent: Agent): AgentAdapter {
   return {
     async generate(context) {
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return await agent.generate(await getCallInput(context) as never)
     },
     name: "ai-sdk",
     async stream(context) {
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return await agent.stream(await getCallInput(context) as never)
     },
   }

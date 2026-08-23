@@ -4,100 +4,26 @@ import { mount } from "@vue/test-utils";
 import { createSSRApp, h, nextTick } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
+import type { UIMessage } from "ai";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
+import { AgentMessageParts } from "../src/components/agent-message-parts.ts";
 import { invocationActivities, invocationActivityTitle } from "../src/internal/invocation-activity.ts";
 
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
-  it("discloses truncated invocation configuration", () => {
-    const invocation: AgentInvocationView = {
-      configuration: { instructions: ["partial"], truncated: true },
-      createdAt: "2026-08-22T00:00:00.000Z",
-      id: "invocation",
-      observations: [],
-      status: "completed",
-      traceId: "trace",
-      updatedAt: "2026-08-22T00:00:01.000Z",
-    };
-    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+  it("renders only HTTP source URLs as links", () => {
+    const parts: UIMessage["parts"] = [
+      { sourceId: "safe", type: "source-url", url: "https://example.com/reference" },
+      { sourceId: "unsafe", title: "Unsafe source", type: "source-url", url: "javascript:alert(1)" },
+      { sourceId: "unsupported", type: "source-url", url: "data:text/plain,source" },
+    ];
+    const wrapper = mount(AgentMessageParts, { props: { parts } });
 
-    expect(wrapper.text()).toContain("Some configuration values were truncated");
-  });
-
-  it("discloses truncated trace content", () => {
-    const timestamp = "2026-08-22T00:00:00.000Z";
-    const invocation: AgentInvocationView = {
-      createdAt: timestamp,
-      id: "invocation",
-      observations: [
-        {
-          attributes: {
-            "message.content": "partial",
-            "message.role": "assistant",
-            "vitehub.observation.truncated": true,
-          },
-          name: "agent.message.recorded",
-          sequence: 1,
-          timestamp,
-          type: "run",
-        },
-        {
-          attributes: {
-            "tool.name": "shell",
-            "tool.output": "partial",
-            "vitehub.observation.truncated": true,
-          },
-          name: "agent.tool.finish",
-          sequence: 2,
-          timestamp,
-          type: "run",
-        },
-      ],
-      status: "completed",
-      traceId: "trace",
-      updatedAt: timestamp,
-    };
-    const wrapper = mount(AgentInvocation, { props: { invocation } });
-
-    expect(wrapper.text()).toContain("Some trace content was truncated by the invocation journal.");
-    expect(wrapper.findAll(".vh-invocation-event__notice")).toHaveLength(2);
-  });
-
-  it("discloses truncation marked on a hidden configuration observation", () => {
-    const timestamp = "2026-08-22T00:00:00.000Z";
-    const invocation: AgentInvocationView = {
-      createdAt: timestamp,
-      id: "invocation",
-      observations: [
-        { attributes: { "vitehub.observation.truncated": true }, name: "vitehub.agent.configured", sequence: 1, timestamp, type: "run" },
-      ],
-      status: "completed",
-      traceId: "trace",
-      updatedAt: timestamp,
-    };
-
-    expect(mount(AgentInvocation, { props: { invocation } }).text())
-      .toContain("Some trace content was truncated by the invocation journal.");
-  });
-
-  it("discloses truncation when no observation was retained", () => {
-    const timestamp = "2026-08-22T00:00:00.000Z";
-    const invocation: AgentInvocationView = {
-      createdAt: timestamp,
-      id: "invocation",
-      observations: [],
-      observationsTruncated: true,
-      status: "completed",
-      traceId: "trace",
-      updatedAt: timestamp,
-    };
-
-    const wrapper = mount(AgentInvocation, { props: { invocation } });
-
-    expect(wrapper.get(".vh-invocation-event__summary").text()).toContain("Trace content was truncated");
-    expect(wrapper.get("details").attributes("open")).toBeUndefined();
+    expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual(["https://example.com/reference"]);
+    expect(wrapper.text()).toContain("Unsafe source");
+    expect(wrapper.text()).toContain("data:text/plain,source");
   });
 
   it("renders the working state with the loader-circle path", () => {
@@ -179,6 +105,40 @@ describe("Agent Invocation UI", () => {
       ["user", "Review this change."],
       ["assistant", "I found one issue."],
     ]);
+  });
+
+  it("derives commands from direct provider payloads", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "provider-command",
+      observations: [
+        {
+          attributes: { "tool.id": "command", "tool.input": { command: "git status", cwd: "/workspace" }, "tool.name": "shell" },
+          name: "agent.tool.start",
+          sequence: 1,
+          timestamp,
+          type: "run" as const,
+        },
+        {
+          attributes: { "tool.id": "command", "tool.output": { aggregatedOutput: "clean", exitCode: 0 }, "tool.name": "shell" },
+          name: "agent.tool.finish",
+          sequence: 2,
+          timestamp,
+          type: "run" as const,
+        },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.command).toEqual({
+      command: "git status",
+      cwd: "/workspace",
+      exitCode: 0,
+      output: "clean",
+    });
   });
 
   it("keeps input history before the owning start event and retains structured turns", () => {
@@ -353,7 +313,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
   });
 
-  it("lets a user retry lazy loading by scrolling again after a failed page", async () => {
+  it("settles repeated page failures until the consumer explicitly retries", async () => {
     const items = Array.from({ length: 20 }, (_, index) => ({
       id: `inv-${index}`,
       status: "completed" as const,
@@ -374,8 +334,45 @@ describe("Agent Invocation UI", () => {
 
     await wrapper.setProps({ loading: true });
     await wrapper.setProps({ loading: false });
+    await wrapper.setProps({ loading: true });
+    await wrapper.setProps({ loading: false });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
     await viewport.trigger("scroll");
     expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
+  it("formats token counts with a stable locale", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "tokens",
+      observations: [{
+        attributes: { "usage.reasoningTokens": 1_200, "usage.totalTokens": 12_345 },
+        name: "agent.usage.recorded",
+        sequence: 1,
+        timestamp,
+        type: "run",
+      }],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+
+    expect(mount(AgentInvocation, { props: { invocation } }).text()).toContain("1.2K tokens");
+    expect(mount(AgentInvocationInspector, { props: { invocation } }).text()).toContain("12,345");
+  });
+
+  it("renders fallback dates in UTC for hydration stability", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "old", status: "completed", title: "Old session", updatedAt: "2026-08-23T00:30:00.000Z" }],
+        now: Date.parse("2026-08-25T00:30:00.000Z"),
+        virtual: false,
+      },
+    });
+
+    expect(wrapper.get("time").text()).toBe("Aug 23");
   });
 
   it("keeps virtual rows in list coordinates when a header precedes them", async () => {

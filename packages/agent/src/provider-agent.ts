@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
 import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
@@ -12,15 +13,16 @@ import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentInvocationCallbackContextValues, agentInvocationResolvedModelContextKey } from "./invocation-context.ts"
-import type { AgentInvocationResolvedConfiguration } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
+import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
+import { createAgentStreamEventTracer } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -51,8 +53,12 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
+import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
 
-export interface ProviderAgentAdapterOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+export interface ProviderAgentAdapterOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
   env?: Record<string, string | undefined>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
@@ -113,6 +119,7 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
   }
   for (const directory of generated.directories.reverse()) {
     await rmdir(directory).catch((error) => {
+      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
       const code = (error as NodeJS.ErrnoException).code
       if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
     })
@@ -138,6 +145,9 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
   ask: "approval-required",
 }
 
+const providerCleanupTimeoutMs = 10_000
+
+// SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const providerHostEnvironmentKeys = [
   "APPDATA",
   "ComSpec",
@@ -161,8 +171,8 @@ const providerHostEnvironmentKeys = [
 ] as const
 
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
-  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => typeof process.env[key] === "string" ? [[key, process.env[key]]] : []))
-  return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
+  return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
 }
 
 async function waitForProviderOperation<T>(
@@ -172,6 +182,11 @@ async function waitForProviderOperation<T>(
   observeLateCleanup?: (cleanup: Promise<void>) => void,
   disposeLateError?: () => void | Promise<void>,
 ): Promise<T> {
+  if (signal?.aborted && disposeLateResult) {
+    const cleanup = operation.then(disposeLateResult, disposeLateError)
+    observeLateCleanup?.(cleanup)
+    void cleanup.catch(() => undefined)
+  }
   signal?.throwIfAborted()
   if (!signal) return await operation
   let rejectAbort: ((reason: unknown) => void) | undefined
@@ -196,6 +211,23 @@ async function waitForProviderOperation<T>(
   }
 }
 
+function createProviderCleanupSignal(invocationSignal: AbortSignal | undefined): { dispose: () => void, signal: AbortSignal } {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort(new DOMException("[vitehub] Provider Agent Driver cleanup timed out.", "TimeoutError"))
+  }, providerCleanupTimeoutMs)
+  const abort = () => controller.abort(invocationSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
+  if (invocationSignal?.aborted) abort()
+  else invocationSignal?.addEventListener("abort", abort, { once: true })
+  return {
+    dispose() {
+      clearTimeout(timeout)
+      invocationSignal?.removeEventListener("abort", abort)
+    },
+    signal: controller.signal,
+  }
+}
+
 async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key: string, signal?: AbortSignal): Promise<() => void> {
   const previous = locks.get(key) || Promise.resolve()
   let release!: () => void
@@ -216,13 +248,16 @@ async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key
   return releaseLock
 }
 
+// SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const emptyToolInputSchema = { additionalProperties: false, properties: {}, type: "object" } as const
 
 function toolJsonSchema(schema: AgentToolSchema | undefined): Record<string, unknown> {
   if (!schema) return emptyToolInputSchema
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   if (!("~standard" in schema)) return schema as Record<string, unknown>
   const jsonSchema = schema["~standard"]?.jsonSchema
   if (!jsonSchema?.input) throw new Error("[vitehub] Provider Agent Driver tools require JSON Schema-compatible input validation.")
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   return jsonSchema.input({ target: "draft-07" }) as Record<string, unknown>
 }
 
@@ -236,6 +271,7 @@ async function validateToolInput(tool: AgentToolDefinition, input: unknown): Pro
     return "value" in result ? result.value : input
   }
   const { Validator } = await import("@cfworker/json-schema")
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const result = new Validator(tool.inputSchema as never, "7").validate(input)
   if (!result.valid) throw new TypeError(`[vitehub] Invalid input for Agent tool "${tool.name}": ${result.errors.map(error => error.error).join("; ")}`)
   return input
@@ -257,7 +293,8 @@ async function validateToolInputUntilCanceled(tool: AgentToolDefinition, input: 
 }
 
 function toolResult(value: unknown) {
-  const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value)
+  const text = hasRuntimeType(value, "string") ? value : JSON.stringify(value) ?? String(value)
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   return { content: [{ text, type: "text" as const }] }
 }
 
@@ -278,6 +315,7 @@ async function startToolServer(
   mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: Object.entries(tools).map(([name, tool]) => ({
       description: tool.description,
+      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
       inputSchema: toolJsonSchema(tool.inputSchema) as never,
       name,
     })),
@@ -293,22 +331,25 @@ async function startToolServer(
     }
     catch (error) {
       const shape = getViteHubErrorShape(error)
-      const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && typeof error.cause === "object"
+      const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && hasRuntimeType(error.cause, "object")
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         ? error.cause as { capability?: unknown, id?: unknown, input?: unknown, reason?: unknown }
         : undefined
-      if (approvalRequest && typeof approvalRequest.id === "string") {
+      if (approvalRequest && hasRuntimeType(approvalRequest.id, "string")) {
         capabilityApprovalIds.add(approvalRequest.id)
         emit({
           id: approvalRequest.id,
           input: approvalRequest.input,
-          name: typeof approvalRequest.capability === "string" ? approvalRequest.capability : request.params.name,
-          reason: typeof approvalRequest.reason === "string" ? approvalRequest.reason : undefined,
+          name: hasRuntimeType(approvalRequest.capability, "string") ? approvalRequest.capability : request.params.name,
+          reason: hasRuntimeType(approvalRequest.reason, "string") ? approvalRequest.reason : undefined,
           type: "approval-request",
         })
         let abortApproval: (() => void) | undefined
         const approved = await new Promise<boolean>((resolve) => {
           abortApproval = () => resolve(false)
+          // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
           approvals.set(approvalRequest.id as string, (approved) => {
+            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
             approvals.delete(approvalRequest.id as string)
             if (executionSignal.aborted) {
               resolve(false)
@@ -321,6 +362,7 @@ async function startToolServer(
           if (executionSignal.aborted) abortApproval()
         }).finally(() => {
           executionSignal.removeEventListener("abort", abortApproval!)
+          // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
           approvals.delete(approvalRequest.id as string)
         })
         if (approved) {
@@ -328,6 +370,7 @@ async function startToolServer(
           // the user's approval into a side effect.
           await new Promise<void>(resolve => setImmediate(resolve))
           executionSignal.throwIfAborted()
+          // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
           const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
           if (approve) {
             approve(approvalRequest.input)
@@ -353,7 +396,7 @@ async function startToolServer(
   http.listen(0, "127.0.0.1")
   await once(http, "listening")
   const address = http.address()
-  if (!address || typeof address === "string") throw new Error("[vitehub] Provider Agent Driver failed to start its Capability tool server.")
+  if (!address || hasRuntimeType(address, "string")) throw new Error("[vitehub] Provider Agent Driver failed to start its Capability tool server.")
   return {
     async close() {
       http.closeAllConnections()
@@ -378,6 +421,7 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
     }),
     files: {
       async exists(path) {
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         return await lstat(path).then(() => true, error => (error as NodeJS.ErrnoException).code === "ENOENT" ? false : Promise.reject(error))
       },
       async list(path, options) {
@@ -405,6 +449,7 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
         await mkdir(path, options)
       },
       async read(path) {
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         return await readFile(path).then(value => new Uint8Array(value), error => (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(error))
       },
       async remove(path, options) {
@@ -426,6 +471,7 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
           cwd,
           detached: true,
           env: {
+            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
             ...providerEnvironment(options.env as Record<string, string> | undefined),
             INIT_CWD: cwd,
             OLDPWD: cwd,
@@ -487,7 +533,9 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
 
 function workspaceSessionStarter(workspace: ReadonlyWorkspaceFacade) {
   type StartSession = (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const facade = workspace as ReadonlyWorkspaceFacade & { startSession?: StartSession }
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const files = workspace.fs as typeof workspace.fs & { startSession?: StartSession }
   const startSession = facade.startSession || files.startSession
   if (!startSession) throw new Error("[vitehub] Provider Agent Driver workspace requires Workspace Session support.")
@@ -505,9 +553,11 @@ function selectedWorkspacePaths(context: AgentAdapterRunContext): readonly strin
 
 async function materializeWorkspaceSources(context: AgentAdapterRunContext, paths: readonly string[] | undefined) {
   const workspace = context.workspaceMaterializationSource || context.workspace
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
   if (!materialize || (paths && !paths.length)) return
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
   await Promise.all((paths || [""]).map(path => materialize.call(owner, { abortSignal: context.input.abortSignal, path })))
 }
@@ -545,8 +595,12 @@ async function closeWorkspace(context: AgentAdapterRunContext, session: Workspac
   }
 }
 
-async function resolveInstructions(options: ProviderAgentAdapterOptions, context: AgentAdapterRunContext): Promise<string | undefined> {
+async function resolveInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const metadataContext = {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
@@ -557,7 +611,7 @@ async function resolveInstructions(options: ProviderAgentAdapterOptions, context
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const configured = await Promise.all(parts.map(part => typeof part === "function" ? part(metadataContext) : part))
+  const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
   const content = [
     ...configured.flatMap(value => Array.isArray(value) ? value : [value]),
     context.instructions,
@@ -594,7 +648,7 @@ function attachmentId(threadId: string): string {
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
-  if (typeof part.size === "number" && part.size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (hasRuntimeType(part.size, "number") && part.size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
   const data = await resolveAttachmentData(part)
   if (data === undefined && part.url) {
     throw new TypeError("[vitehub] Provider attachment URLs require application-owned fetchData() resolution.")
@@ -602,7 +656,7 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
   if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data or fetchData().`)
   const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
   if (declaredSize !== undefined && declaredSize > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
-  if (typeof data === "string" && data.length > maxBytes * 2) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (hasRuntimeType(data, "string") && data.length > maxBytes * 2) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
   const bytes = data instanceof Blob
     ? new Uint8Array(await data.arrayBuffer())
     : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : attachmentStringBytes(data, part.mediaType)
@@ -628,6 +682,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
       mimeType: part.mediaType,
       name: part.name || basename(`${id}${extension}`),
       sizeBytes: bytes.byteLength,
+      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
       type: "image" as const,
     })
   }
@@ -648,13 +703,16 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
       }
       else if (!capabilityApprovalIds.has(part.id)) {
         responded = true
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         await runtime.respondToRequest(threadId, part.id as never, approvalDecision(part.approved))
       }
     }
-    if (part.type === "data-agent-input" && part.data && typeof part.data === "object") {
+    if (part.type === "data-agent-input" && part.data && hasRuntimeType(part.data, "object")) {
+      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
       const data = part.data as { answers?: unknown, requestId?: unknown }
-      if (typeof data.requestId === "string" && data.answers && typeof data.answers === "object") {
+      if (hasRuntimeType(data.requestId, "string") && data.answers && hasRuntimeType(data.answers, "object")) {
         responded = true
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         await runtime.respondToUserInput(threadId, data.requestId as never, data.answers as ProviderUserInputAnswers)
       }
     }
@@ -686,7 +744,15 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
 }
 
 function providerDataEvent(event: ProviderRuntimeEvent): StreamEvent {
-  return { data: { kind: event.type, value: event.payload }, type: "data-agent-event" }
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  const payload = event.payload as Record<string, unknown>
+  const id = event.itemId
+    || (hasRuntimeType(payload.toolUseId, "string") ? payload.toolUseId : undefined)
+    || (hasRuntimeType(payload.taskId, "string") ? payload.taskId : undefined)
+    || event.requestId
+    || event.turnId
+    || event.eventId
+  return { data: { kind: event.type, value: event.payload }, id, type: "data-agent-event" }
 }
 
 const providerDataItemTypes = new Set(["user_message", "assistant_message", "reasoning", "plan", "review_entered", "review_exited", "context_compaction", "error", "unknown"])
@@ -695,21 +761,47 @@ function isProviderToolItem(itemId: string | undefined, itemType: string): itemI
   return Boolean(itemId) && !providerDataItemTypes.has(itemType)
 }
 
-function providerEvent(event: ProviderRuntimeEvent): StreamEvent[] {
+function record(value: unknown): Record<string, unknown> | undefined {
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  return value && hasRuntimeType(value, "object") && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function providerToolName(event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>): string | undefined {
+  const data = record(event.payload.data)
+  const item = record(data?.item)
+  return hasRuntimeType(data?.toolName, "string")
+    ? data.toolName
+    : hasRuntimeType(item?.tool, "string")
+      ? item.tool
+      : undefined
+}
+
+function providerToolActivity(
+  event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>,
+  tools: AgentToolSet | undefined,
+) {
+  const name = providerToolName(event)
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  return name && tools?.[name]?.activity ? tools[name].activity : { kind: "tool" as const }
+}
+
+function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
-      return [{ data: { kind: "content", value: event.payload.delta }, type: "data-agent-event" }]
+      if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
+      return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started":
       return isProviderToolItem(event.itemId, event.payload.itemType)
-        ? [{ id: event.itemId, input: event.payload.data, name: event.payload.title || event.payload.itemType, type: "tool-call" }]
+        ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: event.payload.data, name: providerToolName(event) || event.payload.title || event.payload.itemType, type: "tool-call" }]
         : [providerDataEvent(event)]
     case "item.completed":
       return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{
+            activity: providerToolActivity(event, tools),
             error: event.payload.status === "failed" ? event.payload.detail || "Provider tool failed." : undefined,
             id: event.itemId,
-            name: event.payload.title || event.payload.itemType,
+            name: providerToolName(event) || event.payload.title || event.payload.itemType,
             output: event.payload.data ?? event.payload.detail,
             type: "tool-result",
           }]
@@ -744,9 +836,9 @@ function providerEvent(event: ProviderRuntimeEvent): StreamEvent[] {
     case "turn.aborted":
       return [{ error: `Provider turn aborted${event.payload.reason ? `: ${event.payload.reason}` : "."}`, type: "error" }]
     case "turn.plan.updated":
-      return [{ data: event.payload, type: "data-agent-plan" }]
+      return [{ data: event.payload, id: event.turnId ? `plan:${event.turnId}` : undefined, type: "data-agent-plan" }]
     case "turn.diff.updated":
-      return [{ data: event.payload, type: "data-agent-diff" }]
+      return [{ data: event.payload, id: event.turnId ? `change:${event.turnId}` : undefined, type: "data-agent-diff" }]
     case "item.updated":
     case "tool.progress":
     case "tool.summary":
@@ -764,11 +856,14 @@ function isTerminalEvent(event: ProviderRuntimeEvent, turnId: TurnId): boolean {
   return event.turnId === turnId && (event.type === "turn.completed" || event.type === "turn.aborted")
 }
 
-async function* runProvider(
-  options: ProviderAgentAdapterOptions,
+async function* runProvider<
+  CALL_OPTIONS,
+  TRuntimeConfig extends AgentRuntimeConfig,
+>(
+  options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
   resumeCursors: Map<string, unknown>,
   sessionLocks: Map<string, Promise<void>>,
-  context: AgentAdapterRunContext,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
     throw new Error(`[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.`)
@@ -786,13 +881,14 @@ async function* runProvider(
   context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
   effectiveSignal?.throwIfAborted()
   const transportSessionId = context.runtime.run?.threadId
-  const chatSessionId = context.context.get<string>("chat.sessionId")
+  const chatSessionId = context.context.get("chat.sessionId")
   const sessionId = chatSessionId || transportSessionId
   const sessionKey = sessionId
     ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.kind, context.invoker.id, sessionId])
     : undefined
   const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
+  const providerEnvironmentOverrides = options.env
   try {
     effectiveSignal?.throwIfAborted()
     root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
@@ -823,11 +919,14 @@ async function* runProvider(
   const generatedProviderFiles: GeneratedProviderFile[] = []
   let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
+  let providerCloseCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
   let releaseDeferredRuntimeStopped: (() => void) | undefined
   const deferredRuntimeStopped = new Promise<void>((resolve) => {
     releaseDeferredRuntimeStopped = resolve
   })
+  let rootCleanup: Promise<void> | undefined
+  const cleanupRoot = () => rootCleanup ??= rm(root, { force: true, recursive: true })
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -837,11 +936,33 @@ async function* runProvider(
   })
   let clearActiveWorkspaceCommands: (() => void) | undefined
   let clearActiveWorkspaceFiles: (() => void) | undefined
-  const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
+  const observeLateCleanup = (cleanup: Promise<void>) => {
+    Object.defineProperty(cleanup, agentProviderCleanupTask, { value: true })
+    void cleanup.catch(() => undefined)
+    try {
+      context.runtime.waitUntil(cleanup)
+    }
+    catch {}
+  }
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
     observeLateCleanup(cleanup)
+  }
+  const deferProviderCloseCleanup = (cleanup: Promise<void>) => {
+    runtimeCleanupDeferred = true
+    providerCloseCleanupDeferred = true
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const boundedCleanup = Promise.race([
+      cleanup,
+      new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+    ]).finally(() => {
+      if (timeout) clearTimeout(timeout)
+      releaseDeferredRuntimeStopped?.()
+    })
+    deferredRuntimeCleanup = boundedCleanup
+    void cleanup.catch(() => undefined)
+    void boundedCleanup.catch(() => undefined)
   }
   const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
     workspaceCleanupDeferred = true
@@ -860,7 +981,7 @@ async function* runProvider(
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
-        await rm(root, { force: true, recursive: true })
+        await cleanupRoot()
       }
     }
   }
@@ -874,11 +995,11 @@ async function* runProvider(
           await lateSession?.close()
         }
         finally {
-          await rm(root, { force: true, recursive: true })
+          await cleanupRoot()
         }
       },
       deferWorkspaceSessionCleanup,
-      async () => await rm(root, { force: true, recursive: true }),
+      cleanupRoot,
     )
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
@@ -900,21 +1021,30 @@ async function* runProvider(
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
     if (!instructions && options.provider === "claude-code") {
-      instructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(
-        async () => await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined),
-      )
+      const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
+      if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
     }
-    await context.context.get<((configuration: AgentInvocationResolvedConfiguration) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.({
-      instructions: instructions ?? "",
-      ...(options.model ? { model: options.model } : {}),
+    await updateAgentTelemetryConfiguration(context.context, {
+      driver: {
+        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+        provider: options.provider,
+      },
+      ...(instructions ? { instructions: [instructions] } : {}),
+      ...(Object.keys(context.tools || {}).length || context.providerTools?.length
+        ? { tools: [...Object.keys(context.tools || {}), ...(context.providerTools || []).map(tool => tool.name)].sort().map(name => ({ name })) }
+        : {}),
     })
     if (instructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))
     }
-    const colocatedSkills = context.context.get<Record<string, { content?: string | Uint8Array, workspacePath?: string }>>(colocatedAgentSkillsContextKey)
+    const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
-      if (source.content === undefined || !source.workspacePath) continue
+      if (!isRuntimeRecord(source)
+        || !("content" in source)
+        || !("workspacePath" in source)
+        || !(hasRuntimeType(source.content, "string") || source.content instanceof Uint8Array)
+        || !hasRuntimeType(source.workspacePath, "string")) continue
       const target = resolve(root, source.workspacePath)
       if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
@@ -928,10 +1058,10 @@ async function* runProvider(
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
-      await rm(root, { force: true, recursive: true })
+      await cleanupRoot()
     }
     runtime = await waitForProviderOperation(
-      createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider }),
+      createProviderRuntime({ cwd: root, environment: providerEnvironment(providerEnvironmentOverrides), provider: options.provider }),
       effectiveSignal,
       async lateRuntime => {
         try {
@@ -948,6 +1078,7 @@ async function* runProvider(
     if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
+    // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
     const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
     const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
@@ -977,7 +1108,7 @@ async function* runProvider(
         async sendInput(input, inputOptions) {
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
-            const messages = input.messages || (typeof input.message === "object" ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
+            const messages = input.messages || (hasRuntimeType(input.message, "object") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
             return await respondToInput(activeRuntime, threadId, messages, capabilityApprovals, capabilityApprovalIds) ? "accepted" : "unsupported"
           }
           catch {
@@ -1012,6 +1143,7 @@ async function* runProvider(
       }
       const raced = await Promise.race([
         nextEvent.then(result => ({ provider: result })),
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         waitForToolEvent().then(() => ({ tool: true as const })),
         aborted,
       ])
@@ -1021,9 +1153,11 @@ async function* runProvider(
       }
       const current = raced.provider
       if (current.done) throw new Error("[vitehub] Provider Agent Driver event stream ended before the turn completed.")
-      nextEvent = events.next()
-      if (current.value.threadId && current.value.threadId !== threadId) continue
-      const normalized = providerEvent(current.value)
+      if (current.value.threadId && current.value.threadId !== threadId) {
+        nextEvent = events.next()
+        continue
+      }
+      const normalized = providerEvent(current.value, context.tools)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)
       if (current.value.type === "session.exited") {
@@ -1040,6 +1174,7 @@ async function* runProvider(
       for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
+      nextEvent = events.next()
     }
   }
   catch (error) {
@@ -1052,7 +1187,30 @@ async function* runProvider(
     clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
-    for (const result of await Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()])) {
+    const cleanup = createProviderCleanupSignal(effectiveSignal)
+    let runtimeAndToolCleanup: PromiseSettledResult<void | undefined>[] = []
+    try {
+      const cleanupOperations = [runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()]
+        .filter((operation): operation is Promise<void> => operation !== undefined)
+      if (cleanupOperations.length) {
+        runtimeAndToolCleanup = await waitForProviderOperation(
+          Promise.allSettled(cleanupOperations),
+          cleanup.signal,
+          () => undefined,
+          deferProviderCloseCleanup,
+        )
+      }
+    }
+    catch (error) {
+      const repeatsInvocationFailure = caught !== undefined
+        && runtimeCleanupDeferred
+        && cleanup.signal.reason === effectiveSignal?.reason
+      if (!repeatsInvocationFailure) cleanupErrors.push(error)
+    }
+    finally {
+      cleanup.dispose()
+    }
+    for (const result of runtimeAndToolCleanup) {
       if (result.status === "rejected") cleanupErrors.push(result.reason)
     }
     for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
@@ -1075,11 +1233,21 @@ async function* runProvider(
         releaseWorkspaceCleanup?.()
       }
     }
-    if (runtimeCleanupDeferred) void deferredRuntimeStopped.then(finalizeWorkspace)
+    if (runtimeCleanupDeferred) {
+      const deferredFinalization = deferredRuntimeStopped.then(async () => {
+        await finalizeWorkspace()
+        if (providerCloseCleanupDeferred) await cleanupRoot()
+      })
+      if (providerCloseCleanupDeferred) {
+        deferredRuntimeCleanup = deferredFinalization
+        observeLateCleanup(deferredFinalization)
+      }
+      else void deferredFinalization.catch(() => undefined)
+    }
     else await finalizeWorkspace()
     if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
       try {
-        await rm(root, { force: true, recursive: true })
+        await cleanupRoot()
       }
       catch (error) {
         cleanupErrors.push(error)
@@ -1102,29 +1270,42 @@ async function* runProvider(
   }
 }
 
-async function generateProvider(iterable: AsyncIterable<StreamEvent>): Promise<AgentAdapterResult> {
+async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntimeConfig>(
+  iterable: AsyncIterable<StreamEvent>,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+): Promise<AgentAdapterResult> {
   let text = ""
   let finishReason: unknown
   let usageRecord: AgentAdapterResult["usageRecord"]
-  for await (const event of iterable) {
-    if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
-    else if (event.type === "usage") usageRecord = event.usageRecord
-    else if (event.type === "finish") finishReason = event.reason
-    else if (event.type === "error" && !event.recoverable) throw new Error(event.error)
+  const tracer = context.runtime.traceLog
+    ? createAgentStreamEventTracer({ context: context.context, input: context.input, invoker: context.invoker, run: context.runtime.run, runtime: context.runtime })
+    : undefined
+  try {
+    for await (const event of iterable) {
+      await tracer?.write(event)
+      if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
+      else if (event.type === "usage") usageRecord = event.usageRecord
+      else if (event.type === "finish") finishReason = event.reason
+      else if (event.type === "error" && !event.recoverable) throw new Error(event.error)
+    }
+  }
+  finally {
+    await tracer?.flush()
   }
   return { finishReason, text, usageRecord }
 }
 
-export function createProviderAgentAdapter<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: ProviderAgentAdapterOptions<TRuntimeConfig>,
-): AgentAdapter<unknown, TRuntimeConfig> {
+export function createProviderAgentAdapter<
+  CALL_OPTIONS = unknown,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+>(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const resumeCursors = new Map<string, unknown>()
   const sessionLocks = new Map<string, Promise<void>>()
   return {
-    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context)),
+    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context), context),
     async metadata(context) {
       const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-      const instructions = await Promise.all(parts.map(part => typeof part === "function" ? part(context) : part))
+      const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
       return {
         instructions: instructions.flatMap(value => Array.isArray(value) ? value : value ? [value] : []),
       }

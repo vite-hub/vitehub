@@ -18,6 +18,8 @@ export interface LibsqlAgentInvocationStoreOptions {
   url?: string
 }
 
+const searchBackfillPageSize = 100
+
 function tableName(prefix = "vitehub_agent_"): string {
   const name = `${prefix}invocations`
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
@@ -123,15 +125,24 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           if (!currentColumns.rows.some(row => row.name === "search")) throw error
         }
       }
-      const missingSearch = await client.execute(`SELECT sequence, record FROM ${table} WHERE search IS NULL`)
-      for (const row of missingSearch.rows) {
-        const record = deserialize(row.record, row.sequence)
-        if (record) {
-          await client.execute({
-            args: [searchableRecord(storedRecord(record)), row.sequence as number],
-            sql: `UPDATE ${table} SET search = ? WHERE sequence = ?`,
-          })
-        }
+      let backfillSequence = 0
+      while (true) {
+        const missingSearch = await client.execute({
+          args: [backfillSequence, searchBackfillPageSize],
+          sql: `SELECT sequence, record FROM ${table} WHERE search IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
+        })
+        if (!missingSearch.rows.length) break
+        const searchBackfill = missingSearch.rows.flatMap((row) => {
+          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
+          const record = deserialize(row.record, row.sequence)
+          return record
+            ? [{
+                args: [searchableRecord(storedRecord(record)), numberValue(row.sequence)],
+                sql: `UPDATE ${table} SET search = ? WHERE sequence = ? AND search IS NULL`,
+              }]
+            : []
+        })
+        if (searchBackfill.length) await client.batch(searchBackfill, "write")
       }
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (

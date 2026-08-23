@@ -1,13 +1,8 @@
-import type { AgentInvocationContextStore, AgentModelInput } from "./types.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
+import type { AgentInvocationContextStore } from "./types.ts"
 
 export const agentInvocationRunId = Symbol.for("vitehub.agent.invocationRunId")
-export const agentInvocationResolvedModelContextKey = "agent.inspection.modelResolved"
-
-export interface AgentInvocationResolvedConfiguration {
-  instructions: string
-  model?: AgentModelInput
-  tools?: readonly string[]
-}
+export const agentInvocationConfigurationUpdatedContextKey = "agent.inspection.configurationUpdated"
 
 function isCallbackContextValue(id: string): boolean {
   return id !== "actor"
@@ -40,7 +35,7 @@ export function agentInvocationSourceContext(context: AgentInvocationContextStor
 }
 
 function assertContextId(id: unknown): asserts id is string {
-  if (typeof id !== "string" || !id.trim()) {
+  if (!hasRuntimeType(id, "string") || !id.trim()) {
     throw new TypeError("[vitehub] Invocation context values require a non-empty string id.")
   }
   if (!/^[a-z][a-z0-9-_.:]*$/i.test(id)) {
@@ -48,7 +43,7 @@ function assertContextId(id: unknown): asserts id is string {
   }
 }
 
-export function createAgentInvocationContextStore(initial?: object): AgentInvocationContextStore {
+export function createAgentInvocationContextStore(initial?: Record<string, unknown>): AgentInvocationContextStore {
   const values = new Map<string, unknown>()
 
   for (const [id, value] of Object.entries(initial || {})) {
@@ -59,8 +54,8 @@ export function createAgentInvocationContextStore(initial?: object): AgentInvoca
     entries() {
       return values.entries()
     },
-    get<T = unknown>(id: string): T | undefined {
-      return values.get(id) as T | undefined
+    get(id: string): unknown {
+      return values.get(id)
     },
     has(id: string): boolean {
       return values.has(id)

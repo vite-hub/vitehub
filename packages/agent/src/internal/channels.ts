@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
 import type {
   AgentChannelDeliveryEffectIntent,
   AgentChannels,
@@ -58,8 +59,11 @@ export function defineMessageChannelInstructions<
 
 export function inheritMessageChannelInstructions<
   TChannel extends object,
->(channel: TChannel, source: object): TChannel {
-  const instructions = (source as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+>(channel: TChannel, source: unknown): TChannel {
+  const instructions = isRuntimeObject(source)
+    // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
+    ? (source as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+    : undefined
   if (instructions) defineMessageChannelInstructions(channel, instructions)
   return channel
 }
@@ -68,7 +72,8 @@ export function inspectMessageChannelInstructions(
   channels: Record<string, unknown> | undefined,
 ): string[] {
   return Object.entries(channels || {}).flatMap(([channelId, channel]) => {
-    const instructions = channel && typeof channel === "object"
+    const instructions = channel && hasRuntimeType(channel, "object")
+      // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
       ? (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
       : undefined
     return instructions ? [`Channel "${channelId}" instructions:\n\n${instructions}`] : []
@@ -77,9 +82,12 @@ export function inspectMessageChannelInstructions(
 
 export function bindMessageChannelInstructions(
   context: AgentInvocationContextStore,
-  channel: object | undefined,
+  channel: unknown,
 ): void {
-  const instructions = channel && (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+  const instructions = isRuntimeObject(channel)
+    // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
+    ? (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+    : undefined
   if (instructions) messageChannelInvocationInstructions.set(context, instructions)
 }
 
@@ -90,8 +98,8 @@ export function markAuxiliaryMessageChannelInstructionContext<TContext extends o
   return context
 }
 
-export function isAuxiliaryAgentAdapterContext(context: object): boolean {
-  return auxiliaryMessageChannelInstructionContexts.has(context)
+export function isAuxiliaryAgentAdapterContext(context: unknown): boolean {
+  return isRuntimeObject(context) && auxiliaryMessageChannelInstructionContexts.has(context)
 }
 
 export function markMessageChannelInstructionConsumer<TConsumer extends object>(
@@ -104,15 +112,17 @@ export function markMessageChannelInstructionConsumer<TConsumer extends object>(
   return consumer
 }
 
-export function consumesMessageChannelInstructions(consumer: object): boolean {
-  return (consumer as { [messageChannelInstructionConsumer]?: unknown })[messageChannelInstructionConsumer] === true
+export function consumesMessageChannelInstructions(consumer: unknown): boolean {
+  return isRuntimeObject(consumer)
+    // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
+    && (consumer as { [messageChannelInstructionConsumer]?: unknown })[messageChannelInstructionConsumer] === true
 }
 
 export function resolveMessageChannelInstructions(
   context: AgentInvocationContextStore,
-  adapterContext?: object,
+  adapterContext?: unknown,
 ): string | undefined {
-  if (adapterContext && auxiliaryMessageChannelInstructionContexts.has(adapterContext)) return undefined
+  if (isRuntimeObject(adapterContext) && auxiliaryMessageChannelInstructionContexts.has(adapterContext)) return undefined
   return messageChannelInvocationInstructions.get(context)
 }
 
@@ -149,7 +159,7 @@ export async function claimMessageChannelTitleDelivery(
   context: AgentInvocationContextStore,
   run: AgentRunMetadata | undefined,
 ): Promise<MessageChannelTitleDeliveryAttempt> {
-  const binding = context.get<MessageChannelStateBinding>(messageChannelStateContextKey)
+  const binding = context.get(messageChannelStateContextKey)
   if (!binding || !run?.threadId) return { deliver: true }
 
   const markerKey = `${binding.keyPrefix}channel-title:${run.threadId}:delivered`

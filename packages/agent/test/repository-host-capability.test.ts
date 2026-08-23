@@ -9,6 +9,7 @@ function runtime(capabilities: Record<string, unknown> = {}) {
   return {
     capabilities,
     memo: vi.fn(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: vi.fn(),
@@ -33,6 +34,7 @@ describe("repositoryHost capability", () => {
       mode: "write",
       requires: undefined,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(() => repositoryHost({ mode: "admin" as never })).toThrow("Repository Host mode must be \"read\" or \"write\"")
   })
 
@@ -87,6 +89,7 @@ describe("repositoryHost capability", () => {
 
     const writeTools = await resolveTools(repositoryHost({ client: readOnly, mode: "write" }))
     expect(Object.keys(writeTools).sort()).toEqual(["repository_host_read", "repository_host_write"])
+    expect(writeTools.repository_host_write!.activity).toEqual({ kind: "action", name: "repository-host.write" })
     expect(writeTools.repository_host_write!.policy).toBeUndefined()
     await expect(Promise.resolve().then(() => writeTools.repository_host_write!.execute?.({
       body: "Queued review.",

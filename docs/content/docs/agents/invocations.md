@@ -149,25 +149,30 @@ the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
-Use the Agent telemetry option to send completed invocation spans to an OTLP/HTTP JSON receiver:
+Attach the `otlp()` Capability to send completed invocation traces to any OTLP/HTTP JSON receiver:
 
 ```ts [server/agents/support.ts]
-import { defineAgent, otlpHttpJson } from 'vite-hub/agent'
+import { defineAgent } from '@vite-hub/agent'
+import { otlp } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   name: 'support',
-  telemetry: otlpHttpJson({
-    endpoint: 'https://console.example/v1/traces',
-    headers: { authorization: `Bearer ${process.env.CONSOLE_TOKEN!}` },
-    resource: { 'service.namespace': 'quiver' },
-  }),
+  capabilities: [
+    otlp({
+      endpoint: 'https://traces.example/v1/traces',
+      headers: { authorization: `Bearer ${process.env.OTLP_TOKEN!}` },
+      resource: { 'service.namespace': 'quiver' },
+    }),
+  ],
   driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 
-Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports only metadata, even when the invocation uses a caller-supplied content trace log, and includes setup failures that occur before the Driver starts. Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Deduplicate spans by trace and span ID because retries can deliver the same invocation more than once.
+Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports standard OTLP spans with `gen_ai.*` attributes and a `vitehub.agent.configured` root-span event for Agent, Capability, Driver, tool, runtime, and Workspace metadata. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently; the configuration event remains distinct from user prompt events.
 
-For a durable, queryable invocation journal, attach Agent Invocations to the Agent Definition. The SQLite adapter accepts a local SQLite or remote libSQL URL:
+Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Receivers should deduplicate spans by trace and span id because retries can deliver the same invocation more than once. See [`otlp()`](/docs/capabilities/otlp) for privacy and Capability-contribution details.
+
+To persist a queryable invocation journal, attach Agent Invocations to the Agent Definition. Storage durability and recovery guarantees still depend on the selected store and host lifecycle. The SQLite adapter accepts a local SQLite or remote libSQL URL:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -184,9 +189,23 @@ export default defineAgent({
 })
 ```
 
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
+Invocation journals are metadata-only by default. Set `content: 'content'` only when the application must persist prompts, messages, reasoning, tool inputs and outputs, and result text. That opt-in stores sensitive model content in the configured durable store; apply the same access controls, retention policy, and encryption requirements as the source data.
 
-Cloudflare and OpenWorkflow create the journal after durable recovery dispatch and reconcile failures after the generated Agent module loads but before the Agent handler starts. If that module cannot be evaluated, use Workflow inspection because the Agent-owned invocation store is unavailable. An accepted Vercel run also starts its journal in the Agent worker because arbitrary Agent Definitions cannot be embedded in Vercel's deterministic native Workflow bundle; use Workflow inspection when it fails before then. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
+
+When an application exposes the standard invocation journal route, inspect it without a dashboard:
+
+```sh
+vitehub agent invocations list --status running
+vitehub agent invocations show INVOCATION_ID
+vitehub agent invocations tail INVOCATION_ID
+```
+
+The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output.
+
+Cloudflare and OpenWorkflow create the journal after durable recovery dispatch and reconcile failures after the generated Agent module loads but before the Agent handler starts. If that module cannot be evaluated, use Workflow inspection because the Agent-owned invocation store is unavailable.
+
+Vercel Agent Definitions currently run through the inline Workflow adapter because arbitrary Agent handlers cannot be embedded in Vercel's deterministic native Workflow bundle. An accepted run starts its journal in that Agent worker, and ViteHub keeps bounded journal recovery work inside the active execution. Vercel does not expose a lifecycle hook that can guarantee arbitrary Agent recovery after that execution settles, so treat its journal as best-effort and use Workflow inspection as the authority for accepted runs. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation. The run inspection metadata reports `mode: "inline"` for this path.
 
 ## Inspect local invocations
 

@@ -111,6 +111,7 @@
     "./realtime/server": "./dist/realtime/server.js",
     "./realtime/vue": "./dist/realtime/vue.js",
     "./runtime": "./dist/runtime.js",
+    "./runtime/node": "./dist/runtime/node.js",
     "./sandbox": "./dist/sandbox.js",
     "./schedule": "./dist/schedule.js",
     "./schedule/runtime": "./dist/schedule/runtime.js",

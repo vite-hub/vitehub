@@ -1,13 +1,33 @@
+import { hasRuntimeType } from "./runtime-type.ts"
+
 export type AsyncIterableReadableStream<T> = AsyncIterable<T> & ReadableStream<T>
 
-export function isAsyncIterable<T = unknown>(value: unknown): value is AsyncIterable<T> {
-  return !!value
-    && typeof value === "object"
-    && typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function"
+function hasAsyncIterator(value: unknown): boolean {
+  if (!hasRuntimeType(value, "object") || value === null) return false
+  try {
+    return hasRuntimeType(Reflect.get(value, Symbol.asyncIterator), "function")
+  }
+  catch {
+    return false
+  }
+}
+
+export function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return hasAsyncIterator(value)
+}
+
+function isReadableStream<T>(value: AsyncIterable<T>): value is AsyncIterableReadableStream<T> {
+  try {
+    return hasRuntimeType(Reflect.get(value, "pipeThrough"), "function")
+  }
+  catch {
+    return false
+  }
 }
 
 export function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterableReadableStream<T> {
-  if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
+  if (hasAsyncIterator(stream)) {
+    // SAFETY: A ReadableStream<T> with an async iterator yields the stream's T chunks.
     return stream as AsyncIterableReadableStream<T>
   }
 
@@ -27,12 +47,13 @@ export function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterableRe
       }
     },
   })
+  // SAFETY: The installed async iterator reads and yields this ReadableStream<T>'s T chunks.
   return stream as AsyncIterableReadableStream<T>
 }
 
 export function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterableReadableStream<T> {
-  if (typeof (iterable as ReadableStream<T>).pipeThrough === "function") {
-    return withAsyncIterator(iterable as ReadableStream<T>)
+  if (isReadableStream(iterable)) {
+    return withAsyncIterator(iterable)
   }
 
   const iterator = iterable[Symbol.asyncIterator]()
@@ -72,7 +93,9 @@ export function teeingAsyncIterableStreamDescriptor<T>(iterable: AsyncIterable<T
 }
 
 export function cloneWithPropertyDescriptors<T extends object>(value: T, descriptors: PropertyDescriptorMap): T {
+  // SAFETY: The clone retains value's prototype and receives value's complete own property descriptors.
   const clone = Object.create(Object.getPrototypeOf(value)) as T
+  // SAFETY: Object.getOwnPropertyDescriptors returns a descriptor for every own PropertyKey of value.
   const ownDescriptors = Object.getOwnPropertyDescriptors(value) as PropertyDescriptorMap & Record<PropertyKey, PropertyDescriptor>
   for (const key of Reflect.ownKeys(descriptors)) {
     delete ownDescriptors[key]

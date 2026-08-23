@@ -211,6 +211,10 @@ watch(
     const requestedSession = routeSession.value;
     const requestedSessionMissing =
       requestedSession && !next.some((session) => session.id === requestedSession);
+    if (requestedSessionMissing && list.cursor.value && !list.isLoadingMore.value) {
+      await list.loadMore();
+      return;
+    }
     if (next.length && (!requestedSession || (requestedSessionMissing && !list.cursor.value)))
       await selectSession(next[0]!);
   },

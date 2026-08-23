@@ -1,13 +1,13 @@
-import { createTraceEventLog } from "@vite-hub/runtime"
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
+import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
-import type { TraceEvent, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
 
-// Agent Definitions can cross Vite SSR module realms. Use the global registry so
-// a journal created by the host remains bindable in the module runner.
-const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
+const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
 
 const DEFAULT_LIST_LIMIT = 50
@@ -16,10 +16,12 @@ const MAX_ANNOTATIONS = 32
 const MAX_ANNOTATION_KEY_LENGTH = 64
 const MAX_ANNOTATION_STRING_LENGTH = 512
 const MAX_METADATA_STRING_LENGTH = 512
+const MAX_OBSERVATION_CONTENT_STRING_LENGTH = 64 * 1024
 const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
+const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
@@ -40,10 +42,7 @@ export interface AgentInvocationRecord {
   completedAt?: string
   createdAt: string
   cursor: string
-  error?: {
-    message: string
-    name?: string
-  }
+  error?: RuntimeDiagnosticError
   failedAt?: string
   id: string
   observations: readonly TraceEventLogEntry[]
@@ -81,7 +80,6 @@ export interface AgentInvocationStoreCreateResult {
 export interface AgentInvocationStoreUpdateInput {
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
-  /** Marks the final retained observation after later observations were dropped. */
   observationsTruncated?: boolean
   status?: AgentInvocationRecordStatus
   timestamp: string
@@ -97,6 +95,7 @@ export interface AgentInvocationStore {
 }
 
 export interface AgentInvocationsOptions {
+  content?: TraceEventContentPolicy
   store: AgentInvocationStore
 }
 
@@ -132,7 +131,7 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
   return {
     ...record,
     ...(record.annotations ? { annotations: { ...record.annotations } } : {}),
-    ...(record.error ? { error: { ...record.error } } : {}),
+    ...(record.error ? { error: structuredClone(record.error) } : {}),
     observations: record.observations.map(cloneObservation),
   }
 }
@@ -163,14 +162,14 @@ function annotationKey(key: string): boolean {
 }
 
 function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<string, AgentInvocationAnnotationValue> | undefined {
-  if (!input || typeof input !== "object") return
+  if (!input || !hasRuntimeType(input, "object")) return
   const annotations: Record<string, AgentInvocationAnnotationValue> = {}
   for (const [key, value] of Object.entries(input)) {
     if (Object.keys(annotations).length >= MAX_ANNOTATIONS) break
     if (!annotationKey(key)) continue
-    if (typeof value === "string") annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
-    else if (typeof value === "number" && Number.isFinite(value)) annotations[key] = value
-    else if (typeof value === "boolean" || value === null) annotations[key] = value
+    if (hasRuntimeType(value, "string")) annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
+    else if (hasRuntimeType(value, "number") && Number.isFinite(value)) annotations[key] = value
+    else if (hasRuntimeType(value, "boolean") || value === null) annotations[key] = value
   }
   return Object.keys(annotations).length ? annotations : undefined
 }
@@ -220,46 +219,45 @@ function normalizedTimestamp(value: Date | string): string {
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
 }
 
-function boundedObservationValue(value: unknown, depth = 0): unknown {
-  if (typeof value === "string") return boundedString(value)
-  if (value === null || typeof value === "boolean") return value
-  if (typeof value === "number") return Number.isFinite(value) ? value : null
-  if (typeof value === "bigint") return boundedString(String(value))
-  if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
-  if (Array.isArray(value)) {
-    return value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).map(item => boundedObservationValue(item, depth + 1))
-  }
-  if (!value || typeof value !== "object") return boundedString(String(value))
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)
-    .map(([key, child]) => [boundedString(key), boundedObservationValue(child, depth + 1)]))
+interface ObservationBudget {
+  items: number
+  stringLength: number
 }
 
-export function agentInvocationObservationWouldTruncate(value: unknown, depth = 0): boolean {
-  if (typeof value === "string") return value.length > MAX_METADATA_STRING_LENGTH
-  if (value === null || typeof value === "boolean" || typeof value === "number") return false
-  if (typeof value === "bigint") return String(value).length > MAX_METADATA_STRING_LENGTH
-  if (depth >= MAX_OBSERVATION_DEPTH) return true
-  if (Array.isArray(value)) {
-    return value.length > MAX_OBSERVATION_COLLECTION_ITEMS
-      || value.some(item => agentInvocationObservationWouldTruncate(item, depth + 1))
+function boundedObservationValue(value: unknown, budget: ObservationBudget, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
+  if (budget.items <= 0) return "[truncated]"
+  budget.items--
+  if (value === undefined) return undefined
+  if (hasRuntimeType(value, "string")) {
+    if (budget.stringLength <= 0) return "[truncated]"
+    const length = Math.min(value.length, maxStringLength, budget.stringLength)
+    budget.stringLength -= length
+    return value.slice(0, length)
   }
-  if (!value || typeof value !== "object") return String(value).length > MAX_METADATA_STRING_LENGTH
-  const entries = Object.entries(value as Record<string, unknown>)
-  return entries.length > MAX_OBSERVATION_COLLECTION_ITEMS
-    || entries.some(([key, child]) => key.length > MAX_METADATA_STRING_LENGTH || agentInvocationObservationWouldTruncate(child, depth + 1))
+  if (value === null || hasRuntimeType(value, "boolean")) return value
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : null
+  if (hasRuntimeType(value, "bigint")) return boundedString(String(value))
+  if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
+  if (Array.isArray(value)) {
+    return value.slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
+  }
+  if (!value || !hasRuntimeType(value, "object")) return boundedString(String(value))
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items))
+    .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]))
 }
 
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
-  const attributeEntries = Object.entries(observation.attributes ?? {})
-  const attributesTruncated = attributeEntries.length > MAX_OBSERVATION_ATTRIBUTES
-    || attributeEntries.some(([key, value]) => key.length > MAX_METADATA_STRING_LENGTH || agentInvocationObservationWouldTruncate(value))
+  const budget: ObservationBudget = {
+    items: MAX_OBSERVATION_VALUE_ITEMS,
+    stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+  }
   const attributes = observation.attributes
-    ? Object.fromEntries(attributeEntries
-        .slice(0, attributesTruncated ? MAX_OBSERVATION_ATTRIBUTES - 1 : MAX_OBSERVATION_ATTRIBUTES)
-        .map(([key, value]) => [boundedString(key), boundedObservationValue(value)]))
+    ? Object.fromEntries(Object.entries(observation.attributes)
+        .slice(0, MAX_OBSERVATION_ATTRIBUTES)
+        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
     : undefined
-  if (attributesTruncated) attributes![AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] = true
   return {
     ...observation,
     name: boundedString(observation.name)!,
@@ -285,34 +283,78 @@ function invocationIdentity(runId: string, agentName?: string): string {
 }
 
 function assertInvocationId(id: string): void {
-  if (typeof id !== "string" || !id.trim()) {
+  if (!hasRuntimeType(id, "string") || !id.trim()) {
     throw new TypeError("[vitehub] Agent Invocations require a non-empty invocation id.")
   }
 }
 
 function assertStore(store: AgentInvocationStore | undefined): asserts store is AgentInvocationStore {
   if (!store
-    || typeof store.claim !== "function"
-    || typeof store.create !== "function"
-    || typeof store.get !== "function"
-    || typeof store.list !== "function"
-    || typeof store.release !== "function"
-    || typeof store.update !== "function") {
+    || !hasRuntimeType(store.claim, "function")
+    || !hasRuntimeType(store.create, "function")
+    || !hasRuntimeType(store.get, "function")
+    || !hasRuntimeType(store.list, "function")
+    || !hasRuntimeType(store.release, "function")
+    || !hasRuntimeType(store.update, "function")) {
     throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), list(), release(), and update().")
   }
 }
 
 function errorDetails(error: unknown): AgentInvocationRecord["error"] | undefined {
   if (error === undefined) return
-  if (error instanceof Error) return {
-    message: boundedString(error.message || error.name)!,
-    ...(error.name ? { name: boundedString(error.name) } : {}),
-  }
-  return { message: boundedString(typeof error === "string" ? error : "Agent Invocation failed.")! }
+  return normalizeRuntimeDiagnosticError(error, { maxDepth: 4, maxErrors: 8, maxStringLength: MAX_METADATA_STRING_LENGTH })
 }
 
 function terminalStatus(status: AgentInvocationRecordStatus): boolean {
   return status === "completed" || status === "failed" || status === "cancelled"
+}
+
+function terminalObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "agent.invocation.finish" || observation.name === "agent.invocation.error" || observation.name === "run.finish" || observation.name === "run.error"
+}
+
+function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "run.error"
+    || (observation.name === "agent.stream.error" && observation.attributes?.["error.recoverable"] !== true)
+}
+
+function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
+  if (failureEvidenceObservation(observation)) return 0
+  if (terminalObservation(observation)) return 1
+}
+
+function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
+  return {
+    ...observation,
+    attributes: { ...observation.attributes, "vitehub.trace.truncated": true },
+  }
+}
+
+function prioritizePendingOutcomes(
+  pending: TraceEventLogEntry[],
+  incoming: TraceEventLogEntry,
+  active: TraceEventLogEntry | undefined,
+  retryIncoming = false,
+): void {
+  const activeFatal = active && failureEvidenceObservation(active)
+  const fatal = retryIncoming && failureEvidenceObservation(incoming)
+    ? incoming
+    : activeFatal
+      ? undefined
+      : pending.find(failureEvidenceObservation)
+        ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
+  const pendingTerminal = pending.findLast(terminalObservation)
+  const terminal = retryIncoming
+    ? pendingTerminal ?? (terminalObservation(incoming) ? incoming : undefined)
+    : terminalObservation(incoming)
+      ? incoming
+      : pendingTerminal
+  const outcomes: TraceEventLogEntry[] = []
+  if (fatal) outcomes.push(fatal)
+  if (terminal && terminal !== fatal) outcomes.push(terminal)
+  const ordinary = pending.filter(observation => !failureEvidenceObservation(observation) && !terminalObservation(observation))
+  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
+  pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
 
 function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
@@ -325,33 +367,44 @@ export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
-  if (terminalStatus(record.status)) return record
+  if (terminalStatus(record.status) && !input.observationsTruncated) return record
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
-  const observations = input.observationsTruncated && record.observations.length > 0
-    ? record.observations.map((observation, index) => index === record.observations.length - 1
-        ? {
-            ...observation,
-            attributes: {
-              ...observation.attributes,
-              [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
-            },
+  const observations = input.observation
+    ? record.observations.length < MAX_OBSERVATIONS
+      ? (() => {
+          const observation = cloneObservation(boundedObservation(input.observation))
+          const priority = outcomeObservationPriority(observation)
+          const insertAt = record.observations.findIndex((candidate) => {
+            const candidatePriority = outcomeObservationPriority(candidate)
+            return candidatePriority !== undefined && (priority === undefined || candidatePriority > priority)
+          })
+          return insertAt < 0
+            ? [...record.observations, observation]
+            : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
+        })()
+      : (() => {
+          const failureEvidence = record.observations.find(failureEvidenceObservation)
+            ?? (failureEvidenceObservation(input.observation) ? input.observation : undefined)
+          const terminal = terminalObservation(input.observation)
+            ? input.observation
+            : record.observations.findLast(terminalObservation)
+          const retained = record.observations.filter(observation => observation !== failureEvidence && observation !== terminal)
+          if (failureEvidence && terminal && failureEvidence !== terminal) {
+            return [
+              ...retained.slice(0, MAX_OBSERVATIONS - 2),
+              cloneObservation(boundedObservation(truncatedObservation(failureEvidence))),
+              cloneObservation(boundedObservation(truncatedObservation(terminal))),
+            ]
           }
-        : observation)
-    : input.observation && record.observations.length >= MAX_OBSERVATIONS
-    ? record.observations.map((observation, index) => index === record.observations.length - 1
-        ? {
-            ...observation,
-            attributes: {
-              ...observation.attributes,
-              [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
-            },
-          }
-        : observation)
-    : input.observation
-      ? [...record.observations, cloneObservation(boundedObservation(input.observation))]
-      : record.observations
+          const outcome = failureEvidence || terminal
+          return [
+            ...retained.slice(0, MAX_OBSERVATIONS - 1),
+            cloneObservation(boundedObservation(truncatedObservation(outcome || record.observations.at(-1)!))),
+          ]
+        })()
+    : record.observations
   return {
     ...record,
     ...(input.error ? { error: input.error } : {}),
@@ -429,8 +482,9 @@ function journalTraceLog(
   traceLog: TraceEventLog,
   observe: (entry: TraceEventLogEntry) => void,
   nextSequence: () => number,
+  content: TraceEventContentPolicy,
 ): TraceEventLog {
-  const messageDeltaChunkCharacters = 4_096
+  const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
   const messageDeltaChunkEvents = 32
   let pendingMessageDelta: TraceEventLogEntry | undefined
   let pendingMessageDeltaEvents = 0
@@ -443,51 +497,74 @@ function journalTraceLog(
     pendingMessageDelta = undefined
     pendingMessageDeltaEvents = 0
   }
-  return {
+  const queueMessageDelta = (entry: TraceEventLogEntry) => {
+    const rawContent = entry.attributes?.["message.content"]
+    const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
+    if (content && content.length > messageDeltaChunkCharacters) {
+      for (let offset = 0; offset < content.length; offset += messageDeltaChunkCharacters) {
+        queueMessageDelta({
+          ...entry,
+          attributes: {
+            ...entry.attributes,
+            "message.content": content.slice(offset, offset + messageDeltaChunkCharacters),
+          },
+        })
+      }
+      return
+    }
+    const pending = pendingMessageDelta
+    const rawPreviousContent = pending?.attributes?.["message.content"]
+    const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
+      ? String(rawPreviousContent)
+      : undefined
+    const sameMessage = pending
+      && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
+      && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
+      && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
+    if (sameMessage && (previousContent === undefined) === (content === undefined)) {
+      if (previousContent !== undefined && content !== undefined
+        && previousContent.length + content.length > messageDeltaChunkCharacters) {
+        const available = messageDeltaChunkCharacters - previousContent.length
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(0, available) },
+        })
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(available) },
+        })
+        return
+      }
+      const attributes = { ...pending.attributes, ...entry.attributes }
+      if (previousContent !== undefined && content !== undefined) {
+        attributes["message.content"] = `${previousContent}${content}`
+      }
+      pendingMessageDelta = { ...entry, attributes }
+    }
+    else {
+      flushMessageDelta()
+      pendingMessageDelta = entry
+    }
+    pendingMessageDeltaEvents++
+    const pendingContent = pendingMessageDelta.attributes?.["message.content"]
+    if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
+      || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
+      flushMessageDelta()
+    }
+  }
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const journal = {
+    [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
-      let entry: TraceEventLogEntry
+      const entry = await traceLog.append(event)
       try {
-        entry = await traceLog.append(event)
-      }
-      catch {
-        entry = await createTraceEventLog().append(event)
-      }
-      try {
-        if (entry.name === "agent.message.delta") {
-          const pending = pendingMessageDelta
-          const previousContent = pending?.attributes?.["message.content"]
-          const content = entry.attributes?.["message.content"]
-          const sameMessage = pending
-            && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
-            && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
-            && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
-          if (sameMessage && (previousContent === undefined) === (content === undefined)) {
-            const attributes = {
-              ...pending.attributes,
-              ...entry.attributes,
-            }
-            if (previousContent !== undefined && content !== undefined) {
-              attributes["message.content"] = `${previousContent}${content}`
-            }
-            pendingMessageDelta = {
-              ...entry,
-              attributes,
-            }
-          }
-          else {
-            flushMessageDelta()
-            pendingMessageDelta = entry
-          }
-          pendingMessageDeltaEvents++
-          const pendingContent = pendingMessageDelta.attributes?.["message.content"]
-          if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
-            || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
-            flushMessageDelta()
-          }
+        const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
+        if (safeEntry.name === "agent.message.delta") {
+          queueMessageDelta(safeEntry)
         }
         else {
           flushMessageDelta()
-          emit(entry)
+          emit(safeEntry)
         }
       }
       catch {}
@@ -497,11 +574,19 @@ function journalTraceLog(
       flushMessageDelta()
       return traceLog.entries()
     },
+  } as TraceEventLog
+  if (content === "content") {
+    Object.defineProperty(journal, agentInvocationJournalContentTraceLogSymbol, { value: true })
   }
+  return journal
 }
 
 export function defineAgentInvocations(options: AgentInvocationsOptions): AgentInvocations {
   assertStore(options?.store)
+  if (options.content !== undefined && options.content !== "content" && options.content !== "metadata") {
+    throw new TypeError('[vitehub] Agent Invocations content must be "content" or "metadata".')
+  }
+  const content = options.content || "metadata"
   const store = options.store
   const invocations: BoundAgentInvocations = {
     [agentInvocationsBrand]: true,
@@ -517,9 +602,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
+      let finishing = false
       let ownsRecord = false
       let observationCount = 0
-      let acceptedObservationCount = 0
+      let observationsTruncated = false
       let observationSequence = 0
       let created = false
       let creationTimedOut = false
@@ -533,7 +619,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
       let heartbeatDeadline: number | undefined
       let observationWrite: Promise<void> | undefined
+      let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
+      const persistedObservationSequences = new Set<number>()
+      const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
         if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout)
@@ -555,7 +644,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
               observationCount = result.record.observations.length
-              acceptedObservationCount = observationCount
+              observationsTruncated = result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
               created = true
             }
@@ -624,91 +713,74 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         return updated
       }
-      const writeNextObservation = (flushFinal = false) => {
+      const writeNextObservation = () => {
         if (finished || observationWrite) return
-        if (
-          observationCount >= MAX_OBSERVATIONS - 1
-          && pendingObservations.length === 1
-          && !flushFinal
-        ) return
-        let observation = pendingObservations.shift()
+        const observation = pendingObservations.shift()
         if (!observation) return
-        if (observationCount >= MAX_OBSERVATIONS - 1 && observationCapMarked) {
-          observation = {
-            ...observation,
-            attributes: {
-              ...observation.attributes,
-              [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
-            },
-          }
-          pendingObservations.length = 0
-          observationCapMarked = true
-        }
+        activeObservation = observation
         const task = (async () => {
-          if (finished || !await renew()) return
-          const timestamp = normalizedTimestamp(observation.timestamp)
-          const persistedObservation = boundedObservation({
-            ...observation,
-            timestamp,
-            ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-          })
-          const updated = await Promise.resolve().then(() => store.update(recordId, {
-            observation: persistedObservation,
-            timestamp,
-          }, claimId)).catch(() => undefined)
-          if (updated) observationCount = updated.observations.length
-          else observationCapMarked = true
+          let failed = false
+          let persisted = false
+          try {
+            if (finished || !await renew()) return
+            const timestamp = normalizedTimestamp(observation.timestamp)
+            const persistedObservation = boundedObservation({
+              ...observation,
+              timestamp,
+              ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+            })
+            const updated = await boundedStoreOperation(() => store.update(recordId, {
+              observation: persistedObservation,
+              timestamp,
+            }, claimId))
+            if (updated && updated !== storeOperationTimedOut) {
+              observationCount = updated.observations.length
+              persisted = true
+              persistedObservationSequences.add(observation.sequence)
+            }
+            else if (updated === undefined) failed = true
+          }
+          finally {
+            if (failed && !finished) {
+              observationsTruncated = true
+              void update({ observationsTruncated: true, timestamp: new Date().toISOString() })
+            }
+            if (!persisted
+              && !finished
+              && !finishing
+              && outcomeObservationPriority(observation) !== undefined
+              && !retriedObservations.has(observation)) {
+              observationsTruncated = true
+              const retry = truncatedObservation(observation)
+              retriedObservations.add(retry)
+              prioritizePendingOutcomes(pendingObservations, retry, undefined, true)
+            }
+          }
         })().catch(() => {})
         const settled = task.finally(() => {
           if (observationWrite === settled) {
             observationWrite = undefined
+            activeObservation = undefined
             writeNextObservation()
           }
         })
         observationWrite = settled
       }
-      let observationCapMarked = false
-      let observationCapPersisted = false
-      let observationCapWrite: Promise<void> | undefined
-      const persistObservationCap = async () => {
-        if (!observationCapMarked || observationCapPersisted) return
-        if (!observationCapWrite) {
-          observationCapWrite = (async () => {
-            while (observationWrite || pendingObservations.length > 0) {
-              writeNextObservation(true)
-              if (observationWrite) await observationWrite
-            }
-            observationCapPersisted = await update({
-              observationsTruncated: true,
-              timestamp: new Date().toISOString(),
-            })
-          })().finally(() => {
-            observationCapWrite = undefined
-          })
-        }
-        await observationCapWrite
-      }
       const observe = (observation: TraceEventLogEntry) => {
-        if (finished) return
-        if (observationCapMarked) return
-        if (acceptedObservationCount >= MAX_OBSERVATIONS) {
-          const retained = pendingObservations.at(-1)
-          if (retained) {
-            pendingObservations[pendingObservations.length - 1] = {
-              ...retained,
-              attributes: {
-                ...retained.attributes,
-                [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
-              },
-            }
-            observationCapMarked = true
-          }
-          else observationCapMarked = true
-          void persistObservationCap()
+        if (finished || finishing) return
+        const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
+        const priority = outcomeObservationPriority(observation)
+        const queuedObservation = priority !== undefined && (atCapacity || observationsTruncated)
+          ? truncatedObservation(observation)
+          : observation
+        if (atCapacity) {
+          observationsTruncated = true
+          if (priority === undefined) return
+          prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
+          writeNextObservation()
           return
         }
-        acceptedObservationCount++
-        pendingObservations.push(observation)
+        pendingObservations.push(queuedObservation)
         writeNextObservation()
       }
       return {
@@ -716,34 +788,58 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content),
         },
         async finish(status, error) {
-          if (finished) return
+          if (finished || finishing) return
+          finishing = true
+          const finishingActiveObservation = activeObservation
           const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
-          while ((observationWrite || pendingObservations.length > 0) && Date.now() < observationDeadline) {
-            writeNextObservation(true)
-            if (observationWrite) {
-              await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
-            }
+          while (observationWrite && Date.now() < observationDeadline) {
+            await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
-          const observationTimeRemaining = observationDeadline - Date.now()
-          if (observationTimeRemaining > 0) {
-            await boundedStoreOperation(() => persistObservationCap(), observationTimeRemaining)
-          }
-          if (observationWrite || pendingObservations.length > 0) observationCapMarked = true
+          const outcomeObservations = [finishingActiveObservation, activeObservation, ...pendingObservations]
+            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
+            .filter((observation, index, observations) => observations.findIndex(candidate => candidate.sequence === observation.sequence) === index)
+          const unpersistedOutcomes = outcomeObservations.filter(observation => !persistedObservationSequences.has(observation.sequence))
+          const pendingFailure = unpersistedOutcomes.find(failureEvidenceObservation)
+          const pendingTerminal = unpersistedOutcomes.findLast(terminalObservation)
+          const pendingOutcomes = [pendingFailure, pendingTerminal]
+            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
+            .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
+            .map(observation => boundedObservation({
+              ...observation,
+              timestamp: normalizedTimestamp(observation.timestamp),
+              ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+            }))
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
           }
+          const failure = errorDetails(error)
+          for (const observation of pendingOutcomes.slice(0, -1)) {
+            await update({ observation, timestamp: observation.timestamp })
+          }
+          const terminalOutcome = pendingOutcomes.at(-1)
           const finishInput: AgentInvocationStoreUpdateInput = {
-              ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
-              ...(observationCapMarked ? { observationsTruncated: true } : {}),
-              status,
-              timestamp: new Date().toISOString(),
+            ...(failure ? { error: failure } : {}),
+            ...(terminalOutcome ? { observation: terminalOutcome } : {}),
+            status,
+            timestamp: new Date().toISOString(),
           }
           const finishOnce = async () => {
-            if (finished || !await update(finishInput, bindOptions.terminalTakeover)) return false
+            if (finished) return false
+            const updated = await update(finishInput, bindOptions.terminalTakeover)
+              || terminalOutcome !== undefined && await update({
+                ...(failure ? { error: failure } : {}),
+                status,
+                timestamp: finishInput.timestamp,
+              }, bindOptions.terminalTakeover)
+            if (!updated) return false
+            if (finishingActiveObservation
+              && !persistedObservationSequences.has(finishingActiveObservation.sequence)) {
+              await update({ observationsTruncated: true, timestamp: new Date().toISOString() }, bindOptions.terminalTakeover)
+            }
             finished = true
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
@@ -766,7 +862,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               ownsRecord = false
             }
           })().finally(() => {
-            if (!finished && terminalRetry === retry) terminalRetry = undefined
+            if (!finished && terminalRetry === retry) {
+              terminalRetry = undefined
+              finishing = false
+            }
           })
           terminalRetry = retry
           registerAgentInvocationRecovery(context, retry)
@@ -819,9 +918,11 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   options?: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean },
 ): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!invocations) return
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const bind = (invocations as Partial<BoundAgentInvocations>)[bindAgentInvocationsSymbol]
-  if (typeof bind !== "function") {
+  if (!hasRuntimeType(bind, "function")) {
     throw new TypeError("[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations().")
   }
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
 }

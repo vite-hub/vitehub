@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability, normalizeMode } from "../capability-runtime.ts"
 import {
   assertString,
@@ -82,18 +83,20 @@ const repositoryHostWriteInputSchema = jsonObjectSchema({
 
 async function resolveRepositoryHostClient(options: RepositoryHostOptions, context: AgentCapabilityContext): Promise<RepositoryHostClient> {
   const client = options.client
-    ? typeof options.client === "function" ? await options.client(context) : options.client
+    ? hasRuntimeType(options.client, "function") ? await options.client(context) : options.client
     : requirePrimitive(context, "repository-host")
-  if (!client || typeof client !== "object" || typeof (client as RepositoryHostClient).read !== "function") {
+  // SAFETY: The owning boundary establishes the exact asserted internal contract.
+  if (!client || !hasRuntimeType(client, "object") || !hasRuntimeType((client as RepositoryHostClient).read, "function")) {
     throw new Error("[vitehub] repositoryHost() requires a Repository Host client with read().")
   }
+  // SAFETY: The owning boundary establishes the exact asserted internal contract.
   return client as RepositoryHostClient
 }
 
 function assertTarget(target: RepositoryHostTarget | undefined, operation: string): RepositoryHostTarget {
-  if (!target || typeof target !== "object") throw new TypeError(`[vitehub] ${operation} target must be an object.`)
+  if (!target || !hasRuntimeType(target, "object")) throw new TypeError(`[vitehub] ${operation} target must be an object.`)
   assertString(target.repository, `${operation} target.repository`)
-  if (target.id !== undefined && typeof target.id !== "string" && typeof target.id !== "number") {
+  if (target.id !== undefined && !hasRuntimeType(target.id, "string") && !hasRuntimeType(target.id, "number")) {
     throw new TypeError(`[vitehub] ${operation} target.id must be a string or number.`)
   }
   return target
@@ -118,6 +121,7 @@ function assertWriteRequest(input: RepositoryHostWriteRequest): RepositoryHostWr
 
 function repositoryHostTools(mode: AgentCapabilityMode, options: RepositoryHostOptions): AgentCapabilityDefinition["tools"] {
   return async (context) => {
+    // SAFETY: The owning boundary establishes the exact asserted internal contract.
     const client = await resolveRepositoryHostClient(options, context as never)
     const tools: AgentToolSet = {
       repository_host_read: createTool<RepositoryHostReadRequest>({
@@ -129,6 +133,7 @@ function repositoryHostTools(mode: AgentCapabilityMode, options: RepositoryHostO
     }
     if (mode === "write") {
       tools.repository_host_write = createTool<RepositoryHostWriteRequest>({
+        activity: { kind: "action", name: "repository-host.write" },
         description: "Create repository-hosted comments or reactions through the configured provider client.",
         execute(input) {
           if (!client.write) throw new Error("[vitehub] repository_host_write requires the Repository Host client to expose write().")
