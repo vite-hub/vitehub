@@ -2579,6 +2579,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
   invocationId: string,
   liveLogCursors?: Map<AgentCapabilityRegistries["telemetry"][number], number>,
   configurationDelivered?: Set<AgentCapabilityRegistries["telemetry"][number]>,
+  incompleteLiveDelivery?: Set<AgentCapabilityRegistries["telemetry"][number]>,
 ): Promise<void> {
   if (!telemetry.length || !runtime.traceLog) return
   const events = agentTelemetryTraceEvents(runtime.traceLog).filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
@@ -2634,7 +2635,9 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
             ],
           })
       : baseSpans
-    const spans = registration.live && (liveLogCursors?.get(item) || 0) >= terminalSequence
+    const spans = registration.live
+      && !incompleteLiveDelivery?.has(item)
+      && (liveLogCursors?.get(item) || 0) >= terminalSequence
       ? configuredSpans.map((span, index) => ({
           ...span,
           events: !index && configurationValue && !configurationDelivered?.has(item)
@@ -2661,6 +2664,7 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
   throughSequence: number,
   cursors: Map<AgentCapabilityRegistries["telemetry"][number], number>,
   configurationDelivered: Set<AgentCapabilityRegistries["telemetry"][number]>,
+  incompleteDelivery: Set<AgentCapabilityRegistries["telemetry"][number]>,
   includeConfiguration = false,
 ): Promise<void> {
   if (!telemetry.length || !runtime.traceLog) return
@@ -2715,6 +2719,9 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
     }
   }))
   if (exports.some(result => result.status === "rejected")) {
+    exports.forEach((result, index) => {
+      if (result.status === "rejected") incompleteDelivery.add(telemetry[index]!)
+    })
     // SAFETY: Only agentContentTraceLog installs this private journal and owns this method.
     const pending = (runtime.traceLog as typeof runtime.traceLog & {
       [agentTelemetryPendingEntriesSymbol]?: { compact: () => void }
@@ -2844,6 +2851,7 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
   const liveTelemetry = telemetry.filter(({ registration }) => registration.live === true)
   const cursors = new Map<AgentCapabilityRegistries["telemetry"][number], number>()
   const configurationDelivered = new Set<AgentCapabilityRegistries["telemetry"][number]>()
+  const incompleteLiveDelivery = new Set<AgentCapabilityRegistries["telemetry"][number]>()
   let finished = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let exports = Promise.resolve()
@@ -2867,7 +2875,7 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
           const phase = finished ? "terminal" : "live"
           pendingCount = 0
           pendingThroughSequence = undefined
-          await exportAgentTelemetryLogs(liveTelemetry, runtime, context, agent, invocationId, throughSequence, cursors, configurationDelivered, finished)
+          await exportAgentTelemetryLogs(liveTelemetry, runtime, context, agent, invocationId, throughSequence, cursors, configurationDelivered, incompleteLiveDelivery, finished)
             .catch(error => reportAgentTelemetryFailure(error, runtime, agent, invocationId, phase))
         }
       }
@@ -2920,6 +2928,7 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
         invocationId,
         cursors,
         configurationDelivered,
+        incompleteLiveDelivery,
       ))
     },
   }

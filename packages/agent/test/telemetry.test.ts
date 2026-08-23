@@ -77,6 +77,27 @@ describe("Agent telemetry", () => {
     }])
   })
 
+  it("preserves an unset span status in OTLP/HTTP JSON", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "traces",
+      spans: [{
+        name: "vitehub.run",
+        spanId: "0123456789abcdef",
+        startTime: "2026-01-01T00:00:00.000Z",
+        status: { code: "UNSET" },
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+    expect(body.resourceSpans[0].scopeSpans[0].spans[0].status).toEqual({ code: 0 })
+  })
+
   it("sends live events as correlated OTLP/HTTP JSON logs", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
@@ -676,7 +697,15 @@ describe("Agent telemetry", () => {
       expect(progress).toContain("application.progress.0")
       expect(progress).toContain("application.progress.1199")
       expect(progress).not.toContain("application.progress.600")
-      expect(accepted.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ events: undefined })] })
+      expect(accepted.at(-1)).toMatchObject({
+        signal: "traces",
+        spans: [expect.objectContaining({
+          events: expect.arrayContaining([
+            expect.objectContaining({ name: "application.progress.0" }),
+            expect.objectContaining({ name: "application.progress.1199" }),
+          ]),
+        })],
+      })
     }
     finally {
       error.mockRestore()

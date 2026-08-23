@@ -80,7 +80,7 @@ function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
     ...(span.parentSpanId ? { parentSpanId: span.parentSpanId } : {}),
     spanId: span.spanId,
     startTimeUnixNano: unixNanos(span.startTime, fallbackEndTime),
-    status: { code: span.status.code === "ERROR" ? 2 : 1, ...(span.status.message ? { message: span.status.message } : {}) },
+    status: { code: span.status.code === "ERROR" ? 2 : span.status.code === "OK" ? 1 : 0, ...(span.status.message ? { message: span.status.message } : {}) },
     traceId: span.traceId,
   }
 }
