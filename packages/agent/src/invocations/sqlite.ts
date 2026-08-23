@@ -124,15 +124,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         }
       }
       const missingSearch = await client.execute(`SELECT sequence, record FROM ${table} WHERE search IS NULL`)
-      for (const row of missingSearch.rows) {
+      const searchBackfill = missingSearch.rows.flatMap((row) => {
         const record = deserialize(row.record, row.sequence)
-        if (record) {
-          await client.execute({
-            args: [searchableRecord(storedRecord(record)), row.sequence as number],
+        return record
+          ? [{
+              args: [searchableRecord(storedRecord(record)), numberValue(row.sequence)],
             sql: `UPDATE ${table} SET search = ? WHERE sequence = ?`,
-          })
-        }
-      }
+            }]
+          : []
+      })
+      if (searchBackfill.length) await client.batch(searchBackfill, "write")
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,

@@ -299,7 +299,7 @@ describe("Agent Invocations", () => {
           for (let index = 0; index < 300; index++) {
             await context.traceLog?.append({
               attributes: {
-                "message.content": String(index % 10),
+                "message.content": String(index % 10).repeat(20),
                 "message.id": "answer",
                 "message.role": "assistant",
               },
@@ -332,7 +332,8 @@ describe("Agent Invocations", () => {
     const full = await run("full-content", createTraceEventLog({ content: "content" }))
     const fullDeltas = full.filter(entry => entry.name === "agent.message.delta")
     expect(fullDeltas.map(entry => entry.attributes?.["message.content"]).join(""))
-      .toBe("0123456789".repeat(30))
+      .toBe(Array.from({ length: 300 }, (_, index) => String(index % 10).repeat(20)).join(""))
+    expect(fullDeltas.every(entry => String(entry.attributes?.["message.content"]).length <= 512)).toBe(true)
     expect(fullDeltas.every(entry => !entry.attributes?.["content.omitted"])).toBe(true)
   })
 
@@ -853,6 +854,18 @@ describe("Agent Invocations", () => {
         status TEXT NOT NULL,
         record TEXT NOT NULL
       )`)
+      await setupClient.execute({
+        args: [JSON.stringify({
+          annotations: { repository: "Éclair" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "legacy",
+          observations: [{ attributes: { secret: "observation-only" }, name: "legacy", timestamp: "2026-01-01T00:00:00.000Z", type: "run" }],
+          status: "completed",
+          traceId: "legacy-trace",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })],
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'completed', ?)",
+      })
 
       let inspections = 0
       let releaseInspections!: () => void
@@ -879,9 +892,14 @@ describe("Agent Invocations", () => {
       }) as Client
 
       await expect(Promise.all([
-        createLibsqlAgentInvocationStore({ client: synchronizeInspection(firstClient) }).list(),
-        createLibsqlAgentInvocationStore({ client: synchronizeInspection(secondClient) }).list(),
-      ])).resolves.toEqual([{ invocations: [] }, { invocations: [] }])
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(firstClient) }).list({ search: "éclair" }),
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(secondClient) }).list({ search: "éclair" }),
+      ])).resolves.toEqual([
+        { invocations: [expect.objectContaining({ id: "legacy" })] },
+        { invocations: [expect.objectContaining({ id: "legacy" })] },
+      ])
+      await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
+        .resolves.toEqual({ invocations: [] })
     }
     finally {
       setupClient.close()

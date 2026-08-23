@@ -382,7 +382,7 @@ function journalTraceLog(
   observe: (entry: TraceEventLogEntry) => void,
   nextSequence: () => number,
 ): TraceEventLog {
-  const messageDeltaChunkCharacters = 4_096
+  const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
   const messageDeltaChunkEvents = 32
   let pendingMessageDelta: TraceEventLogEntry | undefined
   let pendingMessageDeltaEvents = 0
@@ -395,41 +395,67 @@ function journalTraceLog(
     pendingMessageDelta = undefined
     pendingMessageDeltaEvents = 0
   }
+  const queueMessageDelta = (entry: TraceEventLogEntry) => {
+    const rawContent = entry.attributes?.["message.content"]
+    const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
+    if (content && content.length > messageDeltaChunkCharacters) {
+      for (let offset = 0; offset < content.length; offset += messageDeltaChunkCharacters) {
+        queueMessageDelta({
+          ...entry,
+          attributes: {
+            ...entry.attributes,
+            "message.content": content.slice(offset, offset + messageDeltaChunkCharacters),
+          },
+        })
+      }
+      return
+    }
+    const pending = pendingMessageDelta
+    const rawPreviousContent = pending?.attributes?.["message.content"]
+    const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
+      ? String(rawPreviousContent)
+      : undefined
+    const sameMessage = pending
+      && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
+      && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
+      && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
+    if (sameMessage && (previousContent === undefined) === (content === undefined)) {
+      if (previousContent !== undefined && content !== undefined
+        && previousContent.length + content.length > messageDeltaChunkCharacters) {
+        const available = messageDeltaChunkCharacters - previousContent.length
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(0, available) },
+        })
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(available) },
+        })
+        return
+      }
+      const attributes = { ...pending.attributes, ...entry.attributes }
+      if (previousContent !== undefined && content !== undefined) {
+        attributes["message.content"] = `${previousContent}${content}`
+      }
+      pendingMessageDelta = { ...entry, attributes }
+    }
+    else {
+      flushMessageDelta()
+      pendingMessageDelta = entry
+    }
+    pendingMessageDeltaEvents++
+    const pendingContent = pendingMessageDelta.attributes?.["message.content"]
+    if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
+      || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
+      flushMessageDelta()
+    }
+  }
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       try {
         if (entry.name === "agent.message.delta") {
-          const pending = pendingMessageDelta
-          const previousContent = pending?.attributes?.["message.content"]
-          const content = entry.attributes?.["message.content"]
-          const sameMessage = pending
-            && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
-            && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
-            && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
-          if (sameMessage && (previousContent === undefined) === (content === undefined)) {
-            const attributes = {
-              ...pending.attributes,
-              ...entry.attributes,
-            }
-            if (previousContent !== undefined && content !== undefined) {
-              attributes["message.content"] = `${previousContent}${content}`
-            }
-            pendingMessageDelta = {
-              ...entry,
-              attributes,
-            }
-          }
-          else {
-            flushMessageDelta()
-            pendingMessageDelta = entry
-          }
-          pendingMessageDeltaEvents++
-          const pendingContent = pendingMessageDelta.attributes?.["message.content"]
-          if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
-            || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
-            flushMessageDelta()
-          }
+          queueMessageDelta(entry)
         }
         else {
           flushMessageDelta()
