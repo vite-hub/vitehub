@@ -8,6 +8,24 @@ icon: i-lucide-table-properties
 
 `Package-specific` means support belongs to the named package or generated output, not the host as a whole.
 
+## Server primitives
+
+| Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify             | Deno          | Nitro and UnJS | Node and self-hosted  |
+| ---------- | ---------------- | --------------------- | --------------------- | ------------------- | ------------- | -------------- | --------------------- |
+| Blob       | `fs`             | R2                    | Vercel Blob           | Netlify Blobs       | S3-compatible | Host driver    | `fs` or S3-compatible |
+| Database   | SQLite           | D1                    | libSQL or D1 HTTP     | libSQL              | libSQL        | Nuxt D1        | SQLite or libSQL      |
+| KV         | `fs-lite`        | Workers KV            | Upstash Redis         | Upstash Redis       | Deno KV       | Host driver    | `fs-lite` or Upstash  |
+| Queue      | Local runner     | Cloudflare Queues     | Vercel Queues         | —                   | —             | Cloudflare     | —                     |
+| Rate Limit | `memory`         | Rate Limiting binding | —                     | —                   | —             | Cloudflare     | `memory`              |
+| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | —                   | —             | Cloudflare     | Box provider          |
+| Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions | `Deno.cron`   | Provider Wake  | Process runtime       |
+| Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow        | OpenWorkflow  | Host provider  | OpenWorkflow          |
+| Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub              | GitHub        | Host store     | Local or GitHub       |
+
+Names in this table are concrete built-in providers or adapters. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
+
+## Deployment and proof
+
 | Contract                  | Local Vite          | Cloudflare           | Vercel               | Netlify                      | Deno                         | Nitro and UnJS               | Node and self-hosted         |
 | ------------------------- | ------------------- | -------------------- | -------------------- | ---------------------------- | ---------------------------- | ---------------------------- | ---------------------------- |
 | Runtime helpers           | **Available**       | **Package-specific** | **Package-specific** | **Package-specific**         | **Package-specific**         | **Package-specific**         | **Package-specific**         |

@@ -3,6 +3,7 @@ type MatrixStatus = "available" | "package" | "local" | "none";
 
 type MatrixCell = {
   detail: string;
+  display?: string;
   status: MatrixStatus;
 };
 
@@ -87,7 +88,11 @@ const groups = [
   { label: "Runtimes", columns: columns.filter((column) => column.group === "Runtimes") },
 ];
 
-const cell = (status: MatrixStatus, detail: string): MatrixCell => ({ detail, status });
+const cell = (status: MatrixStatus, detail: string, display?: string): MatrixCell => ({
+  detail,
+  display,
+  status,
+});
 
 const sections: { label: string; rows: MatrixRow[] }[] = [
   {
@@ -157,6 +162,289 @@ const sections: { label: string; rows: MatrixRow[] }[] = [
           node: cell(
             "local",
             "Blob fs, KV fs-lite, Rate Limit memory, and Workspace local or memory are single-process development providers.",
+          ),
+        },
+      },
+    ],
+  },
+  {
+    label: "Server primitives",
+    rows: [
+      {
+        id: "blob",
+        label: "Blob",
+        description: "Object storage",
+        values: {
+          local: cell("available", "Local filesystem storage for development.", "fs"),
+          cloudflare: cell(
+            "available",
+            "Cloudflare R2 binding or S3-compatible HTTP access.",
+            "R2",
+          ),
+          vercel: cell("available", "Vercel Blob through the vercel-blob driver.", "Vercel Blob"),
+          netlify: cell(
+            "available",
+            "Netlify Blobs selected from the detected host.",
+            "Netlify Blobs",
+          ),
+          deno: cell(
+            "package",
+            "Use a remote S3-compatible store. No Deno-native Blob driver is provided.",
+            "S3",
+          ),
+          nitro: cell(
+            "package",
+            "Uses the Blob driver selected for the deployment host.",
+            "Host driver",
+          ),
+          node: cell(
+            "available",
+            "Filesystem, S3-compatible, MinIO, or files-sdk drivers.",
+            "fs / S3",
+          ),
+        },
+      },
+      {
+        id: "database",
+        label: "Database",
+        description: "Named SQL databases",
+        values: {
+          local: cell("available", "Local SQLite through libSQL and Drizzle.", "SQLite"),
+          cloudflare: cell(
+            "available",
+            "Cloudflare D1 binding, with authenticated HTTP available for development.",
+            "D1",
+          ),
+          vercel: cell(
+            "available",
+            "Hosted libSQL or Cloudflare D1 over authenticated HTTP.",
+            "libSQL / D1",
+          ),
+          netlify: cell(
+            "package",
+            "Use a hosted libSQL connection. No Netlify-native database driver is provided.",
+            "libSQL",
+          ),
+          deno: cell(
+            "package",
+            "Use a hosted libSQL connection. No Deno-native database driver is provided.",
+            "libSQL",
+          ),
+          nitro: cell(
+            "available",
+            "Nuxt can wire one Cloudflare D1 host resource for Nuxt Content and Nitro.",
+            "Nuxt D1",
+          ),
+          node: cell(
+            "available",
+            "SQLite or hosted libSQL through the selected Database connection.",
+            "SQLite / libSQL",
+          ),
+        },
+      },
+      {
+        id: "kv",
+        label: "KV",
+        description: "Key-value storage",
+        values: {
+          local: cell("available", "Local filesystem-backed KV for development.", "fs-lite"),
+          cloudflare: cell("available", "Cloudflare Workers KV binding.", "Workers KV"),
+          vercel: cell("available", "Upstash Redis with KV REST credentials.", "Upstash"),
+          netlify: cell(
+            "package",
+            "Configure a remote Upstash store. No Netlify-native KV output is provided.",
+            "Upstash",
+          ),
+          deno: cell("available", "Native Deno KV through Deno.openKv().", "Deno KV"),
+          nitro: cell(
+            "package",
+            "Uses the KV driver selected for the deployment host.",
+            "Host driver",
+          ),
+          node: cell(
+            "available",
+            "Filesystem-backed KV or remote Upstash Redis.",
+            "fs-lite / Upstash",
+          ),
+        },
+      },
+      {
+        id: "queue",
+        label: "Queue",
+        description: "Message delivery",
+        values: {
+          local: cell(
+            "available",
+            "Local development runs discovered Queue handlers in the playground.",
+            "Local",
+          ),
+          cloudflare: cell("available", "Cloudflare Queues bindings and consumers.", "Queues"),
+          vercel: cell("available", "Vercel Queues callbacks and runtime client.", "Vercel Queues"),
+          netlify: cell("none", "No Netlify Queue provider is provided.", "—"),
+          deno: cell("none", "No Deno Queue provider is provided.", "—"),
+          nitro: cell(
+            "package",
+            "Cloudflare Queue bindings can be composed through Nitro output.",
+            "Cloudflare",
+          ),
+          node: cell("none", "No standalone self-hosted Queue provider is provided.", "—"),
+        },
+      },
+      {
+        id: "rate-limit",
+        label: "Rate Limit",
+        description: "Atomic request budgets",
+        values: {
+          local: cell("local", "Process-local memory driver for development and tests.", "memory"),
+          cloudflare: cell("available", "Native Cloudflare Rate Limiting binding.", "Cloudflare"),
+          vercel: cell("none", "ViteHub has no native Vercel Rate Limit driver.", "—"),
+          netlify: cell("none", "ViteHub has no native Netlify Rate Limit driver.", "—"),
+          deno: cell("none", "ViteHub has no native Deno Rate Limit driver.", "—"),
+          nitro: cell(
+            "package",
+            "Cloudflare Nitro presets infer the Cloudflare binding.",
+            "Cloudflare",
+          ),
+          node: cell("local", "The memory driver is safe only for a single process.", "memory"),
+        },
+      },
+      {
+        id: "sandbox",
+        label: "Sandbox",
+        description: "Isolated command execution",
+        values: {
+          local: cell(
+            "package",
+            "Runs through the explicitly selected Box provider.",
+            "Box provider",
+          ),
+          cloudflare: cell("available", "Cloudflare Sandbox execution provider.", "CF Sandbox"),
+          vercel: cell("available", "Vercel Sandbox execution provider.", "Vercel Sandbox"),
+          netlify: cell("none", "No Netlify Sandbox provider is provided.", "—"),
+          deno: cell("none", "No Deno Sandbox provider is provided.", "—"),
+          nitro: cell(
+            "package",
+            "Uses Cloudflare Sandbox when the Nitro host exposes its bindings.",
+            "Cloudflare",
+          ),
+          node: cell(
+            "package",
+            "Orchestration can call an explicitly configured Box provider.",
+            "Box provider",
+          ),
+        },
+      },
+      {
+        id: "schedule",
+        label: "Schedule",
+        description: "Static and runtime schedules",
+        values: {
+          local: cell(
+            "available",
+            "Local development runner and the explicit process runtime.",
+            "Local / process",
+          ),
+          cloudflare: cell(
+            "available",
+            "Cloudflare scheduled events and Nitro Provider Wake.",
+            "Cron triggers",
+          ),
+          vercel: cell("available", "Vercel Cron Jobs provider output.", "Vercel Cron"),
+          netlify: cell(
+            "available",
+            "One generated Netlify scheduled function per static Schedule.",
+            "Scheduled fn",
+          ),
+          deno: cell(
+            "available",
+            "Generated Deno.cron wake output for static Schedules.",
+            "Deno.cron",
+          ),
+          nitro: cell(
+            "available",
+            "Nitro Provider Wake, or the process runtime on a long-lived host.",
+            "Provider Wake",
+          ),
+          node: cell(
+            "available",
+            "Process runtime for one long-lived process or replica.",
+            "process",
+          ),
+        },
+      },
+      {
+        id: "workflow",
+        label: "Workflow",
+        description: "Durable execution",
+        values: {
+          local: cell(
+            "available",
+            "OpenWorkflow worker or inline development execution.",
+            "OpenWorkflow",
+          ),
+          cloudflare: cell("available", "Cloudflare Workflows provider.", "CF Workflows"),
+          vercel: cell(
+            "available",
+            "Vercel Workflow provider and Workflow DevKit output.",
+            "Vercel Workflow",
+          ),
+          netlify: cell(
+            "package",
+            "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided.",
+            "OpenWorkflow",
+          ),
+          deno: cell(
+            "package",
+            "Use OpenWorkflow explicitly. No Deno-native Workflow provider is provided.",
+            "OpenWorkflow",
+          ),
+          nitro: cell(
+            "package",
+            "Uses the Workflow provider selected for the deployment host.",
+            "Host provider",
+          ),
+          node: cell("available", "OpenWorkflow worker or inline execution.", "OpenWorkflow"),
+        },
+      },
+      {
+        id: "workspace",
+        label: "Workspace",
+        description: "Agent file-tree state",
+        values: {
+          local: cell(
+            "available",
+            "Local filesystem or in-memory Workspace Store.",
+            "local / memory",
+          ),
+          cloudflare: cell(
+            "available",
+            "Memory by default, or Cloudflare Artifacts beta and GitHub for durable state.",
+            "Artifacts / GitHub",
+          ),
+          vercel: cell(
+            "available",
+            "Vercel Blob or GitHub Workspace Store for durable state.",
+            "Blob / GitHub",
+          ),
+          netlify: cell(
+            "package",
+            "Select the GitHub Workspace Store explicitly for durable state.",
+            "GitHub",
+          ),
+          deno: cell(
+            "package",
+            "Select the GitHub Workspace Store explicitly for durable state.",
+            "GitHub",
+          ),
+          nitro: cell(
+            "package",
+            "Runtime setup uses the Workspace Store selected for the host.",
+            "Host store",
+          ),
+          node: cell(
+            "available",
+            "Local filesystem, memory, or GitHub Workspace Store.",
+            "local / GitHub",
           ),
         },
       },
@@ -428,6 +716,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
                       "
                     >
                       <span aria-hidden="true">{{
+                        row.values[column.id]!.display ??
                         statusMeta[row.values[column.id]!.status].mark
                       }}</span>
                     </button>
@@ -742,17 +1031,19 @@ a.support-matrix-host-link:hover {
 
 .support-matrix-status {
   display: inline-grid;
-  width: 2rem;
-  height: 2rem;
+  width: 100%;
+  min-height: 2rem;
   place-items: center;
+  padding: 0.25rem;
   border: 0;
   border-radius: 0.25rem;
   background: transparent;
   color: var(--ui-text-muted);
   cursor: help;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.9rem;
+  font-size: 0.6875rem;
   font-weight: 650;
+  line-height: 1.25;
   transition:
     background-color 120ms ease,
     color 120ms ease;

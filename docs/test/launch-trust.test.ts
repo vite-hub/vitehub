@@ -61,6 +61,25 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain("**Not provided**");
     expect(matrix).toContain("**Contract-tested**");
     expect(matrix).toContain("**Live proof not published**");
+    for (const primitive of [
+      "Blob",
+      "Database",
+      "KV",
+      "Queue",
+      "Rate Limit",
+      "Sandbox",
+      "Schedule",
+      "Workflow",
+      "Workspace",
+    ]) {
+      expect(matrix).toMatch(new RegExp(`\\| ${primitive}\\s+\\|`));
+      expect(matrixComponent).toContain(`label: "${primitive}"`);
+    }
+    expect(matrix).toContain("Cloudflare Queues");
+    expect(matrix).toContain("Vercel Queues");
+    expect(matrix).toContain("Cloudflare Workflows");
+    expect(matrix).toContain("Vercel Workflow");
+    expect(matrixComponent).toContain("row.values[column.id]!.display");
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
     );
