@@ -357,6 +357,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     )
     channelOwnership?.abortSignal?.throwIfAborted()
     const result = await portableWorkflowResult(inlineResult)
+    await channelOwnership?.verify?.()
     if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery.event({ type: "invocation.completed", runId }).catch(() => undefined)
       await channelDelivery.event({ type: "completed", runId }).catch(() => undefined)
@@ -364,6 +365,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     channelDeliveryStatus = "completed"
     return result
   } catch (error) {
+    await channelOwnership?.verify?.()
     if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery
         .event({

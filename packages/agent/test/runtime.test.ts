@@ -15592,6 +15592,7 @@ describe("agent message protocol", () => {
       const settlement = vi.fn(async () => {
         throw new Error("successor handoff failed")
       })
+      const verify = vi.fn(async () => undefined)
       setAgentChannelDeliveryWorkflowResolver(
         async () =>
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -15602,7 +15603,7 @@ describe("agent message protocol", () => {
             event: async (input: unknown) => input,
           }) as never,
       )
-      setAgentChannelDeliveryWorkflowOwnershipResolver(async () => ({ settle: settlement }))
+      setAgentChannelDeliveryWorkflowOwnershipResolver(async () => ({ verify, settle: settlement }))
 
       try {
         await expect(
@@ -15637,6 +15638,7 @@ describe("agent message protocol", () => {
             async () => "completed",
           ),
         ).resolves.toBe("completed")
+        expect(verify).toHaveBeenCalledOnce()
         expect(settlement).toHaveBeenCalledWith("completed")
       } finally {
         const { installAgentChannelDeliveryWorkflowResolver } = await import("../src/server/routes.ts")

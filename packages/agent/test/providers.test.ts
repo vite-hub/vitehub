@@ -12445,12 +12445,12 @@ describe("server helpers", () => {
 
   it("settles a same-invoker restored primary delivery once", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-restored-primary-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
@@ -12486,6 +12486,7 @@ describe("server helpers", () => {
           },
         },
       }
+      setActiveCloudflareEnv(runtime.cloudflare.env)
       await handler(chatWebhookRequest(91_150), "telegram", runtime)
       await handler(chatWebhookRequest(91_151), "telegram", runtime)
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
@@ -12504,60 +12505,9 @@ describe("server helpers", () => {
           },
           async () => "stale",
         ),
-      ).rejects.toThrow("lost ownership before its Agent Workflow started")
-
-      const queue = `${ownershipKey}:queue`
-      const pendingQueue = `${queue}:pending`
-      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-      const restored = (await state.dequeue(queue)) as {
-        message?: Record<string, unknown> & {
-          deliveryIds?: string[]
-          input?: AgentRunInput
-        }
-      } | null
-      expect(restored?.message?.input?.messages?.map((message) => message.id)).toEqual(["91150", "91151"])
-      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-      const restoredDelivery = restored?.message?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as { deliveryId?: string } | undefined
-      expect(restoredDelivery?.deliveryId).toBeDefined()
-      expect(restored?.message?.deliveryIds).not.toContain(restoredDelivery?.deliveryId)
-
-      const lock = await state.acquireLock(ownershipKey!, 5 * 60 * 1000)
-      expect(lock).toBeDefined()
-      const claimId = crypto.randomUUID()
-      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-      const originalBinding = workflowPayloads[0]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
-        | {
-            steer?: Record<string, unknown>
-          }
-        | undefined
-      const input: AgentRunInput = {
-        ...restored!.message!.input!,
-        context: {
-          ...restored!.message!.input!.context,
-          [agentChannelDeliveryWorkflowContextKey]: {
-            ...restoredDelivery,
-            steer: {
-              ...originalBinding?.steer,
-              claimId,
-              deliveryIds: restored!.message!.deliveryIds,
-              lock,
-              pendingQueue,
-              queue,
-            },
-          },
-        },
-      }
-      const payload = { ...workflowPayloads[0], ...restored!.message, input }
-      await state.enqueue(
-        pendingQueue,
-        // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
-        {
-          enqueuedAt: Date.now(),
-          expiresAt: Number.MAX_SAFE_INTEGER,
-          message: { ...restored!.message, claimId, input, ownerToken: lock!.token },
-        } as never,
-        1,
-      )
+      ).resolves.toBeUndefined()
+      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
+      expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91150", "91151"])
       await expect(
         runAgentWorkflowDefinition(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -12566,7 +12516,7 @@ describe("server helpers", () => {
           {
             id: "restored-primary",
             name: "calories",
-            payload,
+            payload: workflowPayloads[1],
             provider: "cloudflare",
           },
           async () => "completed",
@@ -12580,6 +12530,7 @@ describe("server helpers", () => {
         expect(delivery?.events.filter((event) => event.type === "completed")).toHaveLength(1)
       }
     } finally {
+      setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -13587,7 +13538,7 @@ describe("server helpers", () => {
       expect(binding?.steer).toBeDefined()
       // Keep the lease comfortably beyond a loaded CI worker's scheduling
       // jitter so this exercises a transient rejection, not actual expiry.
-      binding!.steer!.ttlMs = 2_000
+      binding!.steer!.ttlMs = 5_000
       binding!.steer!.lock.expiresAt = Date.now() - 1
       const originalExtendLock = state.extendLock.bind(state)
       let rejectOwnerHeartbeat = false
@@ -13606,7 +13557,7 @@ describe("server helpers", () => {
       expect(ownership).toBeDefined()
       expect(binding!.steer!.lock.expiresAt).toBeGreaterThan(Date.now())
       rejectOwnerHeartbeat = true
-      await vi.waitFor(() => expect(ownerHeartbeatRejected).toBe(true), { timeout: 3_000 })
+      await vi.waitFor(() => expect(ownerHeartbeatRejected).toBe(true), { timeout: 6_000 })
       expect(ownership!.abortSignal?.aborted).toBe(false)
       extendLock.mockRestore()
       await ownership!.settle("failed")
@@ -14103,9 +14054,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
 
       const replayOutcome = await replay
-      expect(replayOutcome).toHaveProperty("error")
-      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-      expect((replayOutcome as { error: Error }).error.message).toMatch(/lost ownership|could not claim/)
+      expect(replayOutcome).toEqual({ value: undefined })
       release()
       const firstOutcome = await firstExecution
       expect(firstOutcome).toHaveProperty("error")
@@ -14113,15 +14062,17 @@ describe("server helpers", () => {
       expect((firstOutcome as { error: Error }).error.message).toContain("lost execution ownership")
       expect(runs).toHaveBeenCalledOnce()
       expect(adapter.postMessage).not.toHaveBeenCalled()
-      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
-      expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
+      expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
       extendLock.mockRestore()
 
       await handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      expect(workflowPayloads.at(-1)?.input?.messages?.map((message) => message.id)).toEqual(["91142", "91145"])
+      expect(createBatch.mock.calls.length).toBeGreaterThanOrEqual(2)
+      expect(workflowPayloads.at(-1)?.input?.messages?.map((message) => message.id)).toEqual(["91142"])
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_142), "telegram", { agentIdentity: { name: "calories" } })
       const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91142"))

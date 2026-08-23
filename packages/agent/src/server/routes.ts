@@ -2606,11 +2606,78 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               )
               stopExecutionHeartbeat()
               await resolved.state.releaseLock(executionLock).catch(() => undefined)
-              return { retrySettlementFailures: true, settlementStatus: "failed", settle: async () => undefined }
+              return { retrySettlementFailures: true, settlementStatus: "failed", verify: async () => undefined, settle: async () => undefined }
             }
             await restoreDurableSteerQueue(resolved.state, queue, pending.message)
             if (!(await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, pending))) {
               throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
+            }
+            const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
+            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+            const restored = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
+            if (restored?.message?.input) {
+              const recoveredLock = await acquireRequiredStateLock(resolved.state, lock.threadId, ttlMs)
+              const recoveredClaimId = crypto.randomUUID()
+              const recoveredDelivery = restored.message.input.context?.[agentChannelDeliveryWorkflowContextKey]
+              const recoveredInput: AgentRunInput = {
+                ...restored.message.input,
+                context: {
+                  ...restored.message.input.context,
+                  [agentChannelDeliveryWorkflowContextKey]: {
+                    ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
+                    steer: {
+                      ...binding.steer,
+                      claimId: recoveredClaimId,
+                      deliveryIds: durableSteerMergedDeliveryIds(restored.message, isRecord(recoveredDelivery) ? recoveredDelivery.deliveryId : undefined),
+                      lock: recoveredLock,
+                      pendingQueue: ownedPendingQueue,
+                    },
+                  },
+                },
+              }
+              const recoveredPending: DurableSteerQueueEntry = {
+                enqueuedAt: Date.now(),
+                expiresAt: Number.MAX_SAFE_INTEGER,
+                message: {
+                  ...restored.message,
+                  claimId: recoveredClaimId,
+                  input: recoveredInput,
+                  ownerToken: recoveredLock.token,
+                },
+              }
+              await resolved.state.enqueue(ownedPendingQueue, recoveredPending as never, 1)
+              if (!(await atomicQueue.queueReplaceHead(queue, restored as never, [], durableSteerQueueMaximum))) {
+                await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending)
+                await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+                throw new Error("[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed.")
+              }
+              let recoveredWorkflowInput = recoveredInput
+              if (restored.message.resolvedInvoker) {
+                const recoveredInvoker = resolveInputAgentInvoker(recoveredInput.context)
+                if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredInput, recoveredInvoker)
+              }
+              try {
+                await startAgentInvocation(
+                  agent as never,
+                  {
+                    ...context,
+                    capabilities: restored.message.capabilities,
+                    ...(restored.message.requestUrl ? { request: new Request(restored.message.requestUrl) } : {}),
+                    ...(restored.message.run ? { run: restored.message.run } : {}),
+                  } as never,
+                  recoveredWorkflowInput as never,
+                )
+              } catch (error) {
+                if (!isAmbiguousAgentWorkflowStartFailure(error)) {
+                  await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending)
+                  await restoreDurableSteerQueue(resolved.state, queue, recoveredPending.message!)
+                  await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+                  throw error
+                }
+              }
+              stopExecutionHeartbeat()
+              await resolved.state.releaseLock(executionLock).catch(() => undefined)
+              return { settlementStatus: "completed", verify: async () => undefined, settle: async () => undefined }
             }
           }
         } finally {
@@ -2631,6 +2698,23 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
     const claimedPending = pending as DurableSteerQueueEntry & { message: DurableSteerQueueMessage & { input: AgentRunInput } }
     const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, loseOwnership)
+    const verify = async () => {
+      executionAbort.signal.throwIfAborted()
+      let executionOwned = false
+      let scopeOwned = false
+      try {
+        executionOwned = await resolved.state.extendLock(executionLock, executionTtlMs)
+        scopeOwned = executionOwned && (await resolved.state.extendLock(lock, ttlMs))
+      } catch (error) {
+        loseOwnership()
+        throw error
+      }
+      if (!executionOwned || !scopeOwned) {
+        loseOwnership()
+        executionAbort.signal.throwIfAborted()
+      }
+      ownershipLost = false
+    }
     const settle = async (status: "completed" | "failed") => {
       let activePending: DurableSteerQueueEntry = claimedPending
       let handoffLock: Lock | undefined
@@ -2649,11 +2733,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         })
         // A transient heartbeat error is not permanent ownership loss. The
         // token check below is the authority at settlement.
-        if (!(await resolved.state.extendLock(executionLock, executionTtlMs)) || !(await resolved.state.extendLock(lock, ttlMs))) {
-          loseOwnership()
-          return
-        }
-        ownershipLost = false
+        await verify()
         if (activePending.message?.settlementStatus === "failed" && activePending.message.settlementError) {
           await failDurableSteerQueue(
             resolved.state,
@@ -2884,7 +2964,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         await resolved.state.releaseLock(executionLock).catch(() => undefined)
       }
     }
-    return { abortSignal: executionAbort.signal, retrySettlementFailures: true, settlementStatus: claimedPending.message.settlementStatus, settle }
+    return { abortSignal: executionAbort.signal, retrySettlementFailures: true, settlementStatus: claimedPending.message.settlementStatus, verify, settle }
   })
 }
 

@@ -65,6 +65,7 @@ export interface AgentChannelDeliveryWorkflowOwnership {
   abortSignal?: AbortSignal
   retrySettlementFailures?: boolean
   settlementStatus?: "completed" | "failed"
+  verify?(): Promise<void>
   settle(status: "completed" | "failed"): Promise<void>
 }
 
