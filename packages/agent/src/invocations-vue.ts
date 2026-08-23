@@ -271,6 +271,7 @@ export function useAgentInvocations(
   let resetFirstPage = true;
   let departedIds = new Set<string>();
   let pendingDepartureIds = new Set<string>();
+  let reconciledInvocations = new Map<string, AgentInvocationSummary>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
@@ -291,10 +292,11 @@ export function useAgentInvocations(
         return;
       }
       const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
-      const retained = invocations.value.filter(invocation =>
-        !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id),
-      );
+      const retained = invocations.value
+        .filter(invocation => !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id))
+        .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
       departedIds = new Set();
+      reconciledInvocations = new Map();
       invocations.value = [...result.invocations, ...retained];
       firstPage = result.invocations;
       if (retained.length === 0) cursor.value = result.cursor;
@@ -304,6 +306,7 @@ export function useAgentInvocations(
       cursor.value = undefined;
       firstPage = [];
       pendingDepartureIds = new Set();
+      reconciledInvocations = new Map();
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -341,6 +344,7 @@ export function useAgentInvocations(
       ));
       departedIds = new Set();
       pendingDepartureIds = new Set();
+      reconciledInvocations = new Map();
       for (const [index, outcome] of reconciled.entries()) {
         const id = displaced[index]!;
         if (outcome.status === "rejected") {
@@ -352,6 +356,7 @@ export function useAgentInvocations(
           (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))
           || (search && !JSON.stringify(searchableInvocation).toLowerCase().includes(search))
         ) departedIds.add(id);
+        else reconciledInvocations.set(id, searchableInvocation);
       }
       return result;
     },

@@ -669,8 +669,12 @@ describe("Agent Invocations", () => {
   })
 
   it("preserves the configured trace content policy and coalesces message deltas", async () => {
-    const run = async (runId: string, traceLog = createTraceEventLog()) => {
-      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const run = async (
+      runId: string,
+      content: "content" | "metadata",
+      traceLog = createTraceEventLog(),
+    ) => {
+      const invocations = defineAgentInvocations({ content, store: createMemoryAgentInvocationStore() })
       const agent = defineAgent({
         driver: { async run(context) {
           for (let index = 0; index < 300; index++) {
@@ -695,7 +699,7 @@ describe("Agent Invocations", () => {
       return (await invocations.getByRunId(runId))?.observations || []
     }
 
-    const metadata = await run("metadata-content")
+    const metadata = await run("metadata-content", "metadata", createTraceEventLog({ content: "content" }))
     const metadataDeltas = metadata.filter(entry => entry.name === "agent.message.delta")
     expect(metadata.map(entry => entry.name)).toEqual([
       "agent.invocation.start",
@@ -706,7 +710,7 @@ describe("Agent Invocations", () => {
     expect(metadataDeltas.every(entry => entry.attributes?.["message.content"] === undefined)).toBe(true)
     expect(metadataDeltas.every(entry => String(entry.attributes?.["content.omitted"]).includes("message.content"))).toBe(true)
 
-    const full = await run("full-content", createTraceEventLog({ content: "content" }))
+    const full = await run("full-content", "content")
     const fullDeltas = full.filter(entry => entry.name === "agent.message.delta")
     expect(fullDeltas.map(entry => entry.attributes?.["message.content"]).join(""))
       .toBe(Array.from({ length: 300 }, (_, index) => String(index % 10).repeat(20)).join(""))
@@ -740,7 +744,7 @@ describe("Agent Invocations", () => {
   })
 
   it("preserves message phases and approval inputs through invocation tracing", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       driver: { async *run() {
         yield { id: "reply", phase: "commentary" as const, text: "Checking.", type: "text-delta" as const }
@@ -1390,7 +1394,10 @@ describe("Agent Invocations", () => {
           if (property === "batch") {
             return async (...args: Parameters<Client["batch"]>) => {
               const statements = args[0]
-              if (statements[0]?.sql.includes("SET search")) {
+              const firstStatement = statements[0]
+              if (typeof firstStatement === "object" && firstStatement !== null
+                && "sql" in firstStatement && typeof firstStatement.sql === "string"
+                && firstStatement.sql.includes("SET search")) {
                 pageSizes.push(statements.length)
                 if (--failPage === 0) throw new Error("migration interrupted")
               }

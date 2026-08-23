@@ -219,6 +219,34 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("refreshes retained summaries during filtered reconciliation", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { search: "inv" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [record("inv-2")] });
+    await settle();
+    calls[2]!.resolve({
+      invocation: {
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      },
+      observations: [],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([
+      record("inv-2"),
+      expect.objectContaining({ id: "inv-1", status: "completed", updatedAt: "2026-08-22T12:01:00.000Z" }),
+    ]);
+    scope.stop();
+  });
+
   it("removes first-page records that leave a search filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

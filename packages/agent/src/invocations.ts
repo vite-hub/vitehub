@@ -305,6 +305,54 @@ function terminalStatus(status: AgentInvocationRecordStatus): boolean {
   return status === "completed" || status === "failed" || status === "cancelled"
 }
 
+function terminalObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "agent.invocation.finish" || observation.name === "agent.invocation.error" || observation.name === "run.finish" || observation.name === "run.error"
+}
+
+function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "run.error"
+    || (observation.name === "agent.stream.error" && observation.attributes?.["error.recoverable"] !== true)
+}
+
+function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
+  if (failureEvidenceObservation(observation)) return 0
+  if (terminalObservation(observation)) return 1
+}
+
+function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
+  return {
+    ...observation,
+    attributes: { ...observation.attributes, "vitehub.trace.truncated": true },
+  }
+}
+
+function prioritizePendingOutcomes(
+  pending: TraceEventLogEntry[],
+  incoming: TraceEventLogEntry,
+  active: TraceEventLogEntry | undefined,
+  retryIncoming = false,
+): void {
+  const activeFatal = active && failureEvidenceObservation(active)
+  const fatal = retryIncoming && failureEvidenceObservation(incoming)
+    ? incoming
+    : activeFatal
+      ? undefined
+      : pending.find(failureEvidenceObservation)
+        ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
+  const pendingTerminal = pending.findLast(terminalObservation)
+  const terminal = retryIncoming
+    ? pendingTerminal ?? (terminalObservation(incoming) ? incoming : undefined)
+    : terminalObservation(incoming)
+      ? incoming
+      : pendingTerminal
+  const outcomes: TraceEventLogEntry[] = []
+  if (fatal) outcomes.push(fatal)
+  if (terminal && terminal !== fatal) outcomes.push(terminal)
+  const ordinary = pending.filter(observation => !failureEvidenceObservation(observation) && !terminalObservation(observation))
+  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
+  pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
+}
+
 function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
   // SAFETY: Node timers expose optional unref; browser timers are numbers and therefore have no method.
   const unref = (timer as { unref?: () => void }).unref
@@ -431,6 +479,7 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
 ): TraceEventLog {
+  const normalizedTraceLog = createTraceEventLog({ content })
   const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
   const messageDeltaChunkEvents = 32
   let pendingMessageDelta: TraceEventLogEntry | undefined
@@ -499,16 +548,19 @@ function journalTraceLog(
       flushMessageDelta()
     }
   }
-  return {
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const journal = {
+    [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       try {
-        if (entry.name === "agent.message.delta") {
-          queueMessageDelta(entry)
+        const safeEntry = await normalizedTraceLog.append({ ...event, timestamp: entry.timestamp })
+        if (safeEntry.name === "agent.message.delta") {
+          queueMessageDelta(safeEntry)
         }
         else {
           flushMessageDelta()
-          emit(entry)
+          emit(safeEntry)
         }
       }
       catch {}
@@ -518,6 +570,9 @@ function journalTraceLog(
       flushMessageDelta()
       return traceLog.entries()
     },
+  } as TraceEventLog
+  if (content === "content") {
+    Object.defineProperty(journal, agentInvocationJournalContentTraceLogSymbol, { value: true })
   }
   return journal
 }
