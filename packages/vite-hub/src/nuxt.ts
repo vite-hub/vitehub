@@ -82,6 +82,7 @@ function markdownTemplateResolver(plugin: MarkdownTemplatePlugin): Plugin {
   return {
     name: "vite-hub/nuxt-markdown-templates",
     load(id, ...args) {
+      // SAFETY: Object.create preserves the complete Rollup plugin context supplied as this.
       const context = Object.create(this) as typeof this
       Object.defineProperty(context, "resolve", {
         value: async (...resolveArgs: Parameters<typeof this.resolve>) => {
@@ -103,7 +104,7 @@ function markdownTemplateResolver(plugin: MarkdownTemplatePlugin): Plugin {
 
 function pluginOptionHasName(option: PluginOption, name: string): boolean {
   if (Array.isArray(option)) return option.some(candidate => pluginOptionHasName(candidate, name))
-  return Boolean(option && typeof option === "object" && "name" in option && option.name === name)
+  return Boolean(option && option.name === name)
 }
 
 function installMarkdownTemplateResolver(config: Record<string, unknown>, plugin: MarkdownTemplatePlugin | undefined): void {

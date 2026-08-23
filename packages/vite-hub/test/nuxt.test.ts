@@ -230,7 +230,9 @@ describe("ViteHub Nuxt integration", () => {
       load: standaloneLoad,
       resolveId: standaloneResolveId,
     }])
-    const nitroConfig = { rollupConfig: { plugins: existingPlugin as Plugin | Plugin[] } }
+    const nitroConfig: { rollupConfig: { plugins: Plugin | Plugin[] } } = {
+      rollupConfig: { plugins: existingPlugin },
+    }
     const nestedResolve = vi.fn().mockResolvedValue({
       id: "\0raw:/app/server/api/name.md",
       meta: { marker: "preserved" },
@@ -246,6 +248,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
+    // SAFETY: The Nitro configuration hook normalizes this plugin option to an array.
     const plugins = nitroConfig.rollupConfig.plugins as Plugin[]
     expect(plugins[0]).toBe(existingPlugin)
     expect(plugins.map(plugin => plugin.name)).toEqual([
