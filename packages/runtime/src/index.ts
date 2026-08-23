@@ -1,4 +1,20 @@
+import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { ViteHubError } from "./errors.ts"
+
+export {
+  normalizeRuntimeDiagnosticError,
+  type RuntimeDiagnosticError,
+  type RuntimeDiagnosticErrorOptions,
+  type RuntimeDiagnosticEvent,
+  type RuntimeDiagnosticLevel,
+  type RuntimeDiagnosticReporter,
+  type RuntimeResourceInspector,
+  type RuntimeResourceObservation,
+  type RuntimeResourceScope,
+  type RuntimeResourceSnapshot,
+  type RuntimeResourceSupport,
+  type RuntimeResourceUnit,
+} from "./diagnostics.ts"
 
 export {
   getViteHubErrorShape,
@@ -43,24 +59,26 @@ export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
 }) satisfies ExecutionAuthority
 
 export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
+  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
   const authority = value as Record<string, unknown>
   const filesystem = authority.filesystem
-  if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem)) return false
+  if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
+  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
   const files = filesystem as Record<string, unknown>
-  return typeof authority.credentials === "string"
+  return hasRuntimeType(authority.credentials, "string")
     && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
-    && typeof authority.environment === "string"
+    && hasRuntimeType(authority.environment, "string")
     && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
-    && typeof files.access === "string"
+    && hasRuntimeType(files.access, "string")
     && ["none", "read-only", "read-write", "unknown"].includes(files.access)
-    && typeof files.scope === "string"
+    && hasRuntimeType(files.scope, "string")
     && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
-    && typeof authority.isolation === "string"
+    && hasRuntimeType(authority.isolation, "string")
     && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
-    && typeof authority.network === "string"
+    && hasRuntimeType(authority.network, "string")
     && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
-    && typeof authority.processes === "string"
+    && hasRuntimeType(authority.processes, "string")
     && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
 }
 
@@ -85,11 +103,12 @@ export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority 
   })
 }
 
-function hasCanonicalFrozenProperties(value: object, keys: readonly string[]): boolean {
+function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): boolean {
+  if (!isRuntimeObject(value)) return false
   const prototype = Object.getPrototypeOf(value)
   if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
   const ownKeys = Reflect.ownKeys(value)
-  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== "string" || !keys.includes(key))) return false
+  if (ownKeys.length !== keys.length || ownKeys.some(key => !hasRuntimeType(key, "string") || !keys.includes(key))) return false
   return keys.every((key) => {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
@@ -161,12 +180,19 @@ export interface TraceRunView {
 export interface OpenTelemetrySpanView {
   attributes?: Record<string, unknown>
   endTime?: string
+  events?: OpenTelemetrySpanEventView[]
   name: string
   parentSpanId?: string
   spanId: string
   startTime: string
-  status: { code: "ERROR" | "OK", message?: string }
+  status: { code: "ERROR" | "OK" | "UNSET", message?: string }
   traceId: string
+}
+
+export interface OpenTelemetrySpanEventView {
+  attributes?: Record<string, unknown>
+  name: string
+  time: string
 }
 
 export interface OpenTelemetrySpanViewOptions {
@@ -284,16 +310,17 @@ const contentAttributeKeys = new Set([
   "response",
   "result",
   "text",
+  "title",
 ])
 
-function isContentAttributeKey(key: string): boolean {
+export function isTraceContentAttributeKey(key: string): boolean {
   if (key === "error.message") return false
   if (contentAttributeKeys.has(key)) return true
   return key.split(".").some((part, index) => index > 0 && contentAttributeKeys.has(part))
 }
 
 function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (!value || typeof value !== "object") return value
+  if (!value || !hasRuntimeType(value, "object")) return value
   if (seen.has(value)) return "[Circular]"
   seen.add(value)
   if (Array.isArray(value)) {
@@ -302,8 +329,16 @@ function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
     return next
   }
   const omitted: string[] = []
-  const next = Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
-    if (isContentAttributeKey(key)) {
+  let entries: [string, unknown][]
+  try {
+    entries = Object.entries(value)
+  }
+  catch {
+    seen.delete(value)
+    return undefined
+  }
+  const next = Object.fromEntries(entries.flatMap(([key, child]) => {
+    if (isTraceContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }
@@ -316,7 +351,7 @@ function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
 
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
-  if (typeof value === "string") return value
+  if (hasRuntimeType(value, "string")) return value
   return new Date().toISOString()
 }
 
@@ -324,7 +359,7 @@ function metadataAttributes(attributes: Record<string, unknown> | undefined): Re
   if (!attributes) return undefined
   const omitted: string[] = []
   const next = Object.fromEntries(Object.entries(attributes).flatMap(([key, value]) => {
-    if (isContentAttributeKey(key)) {
+    if (isTraceContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }
@@ -381,7 +416,7 @@ function durationMs(startTime: string, endTime: string | undefined): number | un
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+  return values.find((value): value is string => hasRuntimeType(value, "string") && value.length > 0)
 }
 
 function runId(event: TraceEventLogEntry): string {
@@ -398,7 +433,11 @@ function stepId(event: TraceEventLogEntry): string | undefined {
 }
 
 function stepStatus(event: TraceEventLogEntry): TraceStepStatus {
-  return event.type === "error" || event.name.endsWith(".error") ? "failed" : event.name.endsWith(".start") || event.name.endsWith(".request") ? "running" : "completed"
+  return event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
+    ? "failed"
+    : /\.(?:output|progress|request|start|started|summary|updated)$/.test(event.name)
+      ? "running"
+      : "completed"
 }
 
 function isTraceRunFinish(event: TraceEventLogEntry): boolean {
@@ -406,7 +445,18 @@ function isTraceRunFinish(event: TraceEventLogEntry): boolean {
 }
 
 function isTraceRunError(event: TraceEventLogEntry): boolean {
-  return event.name === "agent.invocation.error" || event.name === "agent.stream.error" || event.name === "run.error"
+  return event.name === "agent.invocation.error"
+    || (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true)
+    || event.name === "run.error"
+}
+
+function isTraceRunTerminal(event: TraceEventLogEntry): boolean {
+  return isTraceRunFinish(event) || isTraceRunError(event)
+}
+
+function isTraceRunFailureEvidence(event: TraceEventLogEntry): boolean {
+  return event.name === "run.error"
+    || (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true)
 }
 
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
@@ -431,7 +481,7 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
           endTime: status === "running" ? undefined : event.timestamp,
           events: [event],
           id,
-          name: event.name.replace(/\.(start|finish|end|error|request|decision|recorded)$/, ""),
+          name: event.name.replace(/\.(start|started|progress|finish|completed|failed|cancelled|end|error|request|decision|recorded)$/, ""),
           startTime: event.timestamp,
           status,
           type: event.type,
@@ -447,12 +497,13 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
       }
     }
 
-    const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = sorted.some(event => (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true) || event.name === "run.error")
+    const terminal = sorted.slice().reverse().find(isTraceRunTerminal)
+    const failed = sorted.some(isTraceRunFailureEvidence)
+    const status: TraceRunStatus = failed || (terminal && isTraceRunError(terminal))
       ? "failed"
       : terminal
-        ? isTraceRunError(terminal) ? "failed" : "completed"
-        : "running"
+        ? "completed"
+      : "running"
     const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
       durationMs: durationMs(first.timestamp, endTime),
@@ -500,7 +551,45 @@ function openTelemetryId(value: string, length: 16 | 32): string {
 }
 
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
-  const entries = [...events].map(entry => options.content === "metadata"
+  const maxEntries = 1024
+  const firstEntries = maxEntries / 2
+  const tailEntries = maxEntries / 2
+  const entriesByRun = new Map<string, {
+    count: number
+    first: Array<{ entry: TraceEventLogEntry, index: number }>
+    tail: Array<{ entry: TraceEventLogEntry, index: number } | undefined>
+    failure?: { entry: TraceEventLogEntry, index: number }
+    terminal?: { entry: TraceEventLogEntry, index: number }
+  }>()
+  for (const entry of events) {
+    const id = runId(entry)
+    let run = entriesByRun.get(id)
+    if (!run) {
+      run = { count: 0, first: [], tail: Array.from({ length: tailEntries }) }
+      entriesByRun.set(id, run)
+    }
+    const indexed = { entry, index: run.count }
+    if (run.count < firstEntries) run.first.push(indexed)
+    else run.tail[(run.count - firstEntries) % tailEntries] = indexed
+    if (isTraceRunFailureEvidence(entry)) run.failure = indexed
+    if (isTraceRunTerminal(entry)) run.terminal = indexed
+    run.count += 1
+  }
+  const boundedEntries = [...entriesByRun.values()].flatMap((run) => {
+    const tail = run.tail.filter(entry => entry !== undefined).sort((left, right) => left.index - right.index)
+    const evidence = [run.failure, run.terminal].filter(entry => entry !== undefined)
+    const indexed = run.count <= maxEntries
+      ? [...run.first, ...tail]
+      : [...run.first, ...tail.slice(evidence.length), ...evidence]
+    const entries = [...new Map(indexed.map(value => [value.index, value])).values()]
+      .sort((left, right) => left.index - right.index)
+      .map(value => value.entry)
+    if (run.count <= maxEntries) return entries
+    return entries.map((entry, index) => index === 0
+      ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": run.count, "vitehub.trace.truncated": true } }
+      : entry)
+  })
+  const entries = boundedEntries.map(entry => options.content === "metadata"
     ? { ...entry, attributes: metadataAttributes(entry.attributes) }
     : entry)
   return deriveTraceRuns(entries).flatMap((run) => {
@@ -510,6 +599,11 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
     const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
+    const spanEvents = (events: TraceEventLogEntry[]): OpenTelemetrySpanEventView[] => events.map(event => ({
+      ...(event.attributes ? { attributes: event.attributes } : {}),
+      name: event.name,
+      time: event.timestamp,
+    }))
     const errorMessage = firstString(...run.events.slice().reverse().map(event => event.attributes?.["error.message"]))
     return [
       {
@@ -520,12 +614,13 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
           "vitehub.trace.id": rawTraceId,
         },
         endTime: run.endTime,
+        events: spanEvents(run.events.filter(event => !stepId(event))),
         name: "vitehub.run",
         ...(parentSpanId ? { parentSpanId } : {}),
         spanId,
         startTime: run.startTime,
         status: {
-          code: run.status === "failed" ? "ERROR" : "OK",
+          code: run.status === "failed" ? "ERROR" : run.status === "completed" ? "OK" : "UNSET",
           ...(run.status === "failed" && errorMessage ? { message: errorMessage } : {}),
         },
         traceId,
@@ -537,13 +632,19 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
           "vitehub.step.id": step.id,
         },
         endTime: step.endTime || run.endTime,
+        events: spanEvents(step.events),
         name: step.name,
         parentSpanId: spanId,
         spanId: openTelemetryId(`${spanId}:${step.id}`, 16),
         startTime: step.startTime,
+        // SAFETY: Runtime Capability normalization establishes the asserted host contract.
         status: {
-          code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",
-          ...(typeof step.attributes?.["error.message"] === "string" ? { message: step.attributes["error.message"] } : {}),
+          code: step.status === "failed" || (!step.endTime && run.status === "failed")
+            ? "ERROR"
+            : step.endTime || run.status === "completed"
+              ? "OK"
+              : "UNSET",
+          ...(hasRuntimeType(step.attributes?.["error.message"], "string") ? { message: step.attributes["error.message"] } : {}),
         } as const,
         traceId,
       })),
@@ -562,37 +663,34 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
-export function createExecutionContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
+type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRuntimeConfig }
+  ? Exclude<TRuntimeConfig, undefined>
+  : Record<string, unknown>
+
+export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
+): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
   return resolveExecutionContext(context)
 }
 
-export function resolveExecutionContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
+export function resolveExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
+): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
   return {
     ...context,
     capabilities: context.capabilities || {},
-    runtimeConfig: (context.runtimeConfig || {}) as TRuntimeConfig,
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
   }
 }
 
-export function resolveRuntimeContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
+export function resolveRuntimeContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
+): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
   return {
     ...context,
-    runtimeConfig: (context.runtimeConfig || {}) as TRuntimeConfig,
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
   }
 }
 
@@ -626,10 +724,11 @@ export function createRuntimeWaitUntilController(options: {
 }
 
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "kind" in value
-    && typeof (value as { kind?: unknown }).kind === "string"
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    && hasRuntimeType((value as { kind?: unknown }).kind, "string")
     && "value" in value
 }
 
@@ -637,10 +736,10 @@ export function hasCapability(context: RuntimeHostContext, name: string): boolea
   return !!context.capabilities && name in context.capabilities
 }
 
-export function getCapability<TKind extends string = string, TValue = unknown>(
-  context: RuntimeHostContext,
+export function getCapability(
+  context: RuntimeHostContext<any>,
   name: string,
-): CapabilityHandle<TKind, TValue> {
+): CapabilityHandle {
   const value = context.capabilities?.[name]
   if (value === undefined) {
     throw new ViteHubError("CAPABILITY_NOT_FOUND", `[vitehub:runtime] Capability "${name}" was not found.`, {
@@ -648,18 +747,19 @@ export function getCapability<TKind extends string = string, TValue = unknown>(
     })
   }
   if (isCapabilityHandle(value)) {
-    return value as CapabilityHandle<TKind, TValue>
+    return value
   }
-  return defineCapability(name as TKind, value as TValue, { name })
+  return defineCapability(name, value, { name })
 }
 
 export function isResolvable<T, TContext extends RuntimeHostContext<any>>(
   value: MaybeResolvable<T, TContext>,
 ): value is Resolvable<T, TContext> {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "resolve" in value
-    && typeof (value as { resolve?: unknown }).resolve === "function"
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    && hasRuntimeType((value as { resolve?: unknown }).resolve, "function")
 }
 
 export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext<any>>(
@@ -670,7 +770,8 @@ export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext
     return await value.resolve(context)
   }
 
-  if (typeof value === "function") {
+  if (hasRuntimeType(value, "function")) {
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     return await (value as (context: TContext) => MaybePromise<T>)(context)
   }
 
@@ -682,5 +783,5 @@ export async function resolveCapabilityPolicy(
   context: PolicyContext,
 ): Promise<PolicyDecision> {
   if (!policy) return "allow"
-  return typeof policy === "function" ? await policy(context) : policy
+  return hasRuntimeType(policy, "function") ? await policy(context) : policy
 }

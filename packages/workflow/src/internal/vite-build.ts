@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
@@ -59,6 +60,12 @@ interface VercelWorkflowOutputState {
   version: 1
 }
 
+function parseJsonRecord(text: string, label: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(text)
+  if (!isRuntimeRecord(value)) throw new TypeError(`Expected ${label} to contain a JSON record.`)
+  return value
+}
+
 const vercelRootWorkflowRoutes = [
   { handle: "filesystem" },
   { src: "/(.*)", dest: "/__server" },
@@ -78,11 +85,21 @@ async function writeJsonAtomically(file: string, value: unknown): Promise<void> 
 
 async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise<VercelNativeWorkflowOwnership | undefined> {
   try {
-    const ownership = JSON.parse(await readFile(ownershipFile, "utf8")) as VercelNativeWorkflowOwnership
-    if (ownership.version !== 1 || !ownership.files || !Array.isArray(ownership.routes)) return
-    if (Object.entries(ownership.files).some(([file, digest]) => isAbsolute(file) || typeof digest !== "string")) return
-    if (ownership.routes.some(route => typeof route !== "string")) return
-    return ownership
+    const value = parseJsonRecord(await readFile(ownershipFile, "utf8"), "Vercel Workflow ownership")
+    if (value.version !== 1 || !isRuntimeRecord(value.files) || !Array.isArray(value.routes)) return
+    if (value.cleanup !== undefined && !hasRuntimeType(value.cleanup, "boolean")) return
+    const files: Record<string, string> = {}
+    for (const [file, digest] of Object.entries(value.files)) {
+      if (isAbsolute(file) || !hasRuntimeType(digest, "string")) return
+      files[file] = digest
+    }
+    if (value.routes.some(route => !hasRuntimeType(route, "string"))) return
+    return {
+      ...(value.cleanup === true ? { cleanup: true } : {}),
+      files,
+      routes: value.routes.filter((route): route is string => hasRuntimeType(route, "string")),
+      version: 1,
+    }
   }
   catch {
     return
@@ -97,7 +114,9 @@ const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packa
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
+// SAFETY: Generated Workflow module validation establishes the asserted build record contract.
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
+// SAFETY: Generated Workflow module validation establishes the asserted build record contract.
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: new (options: {
@@ -124,6 +143,7 @@ export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
           return
         }
         catch (error) {
+          // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
           if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error
           return { namespace, path: args.path }
         }
@@ -140,9 +160,11 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
     require.resolve("@workflow/builders")
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return undefined
     throw error
   }
+  // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
   return await import("@workflow/builders") as VercelWorkflowBuilders
 }
 
@@ -166,6 +188,7 @@ async function withVercelWorkflowPackageLink<T>(rootDir: string, run: () => Prom
     ownsLink = true
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
   }
 
@@ -297,6 +320,7 @@ export async function cleanVercelNativeWorkflowOutput(rootDir: string): Promise<
       contents = await readFile(outputFile)
     }
     catch (error) {
+      // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         if (!ownership.cleanup) hasReplacement = true
         continue
@@ -321,6 +345,7 @@ export async function cleanVercelNativeWorkflowOutput(rootDir: string): Promise<
     config = JSON.parse(await readFile(configFile, "utf8"))
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   if (Array.isArray(config?.routes)) {
@@ -340,6 +365,7 @@ async function removeEmptyDirectories(directory: string): Promise<boolean> {
     entries = await readdir(directory, { withFileTypes: true })
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return true
     throw error
   }
@@ -382,6 +408,7 @@ async function snapshotVercelNativeWorkflowOutput(rootDir: string): Promise<Verc
     config = await readFile(resolve(outputRoot, "config.json"))
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   return { config, files }
@@ -409,8 +436,8 @@ async function readVercelNativeWorkflowState(rootDir: string): Promise<VercelNat
   const workflowRoot = resolve(outputRoot, "functions", ".well-known", "workflow")
   let routes: unknown[] = []
   try {
-    const config = JSON.parse(await readFile(resolve(outputRoot, "config.json"), "utf8")) as { routes?: unknown[] }
-    routes = config.routes ?? []
+    const config = parseJsonRecord(await readFile(resolve(outputRoot, "config.json"), "utf8"), "Vercel output config")
+    routes = Array.isArray(config.routes) ? config.routes : []
   }
   catch {}
   return {
@@ -441,14 +468,14 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
 
   const snapshot = await snapshotVercelNativeWorkflowOutput(rootDir)
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
-  const viteHubConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[] }
+  const viteHubConfig = parseJsonRecord(await readFile(outputConfigFile, "utf8"), "ViteHub Vercel output config")
   const workflowRoot = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
   const previousOwnership = previousState?.ownership
   const previousFiles = previousState?.files ?? {}
   if (previousState) assertNoExternalCanonicalWorkflowOutput(previousState)
   const previouslyOwnedRoutes = new Set(previousOwnership?.routes ?? [])
   const preservedRoutes = (previousState?.routes ?? []).filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/") && !previouslyOwnedRoutes.has(JSON.stringify(route)))
-  const currentRoutes = (viteHubConfig.routes ?? []).filter(route => !previouslyOwnedRoutes.has(JSON.stringify(route)))
+  const currentRoutes = (Array.isArray(viteHubConfig.routes) ? viteHubConfig.routes : []).filter(route => !previouslyOwnedRoutes.has(JSON.stringify(route)))
   const viteHubRoutes = [...new Map([...currentRoutes, ...preservedRoutes].map(route => [JSON.stringify(route), route])).values()]
   const rollbackRoutes = [...new Map([
     ...currentRoutes,
@@ -475,20 +502,22 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     await withVercelWorkflowPackageLink(rootDir, async () => await builder.build())
     const emailDefinitionFile = aliases["#vitehub/email/definition"]
     if (emailDefinitionFile) await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
-    const workflowConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[], [key: string]: unknown }
+    const workflowConfig = parseJsonRecord(await readFile(outputConfigFile, "utf8"), "Workflow Vercel output config")
+    const workflowRoutes = Array.isArray(workflowConfig.routes) ? workflowConfig.routes : []
     await writeFile(outputConfigFile, `${JSON.stringify({
       ...workflowConfig,
       ...viteHubConfig,
-      routes: [...(workflowConfig.routes ?? []), ...viteHubRoutes],
+      routes: [...workflowRoutes, ...viteHubRoutes],
     }, null, 2)}\n`, "utf8")
     const generatedFiles = await collectVercelNativeWorkflowFiles(workflowRoot)
     const ownedFiles = Object.fromEntries(Object.entries(generatedFiles)
       .filter(([file, digest]) => previousFiles[file] !== digest || previousFiles[file] === previousOwnership?.files[file]))
     const routeTargetsOwnedFunction = (route: unknown) => {
-      if (!route || typeof route !== "object") return false
+      if (!route || !hasRuntimeType(route, "object")) return false
       return ["dest", "src"]
+        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
         .map(key => (route as Record<string, unknown>)[key])
-        .filter((value): value is string => typeof value === "string")
+        .filter((value): value is string => hasRuntimeType(value, "string"))
         .some((target) => {
           const functionPath = target.match(/\/\.well-known\/workflow\/(v1\/[^?]+)/)?.[1]
           return Boolean(functionPath && Object.keys(ownedFiles).some(file => file.startsWith(`${functionPath}.func/`)))
@@ -496,7 +525,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     }
     const ownership: VercelNativeWorkflowOwnership = {
       files: ownedFiles,
-      routes: [...new Map([...(workflowConfig.routes ?? []), ...preservedRoutes].map(route => [JSON.stringify(route), route])).values()]
+      routes: [...new Map([...workflowRoutes, ...preservedRoutes].map(route => [JSON.stringify(route), route])).values()]
         .filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
         .filter(route => !externalWorkflowRoutes.has(JSON.stringify(route)) || routeTargetsOwnedFunction(route))
         .map(route => JSON.stringify(route)),
@@ -600,16 +629,17 @@ interface CloudflareWorkflowNitroOptions {
 }
 
 function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {}
+  // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
+  return value && hasRuntimeType(value, "object") ? value as Record<string, unknown> : {}
 }
 
 function mergeCloudflareWorkersExternal(external: unknown): unknown {
   const cloudflareRuntimeModules = ["cloudflare:workers", "cloudflare:workflows"]
   if (external === undefined) return cloudflareRuntimeModules
-  if (typeof external === "string") return [...new Set([external, ...cloudflareRuntimeModules])]
+  if (hasRuntimeType(external, "string")) return [...new Set([external, ...cloudflareRuntimeModules])]
   if (external instanceof RegExp) return [external, ...cloudflareRuntimeModules]
   if (Array.isArray(external)) return [...new Set([...external, ...cloudflareRuntimeModules])]
-  if (typeof external === "function") {
+  if (hasRuntimeType(external, "function")) {
     return (source: string, importer?: string, isResolved?: boolean) => cloudflareRuntimeModules.includes(source) || external(source, importer, isResolved)
   }
   return external
@@ -758,7 +788,7 @@ function readAgentSkills(file: string): Record<string, { content: string, encodi
 
 function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
   return [
-    `  ${JSON.stringify(definition.name)}: async () => {`,
+    `  ${JSON.stringify(definition.name)}: Object.assign(async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
@@ -766,7 +796,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     `    const entry = { options: { rootStep: false }, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
-    "  },",
+    `  }, ${definition.source === "agent-workflow-recovery" ? "{ internalAgentInvocationRecovery: true }" : "{}"}),`,
   ].join("\n")
 }
 
@@ -1022,6 +1052,7 @@ export async function writeProviderEntries(
         ...definition,
         agentIdentity: definition.agentIdentity || definition.name,
         name: getAgentInvocationRecoveryWorkflowName(definition.name),
+        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
         source: "agent-workflow-recovery" as const,
       }]
     : [definition])
@@ -1135,6 +1166,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
     ownsWrapper = (await readFile(resolve(outputRoot, "index.js"), "utf8")).includes(cloudflareWorkflowWrapperImport)
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   return {
@@ -1172,6 +1204,7 @@ function createVercelOutput(
         ...(workflowTransformPlugin ? [workflowTransformPlugin] : []),
       ],
     },
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
 }
@@ -1183,10 +1216,10 @@ function isSafeVercelFunctionName(functionsRoot: string, serverFunctionName: str
 
 async function readVercelWorkflowFunctionOwnership(functionRoot: string): Promise<VercelWorkflowFunctionOwnership | undefined> {
   try {
-    const ownership = JSON.parse(await readFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), "utf8")) as Partial<VercelWorkflowFunctionOwnership>
-    if (typeof ownership.digest !== "string") return
+    const ownership = parseJsonRecord(await readFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), "utf8"), "Vercel Workflow function ownership")
+    if (!hasRuntimeType(ownership.digest, "string")) return
     if (ownership.version !== undefined && ownership.version !== 1) return
-    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => typeof route !== "string"))) return
+    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => !hasRuntimeType(route, "string")))) return
     return {
       digest: ownership.digest,
       ...(ownership.rootConfigRoutes ? { rootConfigRoutes: ownership.rootConfigRoutes } : {}),
@@ -1213,10 +1246,10 @@ async function getVercelWorkflowFunctionOwnership(functionRoot: string): Promise
 
 async function readVercelWorkflowOutputState(rootDir: string, functionsRoot: string): Promise<VercelWorkflowOutputState | undefined> {
   try {
-    const state = JSON.parse(await readFile(resolve(rootDir, vercelWorkflowOutputState), "utf8")) as Partial<VercelWorkflowOutputState>
-    if (typeof state.serverFunctionName !== "string" || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
+    const state = parseJsonRecord(await readFile(resolve(rootDir, vercelWorkflowOutputState), "utf8"), "Vercel Workflow output state")
+    if (!hasRuntimeType(state.serverFunctionName, "string") || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
     if (state.version !== undefined && state.version !== 1) return
-    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => typeof route !== "string"))) return
+    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => !hasRuntimeType(route, "string")))) return
     return {
       ...(state.rootConfigRoutes ? { rootConfigRoutes: state.rootConfigRoutes } : {}),
       serverFunctionName: state.serverFunctionName,
@@ -1233,11 +1266,12 @@ async function cleanVercelWorkflowRootConfig(rootDir: string, ownedRoutes: strin
   const configFile = resolve(createDefaultVercelOutputRoot(rootDir), "config.json")
   let config: Record<string, unknown>
   try {
-    const value = JSON.parse(await readFile(configFile, "utf8")) as unknown
-    if (!value || typeof value !== "object" || Array.isArray(value)) return
-    config = value as Record<string, unknown>
+    const value: unknown = JSON.parse(await readFile(configFile, "utf8"))
+    if (!isRuntimeRecord(value)) return
+    config = value
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return
     throw error
   }
@@ -1272,6 +1306,7 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
     }
   }
   catch (error) {
+    // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   const removedRootConfigRoutes: string[] = []

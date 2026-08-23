@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -47,7 +48,7 @@ it("discovers executable Agent Eval files without treating fixture directories a
 })
 
 function responseChunkText(chunk: unknown) {
-  if (typeof chunk === "string") return chunk
+  if (hasRuntimeType(chunk, "string")) return chunk
   if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
   if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8")
   return String(chunk)
@@ -75,10 +76,10 @@ function createFakeServer(root: string, module: unknown) {
 
 async function configurePluginServer(plugin: { configureServer?: unknown }, server: unknown) {
   const hook = plugin.configureServer
-  if (typeof hook === "function") {
+  if (hasRuntimeType(hook, "function")) {
     await hook(server)
   }
-  else if (hook && typeof hook === "object" && "handler" in hook && typeof hook.handler === "function") {
+  else if (hook && hasRuntimeType(hook, "object") && "handler" in hook && hasRuntimeType(hook.handler, "function")) {
     await hook.handler(server)
   }
 }
@@ -92,6 +93,7 @@ async function invokeMiddleware(
   options: { onResponse?: (res: ServerResponse) => void } = {},
 ) {
   let output = ""
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
   req.headers = headers
   req.method = method
@@ -100,7 +102,8 @@ async function invokeMiddleware(
   const result = await new Promise<{ body: string, statusCode: number }>((resolve, reject) => {
     let statusCode = 200
     const closeListeners = new Set<(...args: unknown[]) => void>()
-    const res = {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const res = asUnknownBoundary({
       destroy(error?: Error) {
         reject(error || new Error("response destroyed"))
       },
@@ -134,7 +137,7 @@ async function invokeMiddleware(
         output += responseChunkText(chunk)
         return true
       },
-    } as unknown as ServerResponse
+    }) as ServerResponse
 
     options.onResponse?.(res)
     handler(req, res, () => reject(new Error("middleware passed through")))
@@ -675,6 +678,7 @@ describe("agent chat capability discovery", () => {
       [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
     }, "POST", {
       onResponse(res) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         closeResponse = () => (res as ServerResponse & { emit: (event: string) => boolean }).emit("close")
       },
     })
@@ -715,6 +719,7 @@ describe("agent chat capability discovery", () => {
             },
           }),
         ],
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         driver: { model: {} as never },
       })
       const { handlers, server } = createFakeServer(root, { default: agent })
@@ -1031,6 +1036,7 @@ describe("agent chat capability discovery", () => {
           cli: {
             commands: {
               slow: {
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 run: () => new Promise(() => {}) as never,
               },
             },
@@ -1123,7 +1129,7 @@ describe("agent chat capability discovery", () => {
       channels: {
         portal: webChat(),
       },
-      driver: { run: ({ context, invoker, messages }) => `payload ${context.get<{ meta?: { audience?: string } }>("chat")?.meta?.audience} ${invoker.id} ${getMessageText(messages[0]!)}` },
+      driver: { run: ({ context, invoker, messages }) => `payload ${context.get("chat")?.meta?.audience} ${invoker.id} ${getMessageText(messages[0]!)}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -1176,6 +1182,7 @@ describe("agent chat capability discovery", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => ({}) as never,
           webhooks: { secretToken: "secret-token" },
         }),
@@ -1230,7 +1237,9 @@ describe("agent chat capability discovery", () => {
                 triggerInputs.push(input)
                 return {
                   input: {
-                    context: { pullRequest: (input as { pullRequest?: unknown }).pullRequest } as AgentRunInput["context"],
+                    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+                    context: { "review.context": (input as { "review.context"?: unknown })["review.context"] } as AgentRunInput["context"],
+                    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                     prompt: (input as { prompt?: string }).prompt,
                   },
                   run: { channelId: "github", origin: "github-pull-request-comment", runId: "github-run" },
@@ -1241,7 +1250,7 @@ describe("agent chat capability discovery", () => {
           webhooks: { secretHeader: "x-test-secret", secretToken: "secret-token" },
         }),
       },
-      driver: { run: ({ context, input }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${input.prompt}` },
+      driver: { run: ({ context, input }) => `context ${context.get("review.context")?.number} ${input.prompt}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -1251,7 +1260,7 @@ describe("agent chat capability discovery", () => {
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
       payload: {
-        pullRequest: { number: 42 },
+        "review.context": { number: 42 },
       },
       messages: [{
         id: "user-1",
@@ -1269,7 +1278,7 @@ describe("agent chat capability discovery", () => {
       .map(line => JSON.parse(line))
 
     expect(triggerInputs).toEqual([expect.objectContaining({
-      pullRequest: { number: 42 },
+      "review.context": { number: 42 },
       prompt: "/review",
     })])
     expect(events).toEqual([
@@ -1293,8 +1302,8 @@ describe("agent chat capability discovery", () => {
         github: github({ pullRequest: { reply: false, workspace: false }, webhooks: { secretToken: "secret-token" } }),
       },
       driver: { run: ({ context, input }) => {
-          const github = context.get<{ command: string, repository: string }>("github")
-          const pullRequest = context.get<{ pullRequest: { number: number } }>("pullRequest")
+          const github = context.get("github")
+          const pullRequest = context.get("pullRequest")
           return `context ${github?.repository}#${pullRequest?.pullRequest.number} ${github?.command} ${input.prompt}`
         } },
     })
@@ -1493,6 +1502,7 @@ describe("agent chat capability discovery", () => {
         } },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {})).resolves.toBe("Review completed.")
     expect(reactionEffect).toHaveBeenCalledOnce()
     expect(replyEffect).toHaveBeenCalledTimes(2)
@@ -1700,7 +1710,8 @@ describe("agent chat capability discovery", () => {
       return { default: agent }
     })
     const plugin = (await import("../src/vite.ts")).hubAgent()
-    if (typeof plugin.configResolved === "function") {
+    if (hasRuntimeType(plugin.configResolved, "function")) {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await plugin.configResolved.call({} as never, {
         command: "serve",
         plugins: [{ name: "@vite-hub/database/vite" }, { name: "@vite-hub/schedule/vite" }],

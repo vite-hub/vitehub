@@ -1,4 +1,4 @@
-import type { Message, StreamEvent } from "./messages.ts"
+import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
@@ -13,6 +13,7 @@ import type {
   Resolvable,
   RuntimeCapabilities,
   RuntimeCapabilityHandle,
+  RuntimeDiagnosticError,
   RuntimeHostContext,
   RuntimeWaitUntil,
   OpenTelemetrySpanView,
@@ -108,7 +109,22 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 }
 
 declare global {
-  interface ViteHubAgentInvocationContextValues {}
+  interface ViteHubAgentInvocationContextValues {
+    "agent.channels": string[]
+    "agent.colocatedSkills": Record<string, WorkspaceSourceInput>
+    "agent.invocation.traceId": string
+    "agent.name": string
+    "agent.output.eventObserver": (event: StreamEvent) => void
+    "agent.output.progressSummary": boolean
+    "agent.schedule.turn": boolean
+    "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
+    "channel.delivery.titleDelivered": boolean
+    "chat.channelState": { keyPrefix: string, state: StateAdapter }
+    "chat.finish": AgentChatFinishExtension
+    "vitehub.channel.final-output": boolean
+    "vitehub.title.response-fallback": boolean
+    "workspace.sourceResolution.definition": WorkspaceDefinition
+  }
   interface ViteHubAgentFinishExtensions {}
   interface ViteHubAgentOutputExtensions {}
 }
@@ -143,7 +159,7 @@ export interface AgentInvocationContextStore<TValues extends object = AgentInvoc
   entries: () => IterableIterator<[string, unknown]>
   get: {
     <TKey extends keyof TValues & string>(id: TKey): TValues[TKey] | undefined
-    <T = unknown>(id: string): T | undefined
+    (id: string): unknown
   }
   has: (id: string) => boolean
   set: {
@@ -218,9 +234,57 @@ export interface AgentTelemetryExportContext<TRuntimeConfig extends AgentRuntime
   spans: readonly OpenTelemetrySpanView[]
 }
 
-export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = (
-  context: AgentTelemetryExportContext<TRuntimeConfig>,
-) => MaybePromise<void>
+export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
+  bivarianceHack(context: AgentTelemetryExportContext<TRuntimeConfig>): MaybePromise<void>
+}["bivarianceHack"]
+
+export interface AgentTelemetryContentOptions {
+  inputs?: boolean
+  instructions?: boolean
+  outputs?: boolean
+}
+
+export interface AgentTelemetryRegistration<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  content?: AgentTelemetryContentOptions
+  exporter: AgentTelemetry<TRuntimeConfig>
+  /** Export throttled snapshots while the invocation is still running. */
+  live?: boolean
+}
+
+export interface AgentCapabilityTelemetryContext {
+  metadata: (metadata: Record<string, unknown>) => void
+}
+
+export interface AgentTelemetryCapabilityMetadata {
+  id: string
+  metadata?: Record<string, AgentInspectionValue>
+}
+
+export interface AgentTelemetryConfiguration {
+  agent?: {
+    name?: string
+    version?: string
+  }
+  capabilities?: AgentTelemetryCapabilityMetadata[]
+  driver: {
+    kind: AgentDriverKind
+    model?: {
+      id?: string
+      provider?: string
+    }
+    provider?: string
+  }
+  instructions?: string[]
+  runtime: {
+    name: string
+  }
+  tools?: Array<{ name: string }>
+  workspace?: {
+    mode: AgentCapabilityMode
+    name?: string
+    sources?: string[]
+  }
+}
 
 export interface AgentChannelDelivery {
   agentName: string
@@ -541,8 +605,8 @@ export interface AgentInvocationExtensions<TValues extends object = Record<strin
     capabilityId: TKey,
     key: TField
   ): NonNullable<TValues[TKey]>[TField] | undefined
-  get<T = unknown>(capabilityId: string): T | undefined
-  get<T = unknown>(capabilityId: string, key: string): T | undefined
+  get(capabilityId: string): unknown
+  get(capabilityId: string, key: string): unknown
   toJSON: () => Record<string, unknown>
 }
 
@@ -634,10 +698,7 @@ export type AgentHookOutcome = "error" | "success"
 
 export interface AgentHookObserverEvent {
   durationMs: number
-  error?: {
-    message: string
-    name?: string
-  }
+  error?: RuntimeDiagnosticError
   ids?: Record<string, string | undefined>
   metadata?: Record<string, unknown>
   name: string
@@ -894,6 +955,7 @@ export interface AgentCapabilityRuntimeContext<
   state: {
     require: (name: string, options?: { optional?: boolean }) => void
   }
+  telemetry: AgentCapabilityTelemetryContext
   tools: {
     add: (tools: AgentToolSet | undefined) => void
     transform: (transform: AgentToolTransform) => void
@@ -927,6 +989,7 @@ export interface AgentCapabilityDefinition<
   prepare?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   requires?: AgentCapabilityRequirement[]
   resolve?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  telemetry?: AgentTelemetryRegistration<TRuntimeConfig>
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
   workspaceSources?: WorkspaceDefinition["sources"]
@@ -1109,10 +1172,16 @@ export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOpti
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
 
+declare const agentDriverCallOptions: unique symbol
+
+type AgentDriverCallOptions<CALL_OPTIONS> = {
+  readonly [agentDriverCallOptions]?: (options: CALL_OPTIONS) => CALL_OPTIONS
+}
+
 export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   | BuiltInAgentDriverName
-  | ({ kind: "codex" } & CodexDriverOptions<TOutput>)
-  | ({ kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
+  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "codex" } & CodexDriverOptions<TOutput>)
+  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1215,7 +1284,6 @@ type AgentSharedSettings<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
-  telemetry?: AgentTelemetry<TRuntimeConfig>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
@@ -1255,7 +1323,6 @@ export interface AgentDefinition<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
-  telemetry?: AgentTelemetry<TRuntimeConfig>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1263,8 +1330,12 @@ export interface AgentDefinition<
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
-export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext, TOutput = unknown> =
-  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, any, any, any, TOutput>
+export type AgentInput<
+  TContext extends AgentRuntimeContext<any> = AgentRuntimeContext,
+  TOutput = unknown,
+  CALL_OPTIONS = any,
+  TInvokerProfile extends AgentInvokerProfile = any,
+> = AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, CALL_OPTIONS, TInvokerProfile, any, TOutput>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }
@@ -1620,6 +1691,7 @@ export interface AgentToolExecutionContext {
 }
 
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
+  activity?: AgentActivity
   description?: string
   execute?: (input: TInput, context?: AgentToolExecutionContext) => MaybePromise<TOutput>
   inputSchema?: AgentToolSchema<TInput>

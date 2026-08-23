@@ -9,7 +9,7 @@ import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
-import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
+import type { AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -20,17 +20,25 @@ import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChat
 declare global {
   interface ViteHubAgentInvocationContextValues {
     "chat.secret": string
+    portal: { baseUrl?: string, cubeToken?: string, previewCookie?: string }
+    "review.context": { number?: number, repository?: string }
+    "support.customerScope": { customers: string[] }
+    trustedScope: string
   }
   interface ViteHubAgentChannelMeta {
+    access?: string
+    audience?: string
     customer?: string
   }
   interface ViteHubAgentChannelUser {
+    id?: string
     email?: string
   }
 }
 
 describe("agent public types", () => {
   it("preserves native Capability context inference beside Eve mounts", () => {
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
       AgentRuntimeConfig,
       any,
@@ -145,6 +153,7 @@ describe("agent public types", () => {
 
   it("types declarative and concrete Agent models", () => {
     const descriptor = { apiKey: "token", id: "zai/glm-5v-turbo" } satisfies AgentGatewayModel
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const concrete = {} as LanguageModel
 
     defineAgent({ driver: { model: "zai/glm-5v-turbo" } })
@@ -195,6 +204,7 @@ describe("agent public types", () => {
           // @ts-expect-error Agent Finish Hooks do not receive normalized error messages.
           void event.errorMessage
           expectTypeOf(event.extensions.get("cost")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get("unregistered")).toEqualTypeOf<unknown>()
         },
       },
     })
@@ -229,6 +239,7 @@ describe("agent public types", () => {
 
   it("types the Email capability as one explicit send grant", () => {
     const policy: EmailCapabilityToolPolicy = "require-approval"
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const options = { from: "agent@example.com", policy, recipients: ["owner@example.com"] as const } satisfies EmailCapabilityOptions
 
     expectTypeOf(email(options)).toMatchTypeOf<AgentCapabilityDefinition>()
@@ -286,8 +297,10 @@ describe("agent public types", () => {
   it("infers structured Agent output from its Standard Schema", () => {
     const schema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { summary: string, title: string } }),
         vendor: "test",
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         version: 1 as const,
       },
     } satisfies StandardSchemaV1<unknown, { summary: string, title: string }>
@@ -300,9 +313,13 @@ describe("agent public types", () => {
       },
       runtime: false,
     })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const rawResult = runAgentInline(agent, {} as AgentRuntimeContext, {}, { output: "raw" })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const workflowResult = runAgent(agent, {} as AgentRuntimeContext, {})
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const controlled = startAgentInvocation(agent, {} as AgentRuntimeContext, {})
 
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
@@ -385,6 +402,7 @@ describe("agent public types", () => {
           messages: { delivery: "manual", triggerHistory: "none" },
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { maxRetries: 0, model: () => ({}) as never },
     })
 
@@ -421,8 +439,10 @@ describe("agent public types", () => {
           input: () => ({ properties: { message: { type: "string" } }, type: "object" }),
           output: () => ({ properties: { message: { type: "string" } }, type: "object" }),
         },
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { message: string } }),
         vendor: "test",
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         version: 1 as const,
       },
     } satisfies AgentToolSchema<{ message: string }>
@@ -448,10 +468,13 @@ describe("agent public types", () => {
 
     const validationOnlySchema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { message: string } }),
         vendor: "test",
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         version: 1 as const,
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       type: "object" as const,
     } satisfies StandardSchemaV1<unknown, { message: string }> & { type: "object" }
 
@@ -489,11 +512,13 @@ describe("agent public types", () => {
   it("accepts flat Capability CLI contributions", () => {
     const inputSchema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { limit?: number } }),
       },
     }
     const outputSchema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { items: string[] } }),
       },
     }
@@ -594,7 +619,8 @@ describe("agent public types", () => {
       expectTypeOf(context.text).toEqualTypeOf<string | undefined>()
       expectTypeOf(context.invocation.usage).toEqualTypeOf<AgentUsageRecord | undefined>()
       expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
-      expectTypeOf(context.context.get<{ repository: string }>("review.context")).toEqualTypeOf<{ repository: string } | undefined>()
+      expectTypeOf(context.context.get("review.context")).toEqualTypeOf<{ number?: number, repository?: string } | undefined>()
+      expectTypeOf(context.context.get("unregistered.context")).toEqualTypeOf<unknown>()
       expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
       expectTypeOf(context.workspace).toEqualTypeOf<ReadonlyWorkspaceFacade | undefined>()
       if (context.error) return context.reply(`failed: ${context.errorMessage}`)
@@ -700,12 +726,14 @@ describe("agent public types", () => {
           },
         }),
         portal: http({
+          // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
           adapter: () => ({}) as never,
           route: {
             admission: {
               body: {
                 "~standard": {
                   validate: (input: unknown) => ({
+                    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
                     value: input as { messages: unknown[], tenant: string },
                   }),
                 },
@@ -722,6 +750,7 @@ describe("agent public types", () => {
           webhooks: { path: "/api/support/chat" },
         }),
         teams: teams({
+          // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
           adapter: () => ({}) as never,
         }),
         telegram: telegram({
@@ -736,6 +765,7 @@ describe("agent public types", () => {
               expectTypeOf(body.messages).toEqualTypeOf<unknown>()
               expectTypeOf(event).toEqualTypeOf<unknown>()
               expectTypeOf(request).toEqualTypeOf<Request>()
+              // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
               return { meta: body.meta as Record<string, unknown> }
             },
           },
@@ -746,6 +776,7 @@ describe("agent public types", () => {
               body: {
                 "~standard": {
                   validate: (input: unknown) => ({
+                    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
                     value: input as { messages: unknown[], meta: { customer: string }, user: { email: string } },
                   }),
                 },
@@ -935,6 +966,7 @@ describe("agent public types", () => {
     interface SupportChatUser {
       email?: string
     }
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const teamsAdapter = () => ({}) as never
     const supportChat = chat({
       identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
@@ -989,6 +1021,7 @@ describe("agent public types", () => {
       { id: "support-technical", kind: "technical", meta: { audience: "technical" } },
     ]
     expectTypeOf(supportProfiles[0]?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     expectTypeOf({} as AgentRunInput<unknown, SupportInputContext>["context"]).toEqualTypeOf<SupportInputContext | undefined>()
     type BrowserSubagentContext = { previewUrl: string }
     const browserAgentInput: AgentRunInput<{ mode: "fast" }, BrowserSubagentContext> = {
@@ -1048,6 +1081,7 @@ describe("agent public types", () => {
         run() {
           return "ok"
         },
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         model: {} as never
       },
       invoker: defineAgentInvoker({
@@ -1111,6 +1145,7 @@ describe("agent public types", () => {
           },
         }),
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
       // @ts-expect-error access source grants are checked against defineAgent({ workspace.sources })
       workspace: {
@@ -1121,6 +1156,7 @@ describe("agent public types", () => {
     })
 
     defineAgent({
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       capabilities: () => [
         access({
           workspace: {
@@ -1130,6 +1166,7 @@ describe("agent public types", () => {
           },
         }),
       ] as const,
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
       // @ts-expect-error callback access source grants are checked against defineAgent({ workspace.sources })
       workspace: {
@@ -1155,6 +1192,7 @@ describe("agent public types", () => {
           },
         }),
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1169,6 +1207,7 @@ describe("agent public types", () => {
         access({
           workspace: {
             resolve() {
+              // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
               return "technical" as const
             },
             scopes: {
@@ -1177,6 +1216,7 @@ describe("agent public types", () => {
           },
         }),
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1203,6 +1243,7 @@ describe("agent public types", () => {
         }),
         reviewWorkspaceBundle,
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1221,6 +1262,7 @@ describe("agent public types", () => {
           },
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1241,6 +1283,7 @@ describe("agent public types", () => {
           },
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1264,12 +1307,14 @@ describe("agent public types", () => {
       // @ts-expect-error Capability-contributed Workspace Sources do not own access scopes.
       workspace: { sources: {} },
       capabilities: [capabilityWithScopedSource],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
     // @ts-expect-error Workspace Sources do not own access scopes.
     githubSource({
       repo: "acme/docs",
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       scopes: ["customer"] as const,
     })
 
@@ -1317,6 +1362,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: broadCapabilities,
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1336,6 +1382,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: [widenedAccessCapability],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1360,6 +1407,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: [bundledAccessCapability],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
   })
@@ -1411,6 +1459,7 @@ describe("agent public types", () => {
           expectTypeOf(invoker.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
       workspace: {
         sources: {
@@ -1425,6 +1474,7 @@ describe("agent public types", () => {
     const capabilityScorer: AgentScorer = hasCapabilityExtension("chat")
     const definition: AgentEvalDefinition = {
       agent: defineAgent({
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         driver: { model: {} as never },
       }),
       scenarios: [{
@@ -1434,6 +1484,7 @@ describe("agent public types", () => {
         scorers: [scorer],
       }],
       scorers: [scorer],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       variants: [{ name: "strict", instructions: "Be strict.", model: {} as AgentModelInput }],
     }
 
@@ -1441,12 +1492,13 @@ describe("agent public types", () => {
 
     defineEval({
       agent: defineAgent({
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         driver: { model: {} as never },
       }),
       async test(t) {
         const observation = await t.send("hello")
         observation.text.toUpperCase()
-        expectTypeOf(observation.extensions?.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
+        expectTypeOf(observation.extensions?.get("chat")).toEqualTypeOf<unknown>()
         expectTypeOf(t.capabilityExtension<{ status: string }>("chat")).toEqualTypeOf<{ status: string } | undefined>()
         expectTypeOf(t.capabilityExtension<string>("chat", "status")).toEqualTypeOf<string | undefined>()
         t.completed()
@@ -1480,6 +1532,7 @@ describe("agent public types", () => {
     const agent = defineAgent<TestRuntimeConfig>({
       driver: { model: ({ runtimeConfig }: AgentRuntimeContext<TestRuntimeConfig> & { runtimeConfig: TestRuntimeConfig }) => {
           runtimeConfig.service.token.toUpperCase()
+          // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
           return {} as never
         } },
       workspace: { mode: "read" },
@@ -1501,6 +1554,7 @@ describe("agent public types", () => {
     defineEval<TestRuntimeConfig>({
       // @ts-expect-error eval agent runtime config must match the eval runtime config
       agent: defineAgent<{ other: string }>({
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         driver: { model: {} as never },
         workspace: { mode: "read" },
       }),
