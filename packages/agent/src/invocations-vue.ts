@@ -269,11 +269,10 @@ export function useAgentInvocations(
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let firstPage: readonly AgentInvocationSummary[] = [];
-  let hasLoadedMore = false;
+  let loadedPageIds: string[][] = [];
   let revision = 0;
   let resetFirstPage = true;
   let departedIds = new Set<string>();
-  let pendingDepartureIds = new Set<string>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
@@ -305,8 +304,7 @@ export function useAgentInvocations(
       invocations.value = [];
       cursor.value = undefined;
       firstPage = [];
-      hasLoadedMore = false;
-      pendingDepartureIds = new Set();
+      loadedPageIds = [];
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -315,8 +313,7 @@ export function useAgentInvocations(
       if (resetFirstPage) {
         invocations.value = [];
         cursor.value = undefined;
-        pendingDepartureIds = new Set();
-        hasLoadedMore = false;
+        loadedPageIds = [];
       }
       revision++;
       loadMoreController?.abort();
@@ -330,59 +327,39 @@ export function useAgentInvocations(
       const result = parseInvocationListResult(
         await request(appendQuery(toValue(baseURL), query), { signal }),
       );
+      departedIds = new Set();
       const returnedIds = new Set(result.invocations.map((invocation) => invocation.id));
-      const retainedIds = hasLoadedMore
-        ? invocations.value
-            .filter((invocation) => !returnedIds.has(invocation.id))
-            .map((invocation) => invocation.id)
-        : [];
+      const retainedPageIds = resetFirstPage
+        ? []
+        : [
+            firstPage
+              .filter((invocation) => !returnedIds.has(invocation.id))
+              .map((invocation) => invocation.id),
+            ...loadedPageIds,
+          ].filter((ids) => ids.length > 0);
       const refreshed = await Promise.allSettled(
-        retainedIds.map((id) =>
-          request(detailPath(toValue(baseURL), id), { signal }).then(parseInvocationDetailResult),
+        retainedPageIds.map((ids) =>
+          request(appendQuery(toValue(baseURL), { id: ids }), { signal }).then(parseInvocationListResult),
         ),
       );
       const refreshedRetained = new Map(
         refreshed.flatMap((outcome) =>
           outcome.status === "fulfilled"
-            ? [[outcome.value.invocation.id, outcome.value.invocation] as const]
+            ? outcome.value.invocations.map((invocation) => [invocation.id, invocation] as const)
             : [],
         ),
       );
       const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
       const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
       const search = query?.search?.trim().toLowerCase();
+      const matchesQuery = (invocation: AgentInvocationSummary) =>
+        (statuses.size === 0 || statuses.has(invocation.status))
+        && (!search || JSON.stringify(invocation).toLowerCase().includes(search));
+      for (const invocation of refreshedRetained.values()) {
+        if (!matchesQuery(invocation)) departedIds.add(invocation.id);
+      }
       if (resetFirstPage || (statuses.size === 0 && !search)) {
         return { ...result, refreshedRetained };
-      }
-      for (const id of returnedIds) pendingDepartureIds.delete(id);
-      const displaced = [
-        ...new Set([
-          ...firstPage
-            .filter((invocation) => !returnedIds.has(invocation.id))
-            .map((invocation) => invocation.id),
-          ...pendingDepartureIds,
-        ]),
-      ];
-      const reconciled = await Promise.allSettled(
-        displaced.map((id) =>
-          request(detailPath(toValue(baseURL), id), { signal }).then(parseInvocationDetailResult),
-        ),
-      );
-      departedIds = new Set();
-      pendingDepartureIds = new Set();
-      for (const [index, outcome] of reconciled.entries()) {
-        const id = displaced[index]!;
-        if (outcome.status === "rejected") {
-          pendingDepartureIds.add(id);
-          continue;
-        }
-        const searchableInvocation = { ...outcome.value.invocation };
-        Reflect.deleteProperty(searchableInvocation, "observations");
-        if (
-          (statuses.size > 0 && !statuses.has(outcome.value.invocation.status)) ||
-          (search && !JSON.stringify(searchableInvocation).toLowerCase().includes(search))
-        )
-          departedIds.add(id);
       }
       return { ...result, refreshedRetained };
     },
@@ -416,7 +393,7 @@ export function useAgentInvocations(
         ...invocations.value,
         ...result.invocations.filter((invocation) => !ids.has(invocation.id)),
       ];
-      hasLoadedMore = true;
+      loadedPageIds.push(result.invocations.map((invocation) => invocation.id));
       cursor.value = result.cursor;
       options.onSuccess?.();
       return result;

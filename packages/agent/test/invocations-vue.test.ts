@@ -191,6 +191,9 @@ describe("Agent Invocation Vue composables", () => {
     expect(calls).toHaveLength(2);
 
     calls[1]!.resolve({ invocations: [record("inv-2")] } satisfies AgentInvocationListResult);
+    await settle();
+    expect(calls[2]!.path).toBe("/api/invocations?id=inv-1");
+    calls[2]!.resolve({ invocations: [record("inv-1")] } satisfies AgentInvocationListResult);
     await refresh;
     expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-1")]);
     scope.stop();
@@ -211,11 +214,13 @@ describe("Agent Invocation Vue composables", () => {
     calls[2]!.resolve({ cursor: "new-page-2", invocations: [record("inv-3"), record("inv-2")] });
     await settle();
     expect(calls.slice(3).map((call) => call.path)).toEqual([
-      "/api/invocations/inv-1",
-      "/api/invocations/inv-0",
+      "/api/invocations?id=inv-1",
+      "/api/invocations?id=inv-0",
     ]);
-    calls[3]!.resolve({ invocation: { ...record("inv-1"), status: "completed" }, observations: [] });
-    calls[4]!.resolve({ invocation: record("inv-0"), observations: [] });
+    calls[3]!.resolve({
+      invocations: [{ ...record("inv-1"), status: "completed" }],
+    });
+    calls[4]!.resolve({ invocations: [record("inv-0")] });
     await refresh;
 
     expect(resource.invocations.value.map((invocation) => invocation.id)).toEqual([
@@ -226,6 +231,30 @@ describe("Agent Invocation Vue composables", () => {
     ]);
     expect(resource.invocations.value[2]?.status).toBe("completed");
     expect(resource.cursor.value).toBe("page-3");
+    scope.stop();
+  });
+
+  it("removes refreshed older rows that leave the active filter", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() =>
+      useAgentInvocations({ query: { status: "running" }, request }),
+    )!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    expect(calls[3]!.path).toBe("/api/invocations?id=inv-1");
+    calls[3]!.resolve({ invocations: [{ ...record("inv-1"), status: "completed" }] });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([record("inv-2")]);
     scope.stop();
   });
 

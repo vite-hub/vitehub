@@ -10,6 +10,7 @@ import { agentInvocationObservationWouldTruncate, bindAgentInvocations } from ".
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
+import type { AgentRuntimeContext } from "../src/index.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
 import type { Client } from "@libsql/client"
 
@@ -595,11 +596,12 @@ describe("Agent Invocations", () => {
     const store: AgentInvocationStore = {
       ...memory,
       async update(id, input, claimId) {
+        const snapshot = structuredClone(input)
         if (input.observation?.sequence === 256) {
           finalWriteStarted()
           await finalWrite
         }
-        return memory.update(id, input, claimId)
+        return memory.update(id, snapshot, claimId)
       },
     }
     const invocations = defineAgentInvocations({ store })

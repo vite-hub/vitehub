@@ -517,7 +517,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
       let heartbeatDeadline: number | undefined
       let observationWrite: Promise<void> | undefined
-      let observationInFlight: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
@@ -617,7 +616,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         ) return
         let observation = pendingObservations.shift()
         if (!observation) return
-        if (observationCount >= MAX_OBSERVATIONS - 1 && pendingObservations.length > 0) {
+        if (observationCount >= MAX_OBSERVATIONS - 1) {
           observation = {
             ...observation,
             attributes: {
@@ -636,17 +635,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             timestamp,
             ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
           })
-          observationInFlight = persistedObservation
           const updated = await boundedStoreOperation(() => store.update(recordId, {
             observation: persistedObservation,
             timestamp,
           }, claimId))
           if (updated && updated !== storeOperationTimedOut) observationCount = updated.observations.length
-          observationInFlight = undefined
         })().catch(() => {})
         const settled = task.finally(() => {
           if (observationWrite === settled) {
-            observationInFlight = undefined
             observationWrite = undefined
             writeNextObservation()
           }
@@ -666,13 +662,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 ...retained.attributes,
                 [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
               },
-            }
-            observationCapMarked = true
-          }
-          else if (observationInFlight) {
-            observationInFlight.attributes = {
-              ...observationInFlight.attributes,
-              [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
             }
             observationCapMarked = true
           }

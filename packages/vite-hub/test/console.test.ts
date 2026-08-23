@@ -11,6 +11,7 @@ import { createServer } from "vite"
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
 import { createConsoleRequest, groupConsoleSessions } from "../src/console/runtime/request.ts"
 import { consoleInvocationRootPlugin } from "../src/console/vite.ts"
@@ -56,6 +57,33 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
+  it("refreshes invocation summaries in one request without observations", async () => {
+    const get = vi.fn(async (id: string) => ({
+      createdAt: "2026-08-23T12:00:00.000Z",
+      cursor: id,
+      id,
+      observations: [{ name: "private", sequence: 1, timestamp: "2026-08-23T12:00:00.000Z", type: "run" }],
+      status: "running" as const,
+      traceId: `trace-${id}`,
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    }))
+    installConsoleInvocationFallback({ get } as unknown as AgentInvocations, process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?id=inv-1&id=inv-2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ id: "inv-1" }, { id: "inv-2" }],
+    })
+    expect(await invocationsHandler(requestEvent)).toEqual({
+      invocations: [
+        expect.not.objectContaining({ observations: expect.anything() }),
+        expect.not.objectContaining({ observations: expect.anything() }),
+      ],
+    })
+  })
+
   it("orders grouped sessions and runs by their latest activity", () => {
     // SAFETY: The grouping helper only reads the summary fields provided by this focused fixture.
     const invocations = [
