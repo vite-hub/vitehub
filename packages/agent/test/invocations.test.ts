@@ -285,6 +285,52 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("persists queued outcomes when the active observation reaches the finish deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-deadline-outcomes"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "provider stream failed" },
+        name: "agent.stream.error",
+        type: "error",
+      })
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+      const finishing = journal.finish("failed", new Error("provider stream failed"))
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+
+      const record = await invocations.getByRunId("finish-deadline-outcomes")
+      expect(record).toMatchObject({ status: "failed" })
+      expect(record?.observations.map(observation => observation.name)).toEqual([
+        "agent.stream.error",
+        "agent.invocation.finish",
+      ])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("bounds a saturated pending queue containing only outcome evidence", async () => {
     let releaseActive!: () => void
     let reportActiveStarted!: () => void

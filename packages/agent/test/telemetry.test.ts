@@ -107,6 +107,8 @@ describe("Agent telemetry", () => {
       { status: { code: 0 } },
       { status: { code: 0 } },
     ])
+    expect(body.resourceSpans[0].scopeSpans[0].spans[0]).not.toHaveProperty("endTimeUnixNano")
+    expect(body.resourceSpans[0].scopeSpans[0].spans[1]).not.toHaveProperty("endTimeUnixNano")
   })
 
   it("rejects oversized binary content before encoding or delivery", async () => {
@@ -620,6 +622,35 @@ describe("Agent telemetry", () => {
     expect(retainedNames).toContain("application.output.1099")
     expect(retainedNames).toContain("agent.stream.error")
     expect(telemetry.mock.calls[0]![0].spans[0].status).toEqual({ code: "ERROR" })
+  })
+
+  it("forwards every content trace to a caller-owned destination", async () => {
+    const tasks: Promise<unknown>[] = []
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "caller-content",
+        telemetry: { content: { outputs: true }, exporter: vi.fn() },
+      })],
+      driver: {
+        async run(context) {
+          for (let index = 0; index < 1_100; index += 1) {
+            await context.traceLog?.append({ name: `application.output.${index}`, type: "run" })
+          }
+          return "ok"
+        },
+      },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    expect(traceLog.entries().filter(event => event.name.startsWith("application.output."))).toHaveLength(1_100)
   })
 
   it("retries transient OTLP responses", async () => {

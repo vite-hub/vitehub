@@ -2254,7 +2254,7 @@ function agentInvocationTraceEvent(
 }
 
 function agentContentTraceLog(
-  destination: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>,
+  destination: ResolvedAgentRuntimeContext["traceLog"],
   invocationId: string,
   runId?: string,
 ): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
@@ -2274,7 +2274,7 @@ function agentContentTraceLog(
       .sort((left, right) => left.sequence - right.sequence)
   }
   const traceLog = {
-    async append(event: Parameters<typeof destination.append>[0]) {
+    async append(event: Parameters<NonNullable<ResolvedAgentRuntimeContext["traceLog"]>["append"]>[0]) {
       const correlated = agentInvocationTraceEvent(event, invocationId, runId)
       const normalized = await createTraceEventLog({ content: "content" }).append(correlated)
       const entry = { ...normalized, sequence: count + 1 }
@@ -2284,15 +2284,15 @@ function agentContentTraceLog(
       if (isFailure) failure = entry
       if (entry.name === "agent.invocation.finish" || entry.name === "run.finish" || entry.name === "agent.invocation.error" || isFailure) terminal = entry
       count += 1
-      await destination.append(correlated)
+      await destination?.append(correlated)
       return entry
     },
     entries: retainedEntries,
   }
-  if (agentInvocationJournalTraceLogSymbol in destination) {
+  if (destination && agentInvocationJournalTraceLogSymbol in destination) {
     Object.defineProperty(traceLog, agentInvocationJournalTraceLogSymbol, { value: true })
   }
-  if (agentInvocationJournalContentTraceLogSymbol in destination) {
+  if (destination && agentInvocationJournalContentTraceLogSymbol in destination) {
     Object.defineProperty(traceLog, agentInvocationJournalContentTraceLogSymbol, { value: true })
   }
   return traceLog
@@ -2724,7 +2724,7 @@ async function createAgentInvocationContext<
     ? agentInvocationTraceLog(baseTraceLog, telemetryInvocationId, context.run?.runId, telemetryChanged)
     : baseTraceLog
   const initialTraceLog = initialTelemetryUsesContent || mayResolveContentTelemetry
-    ? agentContentTraceLog(baseTraceLog, telemetryInvocationId, context.run?.runId)
+    ? agentContentTraceLog(resolvedContext.traceLog, telemetryInvocationId, context.run?.runId)
     : correlatedTraceLog
   const tracedRuntimeContext = {
     ...tracedRuntimeContextBase,

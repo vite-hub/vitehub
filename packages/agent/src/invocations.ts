@@ -684,18 +684,40 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           while (observationWrite && Date.now() < observationDeadline) {
             await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
+          const pendingFailure = pendingObservations.find(failureEvidenceObservation)
+          const pendingTerminal = pendingObservations.findLast(terminalObservation)
+          const pendingOutcomes = [pendingFailure, pendingTerminal]
+            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
+            .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
+            .map(observation => boundedObservation({
+              ...observation,
+              timestamp: normalizedTimestamp(observation.timestamp),
+              ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+            }))
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
           }
           const failure = errorDetails(error)
+          for (const observation of pendingOutcomes.slice(0, -1)) {
+            await update({ observation, timestamp: observation.timestamp })
+          }
+          const terminalOutcome = pendingOutcomes.at(-1)
           const finishInput: AgentInvocationStoreUpdateInput = {
             ...(failure ? { error: failure } : {}),
+            ...(terminalOutcome ? { observation: terminalOutcome } : {}),
             status,
             timestamp: new Date().toISOString(),
           }
           const finishOnce = async () => {
-            if (finished || !await update(finishInput, bindOptions.terminalTakeover)) return false
+            if (finished) return false
+            const updated = await update(finishInput, bindOptions.terminalTakeover)
+              || terminalOutcome !== undefined && await update({
+                ...(failure ? { error: failure } : {}),
+                status,
+                timestamp: finishInput.timestamp,
+              }, bindOptions.terminalTakeover)
+            if (!updated) return false
             finished = true
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))

@@ -131,7 +131,7 @@ function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: 
   if (span.status.message) chargeOtlpEncoding(budget, jsonStringByteLength(span.status.message))
   return {
     attributes: otlpAttributes(span.attributes, budget),
-    endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime),
+    ...(span.endTime ? { endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime) } : {}),
     ...(span.events?.length
       ? {
           events: span.events.map((event) => {
