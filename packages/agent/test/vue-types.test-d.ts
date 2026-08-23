@@ -44,7 +44,7 @@ describe("Agent Vue client types", () => {
 
   it("exposes typed invocation list and detail resources", () => {
     const request = null as unknown as AgentInvocationRequester
-    const list = useAgentInvocations({ immediate: false, request })
+    const list = useAgentInvocations({ immediate: false, request, requestSummaries: request })
     const detail = useAgentInvocation("inv-1", { immediate: false, request })
 
     expectTypeOf(list.invocations).toEqualTypeOf<ShallowRef<readonly AgentInvocationSummary[]>>()

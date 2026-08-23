@@ -36,6 +36,7 @@ const list = useAgentInvocations({
   onSuccess: recordSuccessfulPoll,
   pollInterval: 5_000,
   request,
+  requestSummaries: request,
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: apiBase,

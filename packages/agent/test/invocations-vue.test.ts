@@ -177,7 +177,7 @@ describe("Agent Invocation Vue composables", () => {
   it("does not paginate while refreshing the first page", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
-    const resource = scope.run(() => useAgentInvocations({ request }))!;
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries: request }))!;
 
     calls[0]!.resolve({
       cursor: "next",
@@ -199,10 +199,29 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("keeps lazy-loaded pages when polling refreshes the first page", async () => {
+  it("keeps the standard list requester free of retained-summary parameters", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [record("inv-2")] });
+    await refresh;
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/invocations",
+      "/api/invocations",
+    ]);
+    expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-1")]);
+    scope.stop();
+  });
+
+  it("keeps lazy-loaded pages when polling refreshes the first page", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries: request }))!;
 
     calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2"), record("inv-1")] });
     await settle();
@@ -235,7 +254,7 @@ describe("Agent Invocation Vue composables", () => {
   it("keeps refreshing first-page rows displaced by successive polls", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
-    const resource = scope.run(() => useAgentInvocations({ request }))!;
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries: request }))!;
 
     calls[0]!.resolve({ invocations: [record("inv-2"), record("inv-1")] });
     await settle();
@@ -263,7 +282,7 @@ describe("Agent Invocation Vue composables", () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() =>
-      useAgentInvocations({ query: { status: "running" }, request }),
+      useAgentInvocations({ query: { status: "running" }, request, requestSummaries: request }),
     )!;
 
     calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
@@ -275,7 +294,7 @@ describe("Agent Invocation Vue composables", () => {
     const refresh = resource.refresh();
     calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
     await settle();
-    expect(calls[3]!.path).toBe("/api/invocations?id=inv-1");
+    expect(calls[3]!.path).toBe("/api/invocations?status=running&id=inv-1");
     calls[3]!.resolve({ invocations: [{ ...record("inv-1"), status: "completed" }] });
     await refresh;
 

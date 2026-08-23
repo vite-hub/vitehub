@@ -26,6 +26,7 @@ export interface UseAgentInvocationsOptions {
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
+  requestSummaries?: AgentInvocationRequester;
   watch?: boolean;
 }
 
@@ -331,13 +332,16 @@ export function useAgentInvocations(
         : invocations.value
             .filter((invocation) => !returnedIds.has(invocation.id))
             .map((invocation) => invocation.id);
-      const retainedPageIds = Array.from(
+      const retainedPageIds = options.requestSummaries ? Array.from(
         { length: Math.ceil(retainedIds.length / 50) },
         (_, index) => retainedIds.slice(index * 50, (index + 1) * 50),
-      );
+      ) : [];
       const refreshed = await Promise.allSettled(
         retainedPageIds.map((ids) =>
-          request(appendQuery(toValue(baseURL), { id: ids }), { signal }).then(parseInvocationListResult),
+          options.requestSummaries!(
+            appendQuery(toValue(baseURL), { ...query, id: ids }),
+            { signal },
+          ).then(parseInvocationListResult),
         ),
       );
       const refreshedRetained = new Map(

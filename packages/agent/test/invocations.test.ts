@@ -7,7 +7,12 @@ import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
 import { agentInvocationObservationWouldTruncate, bindAgentInvocations } from "../src/invocations.ts"
-import { applyAgentInvocationStoreUpdate, createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
+import {
+  AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE,
+  applyAgentInvocationStoreUpdate,
+  createMemoryAgentInvocationStore,
+  defineAgentInvocations,
+} from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
@@ -251,7 +256,7 @@ describe("Agent Invocations", () => {
         store: {
           ...memory,
           update(id, input, claimId) {
-            if (input.observation) return new Promise(() => {})
+            if (input.observation?.sequence === 256) return new Promise(() => {})
             return memory.update(id, input, claimId)
           },
         },
@@ -267,7 +272,11 @@ describe("Agent Invocations", () => {
       await vi.advanceTimersByTimeAsync(1_000)
       await finishing
 
-      expect((await invocations.getByRunId("stalled-observations"))?.status).toBe("completed")
+      const record = await invocations.getByRunId("stalled-observations")
+      expect(record?.status).toBe("completed")
+      expect(
+        record?.observations.at(-1)?.attributes?.[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE],
+      ).toBe(true)
     }
     finally {
       vi.useRealTimers()

@@ -733,6 +733,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
           const finishInput: AgentInvocationStoreUpdateInput = {
               ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
+              ...(observationCapMarked ? { observationsTruncated: true } : {}),
               status,
               timestamp: new Date().toISOString(),
           }
