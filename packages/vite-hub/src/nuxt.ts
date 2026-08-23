@@ -104,7 +104,7 @@ function markdownTemplateResolver(plugin: MarkdownTemplatePlugin): Plugin {
 
 function pluginOptionHasName(option: PluginOption, name: string): boolean {
   if (Array.isArray(option)) return option.some(candidate => pluginOptionHasName(candidate, name))
-  return Boolean(option && typeof option === "object" && "name" in option && option.name === name)
+  return Boolean(option && Reflect.get(Object(option), "name") === name)
 }
 
 function installMarkdownTemplateResolver(config: Record<string, unknown>, plugin: MarkdownTemplatePlugin | undefined): void {
