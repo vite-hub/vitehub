@@ -23,6 +23,7 @@ type MatrixRow = {
 
 const route = useRoute();
 const navigationOpen = ref(false);
+const openDetails = reactive<Record<string, boolean>>({});
 
 watch(
   () => route.path,
@@ -351,7 +352,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
       </nav>
     </header>
 
-    <main class="support-matrix-main">
+    <section class="support-matrix-main" aria-label="Runtime and host support matrix">
       <div class="support-matrix-legend" aria-label="Status legend">
         <span v-for="(meta, status) in statusMeta" :key="status">
           <span class="support-matrix-mark" :data-status="status" aria-hidden="true">{{
@@ -411,6 +412,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
                 </th>
                 <td v-for="column in columns" :key="column.id">
                   <UTooltip
+                    v-model:open="openDetails[`${row.id}-${column.id}`]"
                     :text="row.values[column.id]!.detail"
                     :content="{ side: 'top', sideOffset: 8, collisionPadding: 12 }"
                     :ui="{ content: 'support-matrix-tooltip' }"
@@ -420,6 +422,10 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
                       class="support-matrix-status"
                       :data-status="row.values[column.id]!.status"
                       :aria-label="`${column.label}, ${row.label}: ${statusMeta[row.values[column.id]!.status].label}. ${row.values[column.id]!.detail}`"
+                      @click="
+                        openDetails[`${row.id}-${column.id}`] =
+                          !openDetails[`${row.id}-${column.id}`]
+                      "
                     >
                       <span aria-hidden="true">{{
                         statusMeta[row.values[column.id]!.status].mark
@@ -432,7 +438,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
           </tbody>
         </table>
       </div>
-    </main>
+    </section>
 
     <footer class="support-matrix-footer">
       <span>Repository-backed support data</span>
@@ -579,7 +585,8 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
 
 .support-matrix-scroll {
   width: 100%;
-  overflow-x: auto;
+  max-height: calc(100dvh - var(--ui-header-height) - 1rem);
+  overflow: auto;
   overscroll-behavior-inline: contain;
 }
 
@@ -602,7 +609,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
 .support-matrix-table thead {
   position: sticky;
   z-index: 10;
-  top: var(--ui-header-height);
+  top: 0;
 }
 
 .support-matrix-table thead th {

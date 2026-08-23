@@ -20,4 +20,14 @@ icon: i-lucide-table-properties
 
 Cloudflare's nightly run covers nine primitives, including Rate Limit. Vercel covers eight because ViteHub has no native Vercel Rate Limit driver. Browser and Agent routes have contract tests but are outside those deployed runs.
 
+## Qualifications
+
+- **Local Vite:** Active integrations expose their package imports and generated registries. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` provide local state. A local build can still generate output for an explicit or inferred hosted provider.
+- **Cloudflare:** Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent have package-owned output outside the nightly run. Enabled integrations compose the Worker, `wrangler.json`, bindings, callbacks, and runtime modules. ViteHub can provision R2 buckets, D1 databases, and Cloudflare Queues.
+- **Vercel:** Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have separate package output outside the nightly run. Enabled integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. ViteHub can create a Blob store and configure the project environment.
+- **Netlify:** Blob uses `netlify-blobs`. Agent HTTP routes and static Schedules write functions under `.netlify/v1/functions`. CI runs the real-project fixture through Netlify CLI. ViteHub does not provide Netlify provisioning or published live proof.
+- **Deno:** Agent chat and webhook routes, static Schedule wake output, and KV with `deno-kv` are supported with their documented permissions. Agent and Schedule write Deno entrypoints, but ViteHub does not generate a general Deno bundle or publish live proof.
+- **Nitro and UnJS:** Auth and Agent handlers, the Schedule Nitro bridge, Workspace runtime setup, and Database Nuxt D1 wiring are package-owned integrations. Nitro is integration glue rather than a storage or execution provider. ViteHub does not provide Nitro provisioning or one unified live matrix.
+- **Node and self-hosted:** Server APIs and handlers run when their selected driver supports Node. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` are single-process providers. ViteHub does not emit one Node deployment bundle, provision a self-hosted plan, or publish one live suite.
+
 Local memory and filesystem providers stay single-process after deployment. Generated files remain package-owned and must not be imported by application code.
