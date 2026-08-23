@@ -55,8 +55,19 @@ describe("launch documentation trust boundaries", () => {
     ]) {
       expect(matrixHeader).toContain(host);
     }
-    expect(matrix).toMatch(/\| Browser\s+\| —\s+\| Browser Run/);
-    expect(matrixComponent).toContain("Browser Definitions require the Cloudflare preset");
+    expect(matrix).toMatch(
+      /\| Browser\s+\| `localBrowser\(\)`\s+\| Browser Run.*\| `localBrowser\(\)`\s+\|/,
+    );
+    expect(matrixComponent).toContain("Browser Definitions require ViteHub's Cloudflare preset");
+    expect(matrixComponent).toContain(
+      "Pass localBrowser() to createBrowser() for a trusted local process",
+    );
+    expect(matrixComponent).toContain(
+      "Pass localBrowser() to createBrowser() for a trusted self-hosted Node process",
+    );
+    expect(matrix).toContain(
+      "Trusted local and self-hosted Node processes can pass `localBrowser()` directly to `createBrowser()`",
+    );
     expect(matrix).toContain("**Available**");
     expect(matrix).toContain("**Package-specific**");
     expect(matrix).toContain("**Local-only**");

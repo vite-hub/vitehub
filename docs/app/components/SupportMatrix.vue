@@ -177,9 +177,9 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
         description: "Provider-backed browser operations",
         values: {
           local: cell(
-            "none",
-            "Browser Definitions require the Cloudflare preset. Local Wrangler can connect to Browser Run with remote mode.",
-            "—",
+            "package",
+            "Pass localBrowser() to createBrowser() for a trusted local process. Browser Definitions do not select this provider.",
+            "localBrowser()",
           ),
           cloudflare: cell(
             "available",
@@ -194,7 +194,11 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
             "Browser Definitions require ViteHub's Cloudflare preset, not a generic Nitro preset.",
             "—",
           ),
-          node: cell("none", "Browser Definitions do not have a self-hosted provider.", "—"),
+          node: cell(
+            "package",
+            "Pass localBrowser() to createBrowser() for a trusted self-hosted Node process. Browser Definitions do not select this provider.",
+            "localBrowser()",
+          ),
         },
       },
       {

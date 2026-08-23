@@ -12,7 +12,7 @@ icon: i-lucide-table-properties
 
 | Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify              | Deno           | Nitro and UnJS | Node and self-hosted  |
 | ---------- | ---------------- | --------------------- | --------------------- | -------------------- | -------------- | -------------- | --------------------- |
-| Browser    | —                | Browser Run           | —                     | —                    | —              | —              | —                     |
+| Browser    | `localBrowser()` | Browser Run           | —                     | —                    | —              | —              | `localBrowser()`      |
 | Blob       | `fs`             | R2                    | Vercel Blob           | Netlify Blobs        | S3-compatible  | Host driver    | `fs` or S3-compatible |
 | Database   | SQLite           | D1                    | libSQL or D1 HTTP     | libSQL               | libSQL         | Nuxt D1        | SQLite or libSQL      |
 | Email      | Unemail driver   | Cloudflare Email      | Unemail driver        | Unemail driver       | Unemail driver | Host driver    | Unemail driver        |
@@ -25,7 +25,7 @@ icon: i-lucide-table-properties
 | Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow   | Host provider  | OpenWorkflow          |
 | Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub         | Host store     | Local or GitHub       |
 
-Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires an explicit compatible Unemail driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
+Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Trusted local and self-hosted Node processes can pass `localBrowser()` directly to `createBrowser()`, but Browser Definitions do not select it. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires an explicit compatible Unemail driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
 
 Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one.
 
