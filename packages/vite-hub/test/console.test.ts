@@ -56,14 +56,21 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
-  it("uses the latest invocation update for a grouped session", () => {
+  it("orders grouped sessions and runs by their latest activity", () => {
+    // SAFETY: The grouping helper only reads the summary fields provided by this focused fixture.
     const invocations = [
       { id: "newer-created", threadId: "thread", updatedAt: "2026-08-23T10:00:00.000Z" },
+      { id: "other", threadId: "other", updatedAt: "2026-08-23T10:30:00.000Z" },
       { id: "older-created", threadId: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
     ] as Parameters<typeof groupConsoleSessions>[0]
 
     expect(groupConsoleSessions(invocations)).toMatchObject([
-      { id: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
+      {
+        id: "thread",
+        invocations: [{ id: "older-created" }, { id: "newer-created" }],
+        updatedAt: "2026-08-23T11:00:00.000Z",
+      },
+      { id: "other", invocations: [{ id: "other" }] },
     ])
   })
 
@@ -111,6 +118,18 @@ describe("Agent invocation console", () => {
     Reflect.set(process, consoleInvocationsKey, fallback)
 
     expect(resolveConsoleInvocations({ process })).toBe(fallback)
+  })
+
+  it("reads a journal registry created in another module realm", () => {
+    const fallback = fakeInvocations("console")
+    const foreignRegistry = runInNewContext("new Map()")
+    foreignRegistry.set("/project", fallback)
+    Reflect.set(process, consoleInvocationsRegistryKey, foreignRegistry)
+
+    expect(resolveConsoleInvocations({
+      process,
+      [consoleInvocationsRootKey]: "/project",
+    })).toBe(fallback)
   })
 
   it("keeps process-shared journals scoped to their project root", () => {

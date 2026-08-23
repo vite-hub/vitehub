@@ -26,7 +26,14 @@ export function groupConsoleSessions(invocations: AgentInvocationSummary[]): Con
       });
     }
   }
-  return [...grouped.values()];
+  return [...grouped.values()]
+    .map((session) => ({
+      ...session,
+      invocations: session.invocations.toSorted(
+        (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      ),
+    }))
+    .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 }
 
 export function createConsoleRequest() {

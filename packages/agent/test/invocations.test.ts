@@ -398,6 +398,7 @@ describe("Agent Invocations", () => {
     })
 
     const stream = await streamAgent(agent, runtime("phased-trace"), {})
+    // SAFETY: streamAgent returns an async iterable for a generator-backed Agent driver.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
     const observations = (await invocations.getByRunId("phased-trace"))?.observations ?? []
