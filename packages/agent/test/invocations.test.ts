@@ -463,6 +463,54 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("marks truncation when a queued ordinary observation reaches the finish deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseFirst!: () => void
+      let reportFirstStarted!: () => void
+      let reportQueuedStarted!: () => void
+      const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve })
+      const firstStarted = new Promise<void>((resolve) => { reportFirstStarted = resolve })
+      const queuedStarted = new Promise<void>((resolve) => { reportQueuedStarted = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "first") {
+              reportFirstStarted()
+              await firstGate
+            }
+            if (input.observation?.name === "queued") {
+              reportQueuedStarted()
+              return await new Promise(() => {})
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-deadline-queued-ordinary"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "first", type: "run" })
+      await firstStarted
+      await journal.context.traceLog?.append({ name: "queued", type: "run" })
+
+      const finishing = journal.finish("completed")
+      releaseFirst()
+      await queuedStarted
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+
+      const record = await invocations.getByRunId("finish-deadline-queued-ordinary")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations.map(observation => observation.name)).toEqual(["first"])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("persists an active fatal observation at the finish deadline", async () => {
     vi.useFakeTimers()
     try {

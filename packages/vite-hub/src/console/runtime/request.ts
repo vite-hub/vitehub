@@ -25,6 +25,16 @@ export function shouldLoadRequestedConsoleSession(options: {
   );
 }
 
+export async function loadRequestedConsoleSessionPage(
+  lookup: { loadedPages: number },
+  loadMore: () => Promise<unknown | undefined>,
+): Promise<boolean> {
+  const result = await loadMore();
+  if (result === undefined) return false;
+  lookup.loadedPages++;
+  return true;
+}
+
 export function groupConsoleSessions(invocations: AgentInvocationSummary[]): ConsoleSession[] {
   const grouped = new Map<string, ConsoleSession>();
   for (const invocation of invocations) {

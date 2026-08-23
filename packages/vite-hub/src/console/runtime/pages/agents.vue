@@ -7,6 +7,7 @@ import {
   CONSOLE_SESSION_LOOKUP_PAGE_LIMIT,
   createConsoleRequest,
   groupConsoleSessions,
+  loadRequestedConsoleSessionPage,
   shouldLoadRequestedConsoleSession,
 } from "../request.ts";
 
@@ -231,8 +232,8 @@ watch(
         sessions: next,
       })
     ) {
-      requestedSessionLookup!.loadedPages++;
-      await list.loadMore();
+      const lookup = requestedSessionLookup!;
+      await loadRequestedConsoleSessionPage(lookup, list.loadMore);
       return;
     }
     const lookupExhausted =

@@ -842,12 +842,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         async finish(status, error) {
           if (finished || finishing) return
           finishing = true
-          const finishingActiveObservation = activeObservation
+          const finishingObservations = [activeObservation, ...pendingObservations]
           const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
           while (observationWrite && Date.now() < observationDeadline) {
             await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
-          const outcomeObservations = [finishingActiveObservation, activeObservation, ...pendingObservations]
+          const outcomeObservations = [...finishingObservations, activeObservation, ...pendingObservations]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
             .filter((observation, index, observations) => observations.findIndex(candidate => candidate.sequence === observation.sequence) === index)
           const unpersistedOutcomes = outcomeObservations.filter(observation => !persistedObservationSequences.has(observation.sequence))
@@ -861,6 +861,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               timestamp: normalizedTimestamp(observation.timestamp),
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             }))
+          const pendingOutcomeSequences = new Set(pendingOutcomes.map(observation => observation.sequence))
+          const observationsDiscardedAtFinish = unpersistedOutcomes.some(
+            observation => !pendingOutcomeSequences.has(observation.sequence),
+          )
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
@@ -885,8 +889,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
             if (!updated) return false
-            if (finishingActiveObservation
-              && !persistedObservationSequences.has(finishingActiveObservation.sequence)) {
+            if (observationsDiscardedAtFinish) {
               await update({ observationsTruncated: true, timestamp: new Date().toISOString() }, bindOptions.terminalTakeover)
             }
             finished = true

@@ -13,7 +13,7 @@ import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocation
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
-import { CONSOLE_SESSION_LOOKUP_PAGE_LIMIT, createConsoleRequest, groupConsoleSessions, shouldLoadRequestedConsoleSession } from "../src/console/runtime/request.ts"
+import { CONSOLE_SESSION_LOOKUP_PAGE_LIMIT, createConsoleRequest, groupConsoleSessions, loadRequestedConsoleSessionPage, shouldLoadRequestedConsoleSession } from "../src/console/runtime/request.ts"
 import { consoleInvocationRootPlugin } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -135,6 +135,18 @@ describe("Agent invocation console", () => {
       loadedPages: 0,
       sessions: [{ id: "missing", invocations: [], updatedAt: "2026-08-23T12:00:00.000Z" }],
     })).toBe(false)
+  })
+
+  it("counts only successfully applied routed-session pages", async () => {
+    const lookup = { loadedPages: 0 }
+    const loadMore = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ invocations: [] })
+
+    await expect(loadRequestedConsoleSessionPage(lookup, loadMore)).resolves.toBe(false)
+    expect(lookup.loadedPages).toBe(0)
+    await expect(loadRequestedConsoleSessionPage(lookup, loadMore)).resolves.toBe(true)
+    expect(lookup.loadedPages).toBe(1)
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {
