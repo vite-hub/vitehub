@@ -453,6 +453,36 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("rotates persistent failures through the bounded retry budget", async () => {
+    const retained = Array.from({ length: 21 }, (_, index) => record(`inv-${index}`));
+    let poll = 0;
+    const detailPaths = new Map<number, string[]>();
+    const request = vi.fn<AgentInvocationRequester>(async (path) => {
+      if (!path.startsWith("/api/invocations/")) {
+        poll++;
+        return { invocations: poll === 1 ? retained : [record(`new-${poll}`)] };
+      }
+      detailPaths.set(poll, [...(detailPaths.get(poll) ?? []), path]);
+      if (poll === 2 || poll >= 4 || !path.endsWith("/inv-20")) {
+        throw new Error("persistent failure");
+      }
+      return { invocation: retained[20], observations: [] };
+    });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+    await settle();
+
+    await resource.refresh();
+    await resource.refresh();
+    await resource.refresh();
+
+    expect(detailPaths.get(4)?.slice(0, 10)).toEqual(
+      retained.slice(10, 20).map(invocation => `/api/invocations/${invocation.id}`),
+    );
+    expect(detailPaths.get(4)!.length).toBeLessThanOrEqual(20);
+    scope.stop();
+  });
+
   it("removes displaced records that no longer match the status filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

@@ -146,12 +146,14 @@ export const MessageScrollerViewport = defineComponent({
     const context = useInternalMessageScroller();
     let resizeObserver: ResizeObserver | undefined;
     let mutationObserver: MutationObserver | undefined;
+    let pointerScrolling = false;
     const setViewport = (node: Element | null) => {
       context.viewport.value = node instanceof HTMLElement ? node : null;
     };
     const onScroll = () => {
       context.refresh();
       if (context.atEnd.value) context.following.value = true;
+      else if (pointerScrolling) interruptFollowing();
     };
     const interruptFollowing = () => {
       context.following.value = false;
@@ -209,7 +211,9 @@ export const MessageScrollerViewport = defineComponent({
           "data-at-end": context.atEnd.value ? "" : undefined,
           "data-slot": "message-scroller-viewport",
           onKeydown,
-          onPointerdown: interruptFollowing,
+          onPointercancel: () => { pointerScrolling = false; },
+          onPointerdown: () => { pointerScrolling = true; },
+          onPointerup: () => { pointerScrolling = false; },
           onScroll,
           onWheel: interruptFollowing,
           ref: setViewport as VNodeRef,

@@ -204,6 +204,29 @@ describe("Agent Invocation UI", () => {
     },
   );
 
+  it.each([
+    ["cancelled", "completed"],
+    ["failed", "failed"],
+  ] as const)("settles unfinished activities when an invocation is %s", (status, activityStatus) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: `unfinished-${status}`,
+      observations: [{
+        attributes: { "tool.id": "command", "tool.input": { command: "pnpm test" }, "tool.name": "shell" },
+        name: "agent.tool.start",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe(activityStatus);
+  });
+
   it("routes Provider turn diffs through the patch activity model", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const diff = "diff --git a/src/old.ts b/src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-old\n+new";

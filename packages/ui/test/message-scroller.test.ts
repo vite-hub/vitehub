@@ -227,6 +227,30 @@ describe("message scroller behavior", () => {
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 700 });
   });
 
+  it("keeps following when a pointer interaction does not scroll", async () => {
+    const scrollTo = vi.fn();
+    const wrapper = mount(MessageScrollerRoot, {
+      slots: { default: () => h(MessageScrollerViewport) },
+    });
+    const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    let scrollHeight = 500;
+    let scrollTop = 400;
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    await viewport.trigger("scroll");
+
+    await viewport.trigger("pointerdown");
+    await viewport.trigger("pointerup");
+    scrollHeight = 600;
+    resizeObservers[0]!.callback([], resizeObservers[0]!);
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 600 });
+  });
+
   it("stops following when keyboard input scrolls away from the live edge", async () => {
     const scrollTo = vi.fn();
     const onKeydown = vi.fn();

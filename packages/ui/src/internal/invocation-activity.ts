@@ -319,6 +319,11 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
+      const unfinishedTerminalStatus = first.name.endsWith(".start")
+        && invocation.status !== "pending"
+        && invocation.status !== "running"
+        ? invocation.status === "failed" ? "failed" : "completed"
+        : undefined;
       const draft = {
         attributes,
         body: patches.join("") || messageBody || activityBody(attributes),
@@ -332,7 +337,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
         ...(role ? { role } : {}),
-        status: failed || approvalDenied ? "failed" : completed || !first.name.endsWith(".start") ? "completed" : "running",
+        status: failed || approvalDenied ? "failed" : completed || !first.name.endsWith(".start") ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
           : {}),

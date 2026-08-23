@@ -366,6 +366,7 @@ export function useAgentInvocations(
         const id = displaced[index];
         if (!id) continue;
         if (outcome.status === "rejected") {
+          reconciliationRetryIds.delete(id);
           reconciliationRetryIds.add(id);
           continue;
         }
