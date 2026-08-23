@@ -1364,6 +1364,29 @@ describe("Provider Agent Driver", () => {
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
+  it("retains an already-aborted late provider close before deleting its root", async () => {
+    const threadId = "thread-cancel-late-close"
+    const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+    let resolveClose!: () => void
+    provider.close.mockImplementationOnce(() => new Promise<void>(resolve => resolveClose = resolve))
+    const controller = new AbortController()
+    const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+    const runtimeCall = createProviderRuntime.mock.lastCall
+    expect(runtimeCall).toBeDefined()
+    // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
+    const root = (runtimeCall![0] as { cwd: string }).cwd
+    controller.abort("cancelled")
+
+    await expect(result).rejects.toBe("cancelled")
+    await expect(access(root)).resolves.toBeUndefined()
+    resolveClose()
+    await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+  })
+
   it("times out a provider turn and releases its resources", async () => {
     const threadId = "thread-timeout"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
@@ -1387,9 +1410,10 @@ describe("Provider Agent Driver", () => {
     const result = adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 50 },
     }) as never)
+    const rejection = expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
 
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
-    await expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
+    await rejection
   })
 
   it("bounds provider startup by the invocation timeout", async () => {

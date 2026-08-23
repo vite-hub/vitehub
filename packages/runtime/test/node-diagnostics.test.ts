@@ -107,4 +107,22 @@ describe("Node Runtime diagnostics", () => {
     ]))
     platform.mockRestore()
   })
+
+  it("passes inspection cancellation to every Linux resource read", async () => {
+    const controller = new AbortController()
+    const signals: Array<AbortSignal | undefined> = []
+    const inspector = nodeRuntimeResources({
+      readText: async (path, options) => {
+        signals.push(options?.signal)
+        if (path === "/proc/self/cgroup") return "0::/service\n"
+        if (path === "/proc/self/mountinfo") return "29 23 0:26 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n"
+        return ""
+      },
+    })
+
+    await inspector.inspect({ signal: controller.signal })
+
+    expect(signals.length).toBeGreaterThan(2)
+    expect(signals.every(signal => signal === controller.signal)).toBe(true)
+  })
 })

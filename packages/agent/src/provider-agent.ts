@@ -182,6 +182,11 @@ async function waitForProviderOperation<T>(
   observeLateCleanup?: (cleanup: Promise<void>) => void,
   disposeLateError?: () => void | Promise<void>,
 ): Promise<T> {
+  if (signal?.aborted && disposeLateResult) {
+    const cleanup = operation.then(disposeLateResult, disposeLateError)
+    observeLateCleanup?.(cleanup)
+    void cleanup.catch(() => undefined)
+  }
   signal?.throwIfAborted()
   if (!signal) return await operation
   let rejectAbort: ((reason: unknown) => void) | undefined
@@ -212,7 +217,8 @@ function createProviderCleanupSignal(invocationSignal: AbortSignal | undefined):
     controller.abort(new DOMException("[vitehub] Provider Agent Driver cleanup timed out.", "TimeoutError"))
   }, providerCleanupTimeoutMs)
   const abort = () => controller.abort(invocationSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
-  if (invocationSignal && !invocationSignal.aborted) invocationSignal.addEventListener("abort", abort, { once: true })
+  if (invocationSignal?.aborted) abort()
+  else invocationSignal?.addEventListener("abort", abort, { once: true })
   return {
     dispose() {
       clearTimeout(timeout)
@@ -913,6 +919,7 @@ async function* runProvider<
   const generatedProviderFiles: GeneratedProviderFile[] = []
   let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
+  let providerCloseCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
   let releaseDeferredRuntimeStopped: (() => void) | undefined
   const deferredRuntimeStopped = new Promise<void>((resolve) => {
@@ -940,6 +947,13 @@ async function* runProvider<
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
+    observeLateCleanup(cleanup)
+  }
+  const deferProviderCloseCleanup = (cleanup: Promise<void>) => {
+    runtimeCleanupDeferred = true
+    providerCloseCleanupDeferred = true
+    deferredRuntimeCleanup = cleanup
+    void cleanup.finally(() => releaseDeferredRuntimeStopped?.()).catch(() => undefined)
     observeLateCleanup(cleanup)
   }
   const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
@@ -1168,13 +1182,22 @@ async function* runProvider<
     const cleanup = createProviderCleanupSignal(effectiveSignal)
     let runtimeAndToolCleanup: PromiseSettledResult<void | undefined>[] = []
     try {
-      runtimeAndToolCleanup = await waitForProviderOperation(
-        Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()]),
-        cleanup.signal,
-      )
+      const cleanupOperations = [runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()]
+        .filter((operation): operation is Promise<void> => operation !== undefined)
+      if (cleanupOperations.length) {
+        runtimeAndToolCleanup = await waitForProviderOperation(
+          Promise.allSettled(cleanupOperations),
+          cleanup.signal,
+          () => undefined,
+          deferProviderCloseCleanup,
+        )
+      }
     }
     catch (error) {
-      cleanupErrors.push(error)
+      const repeatsInvocationFailure = caught !== undefined
+        && runtimeCleanupDeferred
+        && cleanup.signal.reason === effectiveSignal?.reason
+      if (!repeatsInvocationFailure) cleanupErrors.push(error)
     }
     finally {
       cleanup.dispose()
@@ -1202,7 +1225,17 @@ async function* runProvider<
         releaseWorkspaceCleanup?.()
       }
     }
-    if (runtimeCleanupDeferred) void deferredRuntimeStopped.then(finalizeWorkspace)
+    if (runtimeCleanupDeferred) {
+      const deferredFinalization = deferredRuntimeStopped.then(async () => {
+        await finalizeWorkspace()
+        if (providerCloseCleanupDeferred) await cleanupRoot()
+      })
+      if (providerCloseCleanupDeferred) {
+        deferredRuntimeCleanup = deferredFinalization
+        observeLateCleanup(deferredFinalization)
+      }
+      else void deferredFinalization.catch(() => undefined)
+    }
     else await finalizeWorkspace()
     if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
       try {

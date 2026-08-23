@@ -618,6 +618,17 @@ describe("@vite-hub/runtime", () => {
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
   })
 
+  it("leaves running root and child spans unset", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
+    await log.append({ attributes: { "step.id": "step-1" }, name: "agent.tool.start", trace: { id: "trace-1" }, type: "tool" })
+
+    const [root, child] = traceEventsToOpenTelemetrySpans(log.entries())
+
+    expect(root?.status).toEqual({ code: "UNSET" })
+    expect(child?.status).toEqual({ code: "UNSET" })
+  })
+
   it("preserves success after a recoverable stream error", async () => {
     const log = createTraceEventLog()
     await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })

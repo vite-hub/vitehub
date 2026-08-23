@@ -2667,7 +2667,12 @@ async function createAgentInvocationContext<
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
   const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
-  const initialTelemetry = agentCapabilityTelemetry(definition?.capabilities)
+  const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
+  const channelCapabilities = activeChannel?.capabilities || []
+  const initialTelemetry = agentCapabilityTelemetry([
+    ...(definition?.capabilities || []),
+    ...channelCapabilities,
+  ])
   const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
   const mayResolveContentTelemetry = capabilitiesResolver !== undefined
   const baseTraceLog = tracedRuntimeContextBase.traceLog || createTraceEventLog()
@@ -2696,7 +2701,7 @@ async function createAgentInvocationContext<
     let callbackContext = createAgentCallbackContext(runtimeContext)
     bindMessageChannelInstructions(
       invocationContext,
-      activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
+      activeChannel,
     )
     invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
     invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
@@ -2729,8 +2734,6 @@ async function createAgentInvocationContext<
           run: context.run,
         })
       : []
-    const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
-    const channelCapabilities = activeChannel?.capabilities || []
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const resolvedCapabilityDefinitions = normalizeCapabilities([
       ...invocationResolvedCapabilities,

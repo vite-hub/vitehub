@@ -620,7 +620,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         spanId,
         startTime: run.startTime,
         status: {
-          code: run.status === "failed" ? "ERROR" : "OK",
+          code: run.status === "failed" ? "ERROR" : run.status === "completed" ? "OK" : "UNSET",
           ...(run.status === "failed" && errorMessage ? { message: errorMessage } : {}),
         },
         traceId,
@@ -639,7 +639,11 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         startTime: step.startTime,
         // SAFETY: Runtime Capability normalization establishes the asserted host contract.
         status: {
-          code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",
+          code: step.status === "failed" || (!step.endTime && run.status === "failed")
+            ? "ERROR"
+            : step.endTime || run.status === "completed"
+              ? "OK"
+              : "UNSET",
           ...(hasRuntimeType(step.attributes?.["error.message"], "string") ? { message: step.attributes["error.message"] } : {}),
         } as const,
         traceId,

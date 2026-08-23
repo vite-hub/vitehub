@@ -12,7 +12,7 @@ import type {
   RuntimeResourceUnit,
 } from "./diagnostics.ts"
 
-type ReadText = (path: string) => Promise<string>
+type ReadText = (path: string, options?: { signal?: AbortSignal }) => Promise<string>
 
 export interface NodeRuntimeResourceInspectorOptions {
   now?: () => Date
@@ -31,9 +31,9 @@ function observation(
 
 type TextReadResult = { error?: unknown, value?: string }
 
-async function readResult(readText: ReadText, path: string): Promise<TextReadResult> {
+async function readResult(readText: ReadText, path: string, signal?: AbortSignal): Promise<TextReadResult> {
   try {
-    return { value: await readText(path) }
+    return { value: await readText(path, { signal }) }
   }
   catch (error) {
     return { error }
@@ -99,11 +99,11 @@ function meminfo(value: string | undefined): Record<string, number> {
   }))
 }
 
-async function cgroupObservations(readText: ReadText): Promise<{
+async function cgroupObservations(readText: ReadText, signal?: AbortSignal): Promise<{
   observations: RuntimeResourceObservation[]
   support: RuntimeResourceSupport
 }> {
-  const membershipRead = await readResult(readText, "/proc/self/cgroup")
+  const membershipRead = await readResult(readText, "/proc/self/cgroup", signal)
   if (membershipRead.value === undefined) {
     return { observations: [], support: { reason: readFailureReason([membershipRead], "unsupported-runtime"), scope: "service", source: "linux-cgroup-v2", supported: false } }
   }
@@ -111,7 +111,7 @@ async function cgroupObservations(readText: ReadText): Promise<{
   if (relative === undefined) {
     return { observations: [], support: { reason: "unsupported-runtime", scope: "service", source: "linux-cgroup-v2", supported: false } }
   }
-  const mountinfoRead = await readResult(readText, "/proc/self/mountinfo")
+  const mountinfoRead = await readResult(readText, "/proc/self/mountinfo", signal)
   if (mountinfoRead.value === undefined) {
     return { observations: [], support: { reason: readFailureReason([mountinfoRead], "mount-unavailable"), scope: "service", source: "linux-cgroup-v2", supported: false } }
   }
@@ -120,14 +120,14 @@ async function cgroupObservations(readText: ReadText): Promise<{
     return { observations: [], support: { reason: "mount-unavailable", scope: "service", source: "linux-cgroup-v2", supported: false } }
   }
   const reads = await Promise.all([
-    readResult(readText, join(root, "memory.current")),
-    readResult(readText, join(root, "memory.peak")),
-    readResult(readText, join(root, "memory.high")),
-    readResult(readText, join(root, "memory.max")),
-    readResult(readText, join(root, "memory.swap.current")),
-    readResult(readText, join(root, "memory.swap.peak")),
-    readResult(readText, join(root, "memory.events")),
-    readResult(readText, join(root, "cpu.stat")),
+    readResult(readText, join(root, "memory.current"), signal),
+    readResult(readText, join(root, "memory.peak"), signal),
+    readResult(readText, join(root, "memory.high"), signal),
+    readResult(readText, join(root, "memory.max"), signal),
+    readResult(readText, join(root, "memory.swap.current"), signal),
+    readResult(readText, join(root, "memory.swap.peak"), signal),
+    readResult(readText, join(root, "memory.events"), signal),
+    readResult(readText, join(root, "cpu.stat"), signal),
   ])
   const [current, peak, high, max, swapCurrent, swapPeak, events, cpu] = reads.map(result => result.value)
   if (current === undefined && events === undefined && cpu === undefined) {
@@ -155,14 +155,14 @@ async function cgroupObservations(readText: ReadText): Promise<{
 
 export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOptions = {}): RuntimeResourceInspector {
   const now = options.now || (() => new Date())
-  const readText = options.readText || (async path => await readFile(path, "utf8"))
+  const readText = options.readText || (async (path, readOptions) => await readFile(path, { encoding: "utf8", signal: readOptions?.signal }))
   return {
-    async inspect(): Promise<RuntimeResourceSnapshot> {
+    async inspect(inspectOptions): Promise<RuntimeResourceSnapshot> {
       const memory = memoryUsage()
       const usage = resourceUsage()
       const linux = process.platform === "linux"
       const [cgroup, linuxMeminfo] = linux
-        ? await Promise.all([cgroupObservations(readText), readResult(readText, "/proc/meminfo")])
+        ? await Promise.all([cgroupObservations(readText, inspectOptions?.signal), readResult(readText, "/proc/meminfo", inspectOptions?.signal)])
         // SAFETY: Runtime host normalization establishes the asserted provider contract.
         : [{ observations: [], support: { reason: "unsupported-runtime", scope: "service", source: "linux-cgroup-v2", supported: false } as const }, {}] as const
       const host = meminfo(linuxMeminfo.value)

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { createMessage, defineAgent, defineCapability, runAgent, type AgentTelemetry } from "../src/index.ts"
+import { defineChannel } from "../src/channels.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
 
@@ -455,6 +456,35 @@ describe("Agent telemetry", () => {
     const resolverEvent = telemetry.mock.calls[0]![0].spans[0].events
       .find((event: { name: string }) => event.name === "capability.resolving")
     expect(resolverEvent).toMatchObject({ attributes: { output: "resolver output" } })
+  })
+
+  it("exports invoker resolver traces through active-channel telemetry", async () => {
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      channels: {
+        console: defineChannel("console", {
+          capabilities: [telemetryCapability(telemetry)],
+        }),
+      },
+      driver: { run: () => "ok" },
+      invoker: {
+        async resolve(context) {
+          await context.traceLog?.append({ name: "invoker.resolving", type: "run" })
+          return { id: "operator-1", kind: "user" }
+        },
+      },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { channelId: "console", runId: "run-channel-telemetry" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    expect(telemetry.mock.calls[0]![0].spans[0].events).toContainEqual(expect.objectContaining({ name: "invoker.resolving" }))
   })
 
   it("keeps directly appended Trace Events in content-enabled exports", async () => {
