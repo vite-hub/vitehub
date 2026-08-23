@@ -2,7 +2,7 @@
 title: Progress summary
 description: Stream a short user-facing summary of current Agent activity.
 navigation.title: Progress summary
-navigation.order: 210
+navigation.order: 211
 navigation.group: Decisions and output
 icon: i-lucide-message-circle-more
 ---
@@ -11,11 +11,11 @@ icon: i-lucide-message-circle-more
 
 ## Add progress summaries
 
-Import the Capability from `@vite-hub/agent/capabilities` and give it the independent Agent Driver that should write progress:
+Import the Capability from `@vite-hub/agent/capabilities` and give it the independent Agent Driver that writes progress:
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { progressSummary } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { progressSummary } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: primaryDriver,
@@ -97,9 +97,8 @@ Stop the invocation before the next interval and confirm that no later progress 
 
 String templates use `@vite-hub/markdown-template` and receive `userText`, the `reasoning` presence signal, `activeTools`, `completedTools`, and `previous`. Referencing `userText` opts a custom template into handling user message text; keep sensitive content out of prompts you construct.
 
-## Reference
+## Related pages
 
 - [title()](/docs/capabilities/title)
 - [Agent Drivers](/docs/agents/agent-drivers)
 - [Markdown pages](/docs/ai-resources/markdown-pages)
-- Source: `packages/agent/src/capabilities/progress-summary.ts`

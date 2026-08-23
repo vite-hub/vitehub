@@ -5,9 +5,9 @@ navigation.order: 9
 icon: i-lucide-list-ordered
 ---
 
-Queue owns background delivery. Use it when a request should enqueue work and return before the work finishes.
+Use Queue when a request needs to hand off work and return before that work finishes. Enqueueing confirms that the provider accepted the job. It doesn't confirm that the handler ran successfully.
 
-Queue is not Workflow. Queue Enqueue means the Queue Provider accepted the job; Queue Delivery later invokes the Queue Definition. Use [Workflows](/docs/server-primitives/workflows) when work needs durable orchestration, run state, waits, or inspectable progress.
+Use [Workflows](/docs/server-primitives/workflows) when work needs a tracked run, durable steps, waits, or progress inspection.
 
 ## Quick start
 
@@ -67,7 +67,7 @@ export default defineEventHandler(async () => {
 | `createQueueMessageId` from `@vite-hub/queue` | Generate a ViteHub message id with an optional prefix. |
 | `ViteHubError` and `getViteHubErrorShape` from `@vite-hub/runtime` | Throw application failures or inspect Queue errors by namespaced code. |
 | `createCloudflareQueueBatchHandler` from `@vite-hub/queue` | Build a Cloudflare batch handler outside generated Provider Output. |
-| `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `@vite-hub/queue` | Inspect provider-derived names. Application code should not persist these names as source authority. |
+| `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `@vite-hub/queue` | Inspect provider-derived names. Don't persist these names as application identifiers. |
 | `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `@vite-hub/queue` | Host adapter helpers used by generated Provider Output. Install `@vercel/functions` when importing the Vercel-specific runtime. |
 | `hubQueue`, `createCloudflareQueueConfig` from `@vite-hub/queue/vite` | Register the Vite Integration and emit Cloudflare queue config. |
 
@@ -101,7 +101,7 @@ export default defineConfig({
 
 Selects the Queue Provider. If you omit it, ViteHub resolves Cloudflare for Cloudflare hosting and Vercel for other supported production builds. Netlify cannot infer a Queue Provider, so set `provider` explicitly or disable Queue there.
 
-### `cache` `boolean`
+### Integration-level `cache` `boolean`
 
 Controls named QueueClient reuse for providers that can cache clients. Default: enabled. Cloudflare QueueClients still resolve the request-scoped binding for each request.
 
@@ -122,7 +122,7 @@ Disables runtime queue dispatch and skips generated Vercel queue consumer functi
 
 Overrides the generated Cloudflare binding name. Without this option, ViteHub derives a binding from the Queue Definition name, such as `QUEUE_77656C636F6D65`.
 
-Cloudflare queue names are generated as `queue--<hex-name>`. Application code should not depend on that name; use `runQueue()` with the Queue Definition name.
+Cloudflare queue names are generated as `queue--<hex-name>`. Application code must not depend on that name. Use `runQueue()` with the Queue Definition name.
 
 ### Vercel options
 
@@ -130,7 +130,7 @@ Cloudflare queue names are generated as `queue--<hex-name>`. Application code sh
 
 Sets the default Vercel Queue region. If you omit it, ViteHub checks `QUEUE_REGION`, then `VERCEL_REGION`, then request headers in a Vercel request context.
 
-Vercel topic names are generated as `topic--<hex-name>`. Application code should not depend on that topic; use `runQueue()` with the Queue Definition name.
+Vercel topic names are generated as `topic--<hex-name>`. Application code must not depend on that topic. Use `runQueue()` with the Queue Definition name.
 
 ## Define a queue
 
@@ -191,7 +191,7 @@ export default defineQueue<{ key?: string }>(async ({ payload }) => {
 })
 ```
 
-Application codes and details are deliberately public, so keep credentials, provider bodies, and private resource locations in `cause`. ViteHub reports each failed delivery before choosing its provider action. The report includes safe Queue Definition and message identifiers, attempt count, `code`, `details`, and the effective Queue-owned retry policy; it does not serialize `cause` or unsafe identifiers.
+Application error codes and details are public. Keep credentials, provider responses, and private resource locations in `cause`. ViteHub reports each failed delivery before it chooses a provider action. Reports include the Queue Definition, safe message identifiers, attempt count, `code`, `details`, and retry policy. They don't serialize `cause` or unsafe identifiers.
 
 ## Queue Definition options
 
@@ -207,7 +207,7 @@ export default defineQueue<{ reportId: string }>(async (job) => {
 })
 ```
 
-### `cache` `boolean`
+### Definition-level `cache` `boolean`
 
 Overrides QueueClient caching for this Queue Definition.
 
@@ -292,13 +292,13 @@ After the build, inspect `.vitehub/queue/registry.mjs` to confirm that ViteHub f
 | Cloudflare | `dist/**/wrangler.json` queue producers and consumers, plus the generated worker bundle. |
 | Vercel | `.vercel/output/functions/api/vitehub/queues/vercel/**` consumer functions and trigger config. |
 
-Vercel projects that typecheck generated Queue Provider Output should include `lib: ['DOM', 'ESNext']` and `types: ['node']` in `tsconfig.json`.
+Vercel projects that typecheck generated Queue Provider Output need `lib: ['DOM', 'ESNext']` and `types: ['node']` in `tsconfig.json`.
 
 ::note
 Queue does not include an in-memory Queue Provider for local Queue Delivery. Test the code your handler calls when you need fast unit coverage, and use generated provider runtime or deployed provider output when you need to prove Queue Enqueue and Queue Delivery together.
 ::
 
-## Runtime Helpers
+## Runtime helpers
 
 ### `runQueue(name, input)`
 
@@ -325,7 +325,7 @@ Schedules Queue Enqueue through the current request's `waitUntil` support and re
 deferQueue('welcome-email', { email: 'ava@example.com' })
 ```
 
-Use this when the current request should return without awaiting provider enqueue. Dispatch failures are logged and passed to `onDispatchError` when the Queue Definition provides one.
+Use this when the current request must return without awaiting provider enqueue. ViteHub logs dispatch failures and passes them to `onDispatchError` when the Queue Definition provides one.
 
 ### `getQueue(name)`
 
@@ -338,7 +338,7 @@ await queue.send({ email: 'ava@example.com' })
 
 ### `createQueueClient(options)`
 
-Creates a direct provider QueueClient. Most app code should use `runQueue()` or `getQueue()` so provider output and discovery stay in charge.
+Creates a direct provider QueueClient. Most application code can use `runQueue()` or `getQueue()` and let ViteHub handle discovery and provider configuration.
 
 Cloudflare direct clients require a concrete binding object.
 
@@ -404,11 +404,11 @@ The Queue Package discovers Queue Definitions, generates a Runtime Registry, and
 
 Generated files are Provider Output. Do not import them from application code.
 
-## Connect it to Agents
+## Connect Queue to Agents
 
 Queue is a server primitive, not an Agent Capability by default. An Agent can enqueue work only when you expose that behavior through an app-owned Capability or server route.
 
-Keep the Capability boundary product-specific. A model should not receive arbitrary queue access because the app uses Queue internally.
+Keep the Capability specific to the product task. Don't give a model arbitrary queue access because the app uses Queue internally.
 
 ## Next steps
 

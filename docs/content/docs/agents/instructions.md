@@ -21,7 +21,7 @@ When the docs do not answer the question, say that directly.
 ```
 
 ```ts [server/agents/support/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: {
@@ -38,7 +38,7 @@ ViteHub parses instruction Markdown through Comark. A colocated document becomes
 Use `driver.instructions` for short or invocation-specific text:
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: {
@@ -94,7 +94,7 @@ Conditions support `context.*` paths, scalar literals, equality, `&&`, `||`, `!`
 Declare values or Markdown files under `workspace.bindings`, then reference only those named bindings.
 
 ```ts [server/agents/support/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: {
@@ -117,7 +117,7 @@ export default defineAgent({
 
 ## Cover configured primitives
 
-Name how each configured Source, Capability, or Skill should be used. ViteHub records this coverage for inspection and warns when a configured primitive has no explicit policy.
+Name how to use each configured Source, Capability, or Skill. ViteHub records this coverage for inspection and warns when a configured primitive has no explicit policy.
 
 ```md [server/agents/support/instructions.md]
 ::source{key="docs"}
@@ -137,7 +137,7 @@ ViteHub strips the wrapper directives before model execution and keeps their pro
 
 ## Use the right instruction lifetime
 
-| Surface | Use it for |
+| Instruction source | Use it for |
 | --- | --- |
 | Colocated `instructions.md` | Durable guidance shared by model and provider-backed execution. |
 | Model `driver.instructions` | Model-facing behavior, including invocation-time callbacks and bindings. |

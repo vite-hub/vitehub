@@ -1,13 +1,13 @@
 ---
 title: Blob
-description: Store uploads, generated artifacts, binary objects, and metadata behind one object-storage surface.
+description: Store uploads, generated files, binary objects, and metadata with one object-storage API.
 navigation.order: 6
 icon: i-lucide-files
 ---
 
-Blob owns object storage. Use it for uploads, generated images, audio, video, PDFs, exports, and other file-shaped objects.
+Use Blob for uploads, generated media, PDFs, exports, and other objects that don't need a file tree.
 
-Blob is not Workspace. Blob Stores hold objects; Workspace owns file-tree behavior, Source ingestion, snapshots, diffs, and agent-visible file context.
+Use [Workspace](/docs/server-primitives/workspace) when files need paths, snapshots, diffs, Source sync, or agent access. A Blob Store only keeps objects and their metadata.
 
 ## Quick start
 
@@ -57,7 +57,7 @@ export default defineEventHandler(async () => {
 
 All Blob driver, object, list, put, store, and module types are exported from `@vite-hub/blob`.
 
-Content detection is explicit: Blob writes preserve caller-provided metadata, and recognizing a leading signature does not prove that the complete file is valid or safe.
+Blob writes preserve the metadata you provide. `detectContentType()` checks common leading signatures, but it doesn't validate the complete file or prove that the file is safe.
 
 ## Store configuration
 
@@ -354,7 +354,7 @@ The generated Nitro route maps `${route}/**` to the selected Blob Store and dele
 
 Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL is absolute. Without it, the URL is route-relative so request-aware consumers can resolve it against their own origin.
 
-## Runtime Helper
+## Runtime helper
 
 `blob` implements `BlobStorage`.
 
@@ -419,21 +419,21 @@ Use `ensureBlob()` at upload boundaries.
 
 ## Provider output
 
-The Blob Package owns Default Blob Store behavior, named Blob Store selection, driver loading, and the Blob Driver Boundary. Provider-specific bucket names, tokens, and bindings belong in integration configuration and deployment setup.
+The Blob package selects the default or named store and loads its driver. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
 
-Application code should keep importing `blob` from `@vite-hub/blob` when switching providers.
+Application code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
 
-## Connect it to Agents
+## Connect Blob to Agents
 
 Direct Blob access is for server code. To let a model inspect or edit scoped object storage, attach the Blob Capability.
 
-Blob Capability access should use narrow prefixes and explicit write policy. Use Workspace instead when the model needs file-tree semantics, diffs, snapshots, or source-backed context.
+Give a Blob Capability the narrowest useful key prefix and configure write access deliberately. Use Workspace when the model needs a file tree, diffs, snapshots, or Source-backed context.
 
-## Production boundaries
+## Production checks
 
 Store content types and metadata at write time. Avoid guessing object type later from path names.
 
-Blob stores can back Workspace Stores, but that does not make Blob an agent-facing file tree. Workspace remains the boundary for file operations, rules, snapshots, and diffs.
+Blob can store Workspace data, but it doesn't provide a file tree to an Agent. Workspace handles file operations, rules, snapshots, and diffs.
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
@@ -495,7 +495,7 @@ export default defineConfig({
 
 Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Put non-secret routing values such as `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config.
 
-Use Cloudflare R2 when the app runs with an R2 binding or R2 HTTP credentials. Use MinIO when local development or Docker Compose should exercise S3-compatible semantics.
+Use Cloudflare R2 when the app runs with an R2 binding or R2 HTTP credentials. Use MinIO when local development or Docker Compose needs to exercise S3-compatible behavior.
 
 ## MinIO object storage
 
@@ -520,7 +520,7 @@ MINIO_ROOT_PASSWORD=password
 BLOB_BUCKET_NAME=vitehub-blob
 ```
 
-MinIO credentials are read from runtime env and stay masked in generated provider output. ViteHub accepts the Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` names plus Docker Compose aliases like `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket when those values are not provided. Production Docker deployments should use managed `s3` or a production-grade S3-compatible store rather than relying on a single-host Compose MinIO service.
+ViteHub reads MinIO credentials from runtime env and masks them in generated provider output. It accepts the Files SDK names `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY`, plus Docker Compose aliases such as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket. For production Docker deployments, use managed `s3` or a production S3-compatible store instead of a single-host Compose MinIO service.
 
 ## Next steps
 

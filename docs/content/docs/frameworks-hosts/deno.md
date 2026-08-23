@@ -75,12 +75,12 @@ curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \
 
 ## Production notes
 
-Deno Deploy should treat `.vitehub/agent/deno-server.ts` as the generated server entrypoint.
+Deno Deploy uses `.vitehub/agent/deno-server.ts` as the generated server entrypoint.
 For Nuxt, configure `.nuxt/vitehub/agent/deno-server.ts` instead, or the equivalent path under a custom `buildDir`.
 Do not import generated files from application code to work around deployment configuration; keep application code on Agent Definitions, Runtime Helpers, and stable ViteHub imports.
 
 Use Deno environment variables for model keys and other Runtime Env.
-If you use Deno KV, verify the deployed runtime can call `Deno.openKv()` and choose an explicit KV Store when local development should not share production state.
+If you use Deno KV, verify the deployed runtime can call `Deno.openKv()` and choose an explicit KV Store when local development must not share production state.
 
 ## Next steps
 

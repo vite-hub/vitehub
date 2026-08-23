@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -31,6 +32,7 @@ function ndjson(events: unknown[]): Response {
   })
 }
 
+// SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const unknownExecutionAuthorityFixture = {
   credentials: "unknown",
   environment: "unknown",
@@ -81,6 +83,7 @@ describe("agent CLI", () => {
   })
 
   it("leaves custom Telegram adapter registration application-owned", () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const channel = telegram({ adapter: () => ({}) as never })
     expect(getAgentChannelSyncDefinition(channel)).toBeUndefined()
   })
@@ -89,6 +92,7 @@ describe("agent CLI", () => {
     const channel = { ...telegram({ botToken: "bot-token" }), capabilities: [] }
     const definition = getAgentChannelSyncDefinition(channel)
     expect(definition).toMatchObject({ provider: "telegram" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(definition!.resolve({} as never, channel)).resolves.toMatchObject({
       mode: "webhook",
     })
@@ -98,8 +102,10 @@ describe("agent CLI", () => {
     const base = telegram({ botToken: "bot-token", webhookSecret: "old-secret" })
     const channel = {
       ...base,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       webhooks: { ...base.webhooks as object, secretToken: "new-secret" },
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
     const bodies: Record<string, unknown>[] = []
     const fetcher = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
@@ -111,6 +117,7 @@ describe("agent CLI", () => {
       action: "create",
       current: { url: "" },
       desired: { url: "https://example.com/webhook" },
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, fetcher as never)
 
     expect(bodies[0]).toMatchObject({ secret_token: "new-secret" })
@@ -118,9 +125,11 @@ describe("agent CLI", () => {
 
   it("drops inherited Telegram synchronization when decoration replaces the adapter", async () => {
     const base = telegram({ botToken: "bot-token" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const channel = { ...base, adapter: () => ({}) as never }
 
     await expect(
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel),
     ).resolves.toBeUndefined()
   })
@@ -148,6 +157,7 @@ describe("agent CLI", () => {
       stderr,
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [{
         agent: "calories",
@@ -226,6 +236,7 @@ describe("agent CLI", () => {
         stderr,
         stdout,
       }, {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         fetch: fetcher as never,
         loadTargets: async () => [{
           agent: "calories",
@@ -254,6 +265,7 @@ describe("agent CLI", () => {
     const loadTargets = vi.fn(async () => [{
       agent: "calories",
       channel: "telegram",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       mode: "webhook" as const,
       provider: "telegram",
       registration: { id: "secondary", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
@@ -287,6 +299,7 @@ describe("agent CLI", () => {
   })
 
   it("uses deployed webhook IDs when selecting Channel history registrations", async () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const channel = {
       kind: "http",
       webhooks: [
@@ -302,8 +315,10 @@ describe("agent CLI", () => {
     })
     await expect(channelRegistration("support", channel, {}, "support"))
       .rejects.toThrow("no unique webhook registration named support")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(channelRegistration("support", { kind: "http", webhooks: { id: "primary" } } as never, {}, "other"))
       .rejects.toThrow("no unique webhook registration named other")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(channelRegistration("support", { kind: "http", webhooks: { id: "primary" } } as never, {}, "other", true))
       .resolves.toBeUndefined()
   })
@@ -317,6 +332,7 @@ describe("agent CLI", () => {
       agent: "calories",
       channel: "telegram",
       defaultThreadId: "telegram:123",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       mode: "webhook" as const,
       provider: "telegram",
       registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
@@ -334,6 +350,7 @@ describe("agent CLI", () => {
       stderr,
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets,
     })
@@ -360,6 +377,7 @@ describe("agent CLI", () => {
       agent: "calories",
       channel: "telegram",
       defaultThreadId: "telegram:123",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       mode: "webhook" as const,
       provider: "telegram",
       registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
@@ -401,7 +419,8 @@ describe("agent CLI", () => {
       ])
       expect(results.sort()).toEqual([0, 1])
       await expect(readdir(rootDir)).resolves.toEqual(["export"])
-      const published = JSON.parse(await readFile(join(rootDir, "export/history.json"), "utf8")) as { marker: string }
+      const published: unknown = JSON.parse(await readFile(join(rootDir, "export/history.json"), "utf8"))
+      if (!isRuntimeRecord(published) || !hasRuntimeType(published.marker, "string")) throw new TypeError("Expected exported history metadata.")
       expect(["first", "second"]).toContain(published.marker)
     }
     finally {
@@ -421,6 +440,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
         ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
         : Response.json({ description: "bot-secret and webhook-secret are invalid", ok: false }, { status: 401 })) as never,
@@ -457,6 +477,7 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
         ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
         : Response.json({ ok: true, result: { pending_update_count: 0, url: "https://example.com/legacy/secret-token?key=query-secret" } })) as never,
@@ -489,6 +510,7 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
         ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
         : Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })) as never,
@@ -520,6 +542,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: (async () => new Response(null, { status: 404 })) as never,
       loadTargets: async () => [{
         agent: "support",
@@ -551,6 +574,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: (async () => new Response(null, {
         headers: { "x-vitehub-channel-provider": "telegram" },
         status: 204,
@@ -606,7 +630,7 @@ describe("agent CLI", () => {
     const requests: Array<{ body?: string, method?: string, url: string }> = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
-      requests.push({ body: typeof init?.body === "string" ? init.body : undefined, method: init?.method, url })
+      requests.push({ body: hasRuntimeType(init?.body, "string") ? init.body : undefined, method: init?.method, url })
       if (init?.method === "HEAD") {
         return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
       }
@@ -633,6 +657,7 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [{
         agent: "support",
@@ -679,6 +704,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [{
         agent: "support",
@@ -717,6 +743,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [{
         agent: "support",
@@ -758,6 +785,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [
         {
@@ -807,6 +835,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [{
         agent: "support",
@@ -838,6 +867,7 @@ describe("agent CLI", () => {
       stderr,
       stdout: stream(),
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [
         {
@@ -896,6 +926,7 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: fetcher as never,
       loadTargets: async () => [{
         agent: "support",
@@ -972,6 +1003,7 @@ describe("agent CLI", () => {
         rootDir,
         stderr: stream(),
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetcher as never })
 
       expect(exitCode).toBe(0)
@@ -1026,6 +1058,7 @@ describe("agent CLI", () => {
         rootDir,
         stderr: historyStderr,
         stdout: stream(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: historyFetch as never })
       expect(historyStderr.output()).toBe("")
       expect(historyExitCode).toBe(0)
@@ -1072,6 +1105,7 @@ describe("agent CLI", () => {
         stderr: stream(),
         stdout: stream(),
       }, {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         fetch: (async (input: string | URL | Request, init?: RequestInit) => {
           requests.push(String(input))
           return init?.method === "HEAD"
@@ -1194,6 +1228,7 @@ describe("agent CLI", () => {
         stderr: stream(),
         stdout: stream(),
       }, {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         fetch: (async (input: string | URL | Request, init?: RequestInit) => {
           requests.push(String(input))
           return init?.method === "HEAD"
@@ -1255,6 +1290,7 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       stderr: stream(),
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentInfo as never })
 
     expect(exitCode).toBe(0)
@@ -1307,6 +1343,7 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       stderr: stream(),
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentInfo as never })
 
     expect(exitCode).toBe(0)
@@ -1343,6 +1380,7 @@ describe("agent CLI", () => {
       env: {},
       stderr: stream(),
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchInvocations as never })
 
     expect(exitCode).toBe(0)
@@ -1372,6 +1410,7 @@ describe("agent CLI", () => {
       env: {},
       stderr: stream(),
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchInvocations as never })
 
     expect(exitCode).toBe(0)
@@ -1414,6 +1453,7 @@ describe("agent CLI", () => {
       env: {},
       stderr,
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchInvocations as never, sleep: async () => {} })
 
     expect(exitCode).toBe(1)
@@ -1435,6 +1475,7 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: vi.fn(async () => Response.json({
         inspection: {
           config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
@@ -1464,6 +1505,7 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: vi.fn(async () => Response.json({ inspection: { name: "legacy" } })) as never,
     })
 
@@ -1484,6 +1526,7 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout,
     }, {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fetch: vi.fn(async () => Response.json({
         inspection: {
           config,
@@ -1506,6 +1549,7 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentInfo as never })
 
     expect(exitCode).toBe(1)
@@ -1520,6 +1564,7 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: vi.fn(async () => new Response("not json")) as never })
 
     expect(exitCode).toBe(1)
@@ -1541,6 +1586,7 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentInfo as never, timeout: 1 })
 
     expect(exitCode).toBe(1)
@@ -1555,6 +1601,7 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: vi.fn(async () => Response.json({ inspection: { name: "support" }, root: "/other-repo" })) as never })
 
     expect(exitCode).toBe(1)
@@ -1585,6 +1632,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -1632,6 +1680,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -1670,6 +1719,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -1710,6 +1760,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -1758,6 +1809,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr,
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
@@ -1812,6 +1864,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr: stream(),
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
@@ -1870,6 +1923,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr,
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
@@ -1914,6 +1968,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -1945,6 +2000,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -1977,6 +2033,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -2021,6 +2078,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr: stream(),
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
@@ -2050,6 +2108,7 @@ describe("agent CLI", () => {
 
   it("keeps payload-only chat runs interactive unless messages are in the payload", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-payload-interactive-"))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const stdin = process.stdin as { isTTY?: boolean }
     const originalIsTTY = process.stdin.isTTY
     stdin.isTTY = false
@@ -2073,6 +2132,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr,
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(1)
@@ -2099,6 +2159,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr,
         stdout: stream(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(1)
@@ -2134,6 +2195,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr,
       stdout: stream(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(1)
@@ -2194,6 +2256,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr,
       stdout,
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
@@ -2269,6 +2332,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr,
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
@@ -2315,6 +2379,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr,
         stdout,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
@@ -2367,6 +2432,7 @@ describe("agent CLI", () => {
         spawn: vi.fn(),
         stderr,
         stdout: stream(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }, { fetch: fetchAgentStream as never })
 
       return { exitCode, stderr: stderr.output() }

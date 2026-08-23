@@ -9,6 +9,7 @@ function runtime(capabilities: Record<string, unknown> = {}) {
   return {
     capabilities,
     memo: vi.fn(),
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: vi.fn(),
@@ -33,6 +34,7 @@ describe("repositoryHost capability", () => {
       mode: "write",
       requires: undefined,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(() => repositoryHost({ mode: "admin" as never })).toThrow("Repository Host mode must be \"read\" or \"write\"")
   })
 

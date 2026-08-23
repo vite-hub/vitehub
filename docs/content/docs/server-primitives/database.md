@@ -1,13 +1,13 @@
 ---
 title: Database
-description: Define Drizzle-backed relational data and query it through generated ViteHub runtime surfaces.
+description: Define relational data with Drizzle and query it through generated ViteHub imports.
 navigation.order: 5
 icon: i-lucide-database
 ---
 
-Database owns relational application data for ViteHub apps. Use it when the app needs schema, constraints, joins, migrations, history, or queryable state.
+Use Database when your app needs relational schemas, constraints, joins, migrations, or queryable state. Define the schema with Drizzle, then query it through generated ViteHub imports.
 
-Database is not KV, Blob, or Workspace. Use KV for small key-addressed values, Blob for object storage, and Workspace for file-tree state.
+Use [KV](/docs/server-primitives/kv) for small values addressed by key, [Blob](/docs/server-primitives/blob) for object storage, and [Workspace](/docs/server-primitives/workspace) for file-tree state.
 
 ## Quick start
 
@@ -17,6 +17,7 @@ Database is not KV, Blob, or Workspace. Use KV for small key-addressed values, B
 
 ```bash [Terminal]
 pnpm add @vite-hub/database drizzle-orm
+pnpm add -D @vite-hub/cli drizzle-kit
 ```
 
 ### Configure
@@ -36,13 +37,13 @@ export default defineConfig({
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const notes = sqliteTable('notes', {
-  id: integer('id').primaryKey(),
-  title: text('title').notNull(),
-})
-
 export default defineDatabase({
-  schema: { notes },
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
 })
 ```
 
@@ -53,7 +54,7 @@ export default defineDatabase({
 | Import | Use |
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `db`, `databases`, `schema` from `@vite-hub/database/drizzle` | Query the generated Drizzle Runtime Surface. |
+| `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Provider Output. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use package-owned database CLI contribution. |
@@ -76,7 +77,7 @@ The Vite config key is `database`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `database` | `boolean` or `DBModulePublicOptions` | disabled | Enables database discovery and generated runtime surfaces through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
+| `database` | `boolean` or `DBModulePublicOptions` | disabled | Enables database discovery and generated runtime imports through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
 | `database.projectRoot` | `string` | effective application root | Sets the root used for Database Definition discovery, generated artifacts, and provisioning. Relative paths resolve from the Vite root in a Vite app and from the Nuxt `rootDir` in a Nuxt app. |
 | `database.cli.generate` | `false` | enabled | Disables package-owned schema generation CLI contribution. |
 | `database.cli.migrate` | `false` | enabled | Disables package-owned migration CLI contribution. |
@@ -90,20 +91,20 @@ The Vite config key is `database`.
 
 ## Define a database
 
-Database Definitions keep the Database Table Schema close to the server code that owns it.
+Database Definitions keep the Database Table Schema next to the server code that uses it.
 
 ```ts [src/database.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const notes = sqliteTable('notes', {
-  id: integer('id').primaryKey(),
-  title: text('title').notNull(),
-  body: text('body').notNull(),
-})
-
 export default defineDatabase({
-  schema: { notes },
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+      body: text('body').notNull(),
+    }),
+  },
 })
 ```
 
@@ -129,21 +130,33 @@ A project uses either one Default Database or a set of Named Databases. Do not m
 
 ViteHub currently exposes `sqlite` as the public `DatabaseDialect`.
 
+## Generate and apply migrations
+
+The Database integration adds migration commands to the ViteHub CLI. `vite-hub` includes the CLI; direct package installations need `@vite-hub/cli` as shown in the quick start. Run the commands from the project root:
+
+```bash [Terminal]
+pnpm vitehub db generate
+pnpm vitehub db migrate
+```
+
+`db generate` refreshes the generated Drizzle config and creates migrations from your Database Definitions. Pass `--name <name>` to name a migration or `--custom` to create an empty migration. `db migrate` refreshes the config and applies pending migrations.
+
 ## Use it at runtime
 
-Use the generated Drizzle Runtime Surface from server code.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database.
 
 ```ts [server/api/notes.get.ts]
-import { db, schema } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
+  const { db, schema } = useDatabase('default')
   return db.select().from(schema.notes)
 })
 ```
 
 The `@vite-hub/database/drizzle` runtime import is resolved by the ViteHub Vite Integration for server code and provider output. Do not run files that import it directly with plain `node`; run them through your Vite-built server path or provider output.
 
-Use Named Databases when separate data boundaries need explicit names.
+Use Named Databases when the app needs more than one independent database.
 
 ```ts [src/analytics.database.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -160,7 +173,7 @@ export default defineDatabase({
 })
 ```
 
-Named databases should represent real ownership or operational boundaries, not folder organization.
+Name a database for a real data or deployment split, not for a source-code folder.
 
 ```ts [server/api/events.get.ts]
 import { useDatabase } from '@vite-hub/database/drizzle'
@@ -253,7 +266,7 @@ This connection is a deployment default. A Database Definition can still declare
 
 The Database Package discovers Database Definitions, generates the Drizzle Runtime Surface, produces generated schema artifacts, and wires provider-specific output. Provider bindings are integration details; the public database identity is the Default Database or Named Database.
 
-Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources belong in Database configuration or host setup. Route code should keep using the generated Drizzle Runtime Surface.
+Put Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources in Database configuration or host setup. Route code keeps using the generated Drizzle imports.
 
 Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated Wrangler config, so `.output/server` can apply migrations without the source checkout.
 
@@ -279,9 +292,9 @@ Direct Database access is for server code. To let a model inspect schema or run 
 
 The Database Capability is not a raw Drizzle client proxy. It uses agent-facing guardrails such as schema mode, data mode, write approvals, and the single-statement SQL guardrail. Read [Official capabilities](/docs/capabilities/official-capabilities) before exposing database access to an Agent.
 
-## Production boundaries
+## Production checks
 
-Database Table Schema is the source schema in code. Live Database Schema can diverge when migrations have not run or when an Agent has explicit schema write permission.
+Database Table Schema is the schema in code. The live schema can differ when migrations haven't run or when an Agent has schema write permission.
 
 Keep provider credentials in Server Env. Direct D1 HTTP access sends `CLOUDFLARE_API_TOKEN` only as the Cloudflare Bearer credential; proxy access sends only its configured `cloudflare.http.authToken`. Keep migrations, backup behavior, and hosted database lifecycle in deployment workflows instead of hiding them in route code.
 

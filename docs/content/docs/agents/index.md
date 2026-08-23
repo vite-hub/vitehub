@@ -1,193 +1,91 @@
 ---
 title: Agents
-description: Define, run, connect, and verify server-side Agents on any host.
+description: Define a server-side Agent, choose how it runs, and connect it to your application.
 navigation.title: Overview
 navigation.order: 20
 navigation.group: Core
 icon: i-lucide-bot
 ---
 
-ViteHub Agents are server-side programs with an explicit execution path, a controlled set of abilities, and inspectable runtime behavior. An Agent Definition keeps those choices in one place and runs on any supported host.
+An Agent is a named server-side program. Its definition records how it runs,
+which files and tools it can use, and how callers reach it.
 
-If this is your first Agent, follow [Build your first Agent](/docs/getting-started/first-agent). It creates an offline Agent, invokes it from a server route, and shows the response before adding a model or credentials.
+Start with an offline Agent if you have not built one yet. The tutorial creates
+the definition, calls it from an H3 route, and shows the response without a model
+key or hosted service.
 
-## Build an Agent
+::u-page-grid{class="not-prose mt-8 sm:grid-cols-2"}
+  :::u-page-card
+  ---
+  title: Build your first Agent
+  description: Define and call an Agent with a complete local example.
+  icon: i-lucide-rocket
+  to: /docs/getting-started/first-agent
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Define an Agent
+  description: Choose a Driver, Capabilities, Workspace, and Channels.
+  icon: i-lucide-file-user
+  to: /docs/agents/agent-definitions
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Choose a Driver
+  description: Run a model, Codex, Claude Code, or application code.
+  icon: i-lucide-cpu
+  to: /docs/agents/agent-drivers
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Add Capabilities
+  description: Give the active Driver selected tools and runtime behavior.
+  icon: i-lucide-blocks
+  to: /docs/capabilities
+  ---
+  :::
+::
 
-This support Agent uses a model, reads a scoped documentation Workspace, and answers from inspected files.
+## How an Agent fits together
 
-Enable both discovery integrations before using a named Workspace:
-
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true, workspace: true })],
-})
-```
-
-```ts [server/workspaces/product-docs.ts]
-import { defineWorkspace, glob } from '@vite-hub/workspace'
-
-export default defineWorkspace({
-  sourceRootDir: process.cwd(),
-  sources: {
-    docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
-  },
-})
-```
-
-```ts [server/agents/support/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { workspaceShell } from '@vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: {
-    model: 'openai/gpt-5.1-mini',
-    instructions: [
-      'Answer support questions from the docs Workspace.',
-      'Use Workspace inspection before answering. Say when the docs do not contain the answer.',
-    ],
-  },
-  capabilities: [workspaceShell({ mode: 'read' })],
-  workspace: 'product-docs',
-})
-```
-
-The Definition has three independent parts:
-
-| Part | What it decides |
+| Part | What you choose |
 | --- | --- |
-| [Agent Driver](/docs/agents/agent-drivers) | Whether the invocation uses a model, a coding provider such as Codex, or application code. |
-| [Capabilities](/docs/capabilities) | Which tools and runtime abilities the active Driver can use. |
-| [Workspace context](/docs/agents/workspace-context) | Which files, Sources, and bindings are visible to the invocation. |
+| [Agent Definition](/docs/agents/agent-definitions) | One Agent's Driver, Capabilities, Workspace, Channels, and hooks. |
+| [Agent Driver](/docs/agents/agent-drivers) | A model, a coding provider, or your own `run` function. |
+| [Agent Invocation](/docs/agents/invocations) | The input for one run and whether the result returns or streams. |
+| [Capabilities](/docs/capabilities) | The tools and behavior available during an invocation. |
+| [Workspace context](/docs/agents/workspace-context) | The files, Sources, and bindings available to the Agent. |
+| [Instructions](/docs/agents/instructions) | Durable guidance for a model or coding provider. |
 
-## Run it
+Capabilities grant access deliberately. Adding KV, Blob, a Workspace, or another
+server feature to the application does not give a model access to it. Attach the
+matching Capability only when the Agent needs that action.
 
-Use `runAgent()` when the caller needs one final result.
+## Connect an Agent
 
-Define the application boundary that adapts the current H3 host event into Runtime Context:
+Call an Agent directly from trusted server code, or connect it to a product entry
+point:
 
-```ts [server/runtime-context.ts]
-import type { AgentRuntimeName, AgentWaitUntil } from '@vite-hub/agent'
-import type { H3Event } from 'h3'
+- [Channels](/docs/agents/channels) connect web chat, Discord, Telegram, GitHub,
+  and other message transports.
+- [Triggers](/docs/agents/triggers) turn application events into Agent input.
+- [Agent Actors](/docs/agents/actors) carry trusted caller identity.
+- [Chat History and sessions](/docs/agents/chat-history-sessions) select the
+  earlier messages supplied to a chat invocation.
 
-function waitUntilFrom(value: unknown): AgentWaitUntil | undefined {
-  const owner = value as { waitUntil?: AgentWaitUntil } | undefined
-  return typeof owner?.waitUntil === 'function'
-    ? owner.waitUntil.bind(value)
-    : undefined
-}
+## Verify behavior
 
-function waitUntilFor(event: H3Event): AgentWaitUntil {
-  const context = event.context as {
-    cloudflare?: { context?: unknown }
-    _platform?: { cloudflare?: { context?: unknown } }
-  }
-  const node = event.node as {
-    req?: { runtime?: { cloudflare?: { context?: unknown } } }
-  }
-  const req = event.req as {
-    runtime?: { cloudflare?: { context?: unknown } }
-  }
+Use the [CLI development loop](/docs/development/cli) to inspect and run the
+Agent locally. Add an [Eval](/docs/agents/evals) for behavior that must keep
+working. Deployment-specific behavior still needs a build and runtime check on
+the selected host.
 
-  return waitUntilFrom(event)
-    ?? waitUntilFrom(context)
-    ?? waitUntilFrom(context.cloudflare?.context)
-    ?? waitUntilFrom(context._platform?.cloudflare?.context)
-    ?? waitUntilFrom(req?.runtime?.cloudflare?.context)
-    ?? waitUntilFrom(node?.req?.runtime?.cloudflare?.context)
-    ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
-}
+## Advanced execution
 
-function cloudflareFor(event: H3Event) {
-  const runtimeEvent = event as H3Event & {
-    env?: Record<string, unknown>
-    context: H3Event['context'] & {
-      cloudflare?: { context?: unknown, env?: Record<string, unknown> }
-      _platform?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } }
-    }
-    req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } }
-    node?: { req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } } }
-  }
-  const env = runtimeEvent.env
-    ?? runtimeEvent.context.cloudflare?.env
-    ?? runtimeEvent.context._platform?.cloudflare?.env
-    ?? runtimeEvent.req?.runtime?.cloudflare?.env
-    ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env
-  const context = runtimeEvent.context.cloudflare?.context
-    ?? runtimeEvent.context._platform?.cloudflare?.context
-    ?? runtimeEvent.req?.runtime?.cloudflare?.context
-    ?? runtimeEvent.node?.req?.runtime?.cloudflare?.context
-
-  return env ? { env, ...(context ? { context } : {}) } : undefined
-}
-
-function runtimeFor(event: H3Event): AgentRuntimeName {
-  const env = typeof process === 'object' && process ? process.env : undefined
-
-  if (cloudflareFor(event)) return 'cloudflare-agents'
-  if ('Deno' in globalThis) return 'deno'
-  if (env?.VERCEL) return 'vercel'
-  return env?.NODE_ENV === 'development' ? 'vite' : 'unknown'
-}
-
-export function getRuntimeContext(event: H3Event) {
-  const cloudflare = cloudflareFor(event)
-  const values = new Map<string, unknown>()
-
-  return {
-    ...(cloudflare ? { cloudflare } : {}),
-    memo<T>(key: string, create: () => T): T {
-      if (!values.has(key)) values.set(key, create())
-      return values.get(key) as T
-    },
-    runtime: runtimeFor(event),
-    waitUntil: waitUntilFor(event),
-  }
-}
-```
-
-Keep this helper host-owned: add provider resources here and delegate `waitUntil` to the real host lifetime when one exists. The fallback observes failures for long-lived local Node processes; serverless deployments must expose their provider lifetime adapter through the event context.
-
-```ts [server/api/support.post.ts]
-import { runAgent } from '@vite-hub/agent'
-import support from '../agents/support/agent'
-import { getRuntimeContext } from '../runtime-context'
-
-export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
-  return runAgent(support, getRuntimeContext(event), { prompt })
-})
-```
-
-```bash [Terminal]
-curl http://localhost:3000/api/support \
-  --request POST \
-  --header 'content-type: application/json' \
-  --data '{"prompt":"How do I add a server primitive?"}'
-```
-
-The application-owned `getRuntimeContext()` helper supplies the host's required `runtime`, `memo`, and `waitUntil` values. The route returns the Agent's final result. Use [`streamAgent()`](/docs/agents/invocations#stream-an-agent) when a UI should receive incremental output.
-
-## Connect it
-
-Keep product entry points separate from execution:
-
-- [Channels](/docs/agents/channels) connect the Agent to web chat, Discord, Telegram, GitHub, and other destinations.
-- [Triggers](/docs/agents/triggers) translate product events into Agent Invocations.
-- [Agent Actors](/docs/agents/actors) carry trusted caller identity into an invocation.
-- [Chat History and sessions](/docs/agents/chat-history-sessions) select which prior messages belong to the next chat invocation.
-
-## Verify it
-
-Run the Agent locally through the [CLI dev loop](/docs/development/cli), then add an [Eval](/docs/agents/evals) for behavior that must remain stable. Both use the same Agent Definition, Driver, Capabilities, and Workspace as the application path.
-
-## Choose the next page
-
-| Goal | Read |
-| --- | --- |
-| Understand every `defineAgent()` option | [Agent Definitions](/docs/agents/agent-definitions) |
-| Choose model, provider, or custom execution | [Agent Drivers](/docs/agents/agent-drivers) |
-| Write model-facing behavior and policy | [Instructions](/docs/agents/instructions) |
-| Give an Agent scoped files and Sources | [Workspace context](/docs/agents/workspace-context) |
+- [Controlled child invocations](/docs/agents/controlled-child-invocations)
+  start, inspect, cancel, or respond to child work from trusted code.
+- [Boxes](/docs/agents/boxes) prepare a process environment when application
+  code owns that lifecycle.

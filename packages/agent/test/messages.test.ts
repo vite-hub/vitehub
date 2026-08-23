@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, expectTypeOf, it } from "vitest"
 
 import { createAgentChatData, getToolInvocations } from "../src/messages.ts"
 
@@ -12,7 +12,11 @@ describe("createAgentChatData", () => {
     ])
 
     expect(data.get("title")).toEqual({ title: "Inventory health" })
-    expect(data.get<string>("title", "title")).toBe("Inventory health")
+    expect(data.get("title", "title")).toBe("Inventory health")
+    expectTypeOf(data.get("title")).toEqualTypeOf<{ title: string, type: "title" } | undefined>()
+    expectTypeOf(data.get("title", "title")).toEqualTypeOf<string | undefined>()
+    expectTypeOf(data.get("unregistered")).toEqualTypeOf<unknown>()
+    expectTypeOf(data.get("unregistered", "field")).toEqualTypeOf<unknown>()
     expect(data.entries()).toEqual([
       ["title", { title: "Inventory health" }],
       ["progress-summary", { summary: "Checking inventory" }],

@@ -5,13 +5,13 @@ navigation.order: 14
 icon: i-lucide-mail
 ---
 
-Email sends outbound transactional messages through one stable Runtime Helper. Unemail owns the message and driver contracts, while ViteHub owns provider composition, runtime access, normalized errors, Markdown composition, and deterministic test capture.
+Use Email to send transactional messages from server code through any Unemail driver. ViteHub configures the driver, normalizes delivery errors, renders trusted Markdown templates, and provides an in-memory test client.
 
 ## Before you begin
 
 The quick start takes about ten minutes and sends a real message through Resend. You need:
 
-- Node.js 24 or later and an existing Vite 8 or later server application.
+- Node.js 24.15 or later and an existing Vite 8 or later server application.
 - pnpm and a POSIX-compatible shell for the commands below.
 - A Resend API key and a sender address accepted by Resend.
 - A real recipient address you can check.
@@ -103,14 +103,14 @@ Resend supplies `id`. Confirm delivery in the recipient inbox or the provider's 
 
 ## Public imports
 
-Applications should use the canonical `vite-hub` paths for framework APIs. Select providers through an `unemail/driver/*` subpath string in Vite config.
+Use the `vite-hub` paths for framework APIs. Select providers through an `unemail/driver/*` subpath string in Vite config.
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
 | `vite-hub/email` | `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
-| `@vite-hub/runtime` | `ViteHubError`, `getViteHubErrorShape` | Shared operational error contract. |
-| `vite-hub/email/server` | `email` | — |
+| `vite-hub/runtime` | `ViteHubError`, `getViteHubErrorShape` | Shared operational error contract. |
+| `vite-hub/email/server` | `email` | None |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `unemail/driver/*` | Provider drivers | Provider options and capabilities are owned by Unemail. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
@@ -132,7 +132,7 @@ The direct `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/mar
 | `headers` | `Record<string, string>` | No | Custom headers supported by the active driver. |
 | `attachments` | `readonly EmailAttachment[]` | No | In-memory string or `Uint8Array` content with a non-empty filename. |
 
-`EmailAttachment` also accepts optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` additionally exposes Unemail's scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields.
+`EmailAttachment` also accepts optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` includes Unemail's scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields.
 
 The active Unemail driver owns field support, validation, address rules, message limits, and sender authorization. Check its `flags` and provider documentation before using optional fields.
 
@@ -175,6 +175,40 @@ export async function sendWelcome(name: string, to: string) {
 
 `html` contains rendered HTML. `text` contains the fully composed Markdown, which is readable in text clients but can retain Markdown markers such as `**`. Supply your own `text` when the application requires marker-free plain text.
 
+### Discover application email templates
+
+Put reusable templates under `server/emails`. ViteHub discovers Markdown files
+recursively and creates a typed `#vitehub/emails/<name>` import from each path.
+
+```md [server/emails/welcome.md]
+# Welcome {{ user.name }}
+
+Your workspace is ready.
+```
+
+```ts [server/welcome.ts]
+import renderWelcome from '#vitehub/emails/welcome'
+import { renderEmailMarkdown } from 'vite-hub/email/markdown'
+import { email } from 'vite-hub/email/server'
+
+export async function sendWelcome(name: string, to: string) {
+  const markdown = await renderWelcome({ user: { name } })
+  const body = await renderEmailMarkdown(markdown)
+
+  return await email.send({
+    ...body,
+    from: 'verified-sender@example.com',
+    to,
+    subject: 'Your workspace is ready',
+  })
+}
+```
+
+`server/emails/monthly/recap.md` becomes
+`#vitehub/emails/monthly/recap`. ViteHub generates exact module declarations in
+`.vitehub/types/email.d.ts` and bundles the templates for provider builds under
+`.vitehub/email/templates`.
+
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
 | `data` | `Record<string, unknown>` | `{}` | Supplies scalar bindings, Markdown fragments, and conditional values. |
@@ -186,15 +220,22 @@ export async function sendWelcome(name: string, to: string) {
 `renderEmailMarkdown()` does not sanitize authored HTML, trusted Markdown fragments, or imported templates, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `{{{ fragment }}}` binding or an imported template.
 ::
 
-## Configure Resend
+## Provider behavior for Resend
 
-Use the quick-start `vitehub({ email: { driver: 'unemail/driver/resend', options } })` configuration. A successful result has `driver: 'resend'`. ViteHub maps Unemail's generic error taxonomy to stable `EMAIL_*` codes and keeps the original Unemail error in `cause`.
+Use the quick-start `vitehub({ email: { driver: 'unemail/driver/resend', options } })` configuration. A successful result has `driver: 'resend'`. ViteHub maps Unemail errors to `EMAIL_*` codes and keeps the original error in `cause`.
 
 ## Configure another provider
 
 Set `email.driver` to another `unemail/driver/*` subpath and declare its serializable options in the same Vite config. Keep credentials in Server Env or the deployment platform's secret store, and pass them as Env declarations without defaults. When Unemail does not support a provider, add the driver upstream with its `defineDriver()` contract so every consumer benefits instead of adding a ViteHub-only adapter.
 
 ## Test without delivery
+
+The framework distribution does not re-export test utilities. Install the Email
+owner package as a development dependency when tests use its in-memory client.
+
+```bash [Terminal]
+pnpm add -D @vite-hub/email
+```
 
 ```ts [welcome.test.ts]
 import { expect, it } from 'vitest'
@@ -216,14 +257,14 @@ it('sends the welcome message', async () => {
 
 Each test client owns an isolated mailbox. Captured messages are cloned before storage, delivery order is stable, and `clear()` empties the mailbox and resets the next ID to `memory-1`.
 
-Use `createMemoryEmailDriver()` when another client or test harness should own the in-memory driver directly.
+Use `createMemoryEmailDriver()` when another client or test harness needs to manage the in-memory driver directly.
 
 ## Handle delivery errors
 
 Use the `EMAIL_*` code for control flow and `details.driver` to identify the failing adapter. ViteHub keeps the original Unemail error in `cause` while exposing a safe public message.
 
 ```ts [server/send.ts]
-import { getViteHubErrorShape } from '@vite-hub/runtime'
+import { getViteHubErrorShape } from 'vite-hub/runtime'
 import { type EmailMessage } from 'vite-hub/email'
 import { email } from 'vite-hub/email/server'
 
@@ -296,9 +337,9 @@ Configure `vitehub({ email: { driver, options } })`. Applications using the owne
 
 Read the `EMAIL_*` code first. For `EMAIL_AUTHENTICATION`, verify the provider credentials and sender authorization. For `EMAIL_NETWORK` or `EMAIL_TIMEOUT`, verify DNS and outbound connectivity from the deployed server. Inspect `cause` and provider logs only on the server.
 
-## Compatibility and scope
+## Requirements
 
-- `vite-hub/email` and its `@vite-hub/email` owner package currently require Node.js 24 or later.
+- `vite-hub/email` requires Node.js 24.15 or later. The direct `@vite-hub/email` package requires Node.js 24 or later.
 - Email provider configuration requires Vite 8 or later; explicit `createEmail()` clients do not require Vite.
 - Provider runtime support comes from the selected Unemail driver.
 
@@ -306,15 +347,15 @@ ViteHub does not independently certify provider behavior. ViteHub owns provider 
 
 ## Expose Email to an Agent
 
-Use the official [`email()` Capability](/docs/capabilities/email) when a model should send through the configured Email provider.
+Use the official [`email()` Capability](/docs/capabilities/email) when a model needs to send through the configured Email provider.
 The Capability fixes the sender in application code and exposes one plain-text `email_send` tool with optional policy; provider configuration and credentials stay in this primitive.
 
 Dynamic Markdown remains an application composition boundary.
-The official Capability does not render model-authored Markdown or expose HTML, headers, and attachments, so richer messages should use a trusted application template or a narrowly scoped Custom Capability.
+The official Capability doesn't render model-authored Markdown or expose HTML, headers, and attachments. Use a trusted application template or a narrowly scoped Custom Capability for richer messages.
 
 ## Next steps
 
-- Use [Queue](/docs/server-primitives/queue) when a request should return before email delivery completes.
+- Use [Queue](/docs/server-primitives/queue) when a request must return before email delivery completes.
 - Use [Schedule](/docs/server-primitives/schedule) or [Workflows](/docs/server-primitives/workflows) for recurring or durable delivery orchestration.
 - Use [Env](/docs/server-primitives/env) for typed server credentials.
 - Check [Errors and diagnostics](/docs/reference/errors-diagnostics) for the shared error contract.

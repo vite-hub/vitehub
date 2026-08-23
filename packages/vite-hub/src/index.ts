@@ -25,7 +25,7 @@ import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput 
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
-import { assertDeploymentService, deploymentPresetFromNitro, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 
@@ -85,7 +85,6 @@ const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
   "\0#vitehub/env/server",
   "\0#vitehub/schedule/registry",
-  "\0#vitehub/templates",
   "\0virtual:vitehub-agent-cloudflare-state-exports",
 ])
 
@@ -207,7 +206,7 @@ export interface ViteHubConfig {
   preset?: DeploymentPreset
 }
 
-type DeploymentIdentitySource = "VITEHUB_DEPLOYMENT_NAME" | "WRANGLER_CI_OVERRIDE_NAME" | "package.json" | "root" | "vitehub.name"
+type DeploymentIdentitySource = "WRANGLER_CI_OVERRIDE_NAME" | "package.json" | "root" | "vitehub.name"
 
 interface DeploymentIdentity {
   name: string
@@ -254,24 +253,14 @@ function resolveDeploymentIdentity(
   if (configuredName !== undefined && !configured) {
     throw new Error("[vitehub] vitehub name must contain at least one letter or number.")
   }
-  const environmentName = process.env.VITEHUB_DEPLOYMENT_NAME
-  const environment = normalizeDeploymentName(environmentName)
-  if (environmentName?.trim() && !environment) {
-    throw new Error("[vitehub] VITEHUB_DEPLOYMENT_NAME must contain at least one letter or number.")
-  }
   const workersBuilds = normalizeDeploymentName(workersBuildsName)
   if (workersBuildsName?.trim() && !workersBuilds) {
     throw new Error("[vitehub] WRANGLER_CI_OVERRIDE_NAME must contain at least one letter or number.")
   }
-  if (configured && environment && configured !== environment) {
-    throw new Error(`[vitehub] vitehub name ${JSON.stringify(configuredName)} conflicts with VITEHUB_DEPLOYMENT_NAME=${JSON.stringify(environmentName)}.`)
-  }
-  const explicit = configured || environment
-  if (explicit && workersBuilds && explicit !== workersBuilds) {
-    throw new Error(`[vitehub] deployment identity ${JSON.stringify(explicit)} conflicts with WRANGLER_CI_OVERRIDE_NAME=${JSON.stringify(workersBuildsName)}.`)
+  if (configured && workersBuilds && configured !== workersBuilds) {
+    throw new Error(`[vitehub] deployment identity ${JSON.stringify(configured)} conflicts with WRANGLER_CI_OVERRIDE_NAME=${JSON.stringify(workersBuildsName)}.`)
   }
   if (configured) return { name: configured, source: "vitehub.name" }
-  if (environment) return { name: environment, source: "VITEHUB_DEPLOYMENT_NAME" }
   if (workersBuilds) return { name: workersBuilds, source: "WRANGLER_CI_OVERRIDE_NAME" }
   const manifestName = normalizeDeploymentName(packageName(root))
   if (manifestName) return { name: manifestName, source: "package.json" }
@@ -348,10 +337,6 @@ function configureCloudflarePrerender(config: Record<string, unknown>): void {
     "cloudflare:workers": fileURLToPath(new URL("./cloudflare-prerender.mjs", import.meta.url)),
   }
   config.rollupConfig = rollupConfig
-}
-
-function normalizeNitroPreset(value: string): string {
-  return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
 function shellQuote(value: string): string {
@@ -472,6 +457,9 @@ function deploymentPlugins(
           }
         }
         if (plan.preset === "cloudflare") {
+          const wasm = cloneRecord(nitro.wasm)
+          if (wasm.lazy === undefined) wasm.lazy = true
+          nitro.wasm = wasm
           const cloudflare = cloneRecord(nitro.cloudflare)
           const wrangler = cloneRecord(cloudflare.wrangler)
           if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
@@ -744,7 +732,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubWorkflow({
       ...(options.workflow && options.workflow !== true ? options.workflow : {}),
       agentImportBase: `${generatedImportBase}/agent`,
+      hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workflow`,
+      ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,

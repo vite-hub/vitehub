@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
 import { streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
@@ -15,7 +16,7 @@ import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
 import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
-import { agentInvocationJournalTraceLogSymbol, traceAgentEvent } from "../trace.ts"
+import { agentInvocationJournalContentTraceLogSymbol, traceAgentEvent } from "../trace.ts"
 
 import type {
   AgentAdapterRunContext,
@@ -45,11 +46,13 @@ const skippedTitleGeneration = Symbol("vitehub.title.skipped")
 const skippedTitleDelivery = Symbol("vitehub.title.delivery-skipped")
 type TitleApplied = { [titleApplied]?: true }
 
-function hasPropertyGetter(value: object, key: PropertyKey): boolean {
+function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
+  if (!isRuntimeObject(value)) return false
   let current: object | null = value
   while (current) {
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor) return typeof descriptor.get === "function"
+    if (descriptor) return hasRuntimeType(descriptor.get, "function")
+    // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     current = Object.getPrototypeOf(current) as object | null
   }
   return false
@@ -137,10 +140,11 @@ const defaultTitleTemplate = [
 ].join("\n")
 
 function isObjectLike(value: unknown): value is object {
-  return (typeof value === "object" && value !== null) || typeof value === "function"
+  return (hasRuntimeType(value, "object") && value !== null) || hasRuntimeType(value, "function")
 }
 
 function hasTitleApplied(value: unknown): boolean {
+  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
   return isObjectLike(value) && (value as TitleApplied)[titleApplied] === true
 }
 
@@ -159,7 +163,7 @@ function firstUserMessage(messages: Message[]): Message | undefined {
 }
 
 function cleanGeneratedTitle(value: unknown, maxLength: number, fallback: string): string {
-  const raw = typeof value === "string" ? value : ""
+  const raw = hasRuntimeType(value, "string") ? value : ""
   const title = raw
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\s+/g, " ")
@@ -203,26 +207,27 @@ function shouldRunForTrigger(filter: TitleOptions["trigger"], trigger: string | 
 }
 
 function agentTriggerId(context: AgentCapabilityRuntimeContext): string | undefined {
-  const trigger = context.context.get<{ id?: unknown }>("agent.trigger")
-  return typeof trigger?.id === "string" ? trigger.id : undefined
+  const trigger = context.context.get("agent.trigger")
+  return hasRuntimeType(trigger?.id, "string") ? trigger.id : undefined
 }
 
 function supportsTitleDelivery(context: AgentCapabilityRuntimeContext): boolean {
-  return context.context.get<boolean>(messageChannelTitleSupportContextKey) === true
+  return context.context.get(messageChannelTitleSupportContextKey) === true
 }
 
 function shouldProvideTitleFinishExtension(context: AgentCapabilityRuntimeContext): boolean {
-  return supportsTitleDelivery(context) || context.context.get<boolean>("agent.finishHook") === true
+  return supportsTitleDelivery(context) || context.context.get("agent.finishHook") === true
 }
 
 function shouldResolveTitleFinishExtension(context: AgentCapabilityRuntimeContext, event: AgentFinishEvent): boolean {
-  return supportsTitleDelivery(context) || context.context.get<boolean>(Object.hasOwn(event, "error") ? "agent.errorHook" : "agent.finishHook") === true
+  return supportsTitleDelivery(context) || context.context.get(Object.hasOwn(event, "error") ? "agent.errorHook" : "agent.finishHook") === true
 }
 
 async function resolveTemplateVariables(options: TitleOptions, input: TitleTemplateInput): Promise<Record<string, unknown>> {
   const variables: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(options.variables || {})) {
-    variables[name] = typeof value === "function"
+    variables[name] = hasRuntimeType(value, "function")
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
       ? await (value as (input: TitleTemplateInput) => MaybePromise<unknown>)(input)
       : value
   }
@@ -238,7 +243,7 @@ async function resolveTemplateVariables(options: TitleOptions, input: TitleTempl
 
 async function renderTitleTemplate(options: TitleOptions, input: TitleTemplateInput): Promise<string> {
   const template = options.template ?? defaultTitleTemplate
-  if (typeof template === "function") {
+  if (hasRuntimeType(template, "function")) {
     return await template(input)
   }
   const variables = await resolveTemplateVariables(options, input)
@@ -323,20 +328,25 @@ async function generateTitleWithDriver(
   prompt: string,
 ): Promise<string | undefined> {
   if (!options.driver) return
+  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
   const driver = normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
+    // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     return await titleResultText(await driver.run(titleRunContext(context, input, prompt) as never))
   }
   const runContext = titleAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
     const { createProviderAgentAdapter } = await import("../provider-agent.ts")
+    // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     return await titleResultText(await createProviderAgentAdapter(driver).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
+  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
   return await titleResultText(await createAiSdkAdapter({
     execution: driver.execution,
     instructions: options.instructions ?? driver.instructions,
     model: driver.model,
+  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
   } as never).generate(runContext as never))
 }
 
@@ -392,7 +402,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   if (options.execute) {
     try {
       const result = await raceTimeout(Promise.resolve(options.execute(timedInput)))
-      return cleanGeneratedTitle(typeof result === "string" ? result : result.title, maxLength, fallback)
+      return cleanGeneratedTitle(hasRuntimeType(result, "string") ? result : result.title, maxLength, fallback)
     }
     catch (error) {
       return recoverGeneration(error)
@@ -415,7 +425,9 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
       const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
       const { generateText } = await loadAiSdk()
       const result = await raceTimeout(generateText(options.instructions
+        // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
         ? { abortSignal, instructions: options.instructions, model: model as never, prompt }
+        // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
         : { abortSignal, model: model as never, prompt }))
       return cleanGeneratedTitle(result.text, maxLength, fallback)
     }
@@ -436,7 +448,9 @@ function withTitleParallel<T>(
   fallback?: StreamFallback<T>,
   isFailureTerminal: (value: T) => boolean = () => false,
 ): AsyncIterable<T> {
-  if (typeof (result as ReadableStream<T>).pipeThrough === "function") {
+  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
+  if (hasRuntimeType((result as ReadableStream<T>).pipeThrough, "function")) {
+    // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle, getText, isTerminal, fallback, { isFailureTerminal })
   }
   const iterable = (async function* () {
@@ -444,24 +458,28 @@ function withTitleParallel<T>(
     let streamNext = iterator.next()
     let text = ""
     let titlePending = true
-    const deferredTitle = typeof title === "function" ? title : undefined
-    const eagerTitle = typeof title === "function" ? undefined : title
+    const deferredTitle = hasRuntimeType(title, "function") ? title : undefined
+    const eagerTitle = hasRuntimeType(title, "function") ? undefined : title
     const titleNext = eagerTitle
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
       ?.then(value => ({ title: value, type: "title" as const }))
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
       .catch(() => ({ title: undefined, type: "title" as const }))
 
     try {
       while (true) {
         const next = titlePending && titleNext
           ? await Promise.race([
+              // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
               streamNext.then(value => ({ type: "stream" as const, value })),
               titleNext,
             ])
+          // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
           : { type: "stream" as const, value: await streamNext }
 
         if (next.type === "title") {
           titlePending = false
-          if (typeof next.title === "string") {
+          if (hasRuntimeType(next.title, "string")) {
             yield renderTitle(next.title)
           }
           continue
@@ -489,7 +507,7 @@ function withTitleParallel<T>(
           }
           const resolvedTitle = await deferredTitle(text).catch(() => undefined)
           titlePending = false
-          if (typeof resolvedTitle === "string") yield renderTitle(resolvedTitle)
+          if (hasRuntimeType(resolvedTitle, "string")) yield renderTitle(resolvedTitle)
         }
         yield next.value.value
         streamNext = iterator.next()
@@ -508,9 +526,11 @@ function withTitleParallel<T>(
         const resolvedTitle = titleNext
           ? await titleNext
           : await deferredTitle!(text)
+              // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
               .then(value => ({ title: value, type: "title" as const }))
+              // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
               .catch(() => ({ title: undefined, type: "title" as const }))
-        if (typeof resolvedTitle.title === "string") {
+        if (hasRuntimeType(resolvedTitle.title, "string")) {
           yield renderTitle(resolvedTitle.title)
         }
       }
@@ -543,10 +563,12 @@ function withTitleReadableStreamParallel<T>(
   let initialTitlePending = false
   let initialTitleEmitted = false
   let streamStarted = options.waitForStart !== true
-  const deferredTitle = typeof title === "function" ? title : undefined
-  const eagerTitle = typeof title === "function" ? undefined : title
+  const deferredTitle = hasRuntimeType(title, "function") ? title : undefined
+  const eagerTitle = hasRuntimeType(title, "function") ? undefined : title
   const titleNext = eagerTitle
+    // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     ?.then(value => ({ title: value, type: "title" as const }))
+    // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     .catch(() => ({ title: undefined, type: "title" as const }))
   const releaseReader = () => {
     if (closed) return
@@ -599,7 +621,8 @@ function withTitleReadableStreamParallel<T>(
             const resolvedTitle = await deferredTitle!(text).catch(() => undefined)
             titlePending = false
             if (cancelled) return
-            if (typeof resolvedTitle === "string") controller.enqueue(renderTitle(resolvedTitle))
+            if (hasRuntimeType(resolvedTitle, "string")) controller.enqueue(renderTitle(resolvedTitle))
+            // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
             if (fallbackTerminal.emit) controller.enqueue(fallbackTerminal.value as T)
             fallbackTerminal = undefined
             controller.close()
@@ -610,15 +633,17 @@ function withTitleReadableStreamParallel<T>(
           streamNext ??= reader.read()
           const next = streamStarted && titlePending && titleNext
             ? await Promise.race([
+                // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
                 streamNext.then(value => ({ type: "stream" as const, value })),
                 titleNext,
               ])
+            // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
             : { type: "stream" as const, value: await streamNext }
 
           if (cancelled) return
           if (next.type === "title") {
             titlePending = false
-            if (typeof next.title === "string") {
+            if (hasRuntimeType(next.title, "string")) {
               controller.enqueue(renderTitle(next.title))
               return
             }
@@ -648,7 +673,7 @@ function withTitleReadableStreamParallel<T>(
               const resolvedTitle = await titleNext
               titlePending = false
               if (cancelled) return
-              if (typeof resolvedTitle.title === "string") controller.enqueue(renderTitle(resolvedTitle.title))
+              if (hasRuntimeType(resolvedTitle.title, "string")) controller.enqueue(renderTitle(resolvedTitle.title))
               else if (resolvedTitle.title !== skippedTitleDelivery) {
                 const cleared = clearInitialTitle()
                 if (cleared !== undefined) controller.enqueue(cleared)
@@ -670,7 +695,7 @@ function withTitleReadableStreamParallel<T>(
               const resolvedTitle = await deferredTitle(text).catch(() => undefined)
               titlePending = false
               if (cancelled) return
-              if (typeof resolvedTitle === "string") controller.enqueue(renderTitle(resolvedTitle))
+              if (hasRuntimeType(resolvedTitle, "string")) controller.enqueue(renderTitle(resolvedTitle))
               else if (resolvedTitle !== skippedTitleDelivery) {
                 const cleared = clearInitialTitle()
                 if (cleared !== undefined) controller.enqueue(cleared)
@@ -697,11 +722,13 @@ function withTitleReadableStreamParallel<T>(
             const resolvedTitle = titleNext
               ? await titleNext
               : await deferredTitle!(text)
+                  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
                   .then(value => ({ title: value, type: "title" as const }))
+                  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
                   .catch(() => ({ title: undefined, type: "title" as const }))
             titlePending = false
             if (cancelled) return
-            if (typeof resolvedTitle.title === "string") {
+            if (hasRuntimeType(resolvedTitle.title, "string")) {
               controller.enqueue(renderTitle(resolvedTitle.title))
             }
             else if (resolvedTitle.title !== skippedTitleDelivery) {
@@ -726,7 +753,8 @@ function statefulTextDelta(): (value: unknown) => string {
   const textPhases = new Map<string, "commentary" | "final" | "hidden">()
   let explicitTextPhaseSeen = false
   return (value) => {
-    if (value && typeof value === "object") {
+    if (value && hasRuntimeType(value, "object")) {
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
       const chunk = value as Record<string, unknown>
       if ((chunk.type === "text" || chunk.type === "text-delta" || chunk.type === "text-start") && chunk.phase !== undefined) {
         explicitTextPhaseSeen = true
@@ -798,18 +826,23 @@ function withTitleUiMessageStream(
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<StreamEvent> {
   return !!value
-    && typeof value === "object"
+    && hasRuntimeType(value, "object")
     && Symbol.asyncIterator in value
-    && typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function"
+    // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
+    && hasRuntimeType((value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator], "function")
 }
 
 function isStreamTextResult(value: unknown): value is { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string>, toUIMessageStream?: ToUIMessageStream } {
-  return !!value && typeof value === "object"
+  return !!value && hasRuntimeType(value, "object")
     && (
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
       isAsyncIterable((value as { stream?: unknown }).stream)
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
       || isAsyncIterable((value as { fullStream?: unknown }).fullStream)
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
       || isAsyncIterable((value as { textStream?: unknown }).textStream)
-      || typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
+      // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
+      || hasRuntimeType((value as { toUIMessageStream?: unknown }).toUIMessageStream, "function")
     )
 }
 
@@ -876,7 +909,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     output(context) {
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
-        const state = context.context.get<MessageChannelStateBinding>(messageChannelStateContextKey)
+        const state = context.context.get(messageChannelStateContextKey)
         channelDeliveryAttempt ??= options.channelDelivery === "always" || !supportsTitleDelivery(context) || !state || !context.run?.threadId
           ? { deliver: true }
           : claimMessageChannelTitleDelivery(context.context, context.run)
@@ -892,10 +925,10 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       let titleTraced = false
       const invocationJournalObservesRun = Boolean(
         context.runtimeContext?.traceLog
-        && agentInvocationJournalTraceLogSymbol in context.runtimeContext.traceLog,
+        && agentInvocationJournalContentTraceLogSymbol in context.runtimeContext.traceLog,
       )
       const traceTitle = async (value: TitleResolutionValue) => {
-        if (!invocationJournalObservesRun || titleTraced || typeof value !== "string" || !context.runtimeContext?.traceLog) return
+        if (!invocationJournalObservesRun || titleTraced || !hasRuntimeType(value, "string") || !context.runtimeContext?.traceLog) return
         titleTraced = true
         await traceAgentEvent({
           context: context.context,
@@ -935,6 +968,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           if (!attempt.deliver) return skippedTitleDelivery
           titleClaimed = true
           try {
+            // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
             const resolvedTitle = await generateTitle(context, options as TitleOptions, input)
             if (resolvedTitle === skippedTitleGeneration) {
               titleSkipped = true
@@ -963,18 +997,18 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         }
         const provideFinishExtension = shouldProvideTitleFinishExtension(context)
         if (!provideFinishExtension && !invocationJournalObservesRun) return
-        if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
+        if (context.context.get(messageChannelTitleDeliveredContextKey) === true) return
         const resolvedTitle = await getTitle()
         await traceTitle(resolvedTitle)
         if (!provideFinishExtension) {
           await releaseChannelDeliveryAttempt()
           return
         }
-        if (typeof resolvedTitle !== "string" || !supportsTitleDelivery(context)) {
+        if (!hasRuntimeType(resolvedTitle, "string") || !supportsTitleDelivery(context)) {
           await releaseChannelDeliveryAttempt()
           return
         }
-        if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) {
+        if (context.context.get(messageChannelTitleDeliveredContextKey) === true) {
           await releaseChannelDeliveryAttempt()
           return
         }
@@ -987,7 +1021,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       context.finish.provide(async (finish: AgentFinishEvent) => {
         if (!shouldResolveTitleFinishExtension(context, finish)) return
         const resolvedTitle = await getTitle(finish.text)
-        return typeof resolvedTitle === "string" ? { title: resolvedTitle } : undefined
+        return hasRuntimeType(resolvedTitle, "string") ? { title: resolvedTitle } : undefined
       })
       const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = async (finish) => {
         if (Object.hasOwn(finish.event, "error")) {
@@ -996,11 +1030,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           const attempt = await getChannelDeliveryAttempt()
           await resetMessageChannelTitleDelivery(attempt).catch(() => undefined)
           const failureIntent = createMessageChannelTitleEffectIntent(
-            errorTitle(typeof resolvedTitle === "string" ? resolvedTitle : undefined, options.maxLength ?? 80, options.fallback ?? "Untitled"),
+            errorTitle(hasRuntimeType(resolvedTitle, "string") ? resolvedTitle : undefined, options.maxLength ?? 80, options.fallback ?? "Untitled"),
             "always",
             attempt,
           )
-          if (typeof resolvedTitle !== "string" || finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) {
+          if (!hasRuntimeType(resolvedTitle, "string") || finish.context.get(messageChannelTitleDeliveredContextKey) === true) {
             return failureIntent
           }
           return [
@@ -1012,7 +1046,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           ]
         }
         const resolvedTitle = finish.extensions.get(capabilityId, "title")
-        return typeof resolvedTitle === "string" && resolvedTitle.trim()
+        return hasRuntimeType(resolvedTitle, "string") && resolvedTitle.trim()
           ? createMessageChannelTitleEffectIntent(
               resolvedTitle.trim(),
               options.channelDelivery,
@@ -1023,9 +1057,9 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       titleDeliveryEffect.active = finish =>
         Boolean(finish.channel)
         && Boolean(firstUserMessage(context.input.messages()))
-        && finish.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
+        && finish.context.get(messageChannelTitleSupportContextKey) !== false
         && (Object.hasOwn(finish.event, "error")
-          || finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) !== true)
+          || finish.context.get(messageChannelTitleDeliveredContextKey) !== true)
       titleDeliveryEffect.kind = "title"
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {

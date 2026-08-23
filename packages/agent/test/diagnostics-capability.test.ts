@@ -120,6 +120,21 @@ describe("diagnostics Capability", () => {
     warn.mockRestore()
   })
 
+  it("does not overlap a timed-out reporter with the next invocation", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const reporter = vi.fn(() => new Promise<void>(() => {}))
+    const agent = defineAgent({
+      capabilities: [diagnostics({ reporter, timeout: 5 })],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+
+    expect(reporter).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
   it("does not overlap an inspector that ignores timeout abort", async () => {
     let active = 0
     let maxActive = 0
@@ -256,6 +271,7 @@ describe("diagnostics Capability", () => {
       })],
       driver: { run: () => "ok" },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const runtime = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
 
     const first = runAgent(agent, runtime(), {})

@@ -6,12 +6,11 @@ navigation.lanes: [server-primitives]
 icon: i-lucide-server-cog
 ---
 
-Server Primitives give application code stable APIs for infrastructure. This
-quickstart adds an explicit local KV store to a small H3 server, then proves the
-integration with one request.
+This quickstart adds a local KV store to a small H3 server. One request writes a
+value, reads it back, and returns the result.
 
 ::note
-You need Node.js 24 or newer and `pnpm`. The first result runs locally without
+You need Node.js 24.15 or newer and `pnpm`. The first result runs locally without
 an account or credential.
 ::
 
@@ -62,8 +61,7 @@ export default defineConfig({
 
 ## Write and read one value
 
-Create one H3 route. H3 owns HTTP behavior, while the `kv` Runtime Helper owns
-the application-facing storage API.
+Create one H3 route and use `kv` to write and read the setting.
 
 ```ts [src/server.ts]
 import { createServer } from "node:http"
@@ -113,11 +111,11 @@ The response proves that the route wrote and read through ViteHub:
 {"settings":{"theme":"system"}}
 ```
 
-Changing providers belongs in `vite.config.ts`. Server code keeps importing
-`kv` from `vite-hub/kv` when you move to a supported hosted store.
+To move to a hosted store, change the provider in `vite.config.ts`. The server
+route keeps importing `kv` from `vite-hub/kv`.
 
 ## Next steps
 
-- Follow the longer [Server Primitives tutorial](/blog/server-primitives) for the full boundary explanation.
+- Follow the longer [Server Primitives tutorial](/blog/server-primitives) for a complete walkthrough.
 - Read [KV](/docs/server-primitives/kv) for named stores and hosted drivers.
-- Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) for the provider boundary.
+- Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) to see how provider changes stay out of server code.

@@ -1,6 +1,6 @@
 ---
 title: Boxes
-description: Understand the independent Box execution primitive and its Agent boundary.
+description: Understand when application code uses a Box and why it does not attach to an Agent Definition.
 navigation: false
 ---
 

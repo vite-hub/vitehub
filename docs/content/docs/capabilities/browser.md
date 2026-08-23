@@ -10,8 +10,8 @@ icon: i-lucide-monitor
 `browser()` mounts an inspectable browser Skill at `skills/browser/SKILL.md` for a Provider Agent. The matching CLI must already be available to the provider process.
 
 ```ts [server/agents/review.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { browser } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { browser } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: 'codex',
@@ -29,4 +29,4 @@ The Skill tells the provider to use `agent-browser` through its native command t
 | `skillPath` | `string` | `"skills/browser/SKILL.md"` | Workspace path for the Skill. |
 | `sourceKey` | `string` | `"skill.browser"` | Workspace Source key for the Skill file. |
 
-Use the [Browser primitive](/docs/server-primitives/browser) when trusted server code should own Browser Session lifecycle.
+Use the [Browser primitive](/docs/server-primitives/browser) when trusted server code owns the Browser Session lifecycle.

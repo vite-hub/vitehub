@@ -1,13 +1,13 @@
 ---
 title: KV
-description: Store small key-addressed values behind one stable key-value Runtime Helper.
+description: Store and retrieve small values by key through one key-value API.
 navigation.order: 4
 icon: i-lucide-database-zap
 ---
 
-KV stores small values addressed by key. Use it for settings, feature flags, cursors, cache records, lightweight state, and simple lookup tables.
+Use KV for settings, feature flags, cursors, cache records, and other small values addressed by key.
 
-KV does not model relationships, constraints, joins, large binary objects, or file trees. Use [Database](/docs/server-primitives/database), [Blob](/docs/server-primitives/blob), or [Workspace](/docs/server-primitives/workspace) for those boundaries.
+Use [Database](/docs/server-primitives/database) when data needs relationships or constraints, [Blob](/docs/server-primitives/blob) for large objects, and [Workspace](/docs/server-primitives/workspace) for file trees.
 
 ## Quick start
 
@@ -127,7 +127,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 
 KV does not provide the atomic consume contract required for request budgets. Use the [Rate Limit primitive](/docs/server-primitives/rate-limit) instead of composing `get()` and `set()` under concurrency.
 
-## Runtime Helper
+## Runtime helper
 
 `kv` implements `KVStorage`.
 
@@ -145,21 +145,25 @@ Every async method returns `[error, value]`. Provider failures are `ViteHubError
 
 ## Provider output
 
-The KV Package owns Default KV Store behavior, named KV Store selection, generated store-name types, and the KV Driver Boundary. Provider-specific namespaces, bindings, and credentials belong in integration configuration and deployment setup.
+The KV package selects the default or named store and generates store-name types. Put provider namespaces, bindings, and credentials in integration configuration or deployment setup.
 
-Application code should keep importing `kv` from `@vite-hub/kv` when switching between local, Cloudflare, Deno, Vercel-compatible, or other drivers.
+Application code keeps importing `kv` from `@vite-hub/kv` when you switch between local, Cloudflare, Deno, Vercel-compatible, or other drivers.
 
-## Connect it to Agents
+## Connect KV to Agents
 
 Direct KV access is for app and server code. To let a model inspect or edit scoped key-value data, attach the KV Capability from the agent capability catalog.
+
+```bash [Terminal]
+pnpm add @vite-hub/agent
+```
 
 ```ts [server/agents/support/agent.ts]
 import { kv } from '@vite-hub/agent/capabilities'
 ```
 
-Keep model-facing prefixes narrow and make write behavior explicit. Read [Official capabilities](/docs/capabilities/official-capabilities) for storage Capability modes and write approvals.
+Give model-facing tools the narrowest useful key prefix and configure write access deliberately. Read [Official capabilities](/docs/capabilities/official-capabilities) for storage modes and write approvals.
 
-## Production boundaries
+## Production checks
 
 KV prefixes are conventions, not relational models. Move data to Database when you need constraints, joins, migrations, history, or complex queries.
 

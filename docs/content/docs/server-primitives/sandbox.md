@@ -5,7 +5,7 @@ navigation.order: 12
 icon: i-lucide-terminal-square
 ---
 
-A Sandbox Definition is portable orchestration. Its package project supplies dependencies, its Workspace supplies durable files, and its Box adapter supplies execution.
+Use a Sandbox Definition to run a named package project in a Box. The package supplies dependencies, Workspace supplies durable files, and the Box adapter runs the process.
 
 ## Quick start
 
@@ -58,11 +58,11 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## The three Modules
+## How Sandbox, Workspace, and Box fit together
 
-- Sandbox owns Definition discovery, typed invocation, package-project resolution, preparation policy, serialization, timeout, and lifecycle orchestration.
-- Workspace owns authoritative files, Sources, snapshots, diffs, commit, and rollback.
-- Box owns isolation, processes, runtime files, disposable caches, ports, and provider-specific preparation or deployment output.
+- Sandbox discovers definitions, resolves package projects, serializes values, applies timeouts, and coordinates each run.
+- Workspace stores durable files and handles Sources, snapshots, diffs, commits, and rollbacks.
+- Box provides process isolation, runtime files, caches, ports, and provider-specific deployment output.
 
 Sandbox and Agent use the same Box Interface. Workspace never selects Cloudflare, Vercel, Crabbox, or trusted-host execution.
 
@@ -98,7 +98,7 @@ server/sandboxes/
 
 Installation runs at the pnpm Workspace root and the Definition runs from `server/sandboxes/image`. ViteHub carries every local package in the transitive `workspace:*` dependency closure, then pnpm remains responsible for installation and linking semantics. Other Workspace packages stay outside the runtime project.
 
-## Package entrypoint
+## Package entry point
 
 The package `index.ts` default-exports an ordinary async function. ViteHub calls it with the invocation payload and context, then returns its awaited result.
 
@@ -111,7 +111,7 @@ export default async function optimize(
 }
 ```
 
-`runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload. Existing non-function default exports remain supported; those entries can export `SandboxPayload` to provide the payload type, otherwise it is `unknown`.
+`runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload.
 
 Nested `Blob` and `Uint8Array` values in payloads and results are staged through invocation-local Box files. Node.js `Buffer` values retain their `Buffer` type. Application code keeps the binary values and does not convert them to base64 JSON. Other values keep the existing JSON-serialization contract.
 
@@ -124,28 +124,6 @@ The first package metadata schema contains only `vitehub.sandbox.timeout`. It mu
 Cloudflare, Vercel, Crabbox, and trusted host implement the Box Interface. The common contract covers binary files, directory operations, cwd/env/timeout command execution, abort, and lifecycle. Processes and ports are explicit optional capabilities.
 
 Provider selection and full image overrides are application or host configuration. For Cloudflare, configure the application-owned container with a complete Dockerfile; for Vercel, configure the Box runtime image. Sandbox has no Dockerfile-fragment helper because partial image syntax cannot be portable across providers.
-
-## Breaking migration
-
-Move canonical Definitions into a package folder and export the run function directly:
-
-```ts
-// Before
-import { defineSandbox } from '@vite-hub/sandbox'
-
-export default defineSandbox({
-  timeout: 30_000,
-  run,
-})
-
-// Now
-export default run
-```
-
-- Move `timeout` to `package.json#vitehub.sandbox.timeout`.
-- Remove the package entrypoint's `defineSandbox()` wrapper and `@vite-hub/sandbox` runtime dependency.
-- Default-export the run function; its first parameter and awaited return value become the generated invocation types.
-- Keep Blob and Uint8Array values native in application payloads and results.
 
 ## Public imports
 

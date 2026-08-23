@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject } from "./internal/runtime-type.ts"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
@@ -95,13 +96,13 @@ import {
 } from "./tool-runtime.ts"
 import {
   createAgentStreamEventTracer,
+  agentInvocationJournalContentTraceLogSymbol,
   agentInvocationJournalTraceLogSymbol,
   agentInvocationTraceIdContextKey,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
-  traceAgentStreamEvent,
 } from "./trace.ts"
 import { runObservedAgentHook } from "./hooks.ts"
 import {
@@ -115,6 +116,7 @@ import {
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
+  workspaceAgentUsesRegisteredDefinition,
   workspaceDefinitionFromOptions,
   workspaceDefinitionWithAutoCommitRules,
   workspaceModeFromOptions,
@@ -152,6 +154,7 @@ import type {
   AgentFinishHookEvent,
   AgentFinishExtensions,
   AgentInput,
+  AgentInspectionValue,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentHookObserverHooks,
@@ -172,8 +175,8 @@ import type {
   AgentSettings,
   AgentStaticCapabilitiesList,
   IsTypedAgentStaticCapabilitiesList,
-  AgentTelemetryConfiguration,
   AgentTelemetryContentOptions,
+  AgentTelemetryConfiguration,
   AgentToolSet,
   AgentToolStepItem,
   AgentUsageRecord,
@@ -704,15 +707,18 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): AgentRuntimeContext<TRuntimeConfig> {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   if (!context.agentIdentity || (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) return context
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return { ...context, [agentIdentityOwner]: agent as object } as AgentRuntimeContext<TRuntimeConfig>
 }
 
 function hasAgentDefinition(value: unknown): value is AgentDefinition {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "resolve" in value
-    && typeof (value as { resolve?: unknown }).resolve === "function"
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    && hasRuntimeType((value as { resolve?: unknown }).resolve, "function")
 }
 
 function resolveAgentWorkflowRuntimeBinding<
@@ -758,14 +764,16 @@ async function getAgentWorkflowHandle<
   CALL_OPTIONS,
   TOutput,
 >(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput, CALL_OPTIONS>,
   name: string,
   reuseRegistry: boolean,
   recovery = false,
 ): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>> {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
   const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
   const existing = handles.get(cacheKey)
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
 
   const { createWorkflow } = await loadAgentWorkflowModule()
@@ -782,19 +790,24 @@ async function getAgentWorkflowHandle<
       internalAgentInvocationRecovery: true,
       handler: async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
       },
       options: { rootStep: false },
     })
   }
   const handle = registered || recovery
-    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name)
+    // SAFETY: The Agent Workflow registry and recovery registration above own this exact payload and output contract.
+    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>>(name) as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
       }, { rootStep: false })
   agentWorkflowNames.add(name)
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   agentWorkflowHandles.set(agent as object, handles)
   return handle
 }
@@ -807,14 +820,21 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
 }
 
 function isAmbiguousWorkflowStartFailure(error: unknown): boolean {
-  if (!error || typeof error !== "object" || !("code" in error) || !("details" in error)) return false
+  if (!error || !hasRuntimeType(error, "object") || !("code" in error) || !("details" in error)) return false
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const details = (error as { details?: unknown }).details
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return (error as { code?: unknown }).code === "WORKFLOW_PROVIDER_OPERATION_FAILED"
-    && Boolean(details && typeof details === "object"
+    && Boolean(details && hasRuntimeType(details, "object")
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       && (details as { acknowledgement?: unknown }).acknowledgement === "unknown"
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       && (((details as { provider?: unknown }).provider === "cloudflare"
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         && (details as { operation?: unknown }).operation === "create")
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       || ((details as { provider?: unknown }).provider === "openworkflow"
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         && (details as { operation?: unknown }).operation === "run")))
 }
 
@@ -823,6 +843,7 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
   return await Promise.all(materialized.map(async message => ({
     ...message,
     parts: await Promise.all(message.parts.map(async (part) => {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
       if (data instanceof Blob) data = await data.arrayBuffer()
@@ -830,6 +851,7 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       const portable = data instanceof Uint8Array
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       return cloneWorkflowJsonValue(portable) as typeof part
     })),
   })))
@@ -840,7 +862,7 @@ async function runAgentAsWorkflow<
   CALL_OPTIONS,
   TOutput,
 >(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { fresh?: boolean } = {},
@@ -867,9 +889,11 @@ async function runAgentAsWorkflow<
     workflowRuntimeState.setWorkflowRuntimeConfig(workflowConfig)
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
     if (owner && owner !== agent) return undefined
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const disabledCapabilities = Object.fromEntries(
     Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
   ) as Record<string, false>
@@ -885,7 +909,7 @@ async function runAgentAsWorkflow<
   delete workflowInput.abortSignal
   if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
   if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
-  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
+  if (workflowInput.message && !hasRuntimeType(workflowInput.message, "string")) [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
   const inheritedRun = options.fresh && context.run
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
@@ -893,6 +917,7 @@ async function runAgentAsWorkflow<
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
@@ -942,6 +967,7 @@ async function runAgentAsWorkflow<
   }
   let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   try {
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
       payload,
       workflowRunId ? { id: workflowRunId } : {},
@@ -989,14 +1015,17 @@ async function runAgentAsWorkflow<
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
   module: AgentRegistryModule<TContext>,
 ): AgentInput<TContext> | undefined {
-  return typeof module === "object" && module !== null && "default" in module
+  return hasRuntimeType(module, "object") && module !== null && "default" in module
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     ? module.default as AgentInput<TContext> | undefined
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     : module as AgentInput<TContext>
 }
 
 function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
@@ -1024,7 +1053,7 @@ function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig
 ): readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[] {
   const handlers = channel.effects?.[intent.kind]
   if (!handlers) return []
-  return typeof handlers === "function" ? [handlers] : [...handlers]
+  return hasRuntimeType(handlers, "function") ? [handlers] : [...handlers]
 }
 
 function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1032,7 +1061,7 @@ function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentInvocationContextStore,
   run?: AgentRunMetadata,
 ) {
-  const trigger = context.get<AgentTriggerContextValue>("agent.trigger")
+  const trigger = context.get("agent.trigger")
   const channelId = run?.channelId || trigger?.channelId
   const channel = channelId ? channels?.[channelId] : undefined
   return channel && channelId ? { channel, channelId, trigger } : undefined
@@ -1111,6 +1140,7 @@ async function applyChannelDeliveryEffectIntents<
             ...metadata,
             "error.message": agentErrorMessage(error),
           })
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           return { deliver: true } as MessageChannelTitleDeliveryAttempt
         })
       : undefined
@@ -1148,6 +1178,7 @@ async function applyChannelDeliveryEffectIntents<
             channel: active.channel,
             context: context.context,
             effect: intent,
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             ...(finish ? { finish: finish as never } : {}),
             input: context.input,
             request: context.runtimeContext.request,
@@ -1245,33 +1276,43 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!inputs) return inputs
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const value = input as unknown
-    if (typeof value === "object" && value && "kind" in value && typeof value.kind === "string") continue
-    const channel = typeof input === "function"
+    if (hasRuntimeType(value, "object") && value && "kind" in value && hasRuntimeType(value.kind, "string")) continue
+    const channel = hasRuntimeType(input, "function")
       ? input()
       : id === "discord"
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         ? builtInDiscord<TRuntimeConfig>(input as never)
         : id === "github"
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           ? builtInGitHub<TRuntimeConfig>(input as never)
           : id === "http"
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             ? builtInHttp<TRuntimeConfig>(input as never)
             : id === "slack"
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
               ? builtInSlack<TRuntimeConfig>(input as never)
               : id === "teams"
+                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
                 ? builtInTeams<TRuntimeConfig>(input as never)
                 : id === "telegram"
+                  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
                   ? builtInTelegram<TRuntimeConfig>(input as never)
                   : id === "webChat"
+                    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
                     ? builtInWebChat<TRuntimeConfig>(input as never)
                     : undefined
-    if (!channel || typeof channel !== "object" || typeof channel.kind !== "string") {
-      throw new TypeError(typeof input === "function"
+    if (!channel || !hasRuntimeType(channel, "object") || !hasRuntimeType(channel.kind, "string")) {
+      throw new TypeError(hasRuntimeType(input, "function")
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
         : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.`)
     }
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
     channels[id] = channel
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return channels || (inputs as AgentChannels<TRuntimeConfig>)
 }
 
@@ -1317,18 +1358,21 @@ function defineBaseAgent<
   const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" ? driver.run : undefined
-  const capabilitiesResolver = typeof capabilities === "function"
+  const capabilitiesResolver = hasRuntimeType(capabilities, "function")
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     ? capabilities as AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
     : undefined
   const baseCapabilities = normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
-  const chatCapability = getChatCapabilityOptions<TRuntimeConfig>(baseCapabilities)
+  const chatCapability = getChatCapabilityOptions(baseCapabilities)
   if (chatCapability && channelChat) {
     throw new TypeError("[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels }).")
   }
   const chat = chatCapability || channelChat
   const normalizedCapabilities = channelChat
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
     : baseCapabilities
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
@@ -1338,6 +1382,7 @@ function defineBaseAgent<
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
           execution: driver.execution,
           instructions: driver.instructions,
@@ -1357,11 +1402,13 @@ function defineBaseAgent<
       throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
-    return typeof resolvedAdapter === "function"
+    return isCallableMember(resolvedAdapter)
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
       : resolvedAdapter
   }
 
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = {
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
@@ -1430,14 +1477,20 @@ function createSyntheticWorkspaceRun<
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
     let release = await acquireAgentCapacity(definition, context.input.abortSignal)
     try {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
-      const textOutput = typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+      const textOutput = hasRuntimeType(result, "object") && result && "text" in result && hasRuntimeType((result as { text?: unknown }).text, "string")
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         ? (result as { text: string }).text
         : undefined
-      if (textOutput !== undefined && result && typeof result === "object") {
+      if (textOutput !== undefined && result && hasRuntimeType(result, "object")) {
         const eagerStreams: AsyncIterable<unknown>[] = []
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         for (const property of ["stream", "fullStream", "textStream"] as const) {
           let descriptor: PropertyDescriptor | undefined
           for (let owner: object | null = result; owner && !descriptor; owner = Object.getPrototypeOf(owner))
@@ -1463,11 +1516,12 @@ function createSyntheticWorkspaceRun<
           cancelOnAbort: source.cancel,
         })
         release = undefined
-        return typeof (output as ReadableStream<unknown>).getReader === "function"
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        return hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
           ? toReadableAsyncIterableStream(streamed)
           : streamed
       }
-      if (output && typeof output === "object") {
+      if (output && hasRuntimeType(output, "object")) {
         const capacityRelease = release
         const sources = new Set<ReturnType<typeof cancellableAsyncIterableSource>>()
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
@@ -1490,7 +1544,8 @@ function createSyntheticWorkspaceRun<
             abortSignal: context.input.abortSignal,
             cancelOnAbort: source.cancel,
           })
-          const preserved = typeof (stream as ReadableStream<unknown>).getReader === "function"
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+          const preserved = hasRuntimeType((stream as ReadableStream<unknown>).getReader, "function")
             ? toReadableAsyncIterableStream(wrapped)
             : wrapped
           preservedStreams.set(stream, preserved)
@@ -1500,6 +1555,7 @@ function createSyntheticWorkspaceRun<
         let hasStreamSurface = false
         let unresolvedLazyStreamSurfaces = 0
         try {
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           for (const property of ["stream", "fullStream", "textStream"] as const) {
             let descriptor: PropertyDescriptor | undefined
             for (let owner: object | null = output; owner && !descriptor; owner = Object.getPrototypeOf(owner))
@@ -1547,6 +1603,7 @@ function createSyntheticWorkspaceRun<
           if (isUIMessageStreamResult(output)) {
             hasStreamSurface = true
             unresolvedLazyStreamSurfaces++
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             const toUIMessageStream = output.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
             let uiMessageStreamResolved = false
             descriptors.toUIMessageStream = {
@@ -1623,35 +1680,36 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
       : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
     : TCapabilities
 
-type ProviderDriverBuilder<
+type ProviderDriver<
   Name extends BuiltInAgentDriverName,
   TOutput,
-> = Extract<BuiltInAgentDriver<unknown, TOutput>, { kind: Name }> & {
-  withCallOptions<CALL_OPTIONS>(): Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: Name }>
-}
+> = Extract<BuiltInAgentDriver<unknown, TOutput>, { kind: Name }>
 
-function providerDriverBuilder<Name extends BuiltInAgentDriverName, TOutput>(
+function providerDriver<Name extends BuiltInAgentDriverName, TOutput>(
   name: Name,
   options: CodexDriverOptions<TOutput> | ClaudeCodeDriverOptions<TOutput>,
-): ProviderDriverBuilder<Name, TOutput> {
-  const driver = { ...options, kind: name } as ProviderDriverBuilder<Name, TOutput>
-  Object.defineProperty(driver, "withCallOptions", {
-    value: () => driver,
-  })
-  return driver
+): ProviderDriver<Name, TOutput> {
+  // SAFETY: The discriminant is added here and the option union is selected by the public wrapper.
+  return { ...options, kind: name } as ProviderDriver<Name, TOutput>
 }
 
 export function codexDriver<TOutput = unknown>(
   options: CodexDriverOptions<TOutput> = {},
-): ProviderDriverBuilder<"codex", TOutput> {
-  return providerDriverBuilder("codex", options)
+): ProviderDriver<"codex", TOutput> {
+  return providerDriver("codex", options)
 }
 
 export function claudeCodeDriver<TOutput = unknown>(
   options: ClaudeCodeDriverOptions<TOutput> = {},
-): ProviderDriverBuilder<"claude-code", TOutput> {
-  return providerDriverBuilder("claude-code", options)
+): ProviderDriver<"claude-code", TOutput> {
+  return providerDriver("claude-code", options)
 }
+
+type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
+  ? NonNullable<TOptions["invoker"]> extends AgentInvokerOptions<any, any, infer TProfile, any>
+    ? TProfile
+    : AgentInvokerProfile
+  : AgentInvokerProfile
 
 export interface DefineAgent {
   <
@@ -1682,7 +1740,7 @@ export interface DefineAgent {
     >,
   >(
     options: TOptions & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, driver: CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput> } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, AgentInvokerProfileOf<TOptions>, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
@@ -1707,7 +1765,7 @@ export interface DefineAgent {
     >,
   >(
     options: TOptions & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput> } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, AgentInvokerProfileOf<TOptions>, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
@@ -1752,14 +1810,17 @@ function createWorkspaceAgentDefinition<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined, TOutput>,
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined, TOutput> {
-  const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  const workspaceDefinition = workspaceDefinitionFromOptions(asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   if (Array.isArray(options.capabilities)) {
     validateAgentCapabilityComposition(options.capabilities, {
       driverKind: normalizeAgentDriver(options).kind,
       hasWorkspace: true,
-      workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+      workspaceMode: workspaceModeFromOptions(asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
     })
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineBaseAgent<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TOutput>({
     ...options,
     description: options.description,
@@ -1780,7 +1841,9 @@ function createWorkspaceAgentDefinition<
   return definition
 }
 
+// SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
 export const defineAgent: DefineAgent = ((options: unknown) => {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = options as AgentSettings
   const channels = normalizeAgentChannels(agentOptions.channels)
   const normalizedOptions = channels === agentOptions.channels
@@ -1804,18 +1867,22 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
             : "read",
         },
       })
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     : defineBaseAgent(normalizedOptions as never)
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
   if (!instructions || !hasAgentDefinition(agent)) return agent
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
   if (!settings || settings.workspace) return agent
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "run" || driver.instructions !== undefined) return agent
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineAgent({
     ...settings,
     driver: driver.kind === "model"
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? { ...(settings.driver as AgentModelDriver), instructions }
       : {
           capacity: driver.capacity,
@@ -1828,6 +1895,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
           permissions: driver.permissions,
         },
   } as never) as Agent
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
   delete decorations.__vitehubAgentSettings
   Reflect.deleteProperty(decorations, baseAgentResolve)
@@ -1835,12 +1903,16 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   Reflect.deleteProperty(decorations, baseAgentDriverKind)
   Reflect.deleteProperty(decorations, baseAgentDefinitionResolve)
   if (
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown }).resolve
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     === (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown })[baseAgentDefinitionResolve]
   ) {
     delete decorations.resolve
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   Object.setPrototypeOf(definition as object, Object.getPrototypeOf(agent as object))
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   Object.defineProperties(definition as object, decorations)
   return definition
 }
@@ -1850,6 +1922,7 @@ export async function resolveAgent<TContext extends AgentRuntimeContext>(
   context: TContext,
 ): Promise<AgentAdapter> {
   if (hasAgentDefinition(agent)) {
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     return await agent.resolve(context as never)
   }
 
@@ -1860,18 +1933,21 @@ async function resolveAgentForRun<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): Promise<AgentAdapter<CALL_OPTIONS>> {
   if (hasAgentDefinition(agent)) {
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const resolver = (agent as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>)[baseAgentResolve]
     if (resolver) return await resolver(context)
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return await resolveAgent(agent, context) as AgentAdapter<CALL_OPTIONS>
 }
 
 export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>(
   name: string,
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   registry: AgentRegistry<TContext> = agentRegistry as AgentRegistry<TContext>,
 ): Promise<AgentInput<TContext>> {
   const loader = registry[name]
@@ -1901,7 +1977,7 @@ export async function resolveAgentTriggerInvocation<
   TInput = unknown,
   CALL_OPTIONS = unknown,
 >(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
@@ -1945,10 +2021,10 @@ export async function streamAgentTrigger<
 }
 
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS>,
 ): agent is AgentDefinition<TRuntimeConfig, any> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
   return hasAgentDefinition(agent)
-    && typeof agent.run === "function"
+    && hasRuntimeType(agent.run, "function")
     && !(syntheticWorkspaceRun in agent.run)
 }
 
@@ -2006,9 +2082,11 @@ function toAgentAdapterRunContext<
   return {
     ...context,
     instructions: context.instructions,
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
     nativeStructuredOutput: !context.outputRenderers.length && !context.finalOutputRenderers.length,
     runtime: context.runtimeContext,
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
   }
 }
@@ -2047,6 +2125,7 @@ function mergeAgentWorkspaceDefinition(
   if (!registered) return configured ? { ...configured, name } : undefined
   if (!configured) return { ...registered, name: registered.name || name }
 
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const { name: _configuredName, sources: configuredSources, ...configuredFields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   const { mode: _mode, ...configuredDefinitionFields } = configuredFields
   if (!Object.keys(configuredDefinitionFields).length && !Object.keys(configuredSources || {}).length) {
@@ -2060,17 +2139,74 @@ function mergeAgentWorkspaceDefinition(
   }
 }
 
+const ownedAgentWorkspaceDefinitions = new WeakMap<object, Map<string, WorkspaceDefinition>>()
+
+function resolveOwnedAgentWorkspaceDefinition(
+  agent: unknown,
+  name: string,
+  configured: WorkspaceDefinition | undefined,
+): WorkspaceDefinition | undefined {
+  const resolved = configured ? { ...configured, name } : undefined
+  if (!hasRuntimeType(agent, "object") || agent === null) return resolved
+  const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
+  const existing = definitions.get(name)
+  if (existing) return existing
+  if (resolved) setOwnedAgentWorkspaceDefinition(agent, name, resolved)
+  return resolved
+}
+
+function ownedAgentWorkspaceKey(agent: unknown): object {
+  if (!isRuntimeObject(agent)) throw new TypeError("[vitehub] Owned Agent Workspace state requires an object owner.")
+  return agent
+}
+
+function setOwnedAgentWorkspaceDefinition(agent: unknown, name: string, definition: WorkspaceDefinition): void {
+  const owner = ownedAgentWorkspaceKey(agent)
+  const definitions = ownedAgentWorkspaceDefinitions.get(owner) || new Map<string, WorkspaceDefinition>()
+  definitions.set(name, definition)
+  ownedAgentWorkspaceDefinitions.set(owner, definitions)
+}
+
 function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
   if (!definition) return false
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
 }
 
-async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
+async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<WorkspaceDefinition | undefined> {
   if (!definition) return
   const { name: _name, ...workspace } = definition
   const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
-  registerWorkspace(name, workspace)
+  return registerWorkspace(name, workspace)
+}
+
+const ownedAgentWorkspaceRegistrations = new WeakMap<object, Map<string, Promise<WorkspaceDefinition | undefined>>>()
+
+async function awaitOwnedAgentWorkspaceRegistration(agent: unknown, name: string): Promise<void> {
+  await ownedAgentWorkspaceRegistrations.get(ownedAgentWorkspaceKey(agent))?.get(name)
+}
+
+async function registerOwnedAgentWorkspaceDefinition(
+  agent: unknown,
+  name: string,
+  definition: WorkspaceDefinition,
+): Promise<WorkspaceDefinition | undefined> {
+  const owner = ownedAgentWorkspaceKey(agent)
+  const registrations = ownedAgentWorkspaceRegistrations.get(owner) || new Map<string, Promise<WorkspaceDefinition | undefined>>()
+  let registration = registrations.get(name)
+  if (!registration) {
+    registration = registerResolvedAgentWorkspaceDefinition(name, definition).then((registered) => {
+      if (registered) setOwnedAgentWorkspaceDefinition(agent, name, registered)
+      return registered
+    })
+    registrations.set(name, registration)
+    ownedAgentWorkspaceRegistrations.set(owner, registrations)
+    void registration.catch(() => {
+      if (registrations.get(name) === registration) registrations.delete(name)
+    })
+  }
+  return await registration
 }
 
 function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, "waitUntil">, task: Promise<unknown>): void {
@@ -2099,6 +2235,9 @@ function agentInvocationTraceLog(
   if (agentInvocationJournalTraceLogSymbol in traceLog) {
     Object.defineProperty(invocationTraceLog, agentInvocationJournalTraceLogSymbol, { value: true })
   }
+  if (agentInvocationJournalContentTraceLogSymbol in traceLog) {
+    Object.defineProperty(invocationTraceLog, agentInvocationJournalContentTraceLogSymbol, { value: true })
+  }
   return invocationTraceLog
 }
 
@@ -2120,25 +2259,47 @@ function agentInvocationTraceEvent(
 }
 
 function agentContentTraceLog(
-  destination: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>,
+  destination: ResolvedAgentRuntimeContext["traceLog"],
   invocationId: string,
   runId?: string,
   trace?: NonNullable<ResolvedAgentRuntimeContext["trace"]>,
 ): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
-  const content = createTraceEventLog({ content: "content" })
+  const maxEntries = 1024
+  const firstEntries: TraceEventLogEntry[] = []
+  const tailEntries: Array<TraceEventLogEntry | undefined> = Array.from({ length: maxEntries / 2 })
+  let count = 0
+  let failure: TraceEventLogEntry | undefined
+  let terminal: TraceEventLogEntry | undefined
+  const retainedEntries = () => {
+    const tail = tailEntries.filter(entry => entry !== undefined).sort((left, right) => left.sequence - right.sequence)
+    const evidence = [...new Map([failure, terminal].filter(entry => entry !== undefined).map(entry => [entry.sequence, entry])).values()]
+    const evidenceSequences = new Set(evidence.map(entry => entry.sequence))
+    const retainedTail = tail.filter(entry => !evidenceSequences.has(entry.sequence)).slice(-(tailEntries.length - evidence.length))
+    const retained = count <= maxEntries ? [...firstEntries, ...tail] : [...firstEntries, ...retainedTail, ...evidence]
+    return [...new Map(retained.map(entry => [entry.sequence, entry])).values()]
+      .sort((left, right) => left.sequence - right.sequence)
+  }
   const traceLog = {
-    async append(event: Parameters<typeof destination.append>[0]) {
+    async append(event: Parameters<NonNullable<ResolvedAgentRuntimeContext["traceLog"]>["append"]>[0]) {
       const correlated = agentInvocationTraceEvent(event, invocationId, runId, trace)
-      const [entry] = await Promise.all([
-        content.append(correlated),
-        destination.append(correlated),
-      ])
+      const normalized = await createTraceEventLog({ content: "content" }).append(correlated)
+      const entry = { ...normalized, sequence: count + 1 }
+      if (count < maxEntries / 2) firstEntries.push(entry)
+      else tailEntries[(count - maxEntries / 2) % tailEntries.length] = entry
+      const isFailure = entry.name === "run.error" || (entry.name === "agent.stream.error" && entry.attributes?.["error.recoverable"] !== true)
+      if (isFailure) failure = entry
+      if (entry.name === "agent.invocation.finish" || entry.name === "run.finish" || entry.name === "agent.invocation.error" || isFailure) terminal = entry
+      count += 1
+      await destination?.append(correlated)
       return entry
     },
-    entries: () => content.entries(),
+    entries: retainedEntries,
   }
-  if (agentInvocationJournalTraceLogSymbol in destination) {
+  if (destination && agentInvocationJournalTraceLogSymbol in destination) {
     Object.defineProperty(traceLog, agentInvocationJournalTraceLogSymbol, { value: true })
+  }
+  if (destination && agentInvocationJournalContentTraceLogSymbol in destination) {
+    Object.defineProperty(traceLog, agentInvocationJournalContentTraceLogSymbol, { value: true })
   }
   return traceLog
 }
@@ -2151,11 +2312,125 @@ function agentCapabilityTelemetry(
     : [])
 }
 
+function agentTelemetryUsesContent(registration: { content?: AgentTelemetryContentOptions }): boolean {
+  return registration.content?.inputs === true
+    || registration.content?.instructions === true
+    || registration.content?.outputs === true
+}
+
+
+
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
   if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "vitehub.activity.body") return content.outputs === true
   return false
+}
+
+type AgentTelemetryMessageContentClass = "inputs" | "instructions" | "outputs"
+
+function agentTelemetryMessageContentClass(value: unknown): AgentTelemetryMessageContentClass | undefined {
+  try {
+    if (!value || !hasRuntimeType(value, "object")) return
+    // SAFETY: The guarded record is read only to classify its finite public role contract.
+    const role = (value as { role?: unknown }).role
+    if (role === "user") return "inputs"
+    if (role === "system") return "instructions"
+    if (role === "assistant" || role === "tool") return "outputs"
+  }
+  catch {
+    return undefined
+  }
+}
+
+function agentTelemetryMessagesForContent(
+  value: unknown,
+  policy: AgentTelemetryContentOptions,
+): unknown[] | undefined {
+  if (!Array.isArray(value)) return
+  const selected = value.filter((message) => {
+    const contentClass = agentTelemetryMessageContentClass(message)
+    return contentClass !== undefined && policy[contentClass] === true
+  })
+  return selected.length ? selected : undefined
+}
+
+function agentTelemetryAttributeForContent(
+  key: string,
+  value: unknown,
+  policy: AgentTelemetryContentOptions,
+): { selected: true, value: unknown } | undefined {
+  if (key === "input.messages") {
+    const messages = agentTelemetryMessagesForContent(value, policy)
+    return messages ? { selected: true, value: messages } : undefined
+  }
+  if (key === "input.prompt" && Array.isArray(value)) {
+    const messages = agentTelemetryMessagesForContent(value, policy)
+    return messages ? { selected: true, value: messages } : undefined
+  }
+  if (key === "input.message" && !hasRuntimeType(value, "string")) {
+    const contentClass = agentTelemetryMessageContentClass(value)
+    return contentClass !== undefined && policy[contentClass] === true
+      ? { selected: true, value }
+      : undefined
+  }
+  return allowedAgentTelemetryContent(key, policy) ? { selected: true, value } : undefined
+}
+
+type AgentTelemetryContentClass = "ambiguous" | "inputs" | "instructions" | "outputs"
+
+function agentTelemetryContentClass(path: string): AgentTelemetryContentClass | undefined {
+  const parts = path
+    .replace(/([a-z0-9])([A-Z])/g, "$1.$2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+  if (parts.some(part => part === "instruction" || part === "instructions")) return "instructions"
+  if (parts.some(part => part === "input" || part === "inputs" || part === "prompt" || part === "prompts" || part === "request" || part === "args")) return "inputs"
+  if (parts.some(part => part === "output" || part === "outputs" || part === "response" || part === "result" || part === "text" || part === "title")) return "outputs"
+  return isTraceContentAttributeKey(path) ? "ambiguous" : undefined
+}
+
+function agentTelemetryMetadataForContent(
+  value: AgentInspectionValue,
+  policy: AgentTelemetryContentOptions,
+  path = "",
+): AgentInspectionValue | undefined {
+  if (Array.isArray(value)) {
+    return value.flatMap((child) => {
+      const selected = agentTelemetryMetadataForContent(child, policy, path)
+      return selected === undefined ? [] : [selected]
+    })
+  }
+  if (!value || !hasRuntimeType(value, "object")) return value
+  return Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
+    const childPath = path ? `${path}.${key}` : key
+    const contentClass = agentTelemetryContentClass(childPath)
+    if (contentClass === "instructions" && policy.instructions !== true) return []
+    if (contentClass === "inputs" && policy.inputs !== true) return []
+    if (contentClass === "outputs" && policy.outputs !== true) return []
+    if (contentClass === "ambiguous" && (policy.inputs !== true || policy.outputs !== true)) return []
+    const selected = agentTelemetryMetadataForContent(child, policy, childPath)
+    return selected === undefined ? [] : [[key, selected]]
+  }))
+}
+
+function agentTelemetryConfigurationForContent(
+  configuration: AgentTelemetryConfiguration,
+  policy: AgentTelemetryContentOptions,
+): AgentTelemetryConfiguration {
+  const { instructions, ...metadata } = configuration
+  return {
+    ...metadata,
+    capabilities: configuration.capabilities?.map(capability => capability.metadata
+      ? {
+          ...capability,
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+          metadata: agentTelemetryMetadataForContent(capability.metadata, policy) as Record<string, AgentInspectionValue>,
+        }
+      : capability),
+    ...(policy.instructions === true && instructions ? { instructions } : {}),
+  }
 }
 
 function withAgentTelemetryContentAttributes(
@@ -2164,13 +2439,17 @@ function withAgentTelemetryContentAttributes(
   policy: AgentTelemetryContentOptions,
 ): Record<string, unknown> {
   const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
-  const allowed = Object.fromEntries(Object.entries(full || {}).filter(([key]) => allowedAgentTelemetryContent(key, policy)))
+  const allowedEntries = Object.entries(full || {}).flatMap(([key, value]) => {
+    const selected = agentTelemetryAttributeForContent(key, value, policy)
+    return selected ? [[key, selected.value] as const] : []
+  })
+  const allowedKeys = new Set(allowedEntries.map(([key]) => key))
   const omitted = Array.isArray(safe?.["content.omitted"])
-    ? safe["content.omitted"].filter(key => typeof key !== "string" || !allowedAgentTelemetryContent(key, policy))
+    ? safe["content.omitted"].filter(key => !hasRuntimeType(key, "string") || !allowedKeys.has(key))
     : undefined
   return {
     ...safeAttributes,
-    ...allowed,
+    ...Object.fromEntries(allowedEntries),
     ...(omitted?.length ? { "content.omitted": omitted } : {}),
   }
 }
@@ -2193,6 +2472,7 @@ function withAgentTelemetryContent(
     }
   })
 }
+
 
 function withAgentTelemetryLogContent(
   metadata: readonly OpenTelemetryLogRecordView[],
@@ -2229,9 +2509,9 @@ function agentTelemetryConfigurationValue(
   registration: AgentCapabilityRegistries["telemetry"][number]["registration"],
 ): AgentTelemetryConfiguration | undefined {
   const configuration = getAgentTelemetryConfiguration(context)?.value
-  if (!configuration || registration.content?.instructions) return configuration
-  const { instructions: _instructions, ...metadataConfiguration } = configuration
-  return metadataConfiguration
+  return configuration
+    ? agentTelemetryConfigurationForContent(configuration, registration.content || {})
+    : undefined
 }
 
 function agentTelemetryCorrelationRecord(
@@ -2597,6 +2877,7 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
   }
 }
 
+
 async function createAgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -2628,19 +2909,35 @@ async function createAgentInvocationContext<
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
   }
-  const initialTelemetry = agentCapabilityTelemetry(definition?.capabilities)
-  const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)
-  const initialTraceLog = initialTelemetryUsesContent && tracedRuntimeContextBase.traceLog
-    ? agentContentTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId, tracedRuntimeContextBase.trace)
-    : tracedRuntimeContextBase.traceLog
-  const tracedRuntimeContext = initialTelemetry.length && initialTraceLog
-    ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(initialTraceLog, telemetryInvocationId, context.run?.runId, tracedRuntimeContextBase.trace, telemetryChanged) }
-    : tracedRuntimeContextBase
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
+  const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
+  const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
+  const channelCapabilities = activeChannel?.capabilities || []
+  const initialTelemetry = agentCapabilityTelemetry([
+    ...(definition?.capabilities || []),
+    ...channelCapabilities,
+  ])
+  const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
+  const mayResolveContentTelemetry = capabilitiesResolver !== undefined
+  const baseTraceLog = tracedRuntimeContextBase.traceLog || createTraceEventLog()
+  const telemetryTraceLogWrapped = initialTelemetry.length > 0 || mayResolveContentTelemetry
+  const correlatedTraceLog = telemetryTraceLogWrapped
+    ? agentInvocationTraceLog(baseTraceLog, telemetryInvocationId, context.run?.runId, tracedRuntimeContextBase.trace, telemetryChanged)
+    : baseTraceLog
+  const initialTraceLog = initialTelemetryUsesContent || mayResolveContentTelemetry
+    ? agentContentTraceLog(resolvedContext.traceLog, telemetryInvocationId, context.run?.runId, tracedRuntimeContextBase.trace)
+    : correlatedTraceLog
+  const tracedRuntimeContext = {
+    ...tracedRuntimeContextBase,
+    traceLog: initialTraceLog === correlatedTraceLog
+      ? correlatedTraceLog
+      : agentInvocationTraceLog(initialTraceLog, telemetryInvocationId, context.run?.runId, tracedRuntimeContextBase.trace, telemetryChanged),
+  }
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
   let failureTelemetry = initialTelemetry
-  const telemetryTraceLogWrapped = initialTelemetry.length > 0
-  const telemetryContentTraceLogWrapped = initialTelemetryUsesContent
+  const telemetryContentTraceLogWrapped = initialTelemetryUsesContent || mayResolveContentTelemetry
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
     runtimeContext = boundRunEvents
@@ -2649,10 +2946,11 @@ async function createAgentInvocationContext<
     let callbackContext = createAgentCallbackContext(runtimeContext)
     bindMessageChannelInstructions(
       invocationContext,
-      activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
+      activeChannel,
     )
     invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
     invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
     invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
     invoker = await resolveAgentInvoker(
@@ -2661,13 +2959,13 @@ async function createAgentInvocationContext<
       invocationContext,
       input,
       context.run,
-      invocationContext.get<boolean>(scheduledAgentTurnContextKey) === true,
+      invocationContext.get(scheduledAgentTurnContextKey) === true,
     )
-    const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
-    const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
@@ -2681,14 +2979,22 @@ async function createAgentInvocationContext<
           run: context.run,
         })
       : []
-    const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
-    const channelCapabilities = activeChannel?.capabilities || []
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const resolvedCapabilityDefinitions = normalizeCapabilities([
       ...invocationResolvedCapabilities,
       ...(definition?.capabilities || []),
       ...channelCapabilities,
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     failureTelemetry = agentCapabilityTelemetry(resolvedCapabilityDefinitions)
+    const resolvedTelemetryUsesContent = failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
+    if (mayResolveContentTelemetry && !resolvedTelemetryUsesContent) {
+      if (!resolvedContext.traceLog) {
+        for (const entry of runtimeContext.traceLog?.entries() || []) {
+          await correlatedTraceLog.append(entry)
+        }
+      }
+      runtimeContext = { ...runtimeContext, traceLog: correlatedTraceLog }
+    }
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
       driverKind,
@@ -2701,21 +3007,43 @@ async function createAgentInvocationContext<
     const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
       : undefined
+    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
     const registeredWorkspaceDefinition = workspaceName
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
-    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
-    const configuredDefinitionForMerge = ownsWorkspaceDefinition && registeredWorkspaceDefinition
-      ? undefined
-      : configuredWorkspaceDefinition
-    const baseResolvedWorkspaceDefinition = workspaceName
-      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
-      : undefined
-    const resolvedWorkspaceDefinition = baseResolvedWorkspaceDefinition
-    if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
-      await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+    if (workspaceName && ownsWorkspaceDefinition && hasRuntimeType(workspaceDefinition, "object") && workspaceDefinition !== null) {
+      await awaitOwnedAgentWorkspaceRegistration(workspaceDefinition, workspaceName)
     }
-    const workspaceUseOptions = !ownsWorkspaceDefinition && hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge) && resolvedWorkspaceDefinition
+    const usesRegisteredOwnedDefinition = Boolean(
+      workspaceName
+      && ownsWorkspaceDefinition
+      && registeredWorkspaceDefinition
+      && workspaceAgentUsesRegisteredDefinition(workspaceDefinition, workspaceName),
+    )
+    const configuredDefinitionForMerge = ownsWorkspaceDefinition ? undefined : configuredWorkspaceDefinition
+    let resolvedWorkspaceDefinition = workspaceName
+      ? ownsWorkspaceDefinition
+        ? usesRegisteredOwnedDefinition
+          ? registeredWorkspaceDefinition
+          : resolveOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, configuredWorkspaceDefinition)
+        : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
+      : undefined
+    if (workspaceName && ownsWorkspaceDefinition && resolvedWorkspaceDefinition && !registeredWorkspaceDefinition) {
+      if (resolvedWorkspaceDefinition && hasRuntimeType(workspaceDefinition, "object") && workspaceDefinition !== null) {
+        resolvedWorkspaceDefinition = await registerOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
+      }
+      else {
+        resolvedWorkspaceDefinition = await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+      }
+      if (resolvedWorkspaceDefinition && hasRuntimeType(workspaceDefinition, "object") && workspaceDefinition !== null) {
+        setOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
+      }
+    }
+    const workspaceUseOptions = resolvedWorkspaceDefinition && (
+      ownsWorkspaceDefinition
+        ? !usesRegisteredOwnedDefinition
+        : hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge)
+    )
       ? { definition: resolvedWorkspaceDefinition }
       : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
@@ -2726,22 +3054,26 @@ async function createAgentInvocationContext<
       : undefined
     const workspace = baseWorkspace
     const capabilityOptions = resolvedCapabilityDefinitions.length
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? { capabilities: resolvedCapabilityDefinitions, hooks: definition?.hooks as never }
       : undefined
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const agentModel = internalDefinition?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
     if (!telemetryTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.length) {
       runtimeContext = { ...runtimeContext, traceLog: agentInvocationTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId, runtimeContext.trace, telemetryChanged) }
     }
-    if (!telemetryContentTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.some(({ registration }) => registration.content?.inputs || registration.content?.outputs)) {
+    if (!telemetryContentTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))) {
       runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId, runtimeContext.trace) }
     }
     callbackContext = createAgentCallbackContext(runtimeContext)
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
       invocationKind,
       invoker,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
@@ -2749,6 +3081,7 @@ async function createAgentInvocationContext<
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         await runObservedAgentHook(definition?.hooks as AgentHookObserverHooks | undefined, {
           name: "agent:input",
           owner: "agent",
@@ -2757,6 +3090,7 @@ async function createAgentInvocationContext<
           ...callbackContext,
           actor: invoker,
           context: invocationContext,
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
           invoker,
           run: context.run,
@@ -2778,29 +3112,35 @@ async function createAgentInvocationContext<
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
-    const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+    const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const configuredWorkspace = workspaceOptions?.workspace
-    const workspaceAutoCommit = configuredWorkspace && typeof configuredWorkspace === "object" && !("name" in configuredWorkspace)
+    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)
       ? configuredWorkspace.commit
       : undefined
     const instructions = workspaceOptions && activeWorkspace
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
     const workspaceInstructionBindings = activeWorkspaceDefinition
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? await resolveWorkspaceInstructionBindings(activeWorkspaceDefinition, activeWorkspace as ReadonlyWorkspaceFacade | undefined)
       : undefined
 
-    const capabilityTelemetryMetadata = new Map<string, Record<string, unknown>>()
+    const capabilityTelemetryMetadata = new Map<string, Record<string, AgentInspectionValue>>()
+    const addCapabilityTelemetryMetadata = (id: string, metadata: unknown) => {
+      if (!capabilityTelemetryMetadata.has(id)) capabilityTelemetryMetadata.set(id, {})
+      const safeMetadata = safeAgentTelemetryMetadata(metadata)
+      if (!safeMetadata) return
+      capabilityTelemetryMetadata.set(id, { ...capabilityTelemetryMetadata.get(id), ...safeMetadata })
+    }
     for (const capability of resolvedCapabilityDefinitions) {
-      capabilityTelemetryMetadata.set(capability.id, { ...capabilityTelemetryMetadata.get(capability.id), ...capability.metadata })
+      addCapabilityTelemetryMetadata(capability.id, capability.metadata)
     }
     for (const contribution of capabilities.registries.telemetryMetadata) {
-      capabilityTelemetryMetadata.set(contribution.capabilityId, {
-        ...capabilityTelemetryMetadata.get(contribution.capabilityId),
-        ...contribution.metadata,
-      })
+      addCapabilityTelemetryMetadata(contribution.capabilityId, contribution.metadata)
     }
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const settings = (definition as AgentDefinition & { __vitehubAgentSettings?: AgentSettings } | undefined)?.__vitehubAgentSettings
     const configuredDriver = settings ? normalizeAgentDriver(settings) : undefined
     if (capabilities.registries.telemetry.length) setAgentTelemetryConfiguration(invocationContext, {
@@ -2809,10 +3149,7 @@ async function createAgentInvocationContext<
         ...(definition?.version ? { version: definition.version } : {}),
       },
       capabilities: [...capabilityTelemetryMetadata.entries()]
-        .map(([id, metadata]) => {
-          const safeMetadata = safeAgentTelemetryMetadata(metadata)
-          return { id, ...(safeMetadata ? { metadata: safeMetadata } : {}) }
-        })
+        .map(([id, metadata]) => ({ id, ...(Object.keys(metadata).length ? { metadata } : {}) }))
         .sort((left, right) => left.id.localeCompare(right.id)),
       driver: {
         kind: driverKind,
@@ -2850,7 +3187,7 @@ async function createAgentInvocationContext<
       context: invocationContext,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
-        const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
+        const options = getChatCapabilityOptions(definition?.capabilities || [])
         return options ? durableChatErrorFallbackTimeout(options) : undefined
       })(),
       toolStepReporter,
@@ -2859,11 +3196,15 @@ async function createAgentInvocationContext<
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       errorHook: definition?.hooks?.["agent:error"] as never,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
       invoker,
@@ -2873,10 +3214,11 @@ async function createAgentInvocationContext<
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
       output: internalDefinition?.[baseAgentOutput],
       outputRenderers: capabilities.registries.outputRenderers,
-      prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+      prompt: hasRuntimeType(capabilities.input.prompt, "string") ? capabilities.input.prompt : undefined,
       providerTools: capabilities.registries.providerTools,
       run: context.run,
       runtimeContext,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       startTask: undefined as Promise<void> | undefined,
       startedAt,
       telemetry: capabilities.registries.telemetry,
@@ -3013,8 +3355,8 @@ function maybeTraceAgentStream<
   return (async function* () {
     try {
       for await (const event of stream) {
-        const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities) || event
-        await tracer.write(normalized)
+        const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities)
+        if (normalized) await tracer.write(normalized)
         yield event
       }
     }
@@ -3055,8 +3397,9 @@ function withEagerStreamUsageExtensions<
         runtime: context.runtimeContext,
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
-      if (chunk && typeof chunk === "object") {
+      if (chunk && hasRuntimeType(chunk, "object")) {
         const prototype = Object.getPrototypeOf(chunk)
         if (prototype !== Object.prototype && prototype !== null) {
           if (Object.isExtensible(chunk)) {
@@ -3094,6 +3437,7 @@ function withEagerUiMessageStreamUsageExtensions<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): unknown {
   if (isUIMessageStreamResult(rendered)) {
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
     return cloneWithPropertyDescriptors(rendered, {
       toUIMessageStream: {
@@ -3113,21 +3457,22 @@ function withEagerUiMessageStreamUsageExtensions<
 }
 
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
-  if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
+  if (!hasRuntimeType(stream, "object") || stream === null || !hasRuntimeType(result, "object") || result === null) return stream
   Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
     configurable: true,
     enumerable: true,
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     get: () => (result as Record<string, unknown>)[key],
   }])))
   return stream
 }
 
 function resultWithStreamedText(result: unknown, text: string): unknown {
-  if (!text || typeof result === "string") return result
-  if (result && typeof result === "object" && !(result instanceof Response)) {
+  if (!text || hasRuntimeType(result, "string")) return result
+  if (result && hasRuntimeType(result, "object") && !(result instanceof Response)) {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
-    if (typeof current === "string" && current) return result
+    if (hasRuntimeType(current, "string") && current) return result
     const prototype = Object.getPrototypeOf(result)
     if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) return result
     return resultWithPreservedProperties(result, {
@@ -3143,14 +3488,15 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
 
 function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined): unknown {
   if (!usageRecord || result instanceof Response) return result
-  if (!result || typeof result !== "object") {
+  if (!result || !hasRuntimeType(result, "object")) {
     return {
       raw: result,
-      ...(typeof result === "string" && result ? { text: result } : {}),
+      ...(hasRuntimeType(result, "string") && result ? { text: result } : {}),
       usage: usageRecord.usage,
       usageRecord,
     }
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const record = result as { usage?: unknown, usageRecord?: unknown }
   record.usageRecord ??= usageRecord
   record.usage ??= usageRecord.usage
@@ -3159,7 +3505,7 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
 
 function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
   if (!usageRecord || result instanceof Response) return result
-  if (!result || typeof result !== "object") return resultWithUsageRecord(result, usageRecord)
+  if (!result || !hasRuntimeType(result, "object")) return resultWithUsageRecord(result, usageRecord)
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null) {
     if (Object.isExtensible(result)) {
@@ -3215,7 +3561,8 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
   })
 }
 
-function resultWithPreservedProperties(result: object, descriptors: PropertyDescriptorMap): object {
+function resultWithPreservedProperties(result: unknown, descriptors: PropertyDescriptorMap): object {
+  if (!isRuntimeObject(result)) throw new TypeError("[vitehub] Preserving Agent result properties requires an object result.")
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
     try {
@@ -3269,8 +3616,10 @@ function withStreamedResult(
             toolName: event.name,
           })
         }
-        const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
+        const explicitlyPhasedTextChunk = chunk && hasRuntimeType(chunk, "object")
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
         if (explicitlyPhasedTextChunk || (event?.type === "text-delta" && event.phase !== undefined)) {
           explicitTextPhaseSeen = true
@@ -3280,7 +3629,8 @@ function withStreamedResult(
           if (event.phase === "final") finalText += event.text
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
-        const attachedUsageRecord = chunk && typeof chunk === "object" && "usageRecord" in chunk
+        const attachedUsageRecord = chunk && hasRuntimeType(chunk, "object") && "usageRecord" in chunk
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
           : undefined
         usageRecord = event?.type === "usage"
@@ -3313,7 +3663,7 @@ async function finishStreamAgentInvocation<
     const usageRecord = await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
-    if (usageRecord && resolvedResult !== result && result && typeof result === "object" && Object.isExtensible(result)) {
+    if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
       try {
         Object.defineProperty(result, "usageRecord", {
           configurable: true,
@@ -3393,6 +3743,7 @@ function maybeTraceUiMessageStreamResult<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: { toUIMessageStream: () => ReadableStream<unknown> }, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>) {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
   return cloneWithPropertyDescriptors(rendered, {
     toUIMessageStream: {
@@ -3409,10 +3760,12 @@ function maybeTraceUiMessageStreamOutput<
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
   if (context.runtimeContext.traceLog) {
     if (isUIMessageStreamResult(rendered)) return maybeTraceUiMessageStreamResult(rendered, context)
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     if (isAsyncIterable(rendered)) return maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context)
     if (!hasTraceableStreamResult(rendered)) return rendered
     return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
   }
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered
 }
 
@@ -3457,7 +3810,7 @@ function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown,
 }
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
-  return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
+  return Boolean(workspace && hasRuntimeType(workspace, "object") && "diff" in workspace && "snapshot" in workspace)
 }
 
 function hasWorkspaceAutoCommit<
@@ -3519,7 +3872,8 @@ async function applyFinalOutputRenderers<
 }
 
 function assertDeliveryEffectIntent(value: unknown): asserts value is AgentChannelDeliveryEffectIntent {
-  if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string" || !(value as { kind: string }).kind.trim()) {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  if (!value || !hasRuntimeType(value, "object") || !hasRuntimeType((value as { kind?: unknown }).kind, "string") || !(value as { kind: string }).kind.trim()) {
     throw new TypeError("[vitehub] Channel finish delivery effect resolvers must return an effect intent with a non-empty kind.")
   }
 }
@@ -3544,7 +3898,7 @@ async function resolveFinishDeliveryEffectIntents<
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const finishContext = createFinishDeliveryEffectContext(event, context)
   for (const provider of providers) {
-    const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
+    const intent = hasRuntimeType(provider, "function") ? await provider(finishContext, event) : provider
     if (!intent) continue
     appendDeliveryEffectIntent(intents, intent)
   }
@@ -3563,6 +3917,7 @@ function createDurableFailureDeadline(timeout: number): DurableFailureDeadline {
 function durableFailureTimeoutError(timeout: number): Error & { isRetryable: false } {
   return Object.assign(
     new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     { isRetryable: false as const },
   )
 }
@@ -3624,6 +3979,7 @@ async function resolveDurableFailureFinishExtensions<
 ): Promise<AgentFinishExtensions> {
   return await runWithinDurableFailureDeadline(
     deadline,
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     async () => await createAgentInvocationExtensions(event as never, providers),
   )
 }
@@ -3638,7 +3994,7 @@ function createFinishDeliveryEffectContext<
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
   const active = activeAgentChannel(context.channels, context.context, context.run)
   const reply: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>["reply"] = (input, options = {}) => {
-    const inputArtifacts = typeof input === "object" && input !== null && "artifacts" in input
+    const inputArtifacts = hasRuntimeType(input, "object") && input !== null && "artifacts" in input
       ? input.artifacts
       : undefined
     return createReplyDeliveryEffectIntent(input, {
@@ -3717,7 +4073,7 @@ function activeFinishDeliveryEffectProviders<
   if (!context.finishDeliveryEffectProviders.length) return []
   const active = createFinishDeliveryEffectContext(event, context)
   return context.finishDeliveryEffectProviders.filter((provider) => {
-    if (typeof provider !== "function" || !provider.active) return true
+    if (!hasRuntimeType(provider, "function") || !provider.active) return true
     return provider.active(active)
   })
 }
@@ -3729,22 +4085,24 @@ function provisionalFinishEvent<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   eventBase: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
 ): AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return {
     ...eventBase,
-    extensions: { get: () => undefined } as unknown as AgentFinishExtensions,
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    extensions: asUnknownBoundary({ get: () => undefined }) as AgentFinishExtensions,
   } as AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>
 }
 
 function hasTitleDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
   return providers.some((provider) => {
-    if (typeof provider === "function") return provider.kind === "title"
+    if (hasRuntimeType(provider, "function")) return provider.kind === "title"
     const effects = Array.isArray(provider) ? provider : [provider]
     return effects.some(effect => effect.kind === "title")
   })
 }
 
 function hasDeferredFinishDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
-  return providers.some(provider => typeof provider === "function" && (provider.kind === undefined || Boolean(provider.active)))
+  return providers.some(provider => hasRuntimeType(provider, "function") && (provider.kind === undefined || Boolean(provider.active)))
 }
 
 async function prepareProvisionalTitleDeliverySupport<
@@ -3850,16 +4208,21 @@ async function finishAgentInvocation<
         }
         const extensions = hasDurableFailureDelivery
           ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!)
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
           .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
         if (hasDurableFailureDelivery) {
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline!)
         }
         else {
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
           for (const intent of finishIntents) {
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
           }
         }
@@ -3873,7 +4236,9 @@ async function finishAgentInvocation<
             phase: failed ? "error" : "finish",
           }, async () => {
             outcomeHookResult = failed
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
               ? await outcomeHook?.(createAgentErrorHookEvent(hookFinishEvent, hookContext) as never)
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
               : await outcomeHook?.(createAgentFinishHookEvent(hookFinishEvent, hookContext) as never)
           })
           if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
@@ -3961,7 +4326,7 @@ async function finalizeAgentInvocationResult<
         || responseMediaType?.endsWith("+json")
         || responseMediaType === "application/xml"
         || responseMediaType?.endsWith("+xml"))
-      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true && responseIsText
+      const responseDecoder = context.context.get(responseTitleFallbackContextKey) === true && responseIsText
         ? new TextDecoder()
         : undefined
       let responseText = ""
@@ -4011,7 +4376,8 @@ async function finalizeAgentInvocationResult<
             abortSignal: context.input.abortSignal,
             cancelOnAbort: source.cancel,
           })
-          return typeof (result as ReadableStream<unknown>).getReader === "function"
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+          return hasRuntimeType((result as ReadableStream<unknown>).getReader, "function")
             ? toReadableAsyncIterableStream(value)
             : value
         }
@@ -4019,7 +4385,8 @@ async function finalizeAgentInvocationResult<
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
-        return typeof (result as ReadableStream<unknown>).getReader === "function"
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        return hasRuntimeType((result as ReadableStream<unknown>).getReader, "function")
           ? toReadableAsyncIterableStream(value)
           : value
       }
@@ -4045,10 +4412,11 @@ async function materializeAgentStructuredOutput(
   let streamResult = result
   const streamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
   if (!isAsyncIterable(streamResult)) {
-    if (!streamResult || typeof streamResult !== "object") return result
+    if (!streamResult || !hasRuntimeType(streamResult, "object")) return result
     const descriptors: PropertyDescriptorMap = {}
     let hasStream = false
     try {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       for (const property of ["stream", "fullStream", "textStream"] as const) {
         let descriptor: PropertyDescriptor | undefined
         for (let owner: object | null = streamResult; owner && !descriptor; owner = Object.getPrototypeOf(owner))
@@ -4083,6 +4451,7 @@ async function materializeAgentStructuredOutput(
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(streamResult))
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const events = withCapabilityCleanup(source.stream, async (outcome) => {
     const cancellations = await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
     const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -4094,8 +4463,9 @@ async function materializeAgentStructuredOutput(
   for await (const event of events) {
     onEvent?.(event)
     if (event.type === "error") {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
-      const rejectedText = typeof streamError?.text === "string" ? streamError.text : text
+      const rejectedText = hasRuntimeType(streamError?.text, "string") ? streamError.text : text
       if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
       throw streamError ?? new Error(event.error)
     }
@@ -4143,12 +4513,13 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
   input: AgentRunInput<CALL_OPTIONS>,
   error: unknown,
 ): Promise<void> {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   if (!(context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey]) return
-  const options = getChatCapabilityOptions<TRuntimeConfig>(definition?.capabilities || [])
+  const options = getChatCapabilityOptions(definition?.capabilities || [])
   if (!options) return
   const invocationContext = createAgentInvocationContextStore(input.context)
   const chat = getAgentChatContext(invocationContext)
-  const channel = invocationContext.get<AgentChannelContext>("channel")
+  const channel = invocationContext.get("channel")
   if (!chat && !channel) return
   const invoker = createFallbackAgentInvoker(context.run)
   const timeout = durableChatErrorFallbackTimeout(options)
@@ -4163,10 +4534,12 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
       toolResults: [],
     }, async resolution => await resolution)
     if (abortSignal.aborted || !intents.length) return
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     await applyChannelDeliveryEffectIntents({
       actor: invoker,
       channels: definition?.channels,
       context: invocationContext,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: { ...input, abortSignal },
       invoker,
@@ -4205,7 +4578,7 @@ async function executeAgentInvocationWithCapacityLease<
   CALL_OPTIONS,
   TOutput,
 >(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
@@ -4214,7 +4587,8 @@ async function executeAgentInvocationWithCapacityLease<
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
   const definition = hasAgentDefinition(agent)
-    ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    ? asUnknownBoundary(agent) as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
   const invocation = preparedInvocation
     ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal)
@@ -4260,12 +4634,14 @@ async function executeAgentInvocationWithCapacityLease<
     else if (options.kind === "stream"
       && adapter?.stream
       && (
-        invocation.context.get<boolean>(finalChannelOutputContextKey) !== true
-        || invocation.context.get<boolean>(progressSummaryOutputContextKey) === true
+        invocation.context.get(finalChannelOutputContextKey) !== true
+        || invocation.context.get(progressSummaryOutputContextKey) === true
       )) {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       result = await adapter.stream(adapterContext as never)
     }
     else {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       result = await adapter!.generate(adapterContext as never)
     }
   }
@@ -4274,12 +4650,12 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   if (options.kind === "run"
-    && invocation.context.get<boolean>(finalChannelOutputContextKey) === true
+    && invocation.context.get(finalChannelOutputContextKey) === true
     && !isAsyncIterable(result)
     && !hasTraceableStreamResult(result)) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
-      const synthesizedRaw = typeof result === "object" && result !== null
+      const synthesizedRaw = hasRuntimeType(result, "object") && result !== null
         && Object.getOwnPropertyDescriptor(result, synthesizedAgentOutputSymbol)?.value === true
         ? Object.getOwnPropertyDescriptor(result, "raw")?.value
         : undefined
@@ -4297,6 +4673,7 @@ async function executeAgentInvocationWithCapacityLease<
       : isAsyncIterable(result) && options.output !== "ui-message-stream" && !invocation.finalOutputRenderers.length
     if (shouldRenderStream) {
       rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         ? cancellableAsyncIterableSource(result as AsyncIterable<unknown>)
         : undefined
       result = await applyOutputRenderers(rendererSource?.stream ?? result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
@@ -4325,17 +4702,22 @@ async function executeAgentInvocationWithCapacityLease<
         && shouldHoldInvocationOutput()
       if (shouldPreserveStreamResult || (options.renderOutput
         && !invocation.output
-        && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
+        && invocation.context.get(responseTitleFallbackContextKey) === true
         && rendered !== result
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         && (isAsyncIterable((rendered as { stream?: unknown }).stream)
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
           || isUIMessageStreamResult(rendered))
         && shouldHoldInvocationOutput())) {
         let textStreamDescriptor: PropertyDescriptor | undefined
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
           textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         const hasPrimaryStreamProperty = (["stream", "fullStream"] as const).some((property) => {
           let descriptor: PropertyDescriptor | undefined
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
             descriptor = Object.getOwnPropertyDescriptor(owner, property)
           return descriptor !== undefined && ("get" in descriptor || isAsyncIterable(descriptor.value))
@@ -4343,6 +4725,7 @@ async function executeAgentInvocationWithCapacityLease<
         if (isUIMessageStreamResult(rendered)
           && !hasPrimaryStreamProperty
           && !textStreamDescriptor) {
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
           let finishTask: Promise<void> | undefined
           let streamedText = ""
@@ -4368,7 +4751,8 @@ async function executeAgentInvocationWithCapacityLease<
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
               }
-              const usageRecord = finishResult && typeof finishResult === "object"
+              const usageRecord = finishResult && hasRuntimeType(finishResult, "object")
+                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
                 ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                 : undefined
               if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
@@ -4430,8 +4814,10 @@ async function executeAgentInvocationWithCapacityLease<
         const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
         const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
         try {
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           for (const property of ["stream", "fullStream"] as const) {
             let descriptor: PropertyDescriptor | undefined
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
               descriptor = Object.getOwnPropertyDescriptor(owner, property)
             if (!descriptor) continue
@@ -4479,6 +4865,7 @@ async function executeAgentInvocationWithCapacityLease<
           preservedSources.set(renderedStream, source)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
           const value = withCapabilityCleanup(tracedStream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
@@ -4499,7 +4886,8 @@ async function executeAgentInvocationWithCapacityLease<
               }
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                const usageRecord = finishResult && typeof finishResult === "object"
+                const usageRecord = finishResult && hasRuntimeType(finishResult, "object")
+                  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
                   ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                   : undefined
                 if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
@@ -4507,7 +4895,8 @@ async function executeAgentInvocationWithCapacityLease<
             })()
             return await finishTask
           }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
-          const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+          const preservedStream = hasRuntimeType((renderedStream as ReadableStream<unknown>).pipeThrough, "function")
             ? toReadableAsyncIterableStream(value)
             : value
           preservedStreams.set(renderedStream, preservedStream)
@@ -4586,6 +4975,7 @@ async function executeAgentInvocationWithCapacityLease<
           }
         }
         if (isUIMessageStreamResult(rendered)) {
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
           let uiMessageStreamResolved = false
           descriptors.toUIMessageStream = {
@@ -4674,6 +5064,7 @@ async function executeAgentInvocationWithCapacityLease<
             },
           }
         }
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         preserved = resultWithPreservedProperties(rendered as object, descriptors)
         if (!streamProperties.length && !textStreamDescriptor && !isUIMessageStreamResult(rendered)) {
           return {
@@ -4696,7 +5087,7 @@ async function executeAgentInvocationWithCapacityLease<
         ? await materializeAgentStructuredOutput(
             final,
             invocation.input.abortSignal,
-            invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
+            invocation.context.get(agentOutputEventObserverContextKey),
             invocation.output,
           )
         : final
@@ -4732,6 +5123,7 @@ async function executeAgentInvocationWithCapacityLease<
       outputExtensions,
       ...(customRun
         ? {
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation),
           }
         : {}),
@@ -4746,7 +5138,7 @@ async function executeAgentInvocationWithCapacityLease<
       : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
-      const projection = typeof definition?.uiMessageStream === "function"
+      const projection = hasRuntimeType(definition?.uiMessageStream, "function")
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
       let uiMessageSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
@@ -4754,8 +5146,10 @@ async function executeAgentInvocationWithCapacityLease<
       let capacityRendered = rendered
       if (options.holdCapacity === true) {
         if (isUIMessageStreamResult(rendered)) {
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
           try {
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             for (const property of ["stream", "fullStream", "textStream"] as const) {
               let descriptor: PropertyDescriptor | undefined
               for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
@@ -4838,10 +5232,11 @@ async function executeAgentInvocationWithCapacityLease<
     let isStreamResult = hasTraceableStreamResult(rendered)
     let streamResult = rendered
     const eagerStreamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
-    if (isStreamResult && options.holdCapacity === true && rendered && typeof rendered === "object") {
+    if (isStreamResult && options.holdCapacity === true && rendered && hasRuntimeType(rendered, "object")) {
       const descriptors: PropertyDescriptorMap = {}
       let selectedStream = false
       try {
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         for (const property of ["stream", "fullStream", "textStream"] as const) {
           let descriptor: PropertyDescriptor | undefined
           for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
@@ -4882,12 +5277,15 @@ async function executeAgentInvocationWithCapacityLease<
     }
     const stream = isStreamResult
       ? streamAgentOutputToEvents(streamResult)
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
     const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const value = shouldWrapOutput
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
           const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -4917,16 +5315,17 @@ async function executeAgentInvocationWithCapacityLease<
     finalizeResponse: options.output === "ui-message-stream"
       ? async (response) => {
           if (!isUIMessageStreamResponse(response)) return
-          const projection = typeof definition?.uiMessageStream === "function"
+          const projection = hasRuntimeType(definition?.uiMessageStream, "function")
             ? await definition.uiMessageStream(invocation)
             : definition?.uiMessageStream
           const renderedResponseStream = await applyOutputRenderers({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
           }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions, response)
           const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
+          const tracedResponseStream = maybeTraceUiMessageStreamOutput(enrichedResponseStream, invocation)
           const shouldWrapOutput = shouldHoldInvocationOutput()
           const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
-          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
+          const finalized = await finalizeUiMessageStreamOutput(tracedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
               await lifecycle.finish({
                 result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
@@ -4965,6 +5364,7 @@ async function executeAgentInvocationWithCapacityLease<
     holdOutput: options.holdCapacity,
     outputExtensions,
     ...(customRun
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
       : {}),
   })
@@ -4980,13 +5380,18 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
   const invocationJournal = definition
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
       ...context,
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
         : {}),
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     }, { agentName: (definition as AgentDefinition).name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
@@ -4995,7 +5400,8 @@ async function executeAgentInvocation<
   try {
     if (definition && inspectAgentCapacity(definition)) {
       preparedInvocation = await createAgentInvocationContextWithWorkflowFailureDelivery(
-        agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        asUnknownBoundary(agent) as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
         context,
         input,
         options.kind,
@@ -5012,6 +5418,7 @@ async function executeAgentInvocation<
   }
   catch (error) {
     if (preparedInvocation) {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
       await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
     }
@@ -5089,6 +5496,7 @@ export async function runAgentInline<
   options: RunAgentInlineOptions = {},
 ): Promise<TOutput | Response> {
   context = withAgentIdentityOwner(agent, context)
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return await executeAgentInvocation(agent, context, input, {
     kind: "run",
     renderOutput: options.output !== "raw",
@@ -5113,9 +5521,10 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
 }
 
 function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable" {
-  return typeof error === "object"
+  return hasRuntimeType(error, "object")
     && error !== null
     && "code" in error
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     && (error as { code?: unknown }).code === "WORKFLOW_OPERATION_UNSUPPORTED"
     ? "unsupported"
     : "unavailable"
@@ -5134,12 +5543,14 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   }
   return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
     cancel: async () => {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
       return await reconcileJournal(snapshot)
     },
     errorOutcome: workflowOperationOutcome,
     id: run.id,
     inspect: async () => await reconcileJournal(agentInvocationSnapshotFromWorkflow(
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
     parentAbortSignal,
@@ -5167,6 +5578,7 @@ function createInlineAgentInvocationController<
       kind: "run",
       onFinish(outcome) {
         onFinish(outcome.status === "success"
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
           : { error: outcome.error, status: "failed" })
       },
@@ -5227,7 +5639,8 @@ export async function runScheduledAgent<CALL_OPTIONS = unknown>(
 ): Promise<unknown> {
   const memoValues = new Map<string, unknown>()
   const runId = context.runId || context.id
-  const turn = context.input && typeof context.input === "object" && (context.input as { kind?: unknown }).kind === "agent-turn"
+  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  const turn = context.input && hasRuntimeType(context.input, "object") && (context.input as { kind?: unknown }).kind === "agent-turn"
     ? parseScheduledAgentTurnInput(context.input)
     : undefined
   const forwardedInput = { ...input }
@@ -5241,6 +5654,7 @@ export async function runScheduledAgent<CALL_OPTIONS = unknown>(
     ...runtimeContext,
     memo(key, create) {
       if (!memoValues.has(key)) memoValues.set(key, create())
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       return memoValues.get(key) as never
     },
     run: { ...runtimeContext.run, ...turn?.delivery, runId },

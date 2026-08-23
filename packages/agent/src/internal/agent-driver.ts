@@ -186,9 +186,6 @@ export function normalizeAgentDriver<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   const record = options as Record<string, unknown>
-  if (hasOwnDefined(record, "output")) {
-    throw new Error("[vitehub] defineAgent({ output }) is no longer supported. Move it to defineAgent({ driver: { output } }).")
-  }
   if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
   throw new Error("[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model } or { run } driver.")
 }

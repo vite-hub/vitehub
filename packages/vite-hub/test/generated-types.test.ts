@@ -1,10 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { viteHubTypesPlugin } from "../src/internal/types.ts"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+
+import { toRuntimeModuleSpecifier, toTypeModuleSpecifier, viteHubTypesPlugin } from "../src/internal/types.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -25,19 +28,49 @@ async function createNestedProject() {
   return { root, viteRoot: join(root, "frontend") }
 }
 
+function collectionModule(name: string): string {
+  return [
+    `export const ${name} = {`,
+    `  async page() { return { items: [], nextCursor: null } },`,
+    `  async parseQuery(input: object) { return input },`,
+    `}`,
+    ``,
+  ].join("\n")
+}
+
 function configResolved(plugin: Plugin) {
-  return plugin.configResolved as (config: { root: string }) => Promise<void>
+  // SAFETY: This fixture invokes the documented Vite configResolved hook signature.
+  return plugin.configResolved as (config: { root: string; [VITEHUB_SERVER_DIRS]?: string[] }) => Promise<void>
+}
+
+function config(plugin: Plugin) {
+  // SAFETY: This fixture invokes the documented Vite config hook signature.
+  return plugin.config as (config: {
+    base?: string
+    define?: Record<string, string>
+    nitro?: Record<string, unknown>
+    root?: string
+    [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+    [VITEHUB_SERVER_DIRS]?: string[]
+  }) => Promise<void>
+}
+
+function buildStart(plugin: Plugin) {
+  // SAFETY: This fixture invokes the documented Vite buildStart hook signature.
+  return plugin.buildStart as () => Promise<void>
 }
 
 function buildEnd(plugin: Plugin) {
+  // SAFETY: This fixture invokes the documented Vite buildEnd hook signature.
   return plugin.buildEnd as () => Promise<void>
 }
 
 function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
   const contributor = plugin.vitehub?.cli
-  if (!contributor || typeof contributor === "function") throw new TypeError("Expected static CLI metadata.")
-  const feature = contributor.namespaces.find(namespace => namespace.name === "types")?.features
-    .find(candidate => candidate.name === "prepare")
+  if (!contributor || contributor instanceof Function) throw new TypeError("Expected static CLI metadata.")
+  const feature = contributor.namespaces
+    .find(namespace => namespace.name === "types")
+    ?.features.find(candidate => candidate.name === "prepare")
   if (!feature) throw new TypeError("Expected the types prepare feature.")
   return feature
 }
@@ -47,27 +80,71 @@ afterEach(async () => {
 })
 
 describe("framework generated types", () => {
+  it("defines the Collection client base URL for plain Vite", async () => {
+    const { viteRoot } = await createNestedProject()
+    const viteConfig = {
+      base: "/portal/",
+      define: { EXISTING: "true" },
+      root: viteRoot,
+    }
+
+    await config(viteHubTypesPlugin())(viteConfig)
+
+    expect(viteConfig.define).toEqual({
+      EXISTING: "true",
+      __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
+    })
+  })
+
+  it.each([undefined, "", "./", "../", "https://cdn.example.com/", "//cdn.example.com/"])(
+    "normalizes the non-root-relative Vite base %j to the application origin",
+    async base => {
+      const { viteRoot } = await createNestedProject()
+      const viteConfig = { base, root: viteRoot }
+
+      await config(viteHubTypesPlugin())(viteConfig)
+
+      expect(viteConfig).toMatchObject({
+        define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") },
+      })
+    },
+  )
+
+  it("normalizes POSIX and Windows Collection files to ESM file URLs", () => {
+    expect(toRuntimeModuleSpecifier("/repo/server/collections/meals.ts")).toBe(
+      "file:///repo/server/collections/meals.ts",
+    )
+    expect(toRuntimeModuleSpecifier(String.raw`C:\repo\server\collections\meals.ts`)).toBe(
+      "file:///C:/repo/server/collections/meals.ts",
+    )
+    expect(toTypeModuleSpecifier(String.raw`C:\repo\server\collections\meals.ts`)).toBe(
+      "C:/repo/server/collections/meals.ts",
+    )
+  })
+
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
     const { root, viteRoot } = await createNestedProject()
     await Promise.all([
-      writeFile(join(root, ".vitehub/types/templates.d.ts"), "declare module \"#vitehub/templates\" {}\n"),
+      writeFile(join(root, ".vitehub/types/markdown-template.d.ts"), 'declare module "*.template.md" {}\n'),
       writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n"),
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
-      writeFile(join(root, ".vitehub/sandbox/runtime/sandbox.d.ts"), "declare module \"#vitehub/sandbox\" {}\n"),
+      writeFile(join(root, ".vitehub/sandbox/runtime/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
       writeFile(join(root, ".vitehub/types.d.ts"), "stale self reference\n"),
     ])
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })
 
-    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe([
-      `/// <reference path="./env/env.d.ts" />`,
-      `/// <reference path="./sandbox/runtime/sandbox.d.ts" />`,
-      `/// <reference path="./types/templates.d.ts" />`,
-      ``,
-      `export {}`,
-      ``,
-    ].join("\n"))
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe(
+      [
+        `/// <reference path="./env/env.d.ts" />`,
+        `/// <reference path="./sandbox/runtime/sandbox.d.ts" />`,
+        `/// <reference path="./types/markdown-template.d.ts" />`,
+        ``,
+        `export {}`,
+        ``,
+      ].join("\n"),
+    )
     await expect(readFile(join(viteRoot, ".vitehub/types.d.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -77,20 +154,254 @@ describe("framework generated types", () => {
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })
-    await writeFile(join(root, ".vitehub/types/workspace.d.ts"), "declare module \"#vitehub/workspace\" {}\n")
+    await writeFile(join(root, ".vitehub/types/workspace.d.ts"), 'declare module "#vitehub/workspace" {}\n')
     await buildEnd(plugin)()
 
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/workspace.d.ts")
 
     await rm(join(root, ".vitehub/types.d.ts"))
     const stdout = { write: vi.fn() }
-    const context = {
+    const rawContext: unknown = {
       rootDir: viteRoot,
       stdout,
-    } as unknown as ViteHubCliContext
+    }
+    // SAFETY: The feature uses only the rootDir and stdout fields supplied by this focused fixture.
+    const context = rawContext as ViteHubCliContext
     await prepareFeature(viteHubTypesPlugin()).run([], context)
 
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/env.d.ts")
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
+  })
+
+  it("registers server Collections by filename", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    await mkdir(join(root, "server/collections/admin"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
+      writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
+    ])
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({ root: viteRoot })
+    const handlers = await plugin.api.prepareTypes(root)
+
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toBe(
+      [
+        `declare global {`,
+        `  interface ViteHubCollectionMap {`,
+        `    "admin/history": typeof import(${JSON.stringify(join(root, "server/collections/admin/history.ts"))})["history"]`,
+        `    "meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
+        `  }`,
+        `}`,
+        ``,
+        `export {}`,
+        ``,
+      ].join("\n"),
+    )
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./source/collections.d.ts`)
+    expect(handlers).toEqual([
+      {
+        handler: join(root, ".vitehub/source/routes/admin/history.mjs"),
+        method: "get",
+        route: "/api/admin/history",
+      },
+      {
+        handler: join(root, ".vitehub/source/routes/meals.mjs"),
+        method: "get",
+        route: "/api/meals",
+      },
+    ])
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineCollectionHandler } from "vite-hub/source/server"`,
+        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
+        ``,
+        `export default defineCollectionHandler(collection)`,
+        ``,
+      ].join("\n"),
+    )
+  })
+
+  it.each([
+    ["meals.mjs", "meals.d.mts"],
+    ["meals.cjs", "meals.d.cts"],
+  ])("ignores declaration files next to %s Collections", async (moduleFile, declarationFile) => {
+    const { root } = await createNestedProject()
+    const collectionsDirectory = join(root, "server/collections")
+    await mkdir(collectionsDirectory, { recursive: true })
+    await Promise.all([
+      writeFile(join(collectionsDirectory, moduleFile), collectionModule("meals")),
+      writeFile(join(collectionsDirectory, declarationFile), "export declare const meals: object\n"),
+    ])
+
+    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
+    const collectionTypes = await readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")
+
+    expect(handlers).toEqual([
+      {
+        handler: join(root, ".vitehub/source/routes/meals.mjs"),
+        method: "get",
+        route: "/api/meals",
+      },
+    ])
+    expect(collectionTypes).toContain(JSON.stringify(join(collectionsDirectory, moduleFile)))
+    expect(collectionTypes).not.toContain(declarationFile)
+  })
+
+  it("loads a generated Collection handler through its normalized module specifier", async () => {
+    const { root } = await createNestedProject()
+    await Promise.all([
+      mkdir(join(root, "server/collections"), { recursive: true }),
+      symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir"),
+    ])
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const [handler] = await viteHubTypesPlugin().api.prepareTypes(root)
+
+    await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
+  })
+
+  it("registers generated Collection handlers in plain Vite Nitro config", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const userConfig: {
+      nitro: { handlers: (typeof existing)[]; modules?: Array<{ name?: string }> }
+      root: string
+    } = { nitro: { handlers: [existing] }, root }
+
+    await config(viteHubTypesPlugin())(userConfig)
+
+    expect(userConfig.nitro.handlers).toEqual([
+      existing,
+      {
+        handler: join(root, ".vitehub/source/routes/meals.mjs"),
+        method: "get",
+        route: "/api/meals",
+      },
+    ])
+    expect(userConfig.nitro.modules).toContainEqual(
+      expect.objectContaining({ name: "vite-hub/collection-route-guard" }),
+    )
+  })
+
+  it("rejects a conflicting plain Vite Nitro handler", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await expect(
+      config(viteHubTypesPlugin())({
+        nitro: { handlers: [{ handler: "server/api/meals.ts", route: "/api/meals" }] },
+        root,
+      }),
+    ).rejects.toThrow('Generated Collection route "/api/meals" conflicts with an existing GET handler')
+  })
+
+  it.each(["export const publicMeals = {}\n", "export type meals = {}\nexport const publicMeals = {}\n"])(
+    "rejects a Collection module without its filename-matching runtime export",
+    async source => {
+      const { root } = await createNestedProject()
+      await mkdir(join(root, "server/collections"), { recursive: true })
+      await writeFile(join(root, "server/collections/meals.ts"), source)
+
+      const plugin = viteHubTypesPlugin()
+      await expect(plugin.api.prepareTypes(root)).rejects.toThrow(
+        'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
+      )
+      await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
+      await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+    },
+  )
+
+  it("discovers Collections from configured server directories", async () => {
+    const { root } = await createNestedProject()
+    const firstServerDir = join(root, "api")
+    const secondServerDir = join(root, "admin")
+    await Promise.all([
+      mkdir(join(firstServerDir, "collections"), { recursive: true }),
+      mkdir(join(secondServerDir, "collections"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(firstServerDir, "collections/meals.ts"), collectionModule("meals")),
+      writeFile(join(secondServerDir, "collections/audit.ts"), collectionModule("audit")),
+    ])
+
+    const plugin = viteHubTypesPlugin()
+    const handlers = await plugin.api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [firstServerDir, secondServerDir],
+    })
+
+    expect(handlers.map((handler: { route: string }) => handler.route)).toEqual(["/api/audit", "/api/meals"])
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
+      JSON.stringify(join(firstServerDir, "collections/meals.ts")),
+    )
+
+    await writeFile(join(secondServerDir, "collections/meals.ts"), collectionModule("meals"))
+    await expect(
+      plugin.api.prepareTypes({
+        projectRoot: root,
+        serverDirs: [firstServerDir, secondServerDir],
+      }),
+    ).rejects.toThrow('Collection name "meals" is defined in more than one server directory')
+  })
+
+  it("rejects case-only Collection route-module collisions across server directories", async () => {
+    const { root } = await createNestedProject()
+    const firstServerDir = join(root, "api")
+    const secondServerDir = join(root, "admin")
+    await Promise.all([
+      mkdir(join(firstServerDir, "collections"), { recursive: true }),
+      mkdir(join(secondServerDir, "collections"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(firstServerDir, "collections/Meals.ts"), collectionModule("Meals")),
+      writeFile(join(secondServerDir, "collections/meals.ts"), collectionModule("meals")),
+    ])
+
+    await expect(
+      viteHubTypesPlugin().api.prepareTypes({
+        projectRoot: root,
+        serverDirs: [firstServerDir, secondServerDir],
+      }),
+    ).rejects.toThrow(
+      'Collection names "Meals" and "meals" generate the same route module on case-insensitive filesystems',
+    )
+  })
+
+  it("preserves an explicitly empty server directory selection", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const plugin = viteHubTypesPlugin()
+    const handlers = await plugin.api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [],
+    })
+
+    expect(handlers).toEqual([])
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+  })
+
+  it("preserves configured server directories across Vite lifecycle refreshes", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const serverDir = join(root, "api")
+    await mkdir(join(serverDir, "collections"), { recursive: true })
+    await writeFile(join(serverDir, "collections/meals.ts"), collectionModule("meals"))
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({
+      root: viteRoot,
+      [VITEHUB_SERVER_DIRS]: [serverDir],
+    })
+    await buildStart(plugin)()
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      JSON.stringify(pathToFileURL(join(serverDir, "collections/meals.ts")).href),
+    )
   })
 })

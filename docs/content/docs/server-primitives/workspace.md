@@ -5,9 +5,9 @@ navigation.order: 7
 icon: i-lucide-folder-git-2
 ---
 
-Workspace is a named persistent file tree. Server code and agents can inspect, mutate, snapshot, diff, sync, or mount it only through the access you configure.
+Use Workspace when server code or an Agent needs a persistent file tree. A Workspace can read and write files, sync Sources, create snapshots and diffs, and open transactional sessions. You control which operations each caller receives.
 
-Workspace is not Blob or Source. Blob can back storage, Source can retrieve read-only content, but Workspace owns file-tree placement, persistence, rules, snapshots, diffs, and Source Sync.
+[Blob](/docs/server-primitives/blob) stores objects without file-tree behavior. [Source](/docs/server-primitives/source) retrieves read-only content. Workspace can store its files in Blob and bind content from Sources.
 
 ## Quick start
 
@@ -51,11 +51,11 @@ export default defineWorkspace({
 | `defineWorkspace` from `@vite-hub/workspace` | Declare a Workspace Definition. |
 | `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions for a Workspace. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Workspace Source Bindings. |
-| `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tool surfaces from Workspace access. |
+| `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools from Workspace access. |
 | Source resolution and request helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources into runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
-| `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Use extension surfaces for loaders, publishers, and tests. |
+| `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Add loaders and publishers, or create test Workspaces. |
 
 Workspace definition, Source Binding, rule, hook, store, sync, facade, and session types are exported from `@vite-hub/workspace`. Source resolution runtime types are exported from `@vite-hub/workspace/runtime`.
 
@@ -91,11 +91,11 @@ The Vite config key is `workspace`.
 | GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed storage. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
 
-Without an explicit `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. Cloudflare Artifacts and GitHub are always explicit choices.
+Without a `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. You must select Cloudflare Artifacts or GitHub yourself.
 
 ### Cloudflare Artifacts
 
-Select Cloudflare Artifacts explicitly when a deployed Worker needs durable Workspace state:
+Select Cloudflare Artifacts when a deployed Worker needs durable Workspace state:
 
 ```ts [vite.config.ts]
 import { hubWorkspace } from '@vite-hub/workspace/vite'
@@ -113,13 +113,13 @@ export default defineConfig({
 })
 ```
 
-The Vite Integration adds matching module-level and discovered definition-level Artifacts Stores to generated Cloudflare Provider Output. It preserves app-owned bindings and removes only bindings previously generated for Workspace when the provider changes. Reusing one binding name for different namespaces fails the build with an actionable error. Each named Workspace uses `<repoPrefix><encoded-workspace-name>` unless `repo` selects one repository explicitly, so names that contain repository-unsafe characters still remain isolated.
+The Vite integration adds Artifacts Stores to generated Cloudflare config for the module and discovered definitions. It preserves application bindings and removes only bindings that Workspace generated when the provider changes. Reusing one binding name for different namespaces fails the build. Each named Workspace uses `<repoPrefix><encoded-workspace-name>` unless `repo` selects one repository, so names with repository-unsafe characters remain isolated.
 
 `workspace.snapshot()` commits and pushes the current file tree. Its snapshot id is the pushed Git commit SHA. File metadata is stored in the repository with the Workspace tree so Source-backed write protection and media types survive a fresh Worker instance.
 
 Cloudflare Artifacts is currently a closed beta and is not available on Workers Free, so the Cloudflare default remains the ephemeral `memory` Store. The Worker adapter clones into isolate memory; use it for deliberately small Workspaces rather than assuming the Artifacts repository limit is also a usable Worker checkout size. For large repositories in a sandbox, container, or VM, use Cloudflare's [ArtifactFS](https://developers.cloudflare.com/artifacts/guides/artifact-fs/) directly.
 
-Artifacts repositories are private Git storage. Use the [Blob primitive](/docs/server-primitives/blob) with R2 or another Blob provider when an Agent needs a stable public delivery URL.
+Artifacts repositories are private Git storage. Use [Blob](/docs/server-primitives/blob) with R2 or another provider when an Agent needs a public delivery URL.
 
 ## Define a workspace
 
@@ -270,7 +270,7 @@ export default defineEventHandler(async (event) => {
 | `materializeSources(options?)` | `abortSignal?`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
 
-## Custom Sources and source resolution
+## Resolve custom Sources
 
 Use `custom({ files })` when a Custom Source knows its Workspace paths before it loads their content. The shorthand enumerates those paths without resolving content, and path-scoped materialization resolves only the requested file's content callback.
 
@@ -304,7 +304,7 @@ ViteHub infers each file's media type from its path unless the descriptor provid
 
 Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
 
-Sources can resolve their concrete origin and Mount for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
+Sources can resolve their origin and mount for one invocation from trusted runtime context. Use this when the same Source key needs a narrower origin after Access selects a Workspace Scope.
 
 ```ts
 declare global {
@@ -327,13 +327,13 @@ github(({ channel, invocation }) => {
 })
 ```
 
-The resolver receives registered invocation context values directly and can still read them through `invocation.context`. Register app-owned values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers its canonical `channel` value automatically. The direct view exposes documented public context values. The resolver reads trusted Agent Invocation Context Values and the Selected Workspace Scope, not model output. Source Resolution only shapes the concrete Source. Authorization belongs to `access()`, whose selected scope must grant the Source key or its Workspace path. Scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
+The resolver receives registered invocation context values directly and through `invocation.context`. Register application values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers `channel` automatically. The resolver reads trusted Agent Invocation Context Values and the selected Workspace Scope, not model output. `access()` still controls authorization, and its selected scope must grant the Source key or Workspace path. ViteHub fingerprints options that affect scope so Source caches don't reuse data across scopes.
 
 Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, and `mount` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
 
 ## Sync Sources
 
-Workspace Source Sync is an explicit Workspace lifecycle operation. It reconciles selected Source-Backed Paths into the Workspace Store when a Source Sync Policy allows it.
+Workspace Source Sync copies selected Source-backed paths into the Workspace Store when the Source sync policy permits it.
 Only Sources declared with `sync: true` or a sync policy participate in runtime `workspace.sync()`.
 
 ```ts [server/tasks/sync-docs.ts]
@@ -349,7 +349,7 @@ export async function syncDocs() {
 }
 ```
 
-Build and dev integrations own build-time Source materialization. Runtime `sync()` owns explicit Source Sync into Workspace Stores.
+Build and development integrations materialize Sources at build time. Runtime `sync()` copies Sources into Workspace Stores while the app runs.
 
 ### Source sync policy
 
@@ -371,10 +371,10 @@ Build and dev integrations own build-time Source materialization. Runtime `sync(
 
 Source Sync requires a Workspace Store with metadata support. Without `publishPartial`, any planning error skips all otherwise valid plans so the sync does not apply only part of the requested selection.
 
-## Sessions and Shell
+## Use sessions and Shell
 
-Use a Workspace Session when execution should operate on a materialized file tree and then produce a diff.
-`session.exec()` requires an open Box Session. Workspace owns materialization, diff, commit, and rollback; Box owns the execution runtime and lifecycle.
+Use a Workspace Session when a command needs a materialized file tree and must produce a diff.
+`session.exec()` requires an open Box Session. Workspace handles materialization, diff, commit, and rollback. Box runs the command and manages its lifecycle.
 
 ```ts [server/tasks/test-docs.ts]
 import { resolveBox } from '@vite-hub/box'
@@ -398,7 +398,7 @@ export async function testDocs() {
 
 ### Session method options
 
-`startSession(options)` composes Workspace state with an already-open Box Session. `host` is required for execution; `paths` limits materialization and commit scope; `target` defaults to `/workspace`. `abortSignal` cancels preparation, and `onProgress` reports its materialization phases. The caller owns the Box lifecycle, so closing the Workspace Session does not close its host.
+`startSession(options)` combines Workspace state with an open Box Session. `host` is required for execution. `paths` limits materialization and commits, and `target` defaults to `/workspace`. `abortSignal` cancels preparation, while `onProgress` reports materialization phases. Closing the Workspace Session doesn't close the Box host.
 
 Set `writeBack.exclude` to Workspace-relative paths owned by the runtime rather than the invocation. Excluded paths remain usable in the host tree, but their changes are omitted from `diff()` and `commit()` and their pre-Session state is restored by `close()`. ViteHub always applies the same behavior to `.agent-runs`, `.git`, and `.vitehub`. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
 
@@ -411,9 +411,9 @@ Set `writeBack.exclude` to Workspace-relative paths owned by the runtime rather 
 | `close()` | none | Rolls an uncommitted host tree back to authoritative Workspace state and releases Session resources. |
 | `tools?.aiSdk()` | none | Returns runtime-provided AI SDK tools when the Session supports them. |
 
-### Project a Session through MountX
+### Mount a session with MountX
 
-Use `@vite-hub/workspace/mountx` when an Agent, editor, CLI, or VM needs a real filesystem path or protocol instead of Workspace methods. ViteHub keeps the transactional Session and explicit commit boundary; MountX turns that Session into a driver for its local FUSE, 9P, NFS, and S3 transports.
+Use `@vite-hub/workspace/mountx` when an Agent, editor, CLI, or VM needs a filesystem path or protocol instead of Workspace methods. ViteHub keeps the transactional session and commit step. MountX exposes that session through local FUSE, 9P, NFS, or S3 transports.
 
 Install MountX directly before importing its transport entry points:
 
@@ -447,19 +447,17 @@ finally {
 
 Pass `{ readOnly: true }` to `createWorkspaceDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
-Workspace owns the file tree and commit behavior. Box and Sandbox own independent execution environments. Provider Agent Drivers materialize a selected Workspace into their local working directory.
+Workspace stores the file tree and commits. Box and Sandbox provide separate execution environments. Provider Agent Drivers materialize a selected Workspace in their local working directory.
 
 ### Run sessions from the CLI
 
-During local development, `vitehub workspace dev` runs commands through a Workspace Session exposed by the Compatible Vite Development Server.
-Use it when you want the Workspace Runtime Surface to own materialization, command execution, and successful writeback.
+During local development, `vitehub workspace dev` runs commands through a Workspace Session exposed by the Vite development server. Use it to materialize the Workspace, run a command, and commit successful changes. Install `@vite-hub/cli` when your project uses the direct `@vite-hub/workspace` package instead of the `vite-hub` distribution.
 
 ```bash [Terminal]
 pnpm vitehub workspace dev --url http://localhost:5173 docs exec pnpm test --filter api
 ```
 
-`vitehub agent dev` also accepts `!` input for direct commands through the selected Agent's writable Workspace.
-Use `!` for local shell work that should happen in the same Workspace the Agent sees, and use normal messages when the Agent should reason about the task.
+`vitehub agent dev` also accepts `!` input for direct commands through the selected Agent's writable Workspace. Use `!` for local shell work in the same Workspace the Agent sees. Use normal messages when the Agent needs to reason about the task.
 
 ```bash [Terminal]
 pnpm vitehub agent dev --agent support !pnpm test --filter api
@@ -467,7 +465,7 @@ pnpm vitehub agent dev --agent support !pnpm test --filter api
 
 ## Provider output
 
-The Workspace Package discovers Workspace Definitions, generates Workspace name types, prepares build-time assets, and wires Workspace Stores. A Workspace Store can use Blob, but the public file-tree boundary stays Workspace.
+The Workspace package discovers definitions, generates Workspace name types, prepares build-time assets, and connects Workspace Stores. A Workspace Store can use Blob, but application code still uses Workspace for file operations.
 
 ::note
 The Nuxt Workspace handoff is only for hosted Workspace runtime setup and generated registry transport. It does not create Nitro-specific Workspace discovery, public provider store constructors, or a second Workspace authoring model.
@@ -485,9 +483,9 @@ Add generated types when you want `useWorkspace()` to narrow discovered Workspac
 }
 ```
 
-## Connect it to Agents
+## Connect Workspace to Agents
 
-Workspace is central to agents, but it is not automatically model-facing. Attach `workspaceShell()` when a model should inspect or edit Workspace files, and use `access()` when trusted invocation identity should select a Workspace Scope.
+Workspace isn't automatically available to a model. Attach `workspaceShell()` when a model needs to inspect or edit files. Use `access()` when trusted invocation identity selects the Workspace Scope.
 
 Read [Workspace and Sources](/docs/concepts/workspace-and-sources) for the mental model and [Workspace context](/docs/agents/workspace-context) for Agent-specific composition.
 

@@ -10,24 +10,17 @@ icon: i-lucide-search
 `webSearch()` gives an Agent access to web context through an explicit mode.
 Use model mode for provider-native web search, or tool mode for normalized `web_search` and `web_read` tools.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 Model mode contributes a provider tool request for `web_search`.
 Tool mode contributes `web_search` and `web_read` model-facing tools backed by a single configured search provider.
 
-## Configuration
+## Configure web search
 
 Use model mode when the selected model provider supports provider-native web search.
 Tool mode requires a web search provider configuration.
 
 ```ts [server/agents/research.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { webSearch } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { webSearch } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
@@ -37,7 +30,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How web search works
 
 Model mode adds a Provider Tool contribution and leaves search execution to the model provider.
 Tool mode loads the configured provider, executes normalized search requests, and reads URLs as Markdown or text.
@@ -57,13 +50,13 @@ Tool mode requires the application to install `askweb` and configure one web sea
 | Provider-backed | Receives `web_search` and `web_read` through the provider MCP bridge in tool mode. Model mode is unsupported because Provider Agent Drivers do not accept Provider Tool contributions. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides how to perform web access. |
 
-## Inspect and verify
+## Verify web search
 
 Inspect provider tool contributions for model mode or the Agent tool list for tool mode.
-Tool mode should expose `web_search` and `web_read`.
+Confirm that tool mode exposes `web_search` and `web_read`.
 
 Run tool mode without `askweb` during development.
-The Capability should report the missing package and suggest model mode as the alternative.
+Confirm that the Capability reports the missing package and suggests model mode instead.
 
 ## Options
 
@@ -99,8 +92,7 @@ Tool mode rejects properties outside these public input contracts.
 | `url` | `string` | required | Non-empty page URL to read. |
 | `maxTokens` | `number` | reader default | Maximum normalized content size. |
 
-## Reference
+## Related pages
 
 - [Official capabilities](/docs/capabilities/official-capabilities)
 - [fetch()](/docs/capabilities/fetch)
-- Source: `packages/agent/src/capabilities/web-search/index.ts`

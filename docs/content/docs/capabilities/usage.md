@@ -7,13 +7,13 @@ navigation.group: Decisions and output
 icon: i-lucide-chart-no-axes-column
 ---
 
-Add `usage()` when an Agent should request the provider's complete usage metadata and expose ViteHub's normalized Agent Usage Record as a typed Finish Extension.
+Add `usage()` to request the provider's complete usage metadata and expose ViteHub's normalized Agent Usage Record as a typed Finish Extension.
 
 ## Add usage
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { usage } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { usage } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model: 'anthropic/claude-sonnet-4.5' },
@@ -28,8 +28,8 @@ For OpenRouter calls, the Capability sets `providerOptions.openrouter.usage.incl
 The Capability's typed `usage` Finish Extension returns the same normalized record available at `event.invocation.usage`.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { usage } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { usage } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model: 'anthropic/claude-sonnet-4.5' },

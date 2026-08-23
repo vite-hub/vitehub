@@ -1,15 +1,15 @@
 ---
 title: Browser
 description: Define provider-backed browser operations without exposing provider setup to application code.
-navigation.order: 13
+navigation.order: 12.5
 icon: i-lucide-monitor
 ---
 
-Browser Definitions are named, server-side browser operations. Use them when a route, job, workflow, or trusted server actor needs to inspect a page, render browser-only UI, or capture evidence.
+Use a Browser Definition when trusted server code needs to inspect a page, render browser-only UI, take a screenshot, or create a PDF. Give each operation a name, then call it from a route, queue, or workflow.
 
-ViteHub discovers each definition and maps its provider-neutral actions to Cloudflare Browser Run when deployed with the Cloudflare preset. Application code does not import a Cloudflare provider or pass browser credentials. Browser Definitions currently require the Cloudflare preset.
+Browser Definitions currently run through Cloudflare Browser Run and require the Cloudflare preset. ViteHub configures the provider, so application code doesn't import Cloudflare packages or pass browser credentials.
 
-Browser is a server primitive, not an Agent Capability. Server code invokes Browser Definitions directly. Agents receive browser access only when you expose an appropriate tool or attach a model-facing Capability such as [`browser()`](/docs/capabilities/browser).
+Server code calls Browser Definitions directly. To give an Agent browser access, attach the [`browser()` Capability](/docs/capabilities/browser) or expose a narrower tool.
 
 ## Quick start
 
@@ -141,9 +141,9 @@ export default defineBrowser(async (input: { url: string }, { browser }) => {
 
 Use `browser.run(action, input)` for other actions. The current ViteHub action backend is Cloudflare Browser Run; the public Definition contract does not expose the provider method.
 
-## Definition-owned page sessions
+## Keep a page session open
 
-Use `browser.open()` when one Browser Definition needs mutable page state or several interactions. The returned provider-neutral session belongs to the invocation and is closed automatically after the handler exits; explicit `session.close()` is available when earlier cleanup is useful.
+Use `browser.open()` when one Browser Definition needs several interactions with the same page. ViteHub closes the session after the handler exits. Call `session.close()` when you can release it sooner.
 
 ```ts [server/browsers/page-title.ts]
 import { defineBrowser } from 'vite-hub/browser'
@@ -161,6 +161,13 @@ Page navigation and pointer clicks are serialized because either operation can r
 ## Low-level sessions
 
 `createBrowser()` remains available for libraries and standalone integrations that deliberately own provider selection, controller attachment, and cleanup.
+
+Install the owner package before importing its low-level providers and
+controllers:
+
+```bash [Terminal]
+pnpm add @vite-hub/browser
+```
 
 ```ts [server/browser.ts]
 import { createBrowser } from '@vite-hub/browser'
@@ -187,11 +194,13 @@ finally {
 }
 ```
 
-Provider and controller subpaths are advanced integration surfaces. They are also the explicit path for applications that need Playwright, mutable page state, downloads, or CDP instead of stateless actions. Install `@cloudflare/playwright` and `playwright-core` when using the Cloudflare Playwright controller.
+Provider and controller subpaths are for low-level integrations. Use them when an application needs Playwright, mutable page state, downloads, or CDP instead of stateless actions. Install `@cloudflare/playwright` and `playwright-core` when using the Cloudflare Playwright controller.
+
+`localBrowser({ executablePath })` from `@vite-hub/browser/providers/local` starts a local Chromium process for trusted-host development. It supports CDP control and live handoff, but ViteHub doesn't select it through `browser: true`. Pass it to `createBrowser()` when the application manages the browser process itself.
 
 ## Live handoff
 
-Low-level sessions can transfer ownership of an exact provider session through an opaque, audience-bound reference. Cloudflare's Kitesurf default is sessionless and does not support live handoff; select `engine: 'chromium'` when persistent-session handoff is required.
+Low-level sessions can transfer one provider session through an opaque reference tied to an audience. Cloudflare's Kitesurf default is sessionless and doesn't support live handoff. Select `engine: 'chromium'` when a handoff must preserve the session.
 
 ```ts [server/browser-handoff.ts]
 import { cdp } from '@vite-hub/browser/controllers/cdp'
@@ -216,9 +225,9 @@ const ref = await session.handoff({
 
 Refs are one-time, short-lived, and scoped to the Browser Client that created them. Use the CDP controller when live preservation matters; Playwright attachment is lifecycle-scoped and cannot be handed off after release.
 
-## Production boundaries
+## Production checks
 
-Keep browser automation behind trusted server boundaries. Browser sessions can observe authenticated pages, cookies, screenshots, network responses, and rendered private UI.
+Run browser automation only from trusted server code. Browser sessions can observe authenticated pages, cookies, screenshots, network responses, and rendered private UI.
 
 Do not log provider session ids, CDP endpoints, cookies, authorization headers, or raw handoff refs. Treat screenshots and downloaded files as user data and route them through the same storage, retention, and approval policies as other artifacts.
 

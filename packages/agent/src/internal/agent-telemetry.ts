@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "./runtime-type.ts"
 import type {
   AgentInspectionValue,
   AgentInvocationContextStore,
@@ -25,31 +26,38 @@ function safeMetadataValue(
   seen = new WeakSet<object>(),
 ): AgentInspectionValue | undefined {
   if (secretMetadataKey(key)) return "[redacted]"
-  if (value === null || typeof value === "boolean" || typeof value === "string") return value
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined
-  if (!value || typeof value !== "object" || depth >= 8 || seen.has(value)) return
+  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
+  if (!value || !hasRuntimeType(value, "object") || depth >= 8 || seen.has(value)) return
 
   seen.add(value)
-  const safe = Array.isArray(value)
-    ? value.flatMap((item) => {
+  try {
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => {
         const child = safeMetadataValue(item, "", depth + 1, seen)
         return child === undefined ? [] : [child]
       })
-    : Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null
-      ? Object.fromEntries(Object.entries(value)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .flatMap(([childKey, item]) => {
-            const child = safeMetadataValue(item, childKey, depth + 1, seen)
-            return child === undefined ? [] : [[childKey, child]]
-          }))
-      : undefined
-  seen.delete(value)
-  return safe
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return
+    return Object.fromEntries(Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([childKey, item]) => {
+        const child = safeMetadataValue(item, childKey, depth + 1, seen)
+        return child === undefined ? [] : [[childKey, child]]
+      }))
+  }
+  catch {
+    return
+  }
+  finally {
+    seen.delete(value)
+  }
 }
 
 export function safeAgentTelemetryMetadata(value: unknown): Record<string, AgentInspectionValue> | undefined {
   const safe = safeMetadataValue(value)
-  return safe && !Array.isArray(safe) && typeof safe === "object" && Object.keys(safe).length
+  return safe && !Array.isArray(safe) && hasRuntimeType(safe, "object") && Object.keys(safe).length
     ? safe
     : undefined
 }

@@ -10,26 +10,19 @@ icon: i-lucide-plug
 `mcp()` connects an Agent to external Model Context Protocol servers.
 It resolves each configured MCP Server and exposes its tools as model-facing Agent tools.
 
-## Installation
-
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
-
-## What it adds
-
 The Capability normalizes MCP tool names with the server name, attaches sanitized MCP metadata, and closes MCP clients created from configs or resolvers after the invocation.
 Static direct clients stay application-owned so they can be reused across invocations.
 Tool names, descriptions, and schemas stay with the MCP tool contract. Put broader guidance about when to use an MCP server in Agent Driver Instructions.
 An optional approved fingerprint map can block added or changed tool definitions before they reach an Agent Driver.
 
-## Configuration
+## Configure MCP servers
 
 Pass a server map.
 Each entry can be a static direct MCP client borrowed from the application, or a client config or resolver whose resolved client is owned by the Agent Invocation.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { mcp } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { mcp } from 'vite-hub/agent/capabilities'
 import { docsMcpServer } from '../mcp/docs'
 
 export default defineAgent({
@@ -44,7 +37,7 @@ export default defineAgent({
 })
 ```
 
-## Runtime behavior
+## How MCP connections work
 
 During resolution, `mcp()` connects to each configured MCP Server and asks for its tool set.
 ViteHub prefixes normalized tool names with `mcp_<server>_` and rejects duplicate normalized names.
@@ -67,8 +60,8 @@ console.log(JSON.stringify(approved, null, 2))
 Review that output before saving it. Do not generate the baseline during normal application startup, because that would trust whichever definitions the server returns first.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { mcp } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { mcp } from 'vite-hub/agent/capabilities'
 import { docsMcpServer } from '../mcp/docs'
 import { docsToolFingerprints } from '../mcp/docs-tool-fingerprints'
 
@@ -110,15 +103,15 @@ The external MCP Server owns its own credentials, availability, and tool behavio
 | Provider-backed | Receives normalized MCP tools through the provider MCP bridge; runtime connection and cleanup still run around the invocation. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides whether to call MCP clients or tools through custom code. |
 
-## Inspect and verify
+## Verify MCP connections
 
 Successful invocations expose normalized MCP tools through `agent info` and stream tool steps through `agent dev`.
-MCP tools should use normalized names such as `mcp_docs_search`.
+Confirm that MCP tools use normalized names such as `mcp_docs_search`.
 
 Integrity checks run during invocation resolution. Static Agent inspection metadata does not connect to MCP Servers or claim that a configured baseline currently matches.
 
 Run one invocation with a duplicate normalized tool name during development.
-The Capability should fail before model execution.
+Confirm that the Capability fails before model execution.
 
 ## Options
 
@@ -129,9 +122,8 @@ The Capability should fail before model execution.
 
 Cover MCP usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep MCP tool descriptions with the MCP Server because they are structured tool contracts.
 
-## Reference
+## Related pages
 
 - [Official capabilities](/docs/capabilities/official-capabilities)
 - [Custom capabilities](/docs/capabilities/custom-capabilities)
 - [AI SDK MCP tool-definition drift](https://ai-sdk.dev/docs/ai-sdk-core/mcp-tools#detecting-tool-definition-drift-rug-pull)
-- Source: `packages/agent/src/capabilities/mcp.ts`

@@ -13,7 +13,7 @@ An Agent Invocation is one request to an Agent. ViteHub prepares its input, Acto
 Use `runAgent()` when the caller needs the final result.
 
 ```ts [server/api/support.post.ts]
-import { runAgent } from '@vite-hub/agent'
+import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from '../runtime-context'
 
@@ -40,10 +40,10 @@ The second argument is [Runtime Context](/docs/concepts/runtime-context); the th
 
 ## Stream an Agent
 
-Use `streamAgent()` when a chat UI or internal consumer should receive incremental output.
+Use `streamAgent()` when a chat UI or internal consumer needs incremental output.
 
 ```ts [server/api/support-stream.post.ts]
-import { streamAgent } from '@vite-hub/agent'
+import { streamAgent } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from '../runtime-context'
 
@@ -68,7 +68,7 @@ The stream becomes terminal when the caller consumes it, cancels it, or receives
 Use `runAgentTrigger()` or `streamAgentTrigger()` when a Capability owns the event shape. This example invokes the Chat Capability's `chat.message` trigger:
 
 ```ts [server/api/support-chat.post.ts]
-import { streamAgentTrigger } from '@vite-hub/agent'
+import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from '../runtime-context'
 
@@ -105,7 +105,7 @@ The consumer supplies the product event. The Capability prepares the Agent input
 Use an `agent:input` hook for trusted invocation requirements that must be present before the Driver runs.
 
 ```ts [server/agents/review.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: { run: () => 'ok' },
@@ -126,7 +126,7 @@ Validate untrusted request data at the route boundary. The hook protects the Age
 Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
@@ -136,11 +136,16 @@ export default defineAgent({
       event.runtime.waitUntil(recordInvocation({ durationMs, resultKind, usage }))
     },
     'agent:error'(event) {
-      event.runtime.waitUntil(recordFailure(event.error))
+      event.runtime.waitUntil(recordFailure(event.publicError))
     },
   },
 })
 ```
+
+Error hooks receive the raw `event.error` for protected server diagnostics and a
+sanitized `event.publicError` for logs, HTTP responses, or Channel replies. See
+[Agent public errors](/docs/reference/errors-diagnostics#agent-public-errors) for
+the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
@@ -205,4 +210,4 @@ Vercel Agent Definitions currently run through the inline Workflow adapter becau
 
 ## Control child work
 
-Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model should delegate work itself.
+Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model delegates work itself.

@@ -111,7 +111,7 @@ describe("Agent Driver capacity", () => {
         commands: {
           handled: {
             description: "Handle without the Driver.",
-            run: () => new Response(new ReadableStream({})),
+            call: () => new Response(new ReadableStream({})),
           },
         },
       })],

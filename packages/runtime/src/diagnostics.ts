@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "./errors.ts"
 
 import type { MaybePromise } from "./index.ts"
@@ -66,15 +67,23 @@ interface ErrorNormalizationState {
   readonly ancestors: Set<object>
   readonly includeStack: boolean
   readonly maxDepth: number
-  readonly maxErrors: number
   readonly maxStringLength: number
+  remainingNodes: number
+  remainingStringLength: number
 }
 
-function boundedString(value: unknown, maximum: number): string | undefined {
-  if (typeof value !== "string") return
-  if (value.length <= maximum) return value
+function boundedString(value: unknown, state: ErrorNormalizationState): string | undefined {
+  if (!hasRuntimeType(value, "string")) return
+  const maximum = Math.min(state.maxStringLength, state.remainingStringLength)
+  if (maximum <= 0) return
+  if (value.length <= maximum) {
+    state.remainingStringLength -= value.length
+    return value
+  }
   const suffix = `… [${value.length - maximum} chars omitted]`
-  return maximum > suffix.length ? `${value.slice(0, maximum - suffix.length)}${suffix}` : value.slice(0, maximum)
+  const bounded = maximum > suffix.length ? `${value.slice(0, maximum - suffix.length)}${suffix}` : value.slice(0, maximum)
+  state.remainingStringLength -= bounded.length
+  return bounded
 }
 
 function safeString(value: unknown): string {
@@ -86,8 +95,10 @@ function safeString(value: unknown): string {
   }
 }
 
-function readProperty(value: object, key: PropertyKey): unknown {
+function readProperty(value: unknown, key: PropertyKey): unknown {
+  if (!isRuntimeObject(value)) return undefined
   try {
+    // SAFETY: Runtime diagnostic normalization establishes the asserted error record contract.
     return (value as Record<PropertyKey, unknown>)[key]
   }
   catch {
@@ -95,9 +106,10 @@ function readProperty(value: object, key: PropertyKey): unknown {
   }
 }
 
-function scalarProperty(value: object, key: PropertyKey): number | string | undefined {
+function scalarProperty(value: unknown, key: PropertyKey, state: ErrorNormalizationState): number | string | undefined {
   const property = readProperty(value, key)
-  return typeof property === "string" || typeof property === "number" && Number.isFinite(property) ? property : undefined
+  if (hasRuntimeType(property, "string")) return boundedString(property, state)
+  return hasRuntimeType(property, "number") && Number.isFinite(property) ? property : undefined
 }
 
 function errorChildren(value: unknown, maximum: number): unknown[] | undefined {
@@ -111,40 +123,91 @@ function errorChildren(value: unknown, maximum: number): unknown[] | undefined {
   }
 }
 
-function normalizeError(value: unknown, state: ErrorNormalizationState, depth: number): RuntimeDiagnosticError {
-  if (typeof value === "string") return { message: boundedString(value, state.maxStringLength) || "Error" }
-  if (!value || typeof value !== "object") return { message: boundedString(safeString(value), state.maxStringLength) || "Error" }
-  if (state.ancestors.has(value)) return { message: "[Circular error cause]" }
-  if (depth > state.maxDepth) return { message: "[Error cause depth exceeded]" }
+function normalizeDetailValue(value: unknown, state: ErrorNormalizationState, depth: number): unknown {
+  if (state.remainingNodes <= 0) return
+  state.remainingNodes -= 1
+  if (value === null || hasRuntimeType(value, "boolean")) return value
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
+  if (hasRuntimeType(value, "string")) return boundedString(value, state)
+  if (depth > state.maxDepth) return boundedString("[Detail depth exceeded]", state)
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const normalized = normalizeDetailValue(item, state, depth + 1)
+      return normalized === undefined ? [] : [normalized]
+    })
+  }
+  if (!isRuntimeObject(value)) return
+  const normalized: Record<string, unknown> = {}
+  let keys: string[]
+  try {
+    keys = Object.keys(value)
+  }
+  catch {
+    return normalized
+  }
+  for (const key of keys) {
+    const normalizedKey = boundedString(key, state)
+    if (!normalizedKey) break
+    const child = normalizeDetailValue(readProperty(value, key), state, depth + 1)
+    if (child !== undefined) normalized[normalizedKey] = child
+  }
+  return normalized
+}
+
+function normalizeDetails(
+  details: Readonly<Record<string, unknown>>,
+  state: ErrorNormalizationState,
+  depth: number,
+): Readonly<Record<string, unknown>> | undefined {
+  const normalized = normalizeDetailValue(details, state, depth)
+  if (!isRuntimeObject(normalized) || Array.isArray(normalized)) return
+  // SAFETY: Detail normalization constructs every non-array object as a string-keyed diagnostic record.
+  return normalized as Readonly<Record<string, unknown>>
+}
+
+function normalizeError(value: unknown, state: ErrorNormalizationState, depth: number): RuntimeDiagnosticError | undefined {
+  if (state.remainingNodes <= 0) return
+  state.remainingNodes -= 1
+  if (hasRuntimeType(value, "string")) return { message: boundedString(value, state) || "Error" }
+  if (!value || !hasRuntimeType(value, "object")) return { message: boundedString(safeString(value), state) || "Error" }
+  if (state.ancestors.has(value)) return { message: boundedString("[Circular error cause]", state) || "Error" }
+  if (depth > state.maxDepth) return { message: boundedString("[Error cause depth exceeded]", state) || "Error" }
 
   state.ancestors.add(value)
   try {
     const publicError = getViteHubErrorShape(value)
-    const message = boundedString(readProperty(value, "message"), state.maxStringLength)
-      || boundedString(safeString(value), state.maxStringLength)
+    const message = boundedString(readProperty(value, "message"), state)
+      || boundedString(safeString(value), state)
       || "Error"
-    const name = boundedString(readProperty(value, "name"), state.maxStringLength)
-      || boundedString(readProperty(readProperty(value, "constructor") as object || {}, "name"), state.maxStringLength)
+    const name = boundedString(readProperty(value, "name"), state)
+      // SAFETY: Runtime diagnostic normalization establishes the asserted error record contract.
+      || boundedString(readProperty(readProperty(value, "constructor") as object || {}, "name"), state)
     const result: RuntimeDiagnosticError = {
       message,
       ...(name ? { name } : {}),
     }
-    const code = publicError?.code || scalarProperty(value, "code")
-    const requestId = publicError?.requestId || boundedString(readProperty(value, "requestId"), state.maxStringLength)
-    const status = scalarProperty(value, "status")
-    const statusCode = scalarProperty(value, "statusCode")
-    const stack = state.includeStack ? boundedString(readProperty(value, "stack"), state.maxStringLength) : undefined
+    const code = publicError?.code ? boundedString(publicError.code, state) : scalarProperty(value, "code", state)
+    const requestId = publicError?.requestId ? boundedString(publicError.requestId, state) : boundedString(readProperty(value, "requestId"), state)
+    const status = scalarProperty(value, "status", state)
+    const statusCode = scalarProperty(value, "statusCode", state)
+    const stack = state.includeStack ? boundedString(readProperty(value, "stack"), state) : undefined
     if (code !== undefined) result.code = code
-    if (publicError?.details) result.details = publicError.details
     if (requestId) result.requestId = requestId
     if (stack) result.stack = stack
     if (status !== undefined) result.status = status
     if (statusCode !== undefined) result.statusCode = statusCode
 
     const cause = readProperty(value, "cause")
-    if (cause !== undefined) result.cause = normalizeError(cause, state, depth + 1)
-    const errors = errorChildren(readProperty(value, "errors"), state.maxErrors)
-    if (errors) result.errors = errors.map(error => normalizeError(error, state, depth + 1))
+    const normalizedCause = cause === undefined ? undefined : normalizeError(cause, state, depth + 1)
+    if (normalizedCause) result.cause = normalizedCause
+    const errors = errorChildren(readProperty(value, "errors"), state.remainingNodes)
+    const normalizedErrors = errors?.flatMap((error) => {
+      const normalized = normalizeError(error, state, depth + 1)
+      return normalized ? [normalized] : []
+    })
+    if (normalizedErrors?.length) result.errors = normalizedErrors
+    const details = publicError?.details ? normalizeDetails(publicError.details, state, depth + 1) : undefined
+    if (details) result.details = details
     return result
   }
   finally {
@@ -166,7 +229,8 @@ export function normalizeRuntimeDiagnosticError(
     ancestors: new Set(),
     includeStack: options.includeStack === true,
     maxDepth,
-    maxErrors,
     maxStringLength,
-  }, 0)
+    remainingNodes: maxErrors + 1,
+    remainingStringLength: maxStringLength * (maxErrors + 1),
+  }, 0)!
 }

@@ -1,6 +1,7 @@
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { agentInvocationJournalTraceLogSymbol } from "./trace.ts"
+import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
@@ -156,14 +157,14 @@ function annotationKey(key: string): boolean {
 }
 
 function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<string, AgentInvocationAnnotationValue> | undefined {
-  if (!input || typeof input !== "object") return
+  if (!input || !hasRuntimeType(input, "object")) return
   const annotations: Record<string, AgentInvocationAnnotationValue> = {}
   for (const [key, value] of Object.entries(input)) {
     if (Object.keys(annotations).length >= MAX_ANNOTATIONS) break
     if (!annotationKey(key)) continue
-    if (typeof value === "string") annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
-    else if (typeof value === "number" && Number.isFinite(value)) annotations[key] = value
-    else if (typeof value === "boolean" || value === null) annotations[key] = value
+    if (hasRuntimeType(value, "string")) annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
+    else if (hasRuntimeType(value, "number") && Number.isFinite(value)) annotations[key] = value
+    else if (hasRuntimeType(value, "boolean") || value === null) annotations[key] = value
   }
   return Object.keys(annotations).length ? annotations : undefined
 }
@@ -203,20 +204,21 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   if (budget.items <= 0) return "[truncated]"
   budget.items--
   if (value === undefined) return undefined
-  if (typeof value === "string") {
+  if (hasRuntimeType(value, "string")) {
     if (budget.stringLength <= 0) return "[truncated]"
     const length = Math.min(value.length, maxStringLength, budget.stringLength)
     budget.stringLength -= length
     return value.slice(0, length)
   }
-  if (value === null || typeof value === "boolean") return value
-  if (typeof value === "number") return Number.isFinite(value) ? value : null
-  if (typeof value === "bigint") return boundedString(String(value))
+  if (value === null || hasRuntimeType(value, "boolean")) return value
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : null
+  if (hasRuntimeType(value, "bigint")) return boundedString(String(value))
   if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
   if (Array.isArray(value)) {
     return value.slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
   }
-  if (!value || typeof value !== "object") return boundedString(String(value))
+  if (!value || !hasRuntimeType(value, "object")) return boundedString(String(value))
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
     .slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items))
     .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]))
@@ -257,19 +259,19 @@ function invocationIdentity(runId: string, agentName?: string): string {
 }
 
 function assertInvocationId(id: string): void {
-  if (typeof id !== "string" || !id.trim()) {
+  if (!hasRuntimeType(id, "string") || !id.trim()) {
     throw new TypeError("[vitehub] Agent Invocations require a non-empty invocation id.")
   }
 }
 
 function assertStore(store: AgentInvocationStore | undefined): asserts store is AgentInvocationStore {
   if (!store
-    || typeof store.claim !== "function"
-    || typeof store.create !== "function"
-    || typeof store.get !== "function"
-    || typeof store.list !== "function"
-    || typeof store.release !== "function"
-    || typeof store.update !== "function") {
+    || !hasRuntimeType(store.claim, "function")
+    || !hasRuntimeType(store.create, "function")
+    || !hasRuntimeType(store.get, "function")
+    || !hasRuntimeType(store.list, "function")
+    || !hasRuntimeType(store.release, "function")
+    || !hasRuntimeType(store.update, "function")) {
     throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), list(), release(), and update().")
   }
 }
@@ -292,11 +294,43 @@ function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
     || (observation.name === "agent.stream.error" && observation.attributes?.["error.recoverable"] !== true)
 }
 
+function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
+  if (failureEvidenceObservation(observation)) return 0
+  if (terminalObservation(observation)) return 1
+}
+
 function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   return {
     ...observation,
     attributes: { ...observation.attributes, "vitehub.trace.truncated": true },
   }
+}
+
+function prioritizePendingOutcomes(
+  pending: TraceEventLogEntry[],
+  incoming: TraceEventLogEntry,
+  active: TraceEventLogEntry | undefined,
+  retryIncoming = false,
+): void {
+  const activeFatal = active && failureEvidenceObservation(active)
+  const fatal = retryIncoming && failureEvidenceObservation(incoming)
+    ? incoming
+    : activeFatal
+      ? undefined
+      : pending.find(failureEvidenceObservation)
+        ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
+  const pendingTerminal = pending.findLast(terminalObservation)
+  const terminal = retryIncoming
+    ? pendingTerminal ?? (terminalObservation(incoming) ? incoming : undefined)
+    : terminalObservation(incoming)
+      ? incoming
+      : pendingTerminal
+  const outcomes: TraceEventLogEntry[] = []
+  if (fatal) outcomes.push(fatal)
+  if (terminal && terminal !== fatal) outcomes.push(terminal)
+  const ordinary = pending.filter(observation => !failureEvidenceObservation(observation) && !terminalObservation(observation))
+  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
+  pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
 
 export function applyAgentInvocationStoreUpdate(
@@ -309,11 +343,20 @@ export function applyAgentInvocationStoreUpdate(
     : record.status
   const observations = input.observation
     ? record.observations.length < MAX_OBSERVATIONS
-      ? [...record.observations, cloneObservation(boundedObservation(input.observation))]
+      ? (() => {
+          const observation = cloneObservation(boundedObservation(input.observation))
+          const priority = outcomeObservationPriority(observation)
+          const insertAt = record.observations.findIndex((candidate) => {
+            const candidatePriority = outcomeObservationPriority(candidate)
+            return candidatePriority !== undefined && (priority === undefined || candidatePriority > priority)
+          })
+          return insertAt < 0
+            ? [...record.observations, observation]
+            : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
+        })()
       : (() => {
-          const failureEvidence = failureEvidenceObservation(input.observation)
-            ? input.observation
-            : record.observations.find(failureEvidenceObservation)
+          const failureEvidence = record.observations.find(failureEvidenceObservation)
+            ?? (failureEvidenceObservation(input.observation) ? input.observation : undefined)
           const terminal = terminalObservation(input.observation)
             ? input.observation
             : record.observations.findLast(terminalObservation)
@@ -409,7 +452,8 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
 ): TraceEventLog {
-  return {
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
@@ -425,6 +469,10 @@ function journalTraceLog(
     },
     entries: () => traceLog.entries(),
   } as TraceEventLog
+  if (content === "content") {
+    Object.defineProperty(journal, agentInvocationJournalContentTraceLogSymbol, { value: true })
+  }
+  return journal
 }
 
 export function defineAgentInvocations(options: AgentInvocationsOptions): AgentInvocations {
@@ -448,6 +496,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
+      let finishing = false
       let ownsRecord = false
       let observationCount = 0
       let observationsTruncated = false
@@ -464,7 +513,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
       let heartbeatDeadline: number | undefined
       let observationWrite: Promise<void> | undefined
+      let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
+      const persistedObservationSequences = new Set<number>()
+      const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
         if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout)
@@ -476,10 +528,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
         if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
-        const unref = (heartbeat as unknown as { unref?: () => void }).unref
+        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+        const unref = (asUnknownBoundary(heartbeat) as { unref?: () => void }).unref
         if (unref) unref.call(heartbeat)
         heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
-        const unrefTimeout = (heartbeatTimeout as unknown as { unref?: () => void }).unref
+        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+        const unrefTimeout = (asUnknownBoundary(heartbeatTimeout) as { unref?: () => void }).unref
         if (unrefTimeout) unrefTimeout.call(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
@@ -561,36 +615,64 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (finished || observationWrite) return
         const observation = pendingObservations.shift()
         if (!observation) return
+        activeObservation = observation
         const task = (async () => {
-          if (finished || !await renew()) return
-          const timestamp = normalizedTimestamp(observation.timestamp)
-          const persistedObservation = boundedObservation({
-            ...observation,
-            timestamp,
-            ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-          })
-          const updated = await boundedStoreOperation(() => store.update(recordId, {
-            observation: persistedObservation,
-            timestamp,
-          }, claimId))
-          if (updated && updated !== storeOperationTimedOut) observationCount = updated.observations.length
+          let persisted = false
+          try {
+            if (finished || !await renew()) return
+            const timestamp = normalizedTimestamp(observation.timestamp)
+            const persistedObservation = boundedObservation({
+              ...observation,
+              timestamp,
+              ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+            })
+            const updated = await boundedStoreOperation(() => store.update(recordId, {
+              observation: persistedObservation,
+              timestamp,
+            }, claimId))
+            if (updated && updated !== storeOperationTimedOut) {
+              observationCount = updated.observations.length
+              persisted = true
+              persistedObservationSequences.add(observation.sequence)
+            }
+          }
+          finally {
+            if (!persisted
+              && !finished
+              && !finishing
+              && outcomeObservationPriority(observation) !== undefined
+              && !retriedObservations.has(observation)) {
+              observationsTruncated = true
+              const retry = truncatedObservation(observation)
+              retriedObservations.add(retry)
+              prioritizePendingOutcomes(pendingObservations, retry, undefined, true)
+            }
+          }
         })().catch(() => {})
         const settled = task.finally(() => {
           if (observationWrite === settled) {
             observationWrite = undefined
+            activeObservation = undefined
             writeNextObservation()
           }
         })
         observationWrite = settled
       }
       const observe = (observation: TraceEventLogEntry) => {
-        if (finished) return
+        if (finished || finishing) return
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
+        const priority = outcomeObservationPriority(observation)
+        const queuedObservation = priority !== undefined && (atCapacity || observationsTruncated)
+          ? truncatedObservation(observation)
+          : observation
         if (atCapacity) {
-          if (observationsTruncated && !terminalObservation(observation) && !failureEvidenceObservation(observation)) return
           observationsTruncated = true
+          if (priority === undefined) return
+          prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
+          writeNextObservation()
+          return
         }
-        pendingObservations.push(observation)
+        pendingObservations.push(queuedObservation)
         writeNextObservation()
       }
       return {
@@ -601,23 +683,51 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content),
         },
         async finish(status, error) {
-          if (finished) return
+          if (finished || finishing) return
+          finishing = true
+          const finishingActiveObservation = activeObservation
           const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
           while (observationWrite && Date.now() < observationDeadline) {
             await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
+          const outcomeObservations = [finishingActiveObservation, activeObservation, ...pendingObservations]
+            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
+            .filter((observation, index, observations) => observations.findIndex(candidate => candidate.sequence === observation.sequence) === index)
+          const unpersistedOutcomes = outcomeObservations.filter(observation => !persistedObservationSequences.has(observation.sequence))
+          const pendingFailure = unpersistedOutcomes.find(failureEvidenceObservation)
+          const pendingTerminal = unpersistedOutcomes.findLast(terminalObservation)
+          const pendingOutcomes = [pendingFailure, pendingTerminal]
+            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
+            .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
+            .map(observation => boundedObservation({
+              ...observation,
+              timestamp: normalizedTimestamp(observation.timestamp),
+              ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+            }))
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
           }
           const failure = errorDetails(error)
+          for (const observation of pendingOutcomes.slice(0, -1)) {
+            await update({ observation, timestamp: observation.timestamp })
+          }
+          const terminalOutcome = pendingOutcomes.at(-1)
           const finishInput: AgentInvocationStoreUpdateInput = {
             ...(failure ? { error: failure } : {}),
+            ...(terminalOutcome ? { observation: terminalOutcome } : {}),
             status,
             timestamp: new Date().toISOString(),
           }
           const finishOnce = async () => {
-            if (finished || !await update(finishInput, bindOptions.terminalTakeover)) return false
+            if (finished) return false
+            const updated = await update(finishInput, bindOptions.terminalTakeover)
+              || terminalOutcome !== undefined && await update({
+                ...(failure ? { error: failure } : {}),
+                status,
+                timestamp: finishInput.timestamp,
+              }, bindOptions.terminalTakeover)
+            if (!updated) return false
             finished = true
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
@@ -630,7 +740,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                const unref = (timer as unknown as { unref?: () => void }).unref
+                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
                 if (unref) unref.call(timer)
               })
               await finishOnce()
@@ -641,7 +752,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               ownsRecord = false
             }
           })().finally(() => {
-            if (!finished && terminalRetry === retry) terminalRetry = undefined
+            if (!finished && terminalRetry === retry) {
+              terminalRetry = undefined
+              finishing = false
+            }
           })
           terminalRetry = retry
           registerAgentInvocationRecovery(context, retry)
@@ -659,7 +773,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                const unref = (timer as unknown as { unref?: () => void }).unref
+                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
                 if (unref) unref.call(timer)
               })
               if (finished) return
@@ -691,9 +806,11 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   options?: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean },
 ): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!invocations) return
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const bind = (invocations as Partial<BoundAgentInvocations>)[bindAgentInvocationsSymbol]
-  if (typeof bind !== "function") {
+  if (!hasRuntimeType(bind, "function")) {
     throw new TypeError("[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations().")
   }
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
 }

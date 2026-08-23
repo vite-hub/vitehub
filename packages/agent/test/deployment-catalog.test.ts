@@ -14,6 +14,9 @@ interface CapturedStateAdapter {
 
 interface DeploymentRuntimeCapture {
   denoHandler?: (request: Request) => Promise<Response>
+  lastAgent?: Record<PropertyKey, unknown>
+  registeredAgent?: Record<PropertyKey, unknown>
+  registeredWorkspaceName?: string
   stateAdapter?: CapturedStateAdapter
   workspaceRegistry: Record<string, () => Promise<{ default?: Record<PropertyKey, unknown> }>>
 }
@@ -38,6 +41,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "  return source ? new TextDecoder().decode(source.content) : undefined",
       "}",
       "async function handle(kind, agent, webhook, options) {",
+      "  capture().lastAgent = agent",
       "  const state = typeof options.state === 'function' ? await options.state() : options.state",
       "  options.waitUntil?.(Promise.resolve(`${agent.description}:${kind}`))",
       "  return Response.json({",
@@ -57,6 +61,12 @@ function deploymentRuntimeModules(): Map<string, string> {
       "export const createChannelChatRouteHandler = agent => async (_request, options) => handle('chat', agent, undefined, options)",
       "export const createChannelWebhookRouteHandler = agent => async (_request, webhook, options) => handle('webhook', agent, webhook, options)",
       "export const createDiscordGatewayRouteHandler = agent => async (_request, options) => handle('discord', agent, undefined, options)",
+      "export function markDiscoveredWorkspaceAgentDefinitionRegistered(agent, defaults) {",
+      "  const name = agent.__vitehubWorkspaceAgentOptions?.name || defaults.workspace || defaults.name",
+      "  capture().registeredAgent = agent",
+      "  capture().registeredWorkspaceName = name",
+      "  return name",
+      "}",
     ].join("\n")],
     ["@vite-hub/agent/state/sqlite", [
       `const capture = globalThis.${runtimeCaptureKey}`,
@@ -91,6 +101,7 @@ async function createDeploymentRuntimeFixture(
   supportName = "support",
   inspectionRoute: true | string = true,
   discordGatewayRoute?: true | string,
+  declaredWorkspaceName?: string,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -109,6 +120,7 @@ async function createDeploymentRuntimeFixture(
     "export default defineAgent({",
     "  description: 'support',",
     "  driver: { model: {} },",
+    ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
     "  workspace: { mode: 'write' },",
     "})",
@@ -417,6 +429,19 @@ describe("generated Agent deployment catalog", () => {
       instructions: "Support the deployment catalog.\n",
       skill: "# Review\n",
     })
+    expect(runtime!.capture.lastAgent).toBe(runtime!.capture.registeredAgent)
+    expect(runtime!.capture.registeredWorkspaceName).toBe("support")
+  })
+
+  it("registers an explicitly named production Agent under its resolved Workspace name", async () => {
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", true, undefined, "support-workspace")
+
+    expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support-workspace"])
+    await runtime.request("support", "webhooks/channel")
+    expect(runtime.capture.lastAgent).toBe(runtime.capture.registeredAgent)
+    expect(runtime.capture.registeredWorkspaceName).toBe("support-workspace")
+    await expect(runtime.workspace("support-workspace")).resolves.toBeDefined()
   })
 
   it("executes the same catalog through the Netlify Adapter", async () => {

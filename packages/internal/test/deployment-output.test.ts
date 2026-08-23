@@ -5,6 +5,8 @@ import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { bundleEsmEntry } from "../src/build/esbuild.ts"
+
 vi.mock("../src/build/esbuild.ts", () => ({
   bundleEsmEntry: vi.fn(async () => undefined),
 }))
@@ -30,6 +32,7 @@ async function writePackage(rootDir: string, name: string, packageJson: Record<s
 }
 
 afterEach(async () => {
+  vi.mocked(bundleEsmEntry).mockReset().mockResolvedValue(undefined)
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -712,6 +715,75 @@ describe("provider deployment outputs", () => {
     })
 
     expect(existsSync(cloudflareDir)).toBe(false)
+  })
+
+  it("preserves previous provider output when replacement output fails", async () => {
+    vi.mocked(bundleEsmEntry).mockRejectedValueOnce(new Error("bundle failed"))
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const workerFile = join(cloudflareDir, "worker.mjs")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(workerFile, "export default {}")
+    await writeFile(join(cloudflareDir, "wrangler.json"), "{\"main\":\"worker.mjs\"}\n")
+
+    await expect(writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          fileNames: ["worker.mjs"],
+          wranglerConfigOwnership: { keys: ["main"] },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "missing-entry.mjs"),
+        bundleOptions: {},
+        function: { kind: "isolated", name: "workflow.func" },
+      },
+    })).rejects.toThrow()
+
+    await expect(readFile(workerFile, "utf8")).resolves.toBe("export default {}")
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
+  })
+
+  it("settles every started provider write before rejecting", async () => {
+    let finishVercelWrite: (() => void) | undefined
+    vi.mocked(bundleEsmEntry).mockImplementation(async (_entry, outfile) => {
+      if (outfile.endsWith("index.js")) throw new Error("cloudflare failed")
+      await new Promise<void>((resolve) => {
+        finishVercelWrite = resolve
+      })
+    })
+    const rootDir = await createTempProject()
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    let rejected = false
+
+    const output = writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "cloudflare-entry.mjs"),
+        bundleOptions: {},
+        wranglerConfig: {},
+      },
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "vercel-entry.mjs"),
+        bundleOptions: {},
+      },
+    })
+    const failure = output.then(() => undefined, (error: unknown) => {
+      rejected = true
+      return error
+    })
+
+    await vi.waitFor(() => expect(finishVercelWrite).toBeTypeOf("function"))
+    expect(rejected).toBe(false)
+    finishVercelWrite?.()
+    await expect(failure).resolves.toEqual(new Error("cloudflare failed"))
   })
 
   it("resolves cleanup ownership after preceding provider writes", async () => {

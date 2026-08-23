@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import type { AgentInvocationListResult, AgentInvocationRecord } from "../invocations.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -103,10 +104,45 @@ function endpoint(parsed: ParsedArgs, id?: string): URL {
   return base
 }
 
-async function request<T>(url: URL, fetchImpl: typeof fetch, timeout: number): Promise<T> {
+type ResponseParser<T> = (value: unknown) => T
+
+function isInvocationSummary(value: unknown): boolean {
+  return isRuntimeRecord(value)
+    && hasRuntimeType(value.createdAt, "string")
+    && hasRuntimeType(value.cursor, "string")
+    && hasRuntimeType(value.id, "string")
+    && hasRuntimeType(value.status, "string")
+    && hasRuntimeType(value.traceId, "string")
+    && hasRuntimeType(value.updatedAt, "string")
+    && (value.error === undefined || isRuntimeRecord(value.error))
+}
+
+function parseInvocationList(value: unknown): AgentInvocationListResult {
+  if (!isRuntimeRecord(value) || !Array.isArray(value.invocations) || value.invocations.some(record => !isInvocationSummary(record)) || value.cursor !== undefined && !hasRuntimeType(value.cursor, "string")) {
+    throw new TypeError("Invocation inspection returned an invalid list response.")
+  }
+  // SAFETY: The list parser validates its cursor and every summary field consumed by the CLI.
+  return asUnknownBoundary(value) as AgentInvocationListResult
+}
+
+function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
+  if (!isRuntimeRecord(value) || !isInvocationSummary(value.invocation) || !Array.isArray(value.observations)) {
+    throw new TypeError("Invocation inspection returned an invalid detail response.")
+  }
+  for (const observation of value.observations) {
+    if (!isRuntimeRecord(observation) || !hasRuntimeType(observation.name, "string") || !hasRuntimeType(observation.sequence, "number") || !hasRuntimeType(observation.timestamp, "string")) {
+      throw new TypeError("Invocation inspection returned an invalid observation.")
+    }
+  }
+  // SAFETY: The detail parser validates the invocation summary and each observation field consumed by the CLI.
+  return asUnknownBoundary(value) as AgentInvocationDetailResult
+}
+
+async function request<T>(url: URL, fetchImpl: typeof fetch, timeout: number, parseResponse: ResponseParser<T>): Promise<T> {
   const response = await fetchImpl(url.href, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(timeout) })
   if (!response.ok) throw new Error((await response.text()).trim() || `Invocation inspection failed with status ${response.status}.`)
-  return await response.json() as T
+  const value: unknown = await response.json()
+  return parseResponse(value)
 }
 
 function formatError(error: RuntimeDiagnosticError, indent = ""): string {
@@ -157,20 +193,20 @@ export async function runAgentInvocationsCli(
   const timeout = options.timeout ?? 30_000
   try {
     if (parsed.action === "list") {
-      const result = await request<AgentInvocationListResult>(endpoint(parsed), fetchImpl, timeout)
+      const result = await request(endpoint(parsed), fetchImpl, timeout, parseInvocationList)
       if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
       else for (const record of result.invocations) context.stdout.write(`${summary(record)}\n`)
       return 0
     }
     if (parsed.action === "show") {
-      writeRecord(context, detailRecord(await request<AgentInvocationDetailResult>(endpoint(parsed, parsed.id), fetchImpl, timeout)), parsed.json)
+      writeRecord(context, detailRecord(await request(endpoint(parsed, parsed.id), fetchImpl, timeout, parseInvocationDetail)), parsed.json)
       return 0
     }
 
     const sleep = options.sleep || (async milliseconds => await new Promise(resolve => setTimeout(resolve, milliseconds)))
     let sequence = 0
     for (;;) {
-      const record = detailRecord(await request<AgentInvocationDetailResult>(endpoint(parsed, parsed.id), fetchImpl, timeout))
+      const record = detailRecord(await request(endpoint(parsed, parsed.id), fetchImpl, timeout, parseInvocationDetail))
       for (const observation of record.observations.filter(observation => observation.sequence > sequence)) {
         sequence = Math.max(sequence, observation.sequence)
         context.stdout.write(parsed.json ? `${JSON.stringify(observation)}\n` : `${observation.sequence} ${observation.timestamp} ${observation.name}\n`)

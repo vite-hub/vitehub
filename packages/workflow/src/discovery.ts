@@ -25,7 +25,6 @@ const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
 const folderAgentFilePattern = /^agent\.(?:c|m)?[jt]s$/i
 const folderAgentIndexFilePattern = /^index\.(?:c|m)?[jt]s$/i
-const legacyFolderAgentFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const agentEvalFilePattern = /\.eval\.(?:c|m)?[jt]s$/i
 
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
@@ -303,7 +302,6 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
           return path === "workspace" || path.startsWith("workspace/") || path === "skills" || path.startsWith("skills/")
         })) return undefined
         if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory))
-          || legacyFolderAgentFilePattern.test(fileName)
           || agentEvalFilePattern.test(fileName)) {
           return undefined
         }

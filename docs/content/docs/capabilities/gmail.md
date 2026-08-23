@@ -9,15 +9,15 @@ icon: i-lucide-mail-search
 
 `gmail()` gives an Agent structured Gmail search and authorization tools. Draft mode adds draft creation, but the Capability never exposes a send tool or the underlying `gog` executable.
 
-Use [`email()`](/docs/capabilities/email) when an Agent should send application-owned transactional email through the Email primitive. Use `gmail()` when an Agent should work with an operator-owned Gmail account through structured Gmail tools.
+Use [`email()`](/docs/capabilities/email) for application-owned transactional email through the Email primitive. Use `gmail()` for an operator-owned Gmail account and structured Gmail tools.
 
 ## Configure the Agent
 
 Install [`gog`](https://github.com/openclaw/gogcli) on the Workspace Session host, configure its Google OAuth client, and keep its authentication state under the service account. The application owns this setup; the Capability never accepts OAuth client secrets or keyring passwords as tool input.
 
 ```ts [server/agents/inbox.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { gmail } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { gmail } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -50,7 +50,7 @@ gmail({ mode: 'draft' })
 
 `gmail()` has no send mode. Search commands run with read-only and no-send controls. Draft creation runs with `--gmail-no-send`, and no Capability-owned tool can send the resulting draft.
 
-This is a Capability tool-surface contract, not a credential isolation boundary. If sending must be impossible, isolate the credential behind a runtime or provider policy that cannot send; `gmail()` does not provide that isolation.
+This limits the tools exposed to the Agent, not the credential itself. If sending must be impossible, isolate the credential behind a runtime or provider policy that cannot send. `gmail()` does not provide that isolation.
 
 ## Complete authorization
 
@@ -75,7 +75,7 @@ await gmail_auth({
 
 The Capability accepts only an HTTP loopback URL with both `code` and `state`. It exchanges the URL on the Workspace Session host and does not return it in the result.
 
-## Runtime boundaries
+## Runtime requirements
 
 `gmail()` requires all of the following:
 
@@ -87,9 +87,9 @@ Each underlying `gog` command opens its own Workspace Session and closes the Ses
 
 Draft authorization may grant the Gmail account scope that `gog` needs to create drafts. The no-send contract applies only to the Capability-owned tools and their command flags.
 
-## Inspect and verify
+## Verify Gmail access
 
-Run `vitehub agent info --agent <name> --json` and inspect the resolved tools. Read mode should list only `gmail_auth` and `gmail_search`; draft mode should add only `gmail_draft`.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tools. Read mode lists only `gmail_auth` and `gmail_search`. Draft mode also lists `gmail_draft`.
 
 Start with a test Gmail account. Search for `in:inbox`, create a draft in draft mode, and verify in Gmail that the message remains in Drafts and was not sent.
 
@@ -99,8 +99,7 @@ Start with a test Gmail account. Search for `in:inbox`, create a draft in draft 
 | --- | --- | --- | --- |
 | `mode` | `"read" \| "draft"` | `"read"` | Exposes search and authorization tools, with draft creation added only in draft mode. |
 
-## Reference
+## Related pages
 
 - [Workspace shell](/docs/capabilities/workspace-shell)
 - [Email Capability](/docs/capabilities/email)
-- Source: `packages/agent/src/capabilities/gmail.ts`
