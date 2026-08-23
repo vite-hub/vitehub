@@ -511,6 +511,52 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("does not mark truncation when a late observation persists before terminalization", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseObservation!: () => void
+      let reportObservationStarted!: () => void
+      const observationGate = new Promise<void>((resolve) => { releaseObservation = resolve })
+      const observationStarted = new Promise<void>((resolve) => { reportObservationStarted = resolve })
+      let writes = Promise.resolve()
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            const update = writes.then(async () => {
+              if (input.observation?.name === "late") {
+                reportObservationStarted()
+                await observationGate
+              }
+              return await memory.update(id, input, claimId)
+            })
+            writes = update.then(() => undefined)
+            return update
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-deadline-late-success"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "late", type: "run" })
+      await observationStarted
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      releaseObservation()
+      await finishing
+
+      const record = await invocations.getByRunId("finish-deadline-late-success")
+      expect(record).toMatchObject({ status: "completed" })
+      expect(record?.observations.map(observation => observation.name)).toEqual(["late"])
+      expect(record?.observationsTruncated).toBeUndefined()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("persists an active fatal observation at the finish deadline", async () => {
     vi.useFakeTimers()
     try {

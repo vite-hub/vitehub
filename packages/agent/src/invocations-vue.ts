@@ -276,7 +276,6 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
-  let firstPage: readonly AgentInvocationSummary[] = [];
   let revision = 0;
   let resetFirstPage = true;
   let pendingDepartureIds = new Set<string>();
@@ -295,7 +294,6 @@ export function useAgentInvocations(
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
         cursor.value = result.cursor;
-        firstPage = result.invocations;
         resetFirstPage = false;
         return;
       }
@@ -307,13 +305,11 @@ export function useAgentInvocations(
         .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
       pendingDepartureIds = new Set(result.pendingDepartureIds ?? pendingDepartureIds);
       invocations.value = [...result.invocations, ...retained];
-      firstPage = result.invocations;
       if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
-      firstPage = [];
       pendingDepartureIds = new Set();
     },
     beforeLoad() {
@@ -371,7 +367,7 @@ export function useAgentInvocations(
       const nextPendingDepartureIds = new Set(pendingDepartureIds);
       for (const id of returnedIds) nextPendingDepartureIds.delete(id);
       const displaced = [...new Set([
-        ...firstPage.filter(invocation => !returnedIds.has(invocation.id)).map(invocation => invocation.id),
+        ...retainedIds,
         ...nextPendingDepartureIds,
       ])];
       const reconciled = await Promise.allSettled(displaced.map(id =>
@@ -381,12 +377,13 @@ export function useAgentInvocations(
       const reconciledInvocations = new Map<string, AgentInvocationSummary>();
       nextPendingDepartureIds.clear();
       for (const [index, outcome] of reconciled.entries()) {
-        const id = displaced[index]!;
+        const id = displaced[index];
+        if (!id) continue;
         if (outcome.status === "rejected") {
           nextPendingDepartureIds.add(id);
           continue;
         }
-        // SAFETY: Detail parsing establishes the summary fields, and observations are discarded before filtering.
+        // SAFETY: The detail parser has validated the invocation summary fields; observations are the only detail-only field removed here.
         const { observations: _observations, ...searchableInvocation } = outcome.value.invocation as AgentInvocationSummary & { observations?: unknown };
         if (
           (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))

@@ -1020,10 +1020,14 @@ async function* runProvider<
       })
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
-    const materializeInstructions = Boolean(instructions)
+    let materializeInstructions = Boolean(instructions)
     if (!instructions && options.provider === "claude-code") {
-      instructions = await readFile(join(root, "CLAUDE.md"), "utf8")
-        .catch(() => readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined))
+      const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
+      if (nativeInstructions !== undefined) instructions = nativeInstructions
+      else {
+        instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+        materializeInstructions = Boolean(instructions)
+      }
     }
     await updateAgentTelemetryConfiguration(context.context, {
       driver: {

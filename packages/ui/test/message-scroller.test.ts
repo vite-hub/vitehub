@@ -203,7 +203,7 @@ describe("message scroller behavior", () => {
       scrollTo: {
         configurable: true,
         value: scrollTo.mockImplementation(({ top }: ScrollToOptions) => {
-          if (typeof top === "number") scrollTop = top;
+          if (Number.isFinite(top)) scrollTop = Number(top);
         }),
       },
     });
@@ -252,5 +252,30 @@ describe("message scroller behavior", () => {
     resizeObservers[0]!.callback([], resizeObservers[0]!);
 
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("keeps following for forward keyboard navigation at the live edge", async () => {
+    const scrollTo = vi.fn();
+    const onKeydown = vi.fn();
+    const wrapper = mount(MessageScrollerRoot, {
+      slots: { default: () => h(MessageScrollerViewport, { onKeydown }) },
+    });
+    const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    let scrollHeight = 500;
+    let scrollTop = 400;
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    await viewport.trigger("scroll");
+
+    for (const key of ["ArrowDown", "End", "PageDown"]) await viewport.trigger("keydown", { key });
+    expect(onKeydown).toHaveBeenCalledTimes(3);
+    scrollHeight = 600;
+    resizeObservers[0]!.callback([], resizeObservers[0]!);
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 600 });
   });
 });

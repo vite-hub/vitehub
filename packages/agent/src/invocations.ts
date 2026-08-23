@@ -778,14 +778,17 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               timestamp,
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             })
-            const updated = await boundedStoreOperation(() => store.update(recordId, {
+            const persistence = Promise.resolve(store.update(recordId, {
               observation: persistedObservation,
               timestamp,
-            }, claimId))
+            }, claimId)).then((updated) => {
+              if (updated) persistedObservationSequences.add(observation.sequence)
+              return updated
+            })
+            const updated = await boundedStoreOperation(() => persistence)
             if (updated && updated !== storeOperationTimedOut) {
               observationCount = updated.observations.length
               persisted = true
-              persistedObservationSequences.add(observation.sequence)
             }
             else if (updated === undefined) failed = true
           }
@@ -862,9 +865,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             }))
           const pendingOutcomeSequences = new Set(pendingOutcomes.map(observation => observation.sequence))
-          const observationsDiscardedAtFinish = unpersistedOutcomes.some(
-            observation => !pendingOutcomeSequences.has(observation.sequence),
-          )
+          const discardedObservationSequences = unpersistedOutcomes
+            .filter(observation => !pendingOutcomeSequences.has(observation.sequence))
+            .map(observation => observation.sequence)
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
@@ -889,7 +892,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
             if (!updated) return false
-            if (observationsDiscardedAtFinish) {
+            if (discardedObservationSequences.some(sequence => !persistedObservationSequences.has(sequence))) {
               await update({ observationsTruncated: true, timestamp: new Date().toISOString() }, bindOptions.terminalTakeover)
             }
             finished = true
