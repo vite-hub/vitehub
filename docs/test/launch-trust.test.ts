@@ -55,6 +55,8 @@ describe("launch documentation trust boundaries", () => {
     ]) {
       expect(matrixHeader).toContain(host);
     }
+    expect(matrix).toMatch(/\| Browser\s+\| —\s+\| Browser Run/);
+    expect(matrixComponent).toContain("Browser Definitions require the Cloudflare preset");
     expect(matrix).toContain("**Available**");
     expect(matrix).toContain("**Package-specific**");
     expect(matrix).toContain("**Local-only**");
@@ -62,6 +64,7 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain("**Contract-tested**");
     expect(matrix).toContain("**Live proof not published**");
     for (const primitive of [
+      "Browser",
       "Blob",
       "Database",
       "KV",
@@ -90,7 +93,7 @@ describe("launch documentation trust boundaries", () => {
     expect(matrixComponent).toContain('<section id="qualifications"');
     expect(matrixComponent).toContain('<h2>Qualifications</h2>');
     expect(matrixComponent).toContain(':id="section.anchor" class="support-matrix-section-anchor"');
-    expect(matrixComponent).toContain('scroll-margin-block-start: 6.25rem');
+    expect(matrixComponent).toContain('scroll-margin-block-start: 7rem');
     expect(matrixComponent).toContain(
       'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
     );

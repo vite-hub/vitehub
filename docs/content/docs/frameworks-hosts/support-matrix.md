@@ -12,6 +12,7 @@ icon: i-lucide-table-properties
 
 | Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify              | Deno          | Nitro and UnJS | Node and self-hosted  |
 | ---------- | ---------------- | --------------------- | --------------------- | -------------------- | ------------- | -------------- | --------------------- |
+| Browser    | —                | Browser Run           | —                     | —                    | —             | —              | —                     |
 | Blob       | `fs`             | R2                    | Vercel Blob           | Netlify Blobs        | S3-compatible | Host driver    | `fs` or S3-compatible |
 | Database   | SQLite           | D1                    | libSQL or D1 HTTP     | libSQL               | libSQL        | Nuxt D1        | SQLite or libSQL      |
 | KV         | `fs-lite`        | Workers KV            | Upstash Redis         | Upstash Redis        | Deno KV       | Host driver    | `fs-lite` or Upstash  |
@@ -22,7 +23,7 @@ icon: i-lucide-table-properties
 | Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow  | Host provider  | OpenWorkflow          |
 | Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub        | Host store     | Local or GitHub       |
 
-Names in this table are concrete built-in providers or adapters. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
+Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
 
 Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one.
 

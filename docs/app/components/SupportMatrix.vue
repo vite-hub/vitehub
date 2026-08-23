@@ -172,6 +172,32 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
     label: "Server primitives",
     rows: [
       {
+        id: "browser",
+        label: "Browser",
+        description: "Provider-backed browser operations",
+        values: {
+          local: cell(
+            "none",
+            "Browser Definitions require the Cloudflare preset. Local Wrangler can connect to Browser Run with remote mode.",
+            "—",
+          ),
+          cloudflare: cell(
+            "available",
+            "Cloudflare Browser Run binding and provider output.",
+            "Browser Run",
+          ),
+          vercel: cell("none", "Browser Definitions do not have a Vercel provider.", "—"),
+          netlify: cell("none", "Browser Definitions do not have a Netlify provider.", "—"),
+          deno: cell("none", "Browser Definitions do not have a Deno provider.", "—"),
+          nitro: cell(
+            "none",
+            "Browser Definitions require ViteHub's Cloudflare preset, not a generic Nitro preset.",
+            "—",
+          ),
+          node: cell("none", "Browser Definitions do not have a self-hosted provider.", "—"),
+        },
+      },
+      {
         id: "blob",
         label: "Blob",
         description: "Object storage",
@@ -1005,7 +1031,7 @@ a.support-matrix-host-link:hover {
 
 .support-matrix-section-anchor {
   display: block;
-  scroll-margin-block-start: 6.25rem;
+  scroll-margin-block-start: 7rem;
 }
 
 .support-matrix-section-row td:first-of-type,
