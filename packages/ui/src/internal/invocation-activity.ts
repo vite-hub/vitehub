@@ -107,6 +107,14 @@ function fileChanges(attributes: Record<string, unknown>): { patches: string[]; 
     });
     if (patches.length || paths.length) return { patches, paths };
   }
+  const body = attributes["vitehub.activity.body"];
+  if (attributes["vitehub.activity.kind"] === "change" && typeof body === "string" && /^diff --git /m.test(body)) {
+    const paths = [...body.matchAll(/^diff --git a\/(.+?) b\/.+$/gm)].map(match => match[1]!);
+    return {
+      patches: [body.endsWith("\n") ? body : `${body}\n`],
+      paths: [...new Set(paths)],
+    };
+  }
   return { patches: [], paths: [] };
 }
 
@@ -124,13 +132,23 @@ function commandDetails(attributes: Record<string, unknown>): InvocationCommand 
     ?? stringAttribute(input ?? {}, "command")
     ?? stringAttribute(output ?? {}, "command");
   if (!command) return;
+  const directOutput = attributes["tool.output"];
+  const outputText = typeof directOutput === "string"
+    ? directOutput
+    : typeof output?.aggregatedOutput === "string"
+      ? output.aggregatedOutput
+      : typeof output?.output === "string"
+        ? output.output
+        : typeof input?.aggregatedOutput === "string"
+          ? input.aggregatedOutput
+          : typeof input?.output === "string"
+            ? input.output
+            : undefined;
   return {
     command,
     ...(typeof input?.cwd === "string" ? { cwd: input.cwd } : typeof output?.cwd === "string" ? { cwd: output.cwd } : {}),
     ...(typeof output?.exitCode === "number" ? { exitCode: output.exitCode } : typeof input?.exitCode === "number" ? { exitCode: input.exitCode } : {}),
-    ...(typeof output?.aggregatedOutput === "string"
-      ? { output: output.aggregatedOutput }
-      : typeof input?.aggregatedOutput === "string" ? { output: input.aggregatedOutput } : {}),
+    ...(outputText !== undefined ? { output: outputText } : {}),
   };
 }
 
