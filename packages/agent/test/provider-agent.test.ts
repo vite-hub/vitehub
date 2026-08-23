@@ -13,6 +13,7 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { defineAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
+import { agentInvocationResolvedModelContextKey } from "../src/invocation-context.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
@@ -720,6 +721,40 @@ describe("Provider Agent Driver", () => {
     await expect(adapter.generate(context("thread-instruction-timeout", {
       input: { prompt: "hello", timeout: 20 },
     }) as never)).rejects.toThrow()
+  })
+
+  it("reports native Claude Workspace instructions to invocation inspection", async () => {
+    const threadId = "thread-native-claude-instructions"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let root = ""
+    const inspect = vi.fn(async () => undefined)
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(`${root}/CLAUDE.md`, "native workspace instructions")
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    })
+    runContext.context.set(agentInvocationResolvedModelContextKey, inspect)
+
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate(runContext as never)
+
+    expect(inspect).toHaveBeenCalledWith({ instructions: "native workspace instructions" })
   })
 
   it("reports runtime-wide provider errors without a thread association", async () => {

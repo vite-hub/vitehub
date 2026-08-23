@@ -109,7 +109,7 @@ describe("Agent Invocations", () => {
     })
   }, 5_000)
 
-  it("marks observations that time out before invocation completion", async () => {
+  it("retains observations whose slow write completes before invocation completion", async () => {
     vi.useFakeTimers()
     try {
       const memory = createMemoryAgentInvocationStore()
@@ -135,13 +135,41 @@ describe("Agent Invocations", () => {
       await journal.finish("completed")
 
       await expect(invocations.getByRunId("timed-out-observation")).resolves.toMatchObject({
-        observationsTruncated: true,
+        observations: [{ name: "custom", type: "run" }],
         status: "completed",
       })
+      expect((await invocations.getByRunId("timed-out-observation"))?.observationsTruncated).toBeUndefined()
     }
     finally {
       vi.useRealTimers()
     }
+  })
+
+  it("marks rejected observation writes as truncated", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        update: (id, input, claimId) => input.observation
+          ? Promise.reject(new Error("observation unavailable"))
+          : memory.update(id, input, claimId),
+      },
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({ name: "custom", type: "run" })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime("rejected-observation"), {})).resolves.toBe("done")
+    await expect(invocations.getByRunId("rejected-observation")).resolves.toMatchObject({
+      observations: [],
+      observationsTruncated: true,
+      status: "completed",
+    })
   })
 
   it("does not let a rejecting trace sink change Agent execution or journal completion", async () => {

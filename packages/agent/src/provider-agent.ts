@@ -900,8 +900,9 @@ async function* runProvider(
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
     if (!instructions && options.provider === "claude-code") {
-      const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
-      if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+      instructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(
+        async () => await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined),
+      )
     }
     await context.context.get<((configuration: AgentInvocationResolvedConfiguration) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.({
       instructions: instructions ?? "",

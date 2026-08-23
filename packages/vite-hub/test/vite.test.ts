@@ -102,7 +102,8 @@ function providerAliasesFromCall(call: readonly unknown[] | undefined, index = 0
   if (!aliases || typeof aliases !== "object" || !Object.values(aliases).every(alias => typeof alias === "string")) {
     throw new TypeError("Expected provider import aliases to be a string record.")
   }
-  return Object.fromEntries(Object.entries(aliases).map(([name, alias]) => [name, String(alias)]))
+  // SAFETY: The preceding check validates every alias value.
+  return aliases as Record<string, string>
 }
 
 function pluginAliases(plugin: Plugin): Record<string, string> {
@@ -114,7 +115,8 @@ function pluginAliases(plugin: Plugin): Record<string, string> {
   if (!alias || typeof alias !== "object" || !Object.values(alias).every(value => typeof value === "string")) {
     throw new TypeError("Expected plugin aliases to be a string record.")
   }
-  return Object.fromEntries(Object.entries(alias).map(([name, value]) => [name, String(value)]))
+  // SAFETY: The preceding check validates every alias value.
+  return alias as Record<string, string>
 }
 
 function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "node" }): Plugin {

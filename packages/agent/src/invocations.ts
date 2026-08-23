@@ -652,12 +652,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             timestamp,
             ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
           })
-          const updated = await boundedStoreOperation(() => store.update(recordId, {
+          const updated = await Promise.resolve().then(() => store.update(recordId, {
             observation: persistedObservation,
             timestamp,
-          }, claimId))
-          if (updated === storeOperationTimedOut) observationCapMarked = true
-          else if (updated) observationCount = updated.observations.length
+          }, claimId)).catch(() => undefined)
+          if (updated) observationCount = updated.observations.length
+          else observationCapMarked = true
         })().catch(() => {})
         const settled = task.finally(() => {
           if (observationWrite === settled) {
