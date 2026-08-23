@@ -67,7 +67,7 @@ function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord
 
 function searchableRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
   const { observations: _observations, ...summary } = record
-  return JSON.stringify(summary).toLocaleLowerCase()
+  return JSON.stringify(summary).toLowerCase()
 }
 
 function escapeLike(value: string): string {
@@ -217,7 +217,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       const search = searchValue(listOptions.search)
       if (search) {
         filters.push("search LIKE ? ESCAPE '\\'")
-        args.push(`%${escapeLike(search.toLocaleLowerCase())}%`)
+        args.push(`%${escapeLike(search.toLowerCase())}%`)
       }
       args.push(limit + 1)
       const result = await client.execute({

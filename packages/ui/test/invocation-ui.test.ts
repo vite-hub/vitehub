@@ -26,18 +26,22 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.text()).toContain("data:text/plain,source");
   });
 
-  it("renders only HTTP file URLs as links or images", () => {
+  it("renders HTTP and package-generated data file URLs without executable schemes", () => {
     const parts: UIMessage["parts"] = [
       { filename: "safe.txt", mediaType: "text/plain", type: "file", url: "https://example.com/safe.txt" },
       { filename: "unsafe.txt", mediaType: "text/plain", type: "file", url: "javascript:alert(1)" },
-      { filename: "unsafe.png", mediaType: "image/png", type: "file", url: "data:image/png;base64,unsafe" },
+      { filename: "inline.png", mediaType: "image/png", type: "file", url: "data:image/png;base64,c2FmZQ==" },
     ];
     const wrapper = mount(AgentMessageParts, { props: { parts } });
 
-    expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual(["https://example.com/safe.txt"]);
-    expect(wrapper.findAll("img")).toHaveLength(0);
+    expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual([
+      "https://example.com/safe.txt",
+      "data:image/png;base64,c2FmZQ==",
+    ]);
+    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ=="]);
+    expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
     expect(wrapper.text()).toContain("unsafe.txt");
-    expect(wrapper.text()).toContain("unsafe.png");
+    expect(wrapper.text()).toContain("inline.png");
   });
 
   it("renders the working state with the loader-circle path", () => {
@@ -231,7 +235,10 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
 
-    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Checking.", "Done."]);
+    expect(invocationActivities(invocation).map(activity => [activity.kind, activity.body])).toEqual([
+      ["reasoning", "Checking."],
+      ["message", "Done."],
+    ]);
   });
 
   it("renders canonical tool, error, and approval decision details", () => {

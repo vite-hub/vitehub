@@ -1270,6 +1270,18 @@ describe("Agent Invocations", () => {
       await expect(restored.list({ search: "éclair" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
+      const localeLowercase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
+        return String(this).replaceAll("I", "ı").toLowerCase()
+      })
+      try {
+        await runAgent(agent, runtime("locale-search", { "github.repository": "INDIGO" }), {})
+        await expect(restored.list({ search: "indigo" })).resolves.toMatchObject({
+          invocations: [expect.objectContaining({ status: "completed" })],
+        })
+      }
+      finally {
+        localeLowercase.mockRestore()
+      }
       await expect(restored.list({ search: "missing repository" })).resolves.toEqual({ invocations: [] })
       for (const cursor of ["invalid", "01", "1.0", " 1", String(Number.MAX_SAFE_INTEGER + 1)]) {
         await expect(restored.list({ cursor })).rejects.toThrow("cursor is invalid")

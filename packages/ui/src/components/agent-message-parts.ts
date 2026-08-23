@@ -29,9 +29,14 @@ function isSafeExternalUrl(value: string): boolean {
   }
 }
 
+function isSafeFileUrl(value: string): boolean {
+  if (isSafeExternalUrl(value)) return true;
+  return /^data:[^,]*,/i.test(value);
+}
+
 function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
   const label = part.filename ?? part.mediaType;
-  if (!isSafeExternalUrl(part.url)) {
+  if (!isSafeFileUrl(part.url)) {
     return h("span", { class: "vh-attachment" }, [
       h("span", { class: "vh-attachment__name" }, label),
     ]);
@@ -39,7 +44,12 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
   const image = part.mediaType === "image" || part.mediaType.startsWith("image/");
   return h(
     "a",
-    { class: "vh-attachment", download: part.filename, href: part.url, target: "_blank" },
+    {
+      class: "vh-attachment",
+      download: part.filename,
+      href: part.url,
+      target: isSafeExternalUrl(part.url) ? "_blank" : undefined,
+    },
     [
       image
         ? h("img", {

@@ -202,6 +202,7 @@ function activityKind(
   if (attributes["tool.name"] || attributes["tool.id"] || observation.name.includes(".tool.")) return "tool";
   if (attributes["approval.id"] || observation.name.includes(".approval.")) return "approval";
   if (observation.type === "error" || observation.name.endsWith(".error")) return "error";
+  if (attributes["message.phase"] === "commentary" || attributes["message.phase"] === "reasoning") return "reasoning";
   if (observation.name.includes(".reasoning.")) return "reasoning";
   if (observation.name.includes(".model.")) return "model";
   if (attributes["message.role"] || attributes["message.content"] || attributes["input.prompt"] || attributes["input.messages"] || attributes["result.text"]) return "message";
