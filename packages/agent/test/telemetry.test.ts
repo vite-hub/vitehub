@@ -4,6 +4,7 @@ import { createTraceEventLog } from "@vite-hub/runtime"
 import { defineAgent, defineCapability, runAgent, streamAgent, type AgentTelemetry } from "../src/index.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 
 function telemetryCapability(exporter: AgentTelemetry) {
   return defineCapability({ id: "test-telemetry", telemetry: { exporter } })
@@ -406,7 +407,7 @@ describe("Agent telemetry", () => {
     const traces = exports.filter(exported => exported.signal === "traces")
     const sequences = logs.flatMap(exported => exported.records)
       .map(record => record.attributes?.["vitehub.event.sequence"])
-      .filter(sequence => typeof sequence === "number")
+      .filter(sequence => hasRuntimeType(sequence, "number"))
     expect(new Set(sequences).size).toBe(sequences.length)
     expect(logs[1]?.records).toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.second" })]))
     expect(logs[1]?.records).not.toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.first" })]))
@@ -670,6 +671,7 @@ describe("Agent telemetry", () => {
       runtime: "unknown",
       waitUntil(task) { tasks.push(Promise.resolve(task)) },
     }, {})
+    // SAFETY: streamAgent returns an async iterable stream for streamed invocations.
     for await (const _event of stream as AsyncIterable<unknown>) {}
     await Promise.all(tasks)
 
@@ -763,6 +765,7 @@ describe("Agent telemetry", () => {
 
       expect(telemetry).toHaveBeenCalledTimes(3)
       expect(telemetry.mock.calls[1]![0]).toMatchObject({ signal: "logs" })
+      // SAFETY: The third recorded call is asserted above to be the terminal trace export.
       expect((telemetry.mock.calls[2]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
     }
     finally {
@@ -779,13 +782,13 @@ describe("Agent telemetry", () => {
       const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
       const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
       const tasks: Promise<unknown>[] = []
-      const telemetry = vi.fn(async (_context: unknown) => {
+      const telemetry = vi.fn(async (_context: Parameters<AgentTelemetry>[0]) => {
         if (telemetry.mock.calls.length === 1) await exportGate
       })
       const agent = defineAgent({
         capabilities: [defineCapability({
           id: "live-telemetry",
-          telemetry: { exporter: telemetry, live: true },
+          telemetry: { content: { outputs: true }, exporter: telemetry, live: true },
         })],
         driver: {
           async run(context) {
@@ -807,7 +810,7 @@ describe("Agent telemetry", () => {
       await vi.advanceTimersByTimeAsync(5_000)
       await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(1))
 
-      for (let index = 0; index < 1_023; index += 1) {
+      for (let index = 0; index < 1_200; index += 1) {
         await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
       }
       expect(tasks).toHaveLength(1)
@@ -819,14 +822,14 @@ describe("Agent telemetry", () => {
       await Promise.all(tasks)
 
       const logs = telemetry.mock.calls.map(call => call[0])
-        .filter(exported => (exported as { signal: string }).signal === "logs") as Array<{ records: Array<{ eventName: string }> }>
+        .flatMap(exported => exported.signal === "logs" ? [exported] : [])
       expect(logs.length).toBeGreaterThan(2)
-      expect(logs.slice(1).map(exported => exported.records.length)).toEqual([512, 511, 2])
+      expect(logs.slice(1).map(exported => exported.records.length)).toEqual([512, 512, 178])
       expect(logs.every(exported => exported.records.length <= 512)).toBe(true)
       const progress = logs.flatMap(exported => exported.records)
         .map(record => record.eventName)
         .filter(name => name.startsWith("application.progress"))
-      expect(progress).toHaveLength(1_024)
+      expect(progress).toHaveLength(1_201)
       expect(new Set(progress).size).toBe(progress.length)
       expect(logs.flatMap(exported => exported.records)
         .filter(record => record.eventName === "vitehub.agent.configured")).toHaveLength(1)
@@ -1057,6 +1060,7 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const agent = defineAgent({
       capabilities: [telemetryCapability(telemetry)],
+      // SAFETY: The invalid binding is intentional input for this setup-failure regression.
       runEvents: {} as never,
       driver: { run: () => "unreachable" },
     })

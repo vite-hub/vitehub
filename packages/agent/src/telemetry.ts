@@ -1,6 +1,7 @@
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export type OtlpResourceAttributes = Record<string, boolean | number | string>
 
@@ -13,6 +14,7 @@ export interface OtlpHttpJsonOptions<TRuntimeConfig extends AgentRuntimeConfig =
 type OtlpAnyValue =
   | { arrayValue: { values: OtlpAnyValue[] } }
   | { boolValue: boolean }
+  | { bytesValue: string }
   | { doubleValue: number }
   | { intValue: string }
   | { kvlistValue: { values: Array<{ key: string, value: OtlpAnyValue }> } }
@@ -21,19 +23,27 @@ type OtlpAnyValue =
 const retryableStatuses = new Set([429, 502, 503, 504])
 
 function otlpAnyValue(value: unknown): OtlpAnyValue {
-  if (typeof value === "boolean") return { boolValue: value }
-  if (typeof value === "number") {
+  if (hasRuntimeType(value, "boolean")) return { boolValue: value }
+  if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
     return Number.isSafeInteger(value) ? { intValue: String(value) } : { doubleValue: value }
   }
-  if (typeof value === "bigint") {
+  if (hasRuntimeType(value, "bigint")) {
     return value >= -(2n ** 63n) && value <= 2n ** 63n - 1n
       ? { intValue: String(value) }
       : { stringValue: String(value) }
   }
-  if (typeof value === "string") return { stringValue: value }
+  if (hasRuntimeType(value, "string")) return { stringValue: value }
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    const bytes = value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    let binary = ""
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    return { bytesValue: btoa(binary) }
+  }
   if (Array.isArray(value)) return { arrayValue: { values: value.map(otlpAnyValue) } }
-  if (value && typeof value === "object") {
+  if (value && hasRuntimeType(value, "object")) {
     return {
       kvlistValue: {
         values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child) }]),
@@ -110,12 +120,14 @@ async function wait(milliseconds: number): Promise<void> {
 }
 
 function otlpResponseRejected(response: unknown, field: "rejectedLogRecords" | "rejectedSpans"): boolean {
-  if (!response || typeof response !== "object") return false
+  if (!response || !hasRuntimeType(response, "object")) return false
+  // SAFETY: The runtime object guard establishes a record whose optional property can be inspected.
   const partialSuccess = (response as { partialSuccess?: unknown }).partialSuccess
-  if (!partialSuccess || typeof partialSuccess !== "object") return false
+  if (!partialSuccess || !hasRuntimeType(partialSuccess, "object")) return false
+  // SAFETY: The runtime object guard establishes an indexable record for the named OTLP field.
   const value = (partialSuccess as Record<string, unknown>)[field]
-  if (typeof value === "number") return value > 0
-  return typeof value === "string" && /^\d+$/.test(value) && !/^0+$/.test(value)
+  if (hasRuntimeType(value, "number")) return value > 0
+  return hasRuntimeType(value, "string") && /^\d+$/.test(value) && !/^0+$/.test(value)
 }
 
 async function postOtlp(
@@ -124,6 +136,9 @@ async function postOtlp(
   body: string,
   rejectedField: "rejectedLogRecords" | "rejectedSpans",
 ): Promise<void> {
+  if (new TextEncoder().encode(body).byteLength > 4 * 1024 * 1024) {
+    throw new Error("OTLP/HTTP JSON telemetry payload exceeds 4 MiB.")
+  }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let response: Response
     try {
@@ -170,8 +185,8 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
   return async (context) => {
     if (context.signal === "logs" ? !context.records.length : !context.spans.length) return
     const [configuredHeaders, configuredResource] = await Promise.all([
-      typeof options.headers === "function" ? options.headers(context) : options.headers,
-      typeof options.resource === "function" ? options.resource(context) : options.resource,
+      hasRuntimeType(options.headers, "function") ? options.headers(context) : options.headers,
+      hasRuntimeType(options.resource, "function") ? options.resource(context) : options.resource,
     ])
     const headers = new Headers(configuredHeaders)
     headers.set("content-type", "application/json")
