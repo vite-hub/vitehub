@@ -11972,9 +11972,10 @@ describe("server helpers", () => {
     const workflowRejected = new Promise<void>((resolve) => {
       rejectWorkflow = resolve
     })
-    const createBatch = vi.fn(async () => {
+    const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => {
       await workflowRejected
-      throw Object.assign(new Error("Workflow unavailable"), { status: 503 })
+      if (createBatch.mock.calls.length === 1) throw Object.assign(new Error("Workflow unavailable"), { status: 503 })
+      return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const agent = defineAgent({
       channels: {
@@ -12002,7 +12003,8 @@ describe("server helpers", () => {
       rejectWorkflow()
       await expect(response).resolves.toMatchObject({ status: 200 })
 
-      expect(ownerVerificationAttempts).toBe(2)
+      expect(ownerVerificationAttempts).toBe(3)
+      expect(createBatch).toHaveBeenCalledTimes(2)
       expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "Workflow failed.")
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
@@ -12623,6 +12625,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-start-retry-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
+    const replaceQueueHead = vi.spyOn(state, "queueReplaceHead")
     const adapter = createTestChatAdapter()
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
@@ -12669,6 +12672,9 @@ describe("server helpers", () => {
       expect(sideEffect).not.toHaveBeenCalled()
       expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
+      expect(
+        replaceQueueHead.mock.calls.some(([queue, , replacement]) => queue === `${ownershipKey}:queue:pending` && replacement.length === 1),
+      ).toBe(true)
 
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
       await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
@@ -13158,7 +13164,7 @@ describe("server helpers", () => {
         ),
       ).resolves.toBe("completed")
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91158", "91159"])
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      // SAFETY: The fixture creates this Workflow payload through the production Channel delivery boundary.
       const binding = workflowPayloads[1]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         | {
@@ -13171,12 +13177,14 @@ describe("server helpers", () => {
       const originalAppendToList = state.appendToList.bind(state)
       let rejectMergedJournal = true
       const appendToList = vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+        // SAFETY: Delivery journal writes use this event record shape at the State boundary.
+        const event = value as { runId?: string; type?: string }
         if (
           rejectMergedJournal &&
           key.startsWith("deliveries:") &&
           key.endsWith(":events") &&
-          (value as { runId?: string; type?: string }).type === "invocation.completed" &&
-          (value as { runId?: string }).runId === undefined
+          event.type === "invocation.completed" &&
+          event.runId === undefined
         ) {
           rejectMergedJournal = false
           throw new Error("merged delivery journal unavailable")
@@ -13199,6 +13207,7 @@ describe("server helpers", () => {
       ).resolves.toBe("completed")
       expect(rejectMergedJournal).toBe(false)
       expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91158", "91159"])
+      // SAFETY: The pending queue contains the normalized durable steer entries created by this fixture.
       const uncheckpointed = (await state.queuePeek(binding!.steer!.pendingQueue)) as { message?: { settledDeliveryIds?: string[] } } | null
       expect(uncheckpointed?.message?.settledDeliveryIds).toBeUndefined()
       appendToList.mockRestore()

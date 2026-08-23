@@ -2615,9 +2615,6 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               return { retrySettlementFailures: true, settlementStatus: "failed", verify: async () => undefined, settle: async () => undefined }
             }
             await restoreDurableSteerQueue(resolved.state, queue, pending.message)
-            if (!(await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, pending))) {
-              throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
-            }
             const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             const restored = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
@@ -2655,8 +2652,14 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   ownerToken: recoveredLock.token,
                 },
               }
-              // SAFETY: recoveredPending is normalized durable queue data owned by this route boundary.
-              await resolved.state.enqueue(ownedPendingQueue, recoveredPending as never, 1)
+              // Replace the expired Workflow's claim atomically. Provider retry can
+              // still recover the old claim until its replacement is durable.
+              // SAFETY: Both entries are normalized durable queue data owned by this route boundary.
+              if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, pending as never, [recoveredPending] as never, 1))) {
+                stopRecoveredHeartbeat()
+                await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+                throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
+              }
               // SAFETY: restored was read from this atomic queue and retains its internal entry representation.
               if (!(await atomicQueue.queueReplaceHead(queue, restored as never, [], durableSteerQueueMaximum))) {
                 stopRecoveredHeartbeat()
@@ -4742,6 +4745,73 @@ async function handleChatSdkMessage(
               recoveredScopeOwnership = await state.state.extendLock(steerLock, steerTtlMs)
             } catch {
               durableHandoff = true
+              const pendingQueue = durableSteerPendingQueue(steerQueue)
+              const persistedPending = steerPending
+              const persistedMessage = persistedPending.message
+              if (!persistedMessage) throw new Error("[vitehub] Durable steered Channel delivery lost its persisted startup input.")
+              context.waitUntil(
+                (async () => {
+                  let recoveredLock: Lock | null = null
+                  while (!recoveredLock) {
+                    try {
+                      recoveredLock = await state.state.acquireLock(steerLock.threadId, steerTtlMs)
+                    } catch {
+                      recoveredLock = null
+                    }
+                    if (recoveredLock) break
+                    const remainingMs = steerLock.expiresAt - Date.now()
+                    if (remainingMs <= 0) return
+                    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
+                  }
+                  const recoveredClaimId = crypto.randomUUID()
+                  const recoveredDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+                  const recoveryInput: AgentRunInput = {
+                    ...workflowInput,
+                    context: {
+                      ...workflowInput.context,
+                      [agentChannelDeliveryWorkflowContextKey]: {
+                        ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
+                        steer: {
+                          ...(isRecord(recoveredDelivery) && isRecord(recoveredDelivery.steer) ? recoveredDelivery.steer : {}),
+                          claimId: recoveredClaimId,
+                          lock: recoveredLock,
+                        },
+                      },
+                    },
+                  }
+                  const recoveryPending: DurableSteerQueueEntry = {
+                    ...persistedPending,
+                    message: {
+                      ...persistedMessage,
+                      claimId: recoveredClaimId,
+                      input: recoveryInput,
+                      ownerToken: recoveredLock.token,
+                    },
+                  }
+                  // SAFETY: persistedPending is normalized durable queue data owned by this route boundary.
+                  const expectedPending = persistedPending as never
+                  // SAFETY: recoveryPending is normalized durable queue data owned by this route boundary.
+                  const replacementPending = [recoveryPending] as never
+                  if (
+                    !(await requireAtomicAgentStateQueue(state.state).queueReplaceHead(
+                      pendingQueue,
+                      expectedPending,
+                      replacementPending,
+                      1,
+                    ))
+                  ) {
+                    await state.state.releaseLock(recoveredLock).catch(() => undefined)
+                    return
+                  }
+                  const stopRecoveryHeartbeat = startWebhookLockHeartbeat(state.state, recoveredLock, steerTtlMs, () => undefined)
+                  try {
+                    // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
+                    await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
+                  } finally {
+                    stopRecoveryHeartbeat()
+                  }
+                })().catch(() => undefined),
+              )
               await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
               detachAgentChannelDelivery(delivery)
               return
