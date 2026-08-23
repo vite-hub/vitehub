@@ -158,10 +158,7 @@ export const AgentInvocationList = defineComponent({
     });
     watch(
       [virtualRows, () => props.hasMore, () => props.loading, () => props.items.length, scrollRevision],
-      ([rows, hasMore, loading, length], [, , previousLoading]) => {
-        if (previousLoading && !loading && requestedLength.value === length) {
-          requestedLength.value = undefined;
-        }
+      ([rows, hasMore, loading, length]) => {
         if (!hasMore || loading || !length || requestedLength.value === length) return;
         if (rows.at(-1)?.index !== undefined && rows.at(-1)!.index >= length - 6) {
           requestedLength.value = length;

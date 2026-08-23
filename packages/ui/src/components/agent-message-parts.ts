@@ -20,6 +20,15 @@ function isToolPart(part: Part): part is ToolLikePart {
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
 }
 
+function isSafeSourceUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
   const image = part.mediaType === "image" || part.mediaType.startsWith("image/");
   return h(
@@ -95,18 +104,21 @@ export const AgentMessageParts = defineComponent({
           }
           if (part.type === "file") return slots.file?.({ index, part }) ?? filePart(part);
           if (part.type === "source-url") {
+            const label = part.title ?? part.url;
             return (
               slots.source?.({ index, part }) ??
-              h(
-                "a",
-                {
-                  class: "vh-source",
-                  href: part.url,
-                  rel: "noreferrer",
-                  target: "_blank",
-                },
-                part.title ?? part.url,
-              )
+              (isSafeSourceUrl(part.url)
+                ? h(
+                    "a",
+                    {
+                      class: "vh-source",
+                      href: part.url,
+                      rel: "noreferrer",
+                      target: "_blank",
+                    },
+                    label,
+                  )
+                : h("span", { class: "vh-source" }, label))
             );
           }
           if (part.type === "source-document") {

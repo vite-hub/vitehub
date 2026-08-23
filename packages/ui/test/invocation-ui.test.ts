@@ -4,13 +4,28 @@ import { mount } from "@vue/test-utils";
 import { createSSRApp, h, nextTick } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
+import type { UIMessage } from "ai";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
+import { AgentMessageParts } from "../src/components/agent-message-parts.ts";
 import { invocationActivities, invocationActivityTitle } from "../src/internal/invocation-activity.ts";
 
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("renders only HTTP source URLs as links", () => {
+    const parts: UIMessage["parts"] = [
+      { sourceId: "safe", type: "source-url", url: "https://example.com/reference" },
+      { sourceId: "unsafe", title: "Unsafe source", type: "source-url", url: "javascript:alert(1)" },
+      { sourceId: "unsupported", type: "source-url", url: "data:text/plain,source" },
+    ];
+    const wrapper = mount(AgentMessageParts, { props: { parts } });
+
+    expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual(["https://example.com/reference"]);
+    expect(wrapper.text()).toContain("Unsafe source");
+    expect(wrapper.text()).toContain("data:text/plain,source");
+  });
+
   it("renders the working state with the loader-circle path", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
@@ -298,7 +313,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
   });
 
-  it("retries lazy loading after a failed page without another scroll", async () => {
+  it("settles repeated page failures until the consumer explicitly retries", async () => {
     const items = Array.from({ length: 20 }, (_, index) => ({
       id: `inv-${index}`,
       status: "completed" as const,
@@ -319,7 +334,33 @@ describe("Agent Invocation UI", () => {
 
     await wrapper.setProps({ loading: true });
     await wrapper.setProps({ loading: false });
+    await wrapper.setProps({ loading: true });
+    await wrapper.setProps({ loading: false });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await viewport.trigger("scroll");
     expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
+  it("formats token counts with a stable locale", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "tokens",
+      observations: [{
+        attributes: { "usage.reasoningTokens": 1_200, "usage.totalTokens": 12_345 },
+        name: "agent.usage.recorded",
+        sequence: 1,
+        timestamp,
+        type: "run",
+      }],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+
+    expect(mount(AgentInvocation, { props: { invocation } }).text()).toContain("1.2K tokens");
+    expect(mount(AgentInvocationInspector, { props: { invocation } }).text()).toContain("12,345");
   });
 
   it("renders fallback dates in UTC for hydration stability", () => {

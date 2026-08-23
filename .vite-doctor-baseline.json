@@ -1455,6 +1455,21 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "test/contracts.test.ts",
       "fingerprint": "ef40797640a32d8f9b516084524ea74c7d9476e0d0f774460c351423482e9695"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/invocations.ts",
+      "fingerprint": "39fe0e40fbdd23f5a575852ed49abb43656df231dec44671ebb4a717824906ce"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/invocations.ts",
+      "fingerprint": "c78725f50f18807ad59c2352b132131fb7507872ca7c8912665209d9c3987beb"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/invocations.ts",
+      "fingerprint": "c45d366d7b115284732e5217732bfceaf3e2c04c922da2a906986574b28035ff"
     }
   ]
 }
