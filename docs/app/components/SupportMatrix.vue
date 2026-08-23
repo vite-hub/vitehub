@@ -646,11 +646,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
       </nav>
     </header>
 
-    <section
-      id="qualifications"
-      class="support-matrix-main"
-      aria-label="Runtime and host support matrix"
-    >
+    <section class="support-matrix-main" aria-label="Runtime and host support matrix">
       <div class="support-matrix-legend" aria-label="Status legend">
         <span v-for="(meta, status) in statusMeta" :key="status">
           <span class="support-matrix-mark" :data-status="status" aria-hidden="true">{{
@@ -697,13 +693,13 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
               </th>
             </tr>
           </thead>
-          <tbody
-            v-for="(section, sectionIndex) in sections"
-            :id="section.anchor"
-            :key="section.label"
-          >
+          <tbody v-for="(section, sectionIndex) in sections" :key="section.label">
             <tr class="support-matrix-section-row" :class="{ 'is-separated': sectionIndex > 0 }">
-              <th scope="rowgroup">{{ section.label }}</th>
+              <th scope="rowgroup">
+                <span :id="section.anchor" class="support-matrix-section-anchor">
+                  {{ section.label }}
+                </span>
+              </th>
               <td v-for="column in columns" :key="column.id" />
             </tr>
             <tr v-for="row in section.rows" :key="row.id" class="support-matrix-data-row">
@@ -740,6 +736,13 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section id="qualifications" class="support-matrix-qualifications">
+      <h2>Qualifications</h2>
+      <p>
+        Select any status to inspect its package, provider, durability, and proof boundaries.
+      </p>
     </section>
 
     <footer class="support-matrix-footer">
@@ -1000,6 +1003,11 @@ a.support-matrix-host-link:hover {
   text-transform: uppercase;
 }
 
+.support-matrix-section-anchor {
+  display: block;
+  scroll-margin-block-start: 6.25rem;
+}
+
 .support-matrix-section-row td:first-of-type,
 .support-matrix-data-row td:first-of-type,
 .support-matrix-section-row td:nth-of-type(2),
@@ -1099,6 +1107,27 @@ a.support-matrix-host-link:hover {
   line-height: 1.45;
   text-align: left;
   box-shadow: 0 12px 32px color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
+}
+
+.support-matrix-qualifications {
+  padding: 0 1.5rem 3rem;
+  scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem);
+  text-align: center;
+}
+
+.support-matrix-qualifications h2 {
+  margin: 0;
+  color: var(--ui-text-highlighted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.support-matrix-qualifications p {
+  margin: 0.5rem auto 0;
+  color: var(--ui-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
 }
 
 .support-matrix-footer {

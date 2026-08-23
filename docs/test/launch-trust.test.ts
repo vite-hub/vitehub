@@ -87,8 +87,13 @@ describe("launch documentation trust boundaries", () => {
     expect(matrixComponent).toContain('v-for="(section, sectionIndex) in sections"');
     expect(matrixComponent).toContain('anchor: "server-primitives"');
     expect(matrixComponent).toContain('anchor: "deployment-and-proof"');
-    expect(matrixComponent).toContain('id="qualifications"');
-    expect(matrixComponent).toContain(':id="section.anchor"');
+    expect(matrixComponent).toContain('<section id="qualifications"');
+    expect(matrixComponent).toContain('<h2>Qualifications</h2>');
+    expect(matrixComponent).toContain(':id="section.anchor" class="support-matrix-section-anchor"');
+    expect(matrixComponent).toContain('scroll-margin-block-start: 6.25rem');
+    expect(matrixComponent).toContain(
+      'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
+    );
     expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
