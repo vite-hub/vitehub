@@ -347,21 +347,47 @@ describe("Agent Invocations", () => {
     }
 
     const metadata = await run("metadata-content")
+    const metadataDeltas = metadata.filter(entry => entry.name === "agent.message.delta")
     expect(metadata.map(entry => entry.name)).toEqual([
       "vitehub.agent.configured",
       "agent.invocation.start",
-      "agent.message.delta",
+      ...Array.from({ length: 10 }, () => "agent.message.delta"),
       "after-message",
       "agent.invocation.finish",
     ])
-    const metadataMessage = metadata.find(entry => entry.name === "agent.message.delta")
-    expect(metadataMessage?.attributes).not.toHaveProperty("message.content")
-    expect(metadataMessage?.attributes?.["content.omitted"]).toContain("message.content")
+    expect(metadataDeltas.every(entry => entry.attributes?.["message.content"] === undefined)).toBe(true)
+    expect(metadataDeltas.every(entry => String(entry.attributes?.["content.omitted"]).includes("message.content"))).toBe(true)
 
     const full = await run("full-content", createTraceEventLog({ content: "content" }))
-    const fullMessage = full.find(entry => entry.name === "agent.message.delta")
-    expect(fullMessage?.attributes?.["message.content"]).toBe("0123456789".repeat(30).slice(0, 512))
-    expect(fullMessage?.attributes).not.toHaveProperty("content.omitted")
+    const fullDeltas = full.filter(entry => entry.name === "agent.message.delta")
+    expect(fullDeltas.map(entry => entry.attributes?.["message.content"]).join(""))
+      .toBe("0123456789".repeat(30))
+    expect(fullDeltas.every(entry => !entry.attributes?.["content.omitted"])).toBe(true)
+  })
+
+  it("persists bounded message chunks while an invocation is still running", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    let runningObservations: string[] = []
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (let index = 0; index < 32; index++) {
+          await context.traceLog?.append({
+            attributes: { "message.content": ".", "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        await Promise.resolve()
+        runningObservations = (await invocations.getByRunId("live-deltas"))?.observations.map(entry => entry.name) ?? []
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("live-deltas"), {})
+
+    expect(runningObservations).toContain("agent.message.delta")
   })
 
   it("records invocation-selected capability metadata", async () => {
@@ -402,7 +428,7 @@ describe("Agent Invocations", () => {
       ...runtime("phased-trace"),
       traceLog: createTraceEventLog({ content: "content" }),
     }, {})
-    // SAFETY: streamAgent returns an async iterable for a generator-backed Agent driver.
+    // SAFETY: this driver is an async generator, so streamAgent returns its async iterable.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
     const observations = (await invocations.getByRunId("phased-trace"))?.observations ?? []

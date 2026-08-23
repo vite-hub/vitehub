@@ -107,6 +107,38 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("keeps input history before the owning start event and retains structured turns", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "user", parts: [{ text: "Run the check.", type: "text" }], role: "user" },
+            { id: "tool", parts: [{ output: "passed", toolCallId: "call-1", type: "tool-result" }], role: "tool" },
+          ],
+          "runtime.name": "local",
+        },
+        name: "agent.invocation.start",
+        sequence: 4,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const activities = invocationActivities(invocation);
+    expect(activities.map(activity => [activity.role, activity.name])).toEqual([
+      ["user", "agent.input.message"],
+      ["tool", "agent.input.message"],
+      [undefined, "agent.invocation.start"],
+    ]);
+    expect(activities[1]?.body).toContain('"tool-result"');
+  });
+
   it("preserves prompt message roles and turn boundaries", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

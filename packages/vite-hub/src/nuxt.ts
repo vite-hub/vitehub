@@ -124,7 +124,7 @@ async function installConsole(nuxt: NuxtLike, projectRoot: string): Promise<void
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
     const module = Array.isArray(entry) ? entry[0] : entry
-    return module === "@vite-hub/ui/nuxt" || module === uiModule
+    return module === "@vite-hub/ui/nuxt" || module === "vite-hub/ui/nuxt" || module === uiModule
   })
   if (!uiConfigured) {
     await Reflect.apply(uiModule, undefined, [{}, nuxt])

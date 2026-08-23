@@ -290,6 +290,15 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.uiModule).not.toHaveBeenCalled()
   })
 
+  it("does not reinstall the framework UI module alias for the console", async () => {
+    const development = createNuxt(true)
+    development.nuxt.options.modules = ["vite-hub/ui/nuxt"]
+
+    await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+
+    expect(mocks.uiModule).not.toHaveBeenCalled()
+  })
+
   it("does not install the console when the option is omitted", async () => {
     const { nuxt, pageHooks } = createNuxt(true)
     await viteHubNuxtModule({ preset: "node" }, nuxt)
