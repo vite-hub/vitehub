@@ -4753,7 +4753,7 @@ async function handleChatSdkMessage(
                 (async () => {
                   let expectedRecoveryPending = persistedPending
                   let recoveredLock: Lock | null = null
-                  let recoveryDeadline: number | undefined
+                  let recoveryDeadline = steerLock.expiresAt
                   while (true) {
                     while (!recoveredLock) {
                       try {
@@ -4762,11 +4762,11 @@ async function handleChatSdkMessage(
                         recoveredLock = null
                       }
                       if (recoveredLock) break
-                      const remainingMs = (recoveryDeadline ?? steerLock.expiresAt) - Date.now()
+                      const remainingMs = recoveryDeadline - Date.now()
                       if (remainingMs <= 0) return
                       await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                     }
-                    recoveryDeadline ??= recoveredLock.expiresAt
+                    recoveryDeadline = recoveredLock.expiresAt
                     const recoveredClaimId = crypto.randomUUID()
                     const recoveredDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
                     const recoveryInput: AgentRunInput = {
