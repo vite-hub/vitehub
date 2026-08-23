@@ -223,16 +223,23 @@ describe("ViteHub Nuxt integration", () => {
       load: mocks.markdownTemplateLoad,
       resolveId: mocks.markdownTemplateResolveId,
     }])
-    const nitroConfig = { rollupConfig: { plugins: [existingPlugin] } }
-    const context = { marker: "nitro-context" }
+    const nitroConfig = { rollupConfig: { plugins: existingPlugin as Plugin | Plugin[] } }
+    const nestedResolve = vi.fn().mockResolvedValue({
+      id: "\0raw:/app/server/api/name.md",
+      meta: { marker: "preserved" },
+    })
+    const context = { marker: "nitro-context", resolve: nestedResolve }
     mocks.markdownTemplateResolveId.mockResolvedValueOnce(
       "\0raw:/app/server/api/reply.template.md?markdown-template",
     )
+    mocks.markdownTemplateLoad.mockImplementationOnce(function (this: { resolve: typeof nestedResolve }) {
+      return this.resolve("./name.md", "/app/server/api/reply.template.md")
+    })
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    const plugins = nitroConfig.rollupConfig.plugins
+    const plugins = nitroConfig.rollupConfig.plugins as Plugin[]
     expect(plugins[0]).toBe(existingPlugin)
     expect(plugins.map(plugin => plugin.name)).toEqual([
       "existing-nitro-plugin",
@@ -248,12 +255,19 @@ describe("ViteHub Nuxt integration", () => {
     await expect(markdownPlugin.resolveId.call(context, "./reply.template.md", "/app/server/api/reply.ts")).resolves.toBe(
       "/app/server/api/reply.template.md?markdown-template",
     )
-    await markdownPlugin.load.call(context, "\0raw:/app/server/api/reply.template.md?markdown-template")
+    await expect(markdownPlugin.load.call(
+      context,
+      "\0raw:/app/server/api/reply.template.md?markdown-template",
+    )).resolves.toEqual({
+      id: "/app/server/api/name.md",
+      meta: { marker: "preserved" },
+    })
     expect(mocks.markdownTemplateResolveId.mock.contexts[0]).toBe(context)
-    expect(mocks.markdownTemplateLoad.mock.contexts[0]).toBe(context)
+    expect(Object.getPrototypeOf(mocks.markdownTemplateLoad.mock.contexts[0])).toBe(context)
     expect(mocks.markdownTemplateLoad).toHaveBeenCalledWith(
       "/app/server/api/reply.template.md?markdown-template",
     )
+    expect(nestedResolve).toHaveBeenCalledWith("./name.md", "/app/server/api/reply.template.md")
   })
 
   it.each([

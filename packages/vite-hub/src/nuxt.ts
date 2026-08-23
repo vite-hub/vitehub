@@ -82,7 +82,17 @@ function markdownTemplateResolver(plugin: MarkdownTemplatePlugin): Plugin {
   return {
     name: "vite-hub/nuxt-markdown-templates",
     load(id, ...args) {
-      return plugin.load.call(this, id.startsWith("\0raw:") ? id.slice(5) : id, ...args)
+      const context = Object.create(this) as typeof this
+      Object.defineProperty(context, "resolve", {
+        value: async (...resolveArgs: Parameters<typeof this.resolve>) => {
+          const resolved = await this.resolve(...resolveArgs)
+          return resolved && {
+            ...resolved,
+            id: resolved.id.startsWith("\0raw:") ? resolved.id.slice(5) : resolved.id,
+          }
+        },
+      })
+      return plugin.load.call(context, id.startsWith("\0raw:") ? id.slice(5) : id, ...args)
     },
     async resolveId(...args) {
       const resolved = await plugin.resolveId.call(this, ...args)
@@ -91,13 +101,24 @@ function markdownTemplateResolver(plugin: MarkdownTemplatePlugin): Plugin {
   }
 }
 
+function pluginOptionHasName(option: PluginOption, name: string): boolean {
+  if (Array.isArray(option)) return option.some(candidate => pluginOptionHasName(candidate, name))
+  return Boolean(option && typeof option === "object" && "name" in option && option.name === name)
+}
+
 function installMarkdownTemplateResolver(config: Record<string, unknown>, plugin: MarkdownTemplatePlugin | undefined): void {
   if (!plugin) return
   // SAFETY: Nitro rollupConfig is an object namespace owned and initialized here.
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   // SAFETY: Nitro Rollup plugins use Vite's compatible Plugin contract.
-  const plugins = (rollupConfig.plugins ??= []) as Plugin[]
-  if (!plugins.some(candidate => candidate.name === "vite-hub/nuxt-markdown-templates")) {
+  const configuredPlugins = rollupConfig.plugins as PluginOption | undefined
+  const plugins = Array.isArray(configuredPlugins)
+    ? configuredPlugins
+    : configuredPlugins
+      ? [configuredPlugins]
+      : []
+  rollupConfig.plugins = plugins
+  if (!plugins.some(candidate => pluginOptionHasName(candidate, "vite-hub/nuxt-markdown-templates"))) {
     plugins.push(markdownTemplateResolver(plugin))
   }
 }
