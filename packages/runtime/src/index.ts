@@ -185,7 +185,7 @@ export interface OpenTelemetrySpanView {
   parentSpanId?: string
   spanId: string
   startTime: string
-  status: { code: "ERROR" | "OK", message?: string }
+  status: { code: "ERROR" | "OK" | "UNSET", message?: string }
   traceId: string
 }
 

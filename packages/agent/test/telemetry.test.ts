@@ -76,6 +76,39 @@ describe("Agent telemetry", () => {
     }])
   })
 
+  it("encodes running root and child spans with an unset OTLP status", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+
+    await otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      spans: [
+        {
+          name: "vitehub.run",
+          spanId: "0123456789abcdef",
+          startTime: "2026-01-01T00:00:00.000Z",
+          status: { code: "UNSET" },
+          traceId: "0123456789abcdef0123456789abcdef",
+        },
+        {
+          name: "vitehub.step",
+          parentSpanId: "0123456789abcdef",
+          spanId: "fedcba9876543210",
+          startTime: "2026-01-01T00:00:00.001Z",
+          status: { code: "UNSET" },
+          traceId: "0123456789abcdef0123456789abcdef",
+        },
+      ],
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
+    expect(body.resourceSpans[0].scopeSpans[0].spans).toMatchObject([
+      { status: { code: 0 } },
+      { status: { code: 0 } },
+    ])
+  })
+
   it("rejects oversized binary content before encoding or delivery", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     const encode = vi.fn(globalThis.btoa)

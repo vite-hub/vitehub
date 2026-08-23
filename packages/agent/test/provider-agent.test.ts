@@ -1368,8 +1368,9 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-cancel-late-close"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
     let resolveClose!: () => void
-    provider.close.mockImplementationOnce(() => new Promise<void>(resolve => resolveClose = resolve))
+    provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => resolveClose = () => resolve(undefined)))
     const controller = new AbortController()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
@@ -1407,6 +1408,7 @@ describe("Provider Agent Driver", () => {
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     provider.close.mockImplementationOnce(() => new Promise(() => {}))
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { prompt: "hello", timeout: 50 },
     }) as never)
@@ -1414,6 +1416,44 @@ describe("Provider Agent Driver", () => {
 
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     await rejection
+  })
+
+  it("bounds retained provider cleanup before releasing its Workspace root", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-retained-cleanup-timeout"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const retained: Promise<unknown>[] = []
+      const invocation = context(threadId, {
+        input: { prompt: "hello", timeout: 50 },
+        runtime: {
+          memo: (_key: string, create: () => unknown) => create(),
+          run: { runId: `run-${threadId}`, threadId },
+          runtime: "vite",
+          runtimeConfig: {},
+          waitUntil: (task: PromiseLike<unknown>) => retained.push(Promise.resolve(task)),
+        },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter({ provider: "codex" }).generate(invocation as never)
+
+      await vi.advanceTimersByTimeAsync(50)
+      await expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      if (!runtimeCall) throw new Error("Expected the Provider runtime to be created.")
+      // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
+      const root = (runtimeCall[0] as { cwd: string }).cwd
+      await expect(access(root)).resolves.toBeUndefined()
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(Promise.all(retained)).resolves.toBeDefined()
+      await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("bounds provider startup by the invocation timeout", async () => {

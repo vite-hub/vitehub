@@ -87,6 +87,7 @@ function unixNanos(value: string | undefined, fallback: string): string {
 }
 
 function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: OtlpEncodingBudget) {
+  const statusCode = span.status.code === "ERROR" ? 2 : span.status.code === "OK" ? 1 : 0
   return {
     attributes: otlpAttributes(span.attributes, budget),
     endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime),
@@ -104,7 +105,7 @@ function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: 
     ...(span.parentSpanId ? { parentSpanId: span.parentSpanId } : {}),
     spanId: span.spanId,
     startTimeUnixNano: unixNanos(span.startTime, fallbackEndTime),
-    status: { code: span.status.code === "ERROR" ? 2 : 1, ...(span.status.message ? { message: span.status.message } : {}) },
+    status: { code: statusCode, ...(span.status.message ? { message: span.status.message } : {}) },
     traceId: span.traceId,
   }
 }
