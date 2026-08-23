@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { defineAgent, otlpHttpJson, runAgent } from "../src/index.ts"
-import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -98,13 +97,21 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
-      instructions: "private system instructions",
-      invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }),
       name: "support",
       telemetry,
       version: "1.0.0",
       driver: {
         async run(context) {
+          await context.traceLog?.append({
+            attributes: {
+              "vitehub.agent.configuration": {
+                instructions: "private system instructions",
+                model: "test-model",
+              },
+            },
+            name: "vitehub.agent.configured",
+            type: "run",
+          })
           await context.traceLog?.append({
             attributes: { "agent.invocation.id": "caller-value", "agent.run.id": "caller-run", prompt: "secret prompt", source: "custom" },
             name: "application.content",

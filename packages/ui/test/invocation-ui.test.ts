@@ -6,7 +6,7 @@ import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
-import { invocationActivities } from "../src/internal/invocation-activity.ts";
+import { invocationActivities, invocationActivityTitle } from "../src/internal/invocation-activity.ts";
 
 import type { AgentInvocationView } from "../src/types.ts";
 
@@ -104,6 +104,48 @@ describe("Agent Invocation UI", () => {
       ["system", "Follow the repository rules."],
       ["user", "Review this change."],
       ["assistant", "I found one issue."],
+    ]);
+  });
+
+  it("keeps phased assistant text separate when message IDs are reused", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [
+        { attributes: { "message.content": "Checking.", "message.id": "reply", "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "message.content": "Done.", "message.id": "reply", "message.phase": "final", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Checking.", "Done."]);
+  });
+
+  it("renders canonical tool, error, and approval decision details", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [
+        { attributes: { "tool.id": "tool", "tool.input": { query: "agent UI" }, "tool.name": "search" }, name: "agent.tool.start", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "tool.error": "Search unavailable", "tool.id": "tool" }, name: "agent.tool.error", sequence: 2, timestamp, type: "error" as const },
+        { attributes: { "error.message": "Recoverable stream error" }, name: "agent.stream.error", sequence: 3, timestamp, type: "error" as const },
+        { attributes: { "approval.id": "approval", "approval.name": "Run command" }, name: "agent.approval.request", sequence: 4, timestamp, type: "approval" as const },
+        { attributes: { "approval.approved": false, "approval.id": "approval", "approval.reason": "Command is destructive" }, name: "agent.approval.decision", sequence: 5, timestamp, type: "approval" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const activities = invocationActivities(invocation);
+    expect(activities.map(activity => [invocationActivityTitle(activity), activity.body, activity.status])).toEqual([
+      ["Search", "Search unavailable", "failed"],
+      ["Agent stream", "Recoverable stream error", "failed"],
+      ["Approval denied", "Command is destructive", "failed"],
     ]);
   });
 

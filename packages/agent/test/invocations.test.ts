@@ -1,10 +1,11 @@
 import { createClient } from "@libsql/client"
+import { createTraceEventLog } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, defineCapability, runAgent, runAgentInline } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
 import { agentInvocationObservationWouldTruncate, bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -318,6 +319,51 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
+  it("preserves the configured trace content policy and coalesces message deltas", async () => {
+    const run = async (runId: string, traceLog = createTraceEventLog()) => {
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (let index = 0; index < 300; index++) {
+            await context.traceLog?.append({
+              attributes: {
+                "message.content": String(index % 10),
+                "message.id": "answer",
+                "message.role": "assistant",
+              },
+              name: "agent.message.delta",
+              type: "run",
+            })
+          }
+          await context.traceLog?.append({ name: "after-message", type: "run" })
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
+
+      await runAgent(agent, { ...runtime(runId), traceLog }, {})
+      return (await invocations.getByRunId(runId))?.observations || []
+    }
+
+    const metadata = await run("metadata-content")
+    expect(metadata.map(entry => entry.name)).toEqual([
+      "vitehub.agent.configured",
+      "agent.invocation.start",
+      "agent.message.delta",
+      "after-message",
+      "agent.invocation.finish",
+    ])
+    const metadataMessage = metadata.find(entry => entry.name === "agent.message.delta")
+    expect(metadataMessage?.attributes).not.toHaveProperty("message.content")
+    expect(metadataMessage?.attributes?.["content.omitted"]).toContain("message.content")
+
+    const full = await run("full-content", createTraceEventLog({ content: "content" }))
+    const fullMessage = full.find(entry => entry.name === "agent.message.delta")
+    expect(fullMessage?.attributes?.["message.content"]).toBe("0123456789".repeat(30).slice(0, 512))
+    expect(fullMessage?.attributes).not.toHaveProperty("content.omitted")
+  })
+
   it("records invocation-selected capability metadata", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const selected = defineCapability({ id: "selected" })
@@ -338,6 +384,25 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
       capabilities: [{ id: "selected" }],
     })
+  })
+
+  it("records visible message phases while keeping hidden commentary out of invocation traces", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async *run() {
+        yield { id: "reply", phase: "commentary" as const, text: "Checking.", type: "text-delta" as const }
+        yield { id: "reply", phase: "final" as const, text: "Done.", type: "text-delta" as const }
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    const stream = await streamAgent(agent, runtime("phased-trace"), {})
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    const observations = (await invocations.getByRunId("phased-trace"))?.observations ?? []
+    expect(observations.filter(event => event.name === "agent.message.delta").map(event => event.attributes?.["message.phase"]))
+      .toEqual(["final"])
   })
 
   it("normalizes non-finite observation numbers across stores", async () => {

@@ -3,18 +3,12 @@ import { AgentInvocation, AgentInvocationInspector } from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { createConsoleRequest } from "../request.ts";
+import { createConsoleRequest, groupConsoleSessions } from "../request.ts";
 
 import type { SplitterItem } from "@nuxt/ui";
 import type { AgentInvocationSummary } from "vite-hub/agent";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "@vite-hub/ui";
-
-type ConsoleSession = {
-  agentName?: string;
-  id: string;
-  invocations: AgentInvocationSummary[];
-  updatedAt: string;
-};
+import type { ConsoleSession } from "../request.ts";
 
 const route = useRoute();
 const router = useRouter();
@@ -50,22 +44,7 @@ const detail = useAgentInvocation(selectedInvocationId, {
   request,
 });
 
-const sessions = computed<ConsoleSession[]>(() => {
-  const grouped = new Map<string, ConsoleSession>();
-  for (const invocation of list.invocations.value) {
-    const id = invocation.threadId || invocation.id;
-    const session = grouped.get(id);
-    if (session) session.invocations.push(invocation);
-    else
-      grouped.set(id, {
-        agentName: invocation.agentName,
-        id,
-        invocations: [invocation],
-        updatedAt: invocation.updatedAt,
-      });
-  }
-  return [...grouped.values()];
-});
+const sessions = computed<ConsoleSession[]>(() => groupConsoleSessions(list.invocations.value));
 
 const routeSession = computed(() => {
   const value = route.params.session;

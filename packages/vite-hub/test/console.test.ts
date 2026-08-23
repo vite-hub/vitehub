@@ -12,7 +12,7 @@ import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
-import { createConsoleRequest } from "../src/console/runtime/request.ts"
+import { createConsoleRequest, groupConsoleSessions } from "../src/console/runtime/request.ts"
 import { consoleInvocationRootPlugin } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -56,6 +56,17 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
+  it("uses the latest invocation update for a grouped session", () => {
+    const invocations = [
+      { id: "newer-created", threadId: "thread", updatedAt: "2026-08-23T10:00:00.000Z" },
+      { id: "older-created", threadId: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
+    ] as Parameters<typeof groupConsoleSessions>[0]
+
+    expect(groupConsoleSessions(invocations)).toMatchObject([
+      { id: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
+    ])
+  })
+
   it("returns only successful console responses", async () => {
     const request = createConsoleRequest()
     vi.stubGlobal("fetch", vi.fn()
