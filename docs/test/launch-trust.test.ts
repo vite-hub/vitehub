@@ -118,13 +118,13 @@ describe("launch documentation trust boundaries", () => {
       "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host",
     );
     expect(matrixComponent).toContain(
-      "Netlify requires an explicitly selected Cloudflare Sandbox or Vercel Sandbox provider",
+      "Netlify can use an explicitly selected Vercel Sandbox provider with Vercel credentials",
     );
     expect(matrix).toMatch(
-      /\| Sandbox\s+\|[^\n]+\| Cloudflare or Vercel \| —\s+\| Cloudflare or Vercel \| Box provider\s+\|/,
+      /\| Sandbox\s+\|[^\n]+\| Vercel Sandbox\s+\| —\s+\| Cloudflare or Vercel \| Box provider\s+\|/,
     );
     expect(matrix).toContain(
-      "an explicit Cloudflare Sandbox or Vercel Sandbox provider because it cannot infer them",
+      "the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify",
     );
     expect(matrix).toContain("Cloudflare Workflows");
     expect(matrix).toContain("Vercel Workflow");

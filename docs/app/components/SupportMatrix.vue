@@ -425,8 +425,8 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
           vercel: cell("available", "Vercel Sandbox execution provider.", "Vercel Sandbox"),
           netlify: cell(
             "package",
-            "Netlify requires an explicitly selected Cloudflare Sandbox or Vercel Sandbox provider.",
-            "Cloudflare / Vercel",
+            "Netlify can use an explicitly selected Vercel Sandbox provider with Vercel credentials.",
+            "Vercel Sandbox",
           ),
           deno: cell("none", "No Deno Sandbox provider is provided.", "—"),
           nitro: cell(

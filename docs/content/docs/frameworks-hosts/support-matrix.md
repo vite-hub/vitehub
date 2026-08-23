@@ -20,14 +20,14 @@ icon: i-lucide-table-properties
 | Queue      | Discovery only   | Cloudflare Queues     | Vercel Queues         | Cloudflare or Vercel | —              | Cloudflare or Vercel | —                     |
 | Rate Limit | `memory`         | Rate Limiting binding | —                     | —                    | —              | Cloudflare     | `memory`              |
 | Realtime   | `memory`         | Durable Objects       | —                     | —                    | —              | Host authority | `memory`              |
-| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | Cloudflare or Vercel | —              | Cloudflare or Vercel | Box provider          |
+| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | Vercel Sandbox       | —              | Cloudflare or Vercel | Box provider          |
 | Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions  | Standalone `Deno.cron` | Provider Wake  | Process runtime       |
 | Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow   | Host provider  | OpenWorkflow          |
 | Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub         | Host store     | Local or GitHub       |
 
 Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires an explicit compatible Unemail driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
 
-Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider and an explicit Cloudflare Sandbox or Vercel Sandbox provider because it cannot infer them.
+Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one. Netlify can use an explicit Vercel Sandbox provider when Vercel credentials are configured; the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
 
 ## Deployment and proof
 
