@@ -561,9 +561,10 @@ describe("Agent Invocations", () => {
     const record = await invocations.getByRunId("bounded-observations")
     expect(record).toMatchObject({ status: "completed" })
     expect(record?.observations).toHaveLength(256)
+    expect(record?.observations.at(-1)?.attributes?.["vitehub.observation.truncated"]).toBe(true)
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(updates).toBeLessThanOrEqual(259)
+    expect(updates).toBeLessThanOrEqual(260)
   })
 
   it("records cancellation while an invocation waits for driver capacity", async () => {

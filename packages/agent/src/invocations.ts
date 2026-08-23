@@ -325,12 +325,23 @@ export function applyAgentInvocationStoreUpdate(
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
+  const observations = input.observation && record.observations.length >= MAX_OBSERVATIONS
+    ? record.observations.map((observation, index) => index === record.observations.length - 1
+        ? {
+            ...observation,
+            attributes: {
+              ...observation.attributes,
+              [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+            },
+          }
+        : observation)
+    : input.observation
+      ? [...record.observations, cloneObservation(boundedObservation(input.observation))]
+      : record.observations
   return {
     ...record,
     ...(input.error ? { error: input.error } : {}),
-    ...(input.observation && record.observations.length < MAX_OBSERVATIONS
-      ? { observations: [...record.observations, cloneObservation(boundedObservation(input.observation))] }
-      : {}),
+    observations,
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
     ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
@@ -622,8 +633,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         observationWrite = settled
       }
+      let observationCapMarked = false
       const observe = (observation: TraceEventLogEntry) => {
-        if (finished || observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS) return
+        if (finished) return
+        if (observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS) {
+          if (observationCapMarked) return
+          observationCapMarked = true
+        }
         pendingObservations.push(observation)
         writeNextObservation()
       }

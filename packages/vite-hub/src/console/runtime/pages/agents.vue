@@ -171,7 +171,7 @@ function sessionStatus(session: ConsoleSession): AgentInvocationSummary["status"
 
 function sessionLabel(session: ConsoleSession): string {
   const name = session.agentName || "Agent session";
-  return `${name} · ${session.id.slice(0, 8)}`;
+  return `${name} · ${session.id.slice(-8)}`;
 }
 
 function statusIcon(status: AgentInvocationSummary["status"]): string {
