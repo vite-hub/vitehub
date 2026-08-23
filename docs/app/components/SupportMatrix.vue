@@ -270,6 +270,36 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
         },
       },
       {
+        id: "email",
+        label: "Email",
+        description: "Transactional email delivery",
+        values: {
+          local: cell(
+            "package",
+            "Configure an explicit Unemail driver for local delivery.",
+            "Unemail driver",
+          ),
+          cloudflare: cell(
+            "available",
+            "The Cloudflare preset supports the built-in Cloudflare Email driver default or an explicit Unemail driver.",
+            "Cloudflare Email",
+          ),
+          vercel: cell("package", "Configure an explicit Unemail driver.", "Unemail driver"),
+          netlify: cell("package", "Configure an explicit Unemail driver.", "Unemail driver"),
+          deno: cell(
+            "package",
+            "Configure an Unemail driver that supports the Deno runtime.",
+            "Unemail driver",
+          ),
+          nitro: cell(
+            "package",
+            "Uses the explicit Unemail driver selected for the deployment host.",
+            "Host driver",
+          ),
+          node: cell("package", "Configure any compatible Unemail driver.", "Unemail driver"),
+        },
+      },
+      {
         id: "kv",
         label: "KV",
         description: "Key-value storage",
@@ -337,6 +367,44 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
             "Cloudflare",
           ),
           node: cell("local", "The memory driver is safe only for a single process.", "memory"),
+        },
+      },
+      {
+        id: "realtime",
+        label: "Realtime",
+        description: "Authoritative collaborative rooms",
+        values: {
+          local: cell("local", "Process-memory authority for local development.", "memory"),
+          cloudflare: cell(
+            "available",
+            "Cloudflare Durable Objects provide the production room authority.",
+            "Durable Objects",
+          ),
+          vercel: cell(
+            "none",
+            "Realtime has no distributed Vercel authority, and process memory is rejected for the Vercel preset.",
+            "—",
+          ),
+          netlify: cell(
+            "none",
+            "Realtime has no distributed Netlify authority, and process memory is rejected for the Netlify preset.",
+            "—",
+          ),
+          deno: cell(
+            "none",
+            "Realtime has no distributed Deno authority, and process memory is rejected for the Deno preset.",
+            "—",
+          ),
+          nitro: cell(
+            "package",
+            "Cloudflare Nitro output uses Durable Objects; a single-process Node server can select memory explicitly.",
+            "Host authority",
+          ),
+          node: cell(
+            "local",
+            "Explicit memory authority is supported only for a single-process server.",
+            "memory",
+          ),
         },
       },
       {

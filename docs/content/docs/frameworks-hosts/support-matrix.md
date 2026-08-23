@@ -10,20 +10,22 @@ icon: i-lucide-table-properties
 
 ## Server primitives
 
-| Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify              | Deno          | Nitro and UnJS | Node and self-hosted  |
-| ---------- | ---------------- | --------------------- | --------------------- | -------------------- | ------------- | -------------- | --------------------- |
-| Browser    | —                | Browser Run           | —                     | —                    | —             | —              | —                     |
-| Blob       | `fs`             | R2                    | Vercel Blob           | Netlify Blobs        | S3-compatible | Host driver    | `fs` or S3-compatible |
-| Database   | SQLite           | D1                    | libSQL or D1 HTTP     | libSQL               | libSQL        | Nuxt D1        | SQLite or libSQL      |
-| KV         | `fs-lite`        | Workers KV            | Upstash Redis         | Upstash Redis        | Deno KV       | Host driver    | `fs-lite` or Upstash  |
-| Queue      | Discovery only   | Cloudflare Queues     | Vercel Queues         | Cloudflare or Vercel | —             | Cloudflare     | —                     |
-| Rate Limit | `memory`         | Rate Limiting binding | —                     | —                    | —             | Cloudflare     | `memory`              |
-| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | —                    | —             | Cloudflare     | Box provider          |
-| Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions  | `Deno.cron`   | Provider Wake  | Process runtime       |
-| Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow  | Host provider  | OpenWorkflow          |
-| Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub        | Host store     | Local or GitHub       |
+| Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify              | Deno           | Nitro and UnJS | Node and self-hosted  |
+| ---------- | ---------------- | --------------------- | --------------------- | -------------------- | -------------- | -------------- | --------------------- |
+| Browser    | —                | Browser Run           | —                     | —                    | —              | —              | —                     |
+| Blob       | `fs`             | R2                    | Vercel Blob           | Netlify Blobs        | S3-compatible  | Host driver    | `fs` or S3-compatible |
+| Database   | SQLite           | D1                    | libSQL or D1 HTTP     | libSQL               | libSQL         | Nuxt D1        | SQLite or libSQL      |
+| Email      | Unemail driver   | Cloudflare Email      | Unemail driver        | Unemail driver       | Unemail driver | Host driver    | Unemail driver        |
+| KV         | `fs-lite`        | Workers KV            | Upstash Redis         | Upstash Redis        | Deno KV        | Host driver    | `fs-lite` or Upstash  |
+| Queue      | Discovery only   | Cloudflare Queues     | Vercel Queues         | Cloudflare or Vercel | —              | Cloudflare     | —                     |
+| Rate Limit | `memory`         | Rate Limiting binding | —                     | —                    | —              | Cloudflare     | `memory`              |
+| Realtime   | `memory`         | Durable Objects       | —                     | —                    | —              | Host authority | `memory`              |
+| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | —                    | —              | Cloudflare     | Box provider          |
+| Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions  | `Deno.cron`    | Provider Wake  | Process runtime       |
+| Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow   | Host provider  | OpenWorkflow          |
+| Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub         | Host store     | Local or GitHub       |
 
-Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
+Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires an explicit compatible Unemail driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
 
 Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one.
 

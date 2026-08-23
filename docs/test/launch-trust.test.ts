@@ -67,9 +67,11 @@ describe("launch documentation trust boundaries", () => {
       "Browser",
       "Blob",
       "Database",
+      "Email",
       "KV",
       "Queue",
       "Rate Limit",
+      "Realtime",
       "Sandbox",
       "Schedule",
       "Workflow",
@@ -82,6 +84,14 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain("Vercel Queues");
     expect(matrix).toContain("Discovery only");
     expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
+    expect(matrix).toContain("every other host requires an explicit compatible Unemail driver");
+    expect(matrix).toContain("distributed Vercel, Netlify, and Deno presets reject memory");
+    expect(matrixComponent).toContain(
+      "The Cloudflare preset supports the built-in Cloudflare Email driver default",
+    );
+    expect(matrixComponent).toContain(
+      "Cloudflare Durable Objects provide the production room authority",
+    );
     expect(matrix).toContain("Cloudflare Workflows");
     expect(matrix).toContain("Vercel Workflow");
     expect(matrixComponent).toContain("row.values[column.id]!.display");
