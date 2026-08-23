@@ -47,6 +47,8 @@ export interface AgentInvocationRecord {
   failedAt?: string
   id: string
   observations: readonly TraceEventLogEntry[]
+  /** True when the journal dropped one or more observations. */
+  observationsTruncated?: boolean
   origin?: string
   startedAt?: string
   status: AgentInvocationRecordStatus
@@ -354,6 +356,7 @@ export function applyAgentInvocationStoreUpdate(
     ...record,
     ...(input.error ? { error: input.error } : {}),
     observations,
+    ...(input.observationsTruncated ? { observationsTruncated: true } : {}),
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
     ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),

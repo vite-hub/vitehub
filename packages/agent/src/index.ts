@@ -1333,14 +1333,17 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
-        ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS>({
-            env: driver.env,
-            execution: driver.execution,
-            instructions: driver.instructions,
-            model: driver.model,
-            permissions: driver.permissions,
-            provider: driver.provider,
-          })))
+        ? await (providerAdapter ??= import("./provider-agent.ts").then((module) => {
+            // SAFETY: Provider Drivers ignore call options, so every Agent call-options shape is accepted.
+            return module.createProviderAgentAdapter({
+              env: driver.env,
+              execution: driver.execution,
+              instructions: driver.instructions,
+              model: driver.model,
+              permissions: driver.permissions,
+              provider: driver.provider,
+            }) as AgentAdapter<CALL_OPTIONS>
+          }))
         : undefined
     if (!resolvedAdapter) {
       throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")

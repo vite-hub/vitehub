@@ -213,7 +213,8 @@ function numericAttribute(attributes: Record<string, unknown>, ...keys: string[]
 
 export function invocationActivities(invocation: AgentInvocationView): InvocationActivity[] {
   const groups = new Map<string, TraceEventLogEntry[]>();
-  const traceTruncated = invocation.observations?.some(observation => observation.attributes?.["vitehub.observation.truncated"] === true) ?? false;
+  const traceTruncated = invocation.observationsTruncated === true
+    || (invocation.observations?.some(observation => observation.attributes?.["vitehub.observation.truncated"] === true) ?? false);
   let anonymousMessage = 0;
   let anonymousMessageKey: string | undefined;
   for (const observation of invocation.observations ?? []) {

@@ -82,6 +82,22 @@ describe("Agent Invocation UI", () => {
       .toContain("Some trace content was truncated by the invocation journal.");
   });
 
+  it("discloses truncation when no observation was retained", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [],
+      observationsTruncated: true,
+      status: "completed",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+
+    expect(mount(AgentInvocation, { props: { invocation } }).text())
+      .toContain("Some trace content was truncated by the invocation journal.");
+  });
+
   it("renders the working state with the loader-circle path", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

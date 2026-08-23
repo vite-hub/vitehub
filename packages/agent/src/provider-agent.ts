@@ -1114,10 +1114,9 @@ async function generateProvider(iterable: AsyncIterable<StreamEvent>): Promise<A
   return { finishReason, text, usageRecord }
 }
 
-export function createProviderAgentAdapter<
-  CALL_OPTIONS = unknown,
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
->(options: ProviderAgentAdapterOptions<TRuntimeConfig>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
+export function createProviderAgentAdapter<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options: ProviderAgentAdapterOptions<TRuntimeConfig>,
+): AgentAdapter<unknown, TRuntimeConfig> {
   const resumeCursors = new Map<string, unknown>()
   const sessionLocks = new Map<string, Promise<void>>()
   return {

@@ -102,7 +102,11 @@ describe("Agent Invocations", () => {
 
     await expect(runAgent(agent, runtime("stalled-observation"), {})).resolves.toBe("done")
     expect(appendDuration).toBeLessThan(500)
-    await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
+    await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({
+      observations: [],
+      observationsTruncated: true,
+      status: "completed",
+    })
   }, 5_000)
 
   it("does not let a rejecting trace sink change Agent execution or journal completion", async () => {
