@@ -22,6 +22,7 @@ describe("Agent Vue client types", () => {
     expectTypeOf(agent).toEqualTypeOf<AgentClient>()
     expectTypeOf(agent.name).toEqualTypeOf<string>()
 
+    // SAFETY: This compile-only fixture needs the transport type but never reads or executes the placeholder.
     const transport = {} as ChatTransport<UIMessage>
     const init = { api: "/api/support", transport } satisfies AgentChatInit
     const chat = useChat(agent, init)
@@ -43,7 +44,7 @@ describe("Agent Vue client types", () => {
   })
 
   it("exposes typed invocation list and detail resources", () => {
-    const request = null as unknown as AgentInvocationRequester
+    const request: AgentInvocationRequester = async () => undefined
     const list = useAgentInvocations({ immediate: false, request, requestSummaries: request })
     const detail = useAgentInvocation("inv-1", { immediate: false, request })
 
