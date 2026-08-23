@@ -9,7 +9,7 @@ import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityOverrides, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
-import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
+import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import { createBackedAgentInvocationController, startLiveAgentInvocation } from "./agent-invocation.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, withAgentInvocationControlId } from "./internal/agent-invocation-control.ts"
 import { createReactionDeliveryEffectIntent, createReplyDeliveryEffectIntent, createStatusDeliveryEffectIntent } from "./delivery-effects.ts"
@@ -1037,6 +1037,7 @@ async function applyChannelDeliveryEffectIntents<TRuntimeConfig extends AgentRun
   if (!intents.length) return
   const active = activeAgentChannel(context.channels, context.context, context.run)
   const delivery = agentChannelDeliveryTracker(context.runtimeContext)
+  const verifyDeliveryOwnership = agentChannelDeliveryOwnershipVerifier(context.runtimeContext)
 
   for (const intent of intents) {
     const handlers = active ? channelDeliveryEffectHandlers(active.channel, intent) : []
@@ -1105,6 +1106,11 @@ async function applyChannelDeliveryEffectIntents<TRuntimeConfig extends AgentRun
             phase: "effect",
           },
           async () => {
+            if (context.input.abortSignal?.aborted) {
+              skippedForAbort = true
+              return
+            }
+            await verifyDeliveryOwnership?.()
             if (context.input.abortSignal?.aborted) {
               skippedForAbort = true
               return

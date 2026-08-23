@@ -25,6 +25,7 @@ interface StoredAgentChannelDelivery extends AgentChannelDelivery {
 }
 
 export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
+export const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
 export interface AgentChannelDeliveryWorkflowBinding {
@@ -436,6 +437,18 @@ export function agentChannelDeliveryTracker(context: AgentRuntimeContext): Agent
   const runtimeContext: unknown = context
   // SAFETY: withAgentChannelDelivery installs this private tracker property on Agent runtime contexts.
   return (runtimeContext as AgentRuntimeContext & { [agentChannelDeliveryTrackerKey]?: AgentChannelDeliveryTracker })[agentChannelDeliveryTrackerKey]
+}
+
+export function agentChannelDeliveryOwnershipVerifier(context: AgentRuntimeContext): (() => Promise<void>) | undefined {
+  const runtimeContext: unknown = context
+  // SAFETY: withAgentChannelDeliveryOwnershipVerifier installs this private verifier property on Agent runtime contexts.
+  return (runtimeContext as AgentRuntimeContext & { [agentChannelDeliveryOwnershipVerifierKey]?: () => Promise<void> })[
+    agentChannelDeliveryOwnershipVerifierKey
+  ]
+}
+
+export function withAgentChannelDeliveryOwnershipVerifier<T extends AgentRuntimeContext>(context: T, verify: () => Promise<void>): T {
+  return { ...context, [agentChannelDeliveryOwnershipVerifierKey]: verify }
 }
 
 export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context: T, deliveryTracker: AgentChannelDeliveryTracker): T {

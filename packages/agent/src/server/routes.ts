@@ -2581,6 +2581,10 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       const ownerExtensionStartedAt = Date.now()
       if (!(await resolved.state.extendLock(lock, ttlMs))) {
         const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
+        let recoveryOwnershipLost = false
+        const stopRecoveryHeartbeat = startWebhookLockHeartbeat(resolved.state, recoveryLock, ttlMs, () => {
+          recoveryOwnershipLost = true
+        })
         try {
           pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
           if (pending?.message?.input) {
@@ -2617,6 +2621,10 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             const restored = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
             if (restored?.message?.input) {
               const recoveredLock = await acquireRequiredStateLock(resolved.state, lock.threadId, ttlMs)
+              let recoveredOwnershipLost = false
+              const stopRecoveredHeartbeat = startWebhookLockHeartbeat(resolved.state, recoveredLock, ttlMs, () => {
+                recoveredOwnershipLost = true
+              })
               const recoveredClaimId = crypto.randomUUID()
               const recoveredDelivery = restored.message.input.context?.[agentChannelDeliveryWorkflowContextKey]
               const recoveredInput: AgentRunInput = {
@@ -2645,8 +2653,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   ownerToken: recoveredLock.token,
                 },
               }
+              // SAFETY: recoveredPending is normalized durable queue data owned by this route boundary.
               await resolved.state.enqueue(ownedPendingQueue, recoveredPending as never, 1)
+              // SAFETY: restored was read from this atomic queue and retains its internal entry representation.
               if (!(await atomicQueue.queueReplaceHead(queue, restored as never, [], durableSteerQueueMaximum))) {
+                stopRecoveredHeartbeat()
                 await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending)
                 await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
                 throw new Error("[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed.")
@@ -2657,30 +2668,49 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredInput, recoveredInvoker)
               }
               try {
+                if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                  throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
+                }
+                // SAFETY: The owning route supplies normalized Agent and runtime values to the internal startup boundary.
                 await startAgentInvocation(
+                  // SAFETY: The route resolver receives the internal Agent representation expected by startup.
                   agent as never,
+                  // SAFETY: The recovered context preserves the owning route context and portable provider fields.
                   {
                     ...context,
                     capabilities: restored.message.capabilities,
                     ...(restored.message.requestUrl ? { request: new Request(restored.message.requestUrl) } : {}),
                     ...(restored.message.run ? { run: restored.message.run } : {}),
                   } as never,
+                  // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                   recoveredWorkflowInput as never,
                 )
+                if (!recoveryOwnershipLost && !(await resolved.state.extendLock(recoveryLock, ttlMs))) recoveryOwnershipLost = true
+                if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) recoveredOwnershipLost = true
+                if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                  throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
+                }
               } catch (error) {
+                if (recoveryOwnershipLost || recoveredOwnershipLost) throw error
                 if (!isAmbiguousAgentWorkflowStartFailure(error)) {
-                  await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending)
                   await restoreDurableSteerQueue(resolved.state, queue, recoveredPending.message!)
+                  if (!(await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending))) {
+                    stopRecoveredHeartbeat()
+                    throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration.")
+                  }
+                  stopRecoveredHeartbeat()
                   await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
                   throw error
                 }
               }
+              stopRecoveredHeartbeat()
               stopExecutionHeartbeat()
               await resolved.state.releaseLock(executionLock).catch(() => undefined)
               return { settlementStatus: "completed", verify: async () => undefined, settle: async () => undefined }
             }
           }
         } finally {
+          stopRecoveryHeartbeat()
           await resolved.state.releaseLock(recoveryLock).catch(() => undefined)
         }
         throw new Error("[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started.")

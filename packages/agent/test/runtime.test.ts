@@ -3437,6 +3437,44 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["reply:capability", "reply:hook", "reaction:done", "status:completed"])
   })
 
+  it("verifies durable Channel ownership before a delivery handler effect", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { withAgentChannelDeliveryOwnershipVerifier } = await import("../src/internal/channel-delivery.ts")
+    const reply = vi.fn()
+    const ownershipError = new Error("stale Channel ownership")
+    const verify = vi.fn(async () => {
+      throw ownershipError
+    })
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply },
+          messages: false,
+        }),
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish"(event) {
+          return event.reply("must not post")
+        },
+      },
+    })
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(
+      {
+        memo: vi.fn(),
+        run: { channelId: "portal", runId: "stale-delivery" },
+        runtime: "unknown" as const,
+        waitUntil: vi.fn(),
+      },
+      verify,
+    )
+
+    await expect(runAgent(agent, runtime, {})).resolves.toBe("ok")
+    expect(verify).toHaveBeenCalledOnce()
+    expect(reply).not.toHaveBeenCalled()
+  })
+
   it("carries result artifacts through custom finish replies", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

@@ -17,6 +17,7 @@ import {
   resumeAgentChannelDeliveryWorkflowOwnership,
   resumeWorkflowAgentChannelDelivery,
   withAgentChannelDelivery,
+  withAgentChannelDeliveryOwnershipVerifier,
 } from "../internal/channel-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
 import { isRuntimeBoolean, isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "../internal/runtime-value.ts"
@@ -335,6 +336,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   const channelOwnership = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
     ? await resumeAgentChannelDeliveryWorkflowOwnership(agent, runtimeContext, channelDeliveryBinding)
     : undefined
+  if (channelOwnership?.verify) runtimeContext = withAgentChannelDeliveryOwnershipVerifier(runtimeContext, channelOwnership.verify)
   const workflowInput = channelOwnership?.abortSignal
     ? {
         ...payload.input,
