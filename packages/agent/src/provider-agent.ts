@@ -145,6 +145,8 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
   ask: "approval-required",
 }
 
+const providerCleanupTimeoutMs = 10_000
+
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const providerHostEnvironmentKeys = [
   "APPDATA",
@@ -201,6 +203,22 @@ async function waitForProviderOperation<T>(
   }
   finally {
     signal.removeEventListener("abort", abort)
+  }
+}
+
+function createProviderCleanupSignal(invocationSignal: AbortSignal | undefined): { dispose: () => void, signal: AbortSignal } {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort(new DOMException("[vitehub] Provider Agent Driver cleanup timed out.", "TimeoutError"))
+  }, providerCleanupTimeoutMs)
+  const abort = () => controller.abort(invocationSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
+  if (invocationSignal && !invocationSignal.aborted) invocationSignal.addEventListener("abort", abort, { once: true })
+  return {
+    dispose() {
+      clearTimeout(timeout)
+      invocationSignal?.removeEventListener("abort", abort)
+    },
+    signal: controller.signal,
   }
 }
 
@@ -1147,7 +1165,21 @@ async function* runProvider<
     clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
-    for (const result of await Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()])) {
+    const cleanup = createProviderCleanupSignal(effectiveSignal)
+    let runtimeAndToolCleanup: PromiseSettledResult<void | undefined>[] = []
+    try {
+      runtimeAndToolCleanup = await waitForProviderOperation(
+        Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()]),
+        cleanup.signal,
+      )
+    }
+    catch (error) {
+      cleanupErrors.push(error)
+    }
+    finally {
+      cleanup.dispose()
+    }
+    for (const result of runtimeAndToolCleanup) {
       if (result.status === "rejected") cleanupErrors.push(result.reason)
     }
     for (const result of await Promise.allSettled(activeWorkspaceCommands)) {

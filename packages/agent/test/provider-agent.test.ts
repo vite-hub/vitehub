@@ -1379,6 +1379,19 @@ describe("Provider Agent Driver", () => {
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
+  it("settles when provider cleanup stalls after a completed turn", async () => {
+    const threadId = "thread-cleanup-timeout"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    provider.close.mockImplementationOnce(() => new Promise(() => {}))
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const result = adapter.generate(context(threadId, {
+      input: { prompt: "hello", timeout: 50 },
+    }) as never)
+
+    await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+    await expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
+  })
+
   it("bounds provider startup by the invocation timeout", async () => {
     const threadId = "thread-start-timeout"
     const provider = runtime(threadId, [], { onStartSession: () => new Promise(() => {}) })
