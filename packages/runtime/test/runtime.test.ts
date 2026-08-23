@@ -621,7 +621,7 @@ describe("@vite-hub/runtime", () => {
   it("leaves running root and child spans unset", async () => {
     const log = createTraceEventLog()
     await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
-    await log.append({ attributes: { "step.id": "step-1" }, name: "agent.tool.start", trace: { id: "trace-1" }, type: "tool" })
+    await log.append({ attributes: { "step.id": "step-1" }, name: "agent.tool.start", trace: { id: "trace-1" }, type: "run" })
 
     const [root, child] = traceEventsToOpenTelemetrySpans(log.entries())
 
