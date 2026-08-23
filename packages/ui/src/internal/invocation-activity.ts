@@ -67,6 +67,11 @@ function activityBody(attributes: Record<string, unknown>): string | undefined {
     "vitehub.activity.body",
     "message.content",
     "approval.input",
+    "approval.reason",
+    "tool.error",
+    "error.message",
+    "tool.output",
+    "tool.input",
     "content",
     "body",
     "output",
@@ -165,7 +170,9 @@ function activityKey(observation: TraceEventLogEntry, anonymousMessageKey?: stri
       ?? attributes["tool.id"]
       ?? attributes["approval.id"]
       ?? attributes["model.call.id"]
-      ?? attributes["message.id"]
+      ?? (attributes["message.id"]
+        ? `${String(attributes["message.id"])}:${String(attributes["message.phase"] ?? "message")}`
+        : undefined)
       ?? (typeof attributes["message.content"] === "string" ? anonymousMessageKey : undefined)
       ?? `observation:${observation.sequence}`,
   );
@@ -257,6 +264,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
+      const approvalDenied = attributes["approval.approved"] === false;
       const completed = sorted.some(item => /\.(finish|decision|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
       const role = explicitRole ?? (attributes["result.text"]
@@ -278,7 +286,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
         ...(role ? { role } : {}),
-        status: failed ? "failed" : completed || !first.name.endsWith(".start") ? "completed" : "running",
+        status: failed || approvalDenied ? "failed" : completed || !first.name.endsWith(".start") ? "completed" : "running",
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
           : {}),
@@ -306,7 +314,11 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
   if (activity.kind === "tool") return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.attributes["tool.name"] ?? "Used a tool"));
-  if (activity.kind === "approval") return String(activity.attributes["approval.name"] ?? "Requested approval");
+  if (activity.kind === "approval") {
+    if (activity.attributes["approval.approved"] === true) return "Approval granted";
+    if (activity.attributes["approval.approved"] === false) return "Approval denied";
+    return String(activity.attributes["approval.name"] ?? "Requested approval");
+  }
   if (activity.kind === "reasoning") return "Thinking";
   if (activity.kind === "model") return "Thinking";
   if (activity.kind === "run") return activity.name.endsWith(".finish") ? "Finished session" : "Started session";

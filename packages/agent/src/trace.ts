@@ -54,6 +54,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
     return {
       "message.content": event.text,
       "message.id": event.messageId ?? event.id,
+      "message.phase": event.phase,
       "message.role": event.role ?? "assistant",
     }
   }
