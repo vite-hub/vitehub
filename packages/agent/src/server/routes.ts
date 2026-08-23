@@ -2693,8 +2693,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               } catch (error) {
                 if (recoveryOwnershipLost || recoveredOwnershipLost) throw error
                 if (!isAmbiguousAgentWorkflowStartFailure(error)) {
-                  await restoreDurableSteerQueue(resolved.state, queue, recoveredPending.message!)
-                  if (!(await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending))) {
+                  // Restore the expired Workflow's claim so a provider retry can autonomously
+                  // attempt recovery again without waiting for another Channel webhook.
+                  if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, recoveredPending as never, [pending] as never, 1))) {
                     stopRecoveredHeartbeat()
                     throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration.")
                   }

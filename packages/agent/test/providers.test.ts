@@ -12443,6 +12443,85 @@ describe("server helpers", () => {
     }
   })
 
+  it("retries a definitively rejected recovered steer start without another webhook", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-start-retry-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      if (createBatch.mock.calls.length === 2 || createBatch.mock.calls.length === 3) {
+        throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
+      }
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this fixture.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const runtime = { agentIdentity: { name: "calories" }, cloudflare: { env } }
+      await handler(chatWebhookRequest(91_165), "telegram", runtime)
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+      setActiveCloudflareEnv(env)
+
+      const staleWorkflow = {
+        id: "expired-steer-start-retry",
+        name: "calories",
+        payload: workflowPayloads[0],
+        provider: "cloudflare" as const,
+      }
+      const sideEffect = vi.fn(async () => "completed")
+      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider operation failed")
+      expect(sideEffect).not.toHaveBeenCalled()
+      expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
+      expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
+
+      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
+      expect(sideEffect).not.toHaveBeenCalled()
+      expect(createBatch).toHaveBeenCalledTimes(4)
+
+      await expect(
+        runAgentWorkflowDefinition(
+          agent as never,
+          { id: "recovered-steer", name: "calories", payload: workflowPayloads[3], provider: "cloudflare" },
+          sideEffect,
+        ),
+      ).resolves.toBe("completed")
+      expect(sideEffect).toHaveBeenCalledTimes(1)
+      expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
+      expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(0)
+    } finally {
+      setActiveCloudflareEnv(undefined)
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("settles a same-invoker restored primary delivery once", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
