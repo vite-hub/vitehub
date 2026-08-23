@@ -311,7 +311,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
       const approvalDenied = attributes["approval.approved"] === false;
-      const completed = sorted.some(item => /\.(finish|decision|recorded)$/.test(item.name));
+      const completed = sorted.some(item => /\.(completed|decision|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
       const role = explicitRole ?? (attributes["result.text"]
         ? "assistant"
@@ -319,7 +319,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
-      const unfinishedTerminalStatus = first.name.endsWith(".start")
+      const started = /\.(start|started)$/.test(first.name);
+      const unfinishedTerminalStatus = started
         && invocation.status !== "pending"
         && invocation.status !== "running"
         ? invocation.status === "failed" ? "failed" : "completed"
@@ -337,7 +338,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
         ...(role ? { role } : {}),
-        status: failed || approvalDenied ? "failed" : completed || !first.name.endsWith(".start") ? "completed" : unfinishedTerminalStatus ?? "running",
+        status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
           : {}),

@@ -154,6 +154,7 @@ export const MessageScrollerViewport = defineComponent({
       context.refresh();
       if (context.atEnd.value) context.following.value = true;
       else if (pointerScrolling) interruptFollowing();
+      pointerScrolling = false;
     };
     const interruptFollowing = () => {
       context.following.value = false;
@@ -211,11 +212,12 @@ export const MessageScrollerViewport = defineComponent({
           "data-at-end": context.atEnd.value ? "" : undefined,
           "data-slot": "message-scroller-viewport",
           onKeydown,
-          onPointercancel: () => { pointerScrolling = false; },
           onPointerdown: () => { pointerScrolling = true; },
           onPointerup: () => { pointerScrolling = false; },
           onScroll,
-          onWheel: interruptFollowing,
+          onWheel: (event: WheelEvent) => {
+            if (event.deltaY < 0 || !context.atEnd.value) interruptFollowing();
+          },
           ref: setViewport as VNodeRef,
           style: [{ overflowAnchor: "none" } satisfies CSSProperties, style],
         }),

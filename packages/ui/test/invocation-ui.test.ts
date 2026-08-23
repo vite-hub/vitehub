@@ -227,6 +227,47 @@ describe("Agent Invocation UI", () => {
     expect(invocationActivities(invocation)[0]?.status).toBe(activityStatus);
   });
 
+  it.each([
+    ["running", "running"],
+    ["completed", "completed"],
+    ["failed", "failed"],
+  ] as const)("derives Provider task lifecycle status for a %s invocation", (status, activityStatus) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: `task-${status}`,
+      observations: [{
+        attributes: { "step.id": "task" },
+        name: "agent.task.started",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe(activityStatus);
+  });
+
+  it("completes a Provider task when its completion event arrives", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "task-completed",
+      observations: [
+        { attributes: { "step.id": "task" }, name: "agent.task.started", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "step.id": "task" }, name: "agent.task.completed", sequence: 2, timestamp, type: "run" as const },
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe("completed");
+  });
+
   it("routes Provider turn diffs through the patch activity model", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const diff = "diff --git a/src/old.ts b/src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-old\n+new";
