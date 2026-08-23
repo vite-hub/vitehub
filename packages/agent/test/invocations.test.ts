@@ -29,6 +29,32 @@ describe("Agent Invocations", () => {
     expect(agentInvocationObservationWouldTruncate({ tools: Array.from({ length: 33 }, (_, index) => ({ name: String(index) })) })).toBe(true)
   })
 
+  it("marks observations whose attributes are truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { prompt: "x".repeat(513) },
+          name: "agent.message.recorded",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, {
+      ...runtime("truncated-observation"),
+      traceLog: createTraceEventLog({ content: "content" }),
+    }, {})
+
+    const observation = (await invocations.getByRunId("truncated-observation"))?.observations
+      .find(entry => entry.name === "agent.message.recorded")
+    expect(observation?.attributes?.prompt).toBe("x".repeat(512))
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({

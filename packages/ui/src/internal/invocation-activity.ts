@@ -35,6 +35,7 @@ export interface InvocationActivity {
   role?: "assistant" | "system" | "tool" | "user";
   status: "running" | "completed" | "failed";
   totalTokens?: number;
+  truncated?: boolean;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -235,6 +236,9 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
             "message.content": body,
             "message.id": value ? stringAttribute(value, "id") ?? key : key,
             "message.role": role,
+            ...(originalAttributes["vitehub.observation.truncated"] === true
+              ? { "vitehub.observation.truncated": true }
+              : {}),
           },
           name: "agent.input.message",
           sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
@@ -291,6 +295,9 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           : {}),
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !first.name.endsWith(".start") ? "completed" : "running",
+        ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
+          ? { truncated: true }
+          : {}),
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
           : {}),

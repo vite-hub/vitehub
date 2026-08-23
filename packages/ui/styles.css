@@ -725,6 +725,12 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   padding: 0.25rem 0;
 }
 
+.vh-invocation-event__notice {
+  color: var(--vh-ui-warning, #d97706);
+  font-size: 0.75rem;
+  margin: 0.5rem 0 0 1.75rem;
+}
+
 .vh-invocation-command__bar {
   align-items: flex-start;
   display: flex;

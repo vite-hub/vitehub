@@ -20,6 +20,7 @@ const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
+const OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
@@ -246,11 +247,15 @@ export function agentInvocationObservationWouldTruncate(value: unknown, depth = 
 }
 
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
+  const attributeEntries = Object.entries(observation.attributes ?? {})
+  const attributesTruncated = attributeEntries.length > MAX_OBSERVATION_ATTRIBUTES
+    || attributeEntries.some(([key, value]) => key.length > MAX_METADATA_STRING_LENGTH || agentInvocationObservationWouldTruncate(value))
   const attributes = observation.attributes
-    ? Object.fromEntries(Object.entries(observation.attributes)
-        .slice(0, MAX_OBSERVATION_ATTRIBUTES)
+    ? Object.fromEntries(attributeEntries
+        .slice(0, attributesTruncated ? MAX_OBSERVATION_ATTRIBUTES - 1 : MAX_OBSERVATION_ATTRIBUTES)
         .map(([key, value]) => [boundedString(key), boundedObservationValue(value)]))
     : undefined
+  if (attributesTruncated) attributes![OBSERVATION_TRUNCATED_ATTRIBUTE] = true
   return {
     ...observation,
     name: boundedString(observation.name)!,

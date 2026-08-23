@@ -26,6 +26,45 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.text()).toContain("Some configuration values were truncated");
   });
 
+  it("discloses truncated trace content", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [
+        {
+          attributes: {
+            "message.content": "partial",
+            "message.role": "assistant",
+            "vitehub.observation.truncated": true,
+          },
+          name: "agent.message.recorded",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        },
+        {
+          attributes: {
+            "tool.name": "shell",
+            "tool.output": "partial",
+            "vitehub.observation.truncated": true,
+          },
+          name: "agent.tool.finish",
+          sequence: 2,
+          timestamp,
+          type: "run",
+        },
+      ],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.text()).toContain("Some trace content was truncated by the invocation journal.");
+    expect(wrapper.findAll(".vh-invocation-event__notice")).toHaveLength(2);
+  });
+
   it("renders the working state with the loader-circle path", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

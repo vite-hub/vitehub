@@ -102,7 +102,7 @@ function providerAliasesFromCall(call: readonly unknown[] | undefined, index = 0
   if (!aliases || typeof aliases !== "object" || !Object.values(aliases).every(alias => typeof alias === "string")) {
     throw new TypeError("Expected provider import aliases to be a string record.")
   }
-  return aliases
+  return Object.fromEntries(Object.entries(aliases)) as Record<string, string>
 }
 
 function pluginAliases(plugin: Plugin): Record<string, string> {
@@ -114,7 +114,7 @@ function pluginAliases(plugin: Plugin): Record<string, string> {
   if (!alias || typeof alias !== "object" || !Object.values(alias).every(value => typeof value === "string")) {
     throw new TypeError("Expected plugin aliases to be a string record.")
   }
-  return alias
+  return Object.fromEntries(Object.entries(alias)) as Record<string, string>
 }
 
 function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "node" }): Plugin {
@@ -706,8 +706,8 @@ describe("vitehub", () => {
     })
     const external = Reflect.get(prerenderConfig.rollupConfig, "external")
     if (typeof external !== "function") throw new TypeError("Expected the prerender external predicate.")
-    expect(external("cloudflare:workers")).toBe(false)
-    expect(external("node:fs")).toBe(true)
+    expect(Reflect.apply(external, undefined, ["cloudflare:workers"])).toBe(false)
+    expect(Reflect.apply(external, undefined, ["node:fs"])).toBe(true)
   })
 
   it("aliases every Cloudflare Email runtime import during Nitro prerendering", async () => {
@@ -728,8 +728,8 @@ describe("vitehub", () => {
     })
     const external = Reflect.get(prerenderConfig.rollupConfig, "external")
     if (typeof external !== "function") throw new TypeError("Expected the prerender external predicate.")
-    expect(external("cloudflare:email")).toBe(false)
-    expect(external("cloudflare:workers")).toBe(false)
+    expect(Reflect.apply(external, undefined, ["cloudflare:email"])).toBe(false)
+    expect(Reflect.apply(external, undefined, ["cloudflare:workers"])).toBe(false)
   })
 
   it("overrides matching regex externals for Cloudflare prerender imports", async () => {
@@ -742,9 +742,9 @@ describe("vitehub", () => {
 
     const external = Reflect.get(prerenderConfig.rollupConfig, "external")
     if (typeof external !== "function") throw new TypeError("Expected the prerender external predicate.")
-    expect(external("cloudflare:email")).toBe(false)
-    expect(external("cloudflare:workers")).toBe(false)
-    expect(external("node:fs")).toBe(true)
+    expect(Reflect.apply(external, undefined, ["cloudflare:email"])).toBe(false)
+    expect(Reflect.apply(external, undefined, ["cloudflare:workers"])).toBe(false)
+    expect(Reflect.apply(external, undefined, ["node:fs"])).toBe(true)
   })
 
   it("leaves deployment output to the Nitro module matching the active preset", async () => {
