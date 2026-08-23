@@ -13937,7 +13937,7 @@ describe("server helpers", () => {
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params ?? {})
-      if (createBatch.mock.calls.length === 2 || createBatch.mock.calls.length === 3) await replacement
+      if (createBatch.mock.calls.length === 2) await replacement
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const run = vi.fn(() => "internal output")
@@ -14032,16 +14032,9 @@ describe("server helpers", () => {
         1,
       )
       rejectReplacement(Object.assign(new Error("Workflow handoff failed"), { status: 503 }))
-      await expect(replacementHandler).rejects.toThrow("Workflow provider operation failed")
-
-      await handler(chatWebhookRequest(91_110), "telegram", {
-        agentIdentity: { name: "calories" },
-        cloudflare: {
-          env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } },
-        },
-        waitUntil: (task) => waitUntilTasks.push(task),
-      })
-      expect(workflowPayloads.at(-1)?.input?.messages?.map((message) => message.id)).toEqual(["91106", "91107", "91109", "91110"])
+      await expect(replacementHandler).resolves.toMatchObject({ status: 200 })
+      expect(createBatch).toHaveBeenCalledTimes(3)
+      expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91106", "91107", "91108"])
     } finally {
       resetWorkflowRuntime()
       await state.disconnect()

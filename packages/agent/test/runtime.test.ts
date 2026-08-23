@@ -12772,6 +12772,28 @@ describe("agent message protocol", () => {
       await expect(result).resolves.toBe("done")
     })
 
+    it("retains invocation journal recovery through Workflow completion", async () => {
+      const { registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const recovery = deferred<void>()
+      let completed = false
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = runAgentWorkflowDefinition({} as never, {
+        id: "invocation-recovery-run",
+        name: "invocation-recovery-run",
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        registerAgentInvocationRecovery(context, recovery.promise)
+        return "done"
+      }).finally(() => { completed = true })
+
+      await vi.waitFor(() => expect(completed).toBe(false))
+      recovery.resolve()
+      await expect(result).resolves.toBe("done")
+    })
+
     it("releases settled Workflow recovery tasks", async () => {
       const { agentInvocationRecoveryTasks, registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()

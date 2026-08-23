@@ -385,8 +385,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     }
     throw nonRetryableAgentWorkflowError(error)
   } finally {
-    while (backgroundTasks.length) {
-      await Promise.allSettled(backgroundTasks.splice(0))
+    while (backgroundTasks.length || agentInvocationRecoveryTasks(runtimeContext).length) {
+      await Promise.allSettled([...backgroundTasks.splice(0), ...agentInvocationRecoveryTasks(runtimeContext)])
     }
     await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
       if (channelOwnership.retrySettlementFailures) throw error

@@ -4726,6 +4726,29 @@ async function handleChatSdkMessage(
         steerStartOwnershipLost = false
       } catch (error) {
         if (steerLock && steerQueue && steerPending && steerPendingPersisted && steerStartOwnershipLost) {
+          if (!isAmbiguousAgentWorkflowStartFailure(error) && (await state.state.extendLock(steerLock, steerTtlMs))) {
+            steerStartOwnershipLost = false
+            try {
+              // The scope owner is still authoritative even if its startup handoff
+              // lease was lost. Start a fresh Workflow so persisted custody does not
+              // depend on another webhook arriving.
+              // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+              await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+              durableHandoff = true
+              await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+              detachAgentChannelDelivery(delivery)
+              return
+            } catch (retryError) {
+              if (isAmbiguousAgentWorkflowStartFailure(retryError)) {
+                durableHandoff = true
+                await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+                detachAgentChannelDelivery(delivery)
+                return
+              }
+            }
+          }
+        }
+        if (steerLock && steerQueue && steerPending && steerPendingPersisted && steerStartOwnershipLost) {
           durableHandoff = true
           await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
           detachAgentChannelDelivery(delivery)
