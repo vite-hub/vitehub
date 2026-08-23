@@ -4796,14 +4796,23 @@ async function handleChatSdkMessage(
                     const expectedPending = expectedRecoveryPending as never
                     // SAFETY: recoveryPending is normalized durable queue data owned by this route boundary.
                     const replacementPending = [recoveryPending] as never
-                    if (
-                      !(await requireAtomicAgentStateQueue(state.state).queueReplaceHead(
+                    let replacedRecoveryPending = false
+                    try {
+                      replacedRecoveryPending = await requireAtomicAgentStateQueue(state.state).queueReplaceHead(
                         pendingQueue,
                         expectedPending,
                         replacementPending,
                         1,
-                      ))
-                    ) {
+                      )
+                    } catch {
+                      await state.state.releaseLock(recoveredLock).catch(() => undefined)
+                      recoveredLock = null
+                      const remainingMs = recoveryDeadline - Date.now()
+                      if (remainingMs <= 0) return
+                      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
+                      continue
+                    }
+                    if (!replacedRecoveryPending) {
                       await state.state.releaseLock(recoveredLock).catch(() => undefined)
                       return
                     }
