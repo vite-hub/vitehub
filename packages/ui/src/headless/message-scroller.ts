@@ -3,6 +3,7 @@ import {
   defineComponent,
   h,
   inject,
+  mergeProps,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -197,11 +198,11 @@ export const MessageScrollerViewport = defineComponent({
       mutationObserver?.disconnect();
       context.viewport.value = null;
     });
-    return () =>
-      h(
+    return () => {
+      const { style, ...viewportAttrs } = attrs;
+      return h(
         props.as,
-        {
-          ...attrs,
+        mergeProps(viewportAttrs, {
           "data-at-end": context.atEnd.value ? "" : undefined,
           "data-slot": "message-scroller-viewport",
           onKeydown,
@@ -209,10 +210,11 @@ export const MessageScrollerViewport = defineComponent({
           onScroll,
           onWheel: interruptFollowing,
           ref: setViewport as VNodeRef,
-          style: [{ overflowAnchor: "none" } satisfies CSSProperties, attrs.style],
-        },
+          style: [{ overflowAnchor: "none" } satisfies CSSProperties, style],
+        }),
         slots.default?.(),
       );
+    };
   },
 });
 

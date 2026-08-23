@@ -229,8 +229,9 @@ describe("message scroller behavior", () => {
 
   it("stops following when keyboard input scrolls away from the live edge", async () => {
     const scrollTo = vi.fn();
+    const onKeydown = vi.fn();
     const wrapper = mount(MessageScrollerRoot, {
-      slots: { default: () => h(MessageScrollerViewport) },
+      slots: { default: () => h(MessageScrollerViewport, { onKeydown }) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
     let scrollHeight = 500;
@@ -244,6 +245,7 @@ describe("message scroller behavior", () => {
     await viewport.trigger("scroll");
 
     await viewport.trigger("keydown", { key: "PageUp" });
+    expect(onKeydown).toHaveBeenCalledOnce();
     scrollTop = 200;
     await viewport.trigger("scroll");
     scrollHeight = 600;
