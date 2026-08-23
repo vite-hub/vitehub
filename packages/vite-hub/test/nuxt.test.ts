@@ -213,15 +213,22 @@ describe("ViteHub Nuxt integration", () => {
         },
         config: mocks.envHook,
       },
+      {
+        name: "@vite-hub/markdown-template/vite",
+        load: mocks.markdownTemplateLoad,
+        resolveId: mocks.markdownTemplateResolveId,
+      },
     ])
   })
 
   it("loads colocated Markdown templates through Nitro Rollup", async () => {
     const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
+    const standaloneLoad = vi.fn()
+    const standaloneResolveId = vi.fn()
     const { nuxt, runNitroConfigHook } = createNuxt(false, [{
       name: "@vite-hub/markdown-template/vite",
-      load: mocks.markdownTemplateLoad,
-      resolveId: mocks.markdownTemplateResolveId,
+      load: standaloneLoad,
+      resolveId: standaloneResolveId,
     }])
     const nitroConfig = { rollupConfig: { plugins: existingPlugin as Plugin | Plugin[] } }
     const nestedResolve = vi.fn().mockResolvedValue({
@@ -267,6 +274,8 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.markdownTemplateLoad).toHaveBeenCalledWith(
       "/app/server/api/reply.template.md?markdown-template",
     )
+    expect(standaloneResolveId).not.toHaveBeenCalled()
+    expect(standaloneLoad).not.toHaveBeenCalled()
     expect(nestedResolve).toHaveBeenCalledWith("./name.md", "/app/server/api/reply.template.md")
   })
 
@@ -379,6 +388,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
+      expect.objectContaining({ name: "@vite-hub/markdown-template/vite" }),
       existingQueuePlugin,
       existingOwnerPlugin,
       existingPlugin,
@@ -474,6 +484,9 @@ describe("ViteHub Nuxt integration", () => {
       preset: "cloudflare_module",
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
+      },
+      rollupConfig: {
+        plugins: [expect.objectContaining({ name: "vite-hub/nuxt-markdown-templates" })],
       },
       sandbox: true,
       workflows: true,

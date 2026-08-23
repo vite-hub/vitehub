@@ -515,10 +515,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         }
       })
     | undefined
-  const markdownTemplatePluginCandidate: unknown = replayPlugins.find(
+  const markdownTemplatePluginCandidate: unknown = installedPlugins.find(
     plugin => plugin.name === "@vite-hub/markdown-template/vite",
   )
-  // SAFETY: The canonical Markdown Template plugin name identifies its function-hook contract.
+  // SAFETY: The canonical Markdown Template plugin name identifies the framework-owned function-hook contract.
   const markdownTemplatePlugin = markdownTemplatePluginCandidate as MarkdownTemplatePlugin | undefined
   const emailTemplatePaths =
     (await emailPlugin?.api?.prepareTypes?.({
