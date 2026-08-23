@@ -94,7 +94,7 @@ const cell = (status: MatrixStatus, detail: string, display?: string): MatrixCel
   status,
 });
 
-const sections: { label: string; rows: MatrixRow[] }[] = [
+const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
   {
     label: "Runtime",
     rows: [
@@ -168,6 +168,7 @@ const sections: { label: string; rows: MatrixRow[] }[] = [
     ],
   },
   {
+    anchor: "server-primitives",
     label: "Server primitives",
     rows: [
       {
@@ -455,6 +456,7 @@ const sections: { label: string; rows: MatrixRow[] }[] = [
     ],
   },
   {
+    anchor: "deployment-and-proof",
     label: "Output",
     rows: [
       {
@@ -644,7 +646,11 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
       </nav>
     </header>
 
-    <section class="support-matrix-main" aria-label="Runtime and host support matrix">
+    <section
+      id="qualifications"
+      class="support-matrix-main"
+      aria-label="Runtime and host support matrix"
+    >
       <div class="support-matrix-legend" aria-label="Status legend">
         <span v-for="(meta, status) in statusMeta" :key="status">
           <span class="support-matrix-mark" :data-status="status" aria-hidden="true">{{
@@ -691,7 +697,11 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
               </th>
             </tr>
           </thead>
-          <tbody v-for="(section, sectionIndex) in sections" :key="section.label">
+          <tbody
+            v-for="(section, sectionIndex) in sections"
+            :id="section.anchor"
+            :key="section.label"
+          >
             <tr class="support-matrix-section-row" :class="{ 'is-separated': sectionIndex > 0 }">
               <th scope="rowgroup">{{ section.label }}</th>
               <td v-for="column in columns" :key="column.id" />

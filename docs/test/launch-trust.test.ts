@@ -83,7 +83,12 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain("Vercel Workflow");
     expect(matrixComponent).toContain("row.values[column.id]!.display");
     expect(matrixComponent).toContain('class="support-matrix-cell-mark"');
-    expect(matrixComponent).toContain('<tbody v-for="(section, sectionIndex) in sections"');
+    expect(matrixComponent).toContain("<tbody");
+    expect(matrixComponent).toContain('v-for="(section, sectionIndex) in sections"');
+    expect(matrixComponent).toContain('anchor: "server-primitives"');
+    expect(matrixComponent).toContain('anchor: "deployment-and-proof"');
+    expect(matrixComponent).toContain('id="qualifications"');
+    expect(matrixComponent).toContain(':id="section.anchor"');
     expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
