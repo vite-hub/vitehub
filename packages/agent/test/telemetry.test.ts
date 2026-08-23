@@ -95,7 +95,9 @@ describe("Agent telemetry", () => {
     })
 
     const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
-    expect(body.resourceSpans[0].scopeSpans[0].spans[0].status).toEqual({ code: 0 })
+    const span = body.resourceSpans[0].scopeSpans[0].spans[0]
+    expect(span).not.toHaveProperty("endTimeUnixNano")
+    expect(span.status).toEqual({ code: 0 })
   })
 
   it("sends live events as correlated OTLP/HTTP JSON logs", async () => {

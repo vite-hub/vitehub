@@ -65,7 +65,7 @@ function unixNanos(value: string | undefined, fallback: string): string {
 function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
   return {
     attributes: otlpAttributes(span.attributes),
-    endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime),
+    ...(span.endTime ? { endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime) } : {}),
     ...(span.events?.length
       ? {
           events: span.events.map(event => ({
