@@ -28,6 +28,21 @@ export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.
 export const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
+export function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
+  return Boolean(
+    value &&
+    isRuntimeObject(value) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).channelId) || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).deliveryId) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).provider) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"),
+  )
+}
+
 export interface AgentChannelDeliveryWorkflowBinding {
   channelId?: string
   deliveryId: string

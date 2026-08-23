@@ -12572,8 +12572,10 @@ describe("server helpers", () => {
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
     const adapter = createTestChatAdapter()
-    const workflowPayloads: Array<Record<string, unknown> & { input?: AgentRunInput }> = []
+    const workflowPayloads: Array<Record<string, unknown> & { input?: AgentRunInput; run?: { runId?: string } }> = []
+    const workflowIds: string[] = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: Record<string, unknown> & { input?: AgentRunInput } }>) => {
+      workflowIds.push(id)
       workflowPayloads.push(params)
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
@@ -12623,7 +12625,10 @@ describe("server helpers", () => {
         ),
       ).resolves.toBeUndefined()
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
+      expect(workflowIds[1]).not.toBe(workflowIds[0])
+      expect(workflowPayloads[1]?.run?.runId).toBe("telegram:91151")
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91150", "91151"])
+      const recoveredRunIds: Array<string | undefined> = []
       await expect(
         runAgentWorkflowDefinition(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -12635,9 +12640,13 @@ describe("server helpers", () => {
             payload: workflowPayloads[1],
             provider: "cloudflare",
           },
-          async () => "completed",
+          async (_agent, context) => {
+            recoveredRunIds.push(context.run?.runId)
+            return "completed"
+          },
         ),
       ).resolves.toBe("completed")
+      expect(recoveredRunIds).toEqual(["telegram:91151"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_151), "telegram", runtime)
       for (const runId of ["telegram:91150", "telegram:91151"]) {

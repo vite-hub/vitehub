@@ -14,6 +14,7 @@ import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "../agent-error.ts"
 import {
   agentChannelDeliveryWorkflowContextKey,
+  isAgentChannelDeliveryWorkflowBinding,
   resumeAgentChannelDeliveryWorkflowOwnership,
   resumeWorkflowAgentChannelDelivery,
   withAgentChannelDelivery,
@@ -34,8 +35,6 @@ import type {
 } from "../types.ts"
 
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
-import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
-
 export { workspaceAgentWithSourceRoot }
 
 export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameters<typeof decodeColocatedAgentSkills>[0]): Agent {
@@ -292,7 +291,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare" ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent()) : undefined
-  const runId = context.id || payload.run?.runId
+  const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
+  const runId = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) ? payload.run?.runId || context.id : context.id || payload.run?.runId
   const backgroundTasks: Promise<unknown>[] = []
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
@@ -324,7 +324,6 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     return
   }
 
-  const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
     ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       await resumeWorkflowAgentChannelDelivery(agent as never, runtimeContext as never, channelDeliveryBinding)
@@ -393,19 +392,4 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
       if (channelOwnership.retrySettlementFailures) throw error
     })
   }
-}
-
-function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
-  return Boolean(
-    value &&
-    isRuntimeObject(value) &&
-    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).channelId) || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
-    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).deliveryId) &&
-    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).provider) &&
-    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"),
-  )
 }

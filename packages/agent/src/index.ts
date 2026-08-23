@@ -36,6 +36,7 @@ import {
   isDurableChatErrorFallbackEffect,
   resolveDurableChatErrorFallbackIntents,
 } from "./chat-trigger.ts"
+import { agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import {
@@ -835,7 +836,9 @@ async function runAgentAsWorkflow<TRuntimeConfig extends AgentRuntimeConfig, CAL
   const resolvedContext = createResolvedRuntimeContext(context)
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   const workflowInput = await portableAgentWorkflowInput(input)
-  const inheritedRun = options.fresh && context.run ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId")) : context.run
+  const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(input.context?.[agentChannelDeliveryWorkflowContextKey])
+  const inheritedRun =
+    options.fresh && context.run && !durableChannelDelivery ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId")) : context.run
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
