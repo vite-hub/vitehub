@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { extname, resolve } from "node:path";
+import { object, parse, string } from "valibot";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(import.meta.dirname, "../..");
@@ -12,35 +13,168 @@ const ownedDocs = [
 
 function markdownFiles(directory: string): string[] {
   return readdirSync(directory, { recursive: true })
-    .map(path => resolve(directory, path.toString()))
-    .filter(path => extname(path) === ".md");
+    .map((path) => resolve(directory, path.toString()))
+    .filter((path) => extname(path) === ".md");
 }
 
 function readOwnedDocs(): string {
-  return [
-    resolve(docsRoot, "index.md"),
-    ...ownedDocs.flatMap(markdownFiles),
-  ].map(path => readFileSync(path, "utf8")).join("\n");
+  return [resolve(docsRoot, "index.md"), ...ownedDocs.flatMap(markdownFiles)]
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
 }
 
 function routeExists(route: string): boolean {
   const relative = route.replace(/^\/docs\/?/, "").replace(/\/$/, "");
   if (!relative) return existsSync(resolve(docsRoot, "index.md"));
-  return existsSync(resolve(docsRoot, `${relative}.md`))
-    || existsSync(resolve(docsRoot, relative, "index.md"));
+  return (
+    existsSync(resolve(docsRoot, `${relative}.md`)) ||
+    existsSync(resolve(docsRoot, relative, "index.md"))
+  );
 }
 
 describe("launch documentation trust boundaries", () => {
   it("publishes an inspectable host support matrix with qualified statuses", () => {
     const matrix = readFileSync(resolve(docsRoot, "frameworks-hosts/support-matrix.md"), "utf8");
+    const matrixComponent = readFileSync(
+      resolve(repoRoot, "docs/app/components/SupportMatrix.vue"),
+      "utf8",
+    );
+    const docsLayout = readFileSync(resolve(repoRoot, "docs/app/layouts/docs.vue"), "utf8");
+    const appHeader = readFileSync(resolve(repoRoot, "docs/app/components/AppHeader.vue"), "utf8");
+    const matrixHeader = matrix.split("\n").find((line) => line.startsWith("| Contract")) ?? "";
 
-    expect(matrix).toContain("| Host | App-facing Runtime Helpers | Local providers | Generated Provider Output | Provision support | Production proof |");
+    expect(matrixHeader).not.toBe("");
+    for (const host of [
+      "Local Vite",
+      "Cloudflare",
+      "Vercel",
+      "Netlify",
+      "Deno",
+      "Nitro and UnJS",
+      "Node and self-hosted",
+    ]) {
+      expect(matrixHeader).toContain(host);
+    }
+    expect(matrix).toMatch(
+      /\| Browser\s+\| Local provider\s+\| Browser Run.*\| Local provider\s+\|/,
+    );
+    expect(matrixComponent).toContain("Browser Definitions require ViteHub's Cloudflare preset");
+    expect(matrixComponent).toContain(
+      "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted local process",
+    );
+    expect(matrixComponent).toContain(
+      "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted self-hosted Node process",
+    );
+    expect(matrix).toContain(
+      "Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`",
+    );
+    expect(matrix).toContain("Standalone `Deno.cron`");
+    expect(matrixComponent).toContain(
+      'vitehub({ preset: \\"deno\\", schedule: true }) is not supported',
+    );
+    expect(matrix).toContain(
+      '`vitehub({ preset: "deno", schedule: true })` rejects Schedule',
+    );
     expect(matrix).toContain("**Available**");
     expect(matrix).toContain("**Package-specific**");
     expect(matrix).toContain("**Local-only**");
     expect(matrix).toContain("**Not provided**");
     expect(matrix).toContain("**Contract-tested**");
     expect(matrix).toContain("**Live proof not published**");
+    for (const primitive of [
+      "Browser",
+      "Blob",
+      "Database",
+      "Email",
+      "KV",
+      "Queue",
+      "Rate Limit",
+      "Realtime",
+      "Sandbox",
+      "Schedule",
+      "Workflow",
+      "Workspace",
+    ]) {
+      expect(matrix).toMatch(new RegExp(`\\| ${primitive}\\s+\\|`));
+      expect(matrixComponent).toContain(`label: "${primitive}"`);
+    }
+    expect(matrix).toContain("Cloudflare Queues");
+    expect(matrix).toContain("Vercel Queues");
+    expect(matrix).toMatch(/\| Queue\s+\|[^\n]+\| Cloudflare or Vercel \| —\s+\|/);
+    expect(matrixComponent).toContain(
+      "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output",
+    );
+    expect(matrix).toContain("Discovery only");
+    expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
+    expect(matrix).toContain("every other host requires an explicit compatible Unemail driver");
+    expect(matrix).toContain("distributed Vercel, Netlify, and Deno presets reject memory");
+    expect(matrixComponent).toContain(
+      "The Cloudflare preset supports the built-in Cloudflare Email driver default",
+    );
+    expect(matrixComponent).toContain(
+      "Cloudflare Durable Objects provide the production room authority",
+    );
+    expect(matrixComponent).toContain(
+      "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host",
+    );
+    expect(matrixComponent).toContain(
+      "Netlify can use an explicitly selected Vercel Sandbox provider with Vercel credentials",
+    );
+    expect(matrix).toMatch(
+      /\| Sandbox\s+\|[^\n]+\| Vercel Sandbox\s+\| —\s+\| Cloudflare or Vercel \| Box provider\s+\|/,
+    );
+    expect(matrix).toContain(
+      "the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify",
+    );
+    expect(matrix).toContain("Cloudflare Workflows");
+    expect(matrix).toContain("Vercel Workflow");
+    expect(matrixComponent).toContain("row.values[column.id]!.display");
+    expect(matrixComponent).toContain('class="support-matrix-cell-mark"');
+    expect(matrixComponent).toContain("<tbody");
+    expect(matrixComponent).toContain('v-for="(section, sectionIndex) in sections"');
+    expect(matrixComponent).toContain('anchor: "server-primitives"');
+    expect(matrixComponent).toContain('anchor: "deployment-and-proof"');
+    expect(matrixComponent).toContain('<section id="qualifications"');
+    expect(matrixComponent).toContain('<h2>Qualifications</h2>');
+    const normalizeQualification = (value: string) =>
+      value.replace(/<[^>]+>|[*`]/g, "").replace(/\s+/g, " ").trim();
+    const markdownQualifications = matrix
+      .match(/## Qualifications\n\n([\s\S]*?)\n\nLocal memory/)![1]!
+      .split("\n")
+      .filter((line) => line.startsWith("- "))
+      .map((line) => normalizeQualification(line.slice(2)));
+    const renderedQualifications = [
+      ...matrixComponent
+        .match(/<section id="qualifications"[\s\S]*?<\/section>/)![0]!
+        .matchAll(/<li>([\s\S]*?)<\/li>/g),
+    ].map((match) => normalizeQualification(match[1]!));
+    expect(renderedQualifications).toEqual(markdownQualifications);
+    expect(matrixComponent).toContain(':id="section.anchor" class="support-matrix-section-anchor"');
+    expect(matrixComponent).toContain('scroll-margin-block-start: 7rem');
+    expect(matrixComponent).toContain(
+      'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
+    );
+    expect(matrixComponent).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.support-matrix-qualifications \{\s*padding-inline-start: 3\.25rem;/,
+    );
+    expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
+    expect(matrixComponent).toContain(
+      "max-height: var(--reka-popover-content-available-height)",
+    );
+    expect(matrix).toContain(
+      "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
+    );
+    expect(matrix).toContain(
+      "Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory`",
+    );
+    expect(matrixComponent).toContain("support-matrix-navigation-panel");
+    expect(matrixComponent).toContain("<DocsAsideLeftBody />");
+    expect(matrixComponent).toContain('v-model:open="openDetails[`${row.id}-${column.id}`]"');
+    expect(matrixComponent).not.toContain('<main class="support-matrix-main">');
+    expect(docsLayout).toMatch(
+      /v-if="isSupportMatrix"[\s\S]*<AnnouncementBanner \/>[\s\S]*<slot \/>/,
+    );
+    expect(appHeader).toContain("isDocsRoute && !isSupportMatrix");
   });
 
   it("keeps launch-facing docs free from stale version and internal process prose", () => {
@@ -62,9 +196,14 @@ describe("launch documentation trust boundaries", () => {
   it("keeps canonical documentation links resolvable", () => {
     for (const file of [resolve(docsRoot, "index.md"), ...ownedDocs.flatMap(markdownFiles)]) {
       const contents = readFileSync(file, "utf8");
-      const routes = [...contents.matchAll(/\]\((\/docs(?:\/[^)#\s]*)?)(?:#[^)]+)?\)/g)].map(match => match[1]!);
+      const routes = [...contents.matchAll(/\]\((\/docs(?:\/[^)#\s]*)?)(?:#[^)]+)?\)/g)].map(
+        (match) => match[1]!,
+      );
 
-      expect(routes.filter(route => !routeExists(route)), file).toEqual([]);
+      expect(
+        routes.filter((route) => !routeExists(route)),
+        file,
+      ).toEqual([]);
     }
   });
 
@@ -80,7 +219,10 @@ describe("launch documentation trust boundaries", () => {
       const manifestPath = resolve(repoRoot, "packages", directory, "package.json");
       if (!existsSync(manifestPath)) continue;
 
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name: string };
+      const manifest = parse(
+        object({ name: string() }),
+        JSON.parse(readFileSync(manifestPath, "utf8")),
+      );
       expect(packageReference, manifest.name).toContain(`\`${manifest.name}\``);
     }
   });
@@ -90,7 +232,9 @@ describe("launch documentation trust boundaries", () => {
     const conventions = readFileSync(resolve(docsRoot, "reference/file-conventions.md"), "utf8");
 
     expect(config).toContain("`vitehub()` requires exactly one built-in `preset`");
-    expect(config).toContain("Email accepts `true` with the Cloudflare preset, where it selects the Cloudflare Email driver; other presets reject that boolean default and require explicit provider options.");
+    expect(config).toContain(
+      "Email accepts `true` with the Cloudflare preset, where it selects the Cloudflare Email driver; other presets reject that boolean default and require explicit provider options.",
+    );
     expect(config).toContain("Netlify does not infer a provider");
     expect(conventions).toContain("`server/databases/<name>/config.ts`");
     expect(conventions).toContain("`<path>.agent.ts`");

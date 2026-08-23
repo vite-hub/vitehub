@@ -1,7 +1,7 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
-import type { OpenTelemetrySpanView } from "@vite-hub/runtime"
+import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export type OtlpResourceAttributes = Record<string, boolean | number | string>
 
@@ -21,59 +21,8 @@ type OtlpAnyValue =
   | { stringValue: string }
 
 const retryableStatuses = new Set([429, 502, 503, 504])
-const MAX_OTLP_BINARY_BYTES = 1024 * 1024
-const MAX_OTLP_REQUEST_BYTES = 4 * 1024 * 1024
 
-interface OtlpEncodingBudget {
-  encodedBytes: number
-}
-
-function otlpEncodingLimitError(): RangeError {
-  return new RangeError(`OTLP/HTTP JSON payloads cannot exceed ${MAX_OTLP_REQUEST_BYTES} bytes.`)
-}
-
-function chargeOtlpEncoding(budget: OtlpEncodingBudget, bytes: number): void {
-  if (budget.encodedBytes + bytes > MAX_OTLP_REQUEST_BYTES) throw otlpEncodingLimitError()
-  budget.encodedBytes += bytes
-}
-
-function jsonStringByteLength(value: string): number {
-  let bytes = 2
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index)
-    if (code === 0x22 || code === 0x5C || code === 0x08 || code === 0x09 || code === 0x0A || code === 0x0C || code === 0x0D) bytes += 2
-    else if (code < 0x20) bytes += 6
-    else if (code < 0x80) bytes += 1
-    else if (code < 0x800) bytes += 2
-    else if (code >= 0xD800 && code <= 0xDBFF && index + 1 < value.length) {
-      const next = value.charCodeAt(index + 1)
-      if (next >= 0xDC00 && next <= 0xDFFF) {
-        bytes += 4
-        index += 1
-      }
-      else bytes += 3
-    }
-    else bytes += 3
-  }
-  return bytes
-}
-
-function binaryBytes(value: unknown): Uint8Array | undefined {
-  if (value instanceof ArrayBuffer) return new Uint8Array(value)
-  if (!ArrayBuffer.isView(value)) return
-  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-}
-
-function base64Bytes(bytes: Uint8Array): string {
-  const chunks: string[] = []
-  for (let offset = 0; offset < bytes.length; offset += 32_768) {
-    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 32_768)))
-  }
-  return btoa(chunks.join(""))
-}
-
-function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget): OtlpAnyValue {
-  chargeOtlpEncoding(budget, 16)
+function otlpAnyValue(value: unknown): OtlpAnyValue {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
@@ -84,40 +33,28 @@ function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget): OtlpAnyValue 
       ? { intValue: String(value) }
       : { stringValue: String(value) }
   }
-  if (hasRuntimeType(value, "string")) {
-    chargeOtlpEncoding(budget, jsonStringByteLength(value))
-    return { stringValue: value }
+  if (hasRuntimeType(value, "string")) return { stringValue: value }
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    const bytes = value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    let binary = ""
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    return { bytesValue: btoa(binary) }
   }
-  const bytes = binaryBytes(value)
-  if (bytes) {
-    if (bytes.byteLength > MAX_OTLP_BINARY_BYTES) {
-      throw new RangeError(`OTLP binary attributes cannot exceed ${MAX_OTLP_BINARY_BYTES} bytes.`)
-    }
-    const encodedBytes = 4 * Math.ceil(bytes.byteLength / 3)
-    chargeOtlpEncoding(budget, encodedBytes)
-    return { bytesValue: base64Bytes(bytes) }
-  }
-  if (Array.isArray(value)) return { arrayValue: { values: value.map(child => otlpAnyValue(child, budget)) } }
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(otlpAnyValue) } }
   if (value && hasRuntimeType(value, "object")) {
     return {
       kvlistValue: {
-        values: Object.entries(value).flatMap(([key, child]) => {
-          if (child === undefined) return []
-          chargeOtlpEncoding(budget, jsonStringByteLength(key) + 8)
-          return [{ key, value: otlpAnyValue(child, budget) }]
-        }),
+        values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child) }]),
       },
     }
   }
   return { stringValue: String(value) }
 }
 
-function otlpAttributes(attributes: Record<string, unknown> | undefined, budget: OtlpEncodingBudget) {
-  return Object.entries(attributes || {}).flatMap(([key, value]) => {
-    if (value === undefined) return []
-    chargeOtlpEncoding(budget, jsonStringByteLength(key) + 8)
-    return [{ key, value: otlpAnyValue(value, budget) }]
-  })
+function otlpAttributes(attributes: Record<string, unknown> | undefined) {
+  return Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined ? [] : [{ key, value: otlpAnyValue(value) }])
 }
 
 function unixNanos(value: string | undefined, fallback: string): string {
@@ -125,23 +62,17 @@ function unixNanos(value: string | undefined, fallback: string): string {
   return String(BigInt(Number.isFinite(millis) ? millis : Date.parse(fallback)) * 1_000_000n)
 }
 
-function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: OtlpEncodingBudget) {
-  const statusCode = span.status.code === "ERROR" ? 2 : span.status.code === "OK" ? 1 : 0
-  chargeOtlpEncoding(budget, jsonStringByteLength(span.name))
-  if (span.status.message) chargeOtlpEncoding(budget, jsonStringByteLength(span.status.message))
+function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
   return {
-    attributes: otlpAttributes(span.attributes, budget),
+    attributes: otlpAttributes(span.attributes),
     ...(span.endTime ? { endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime) } : {}),
     ...(span.events?.length
       ? {
-          events: span.events.map((event) => {
-            chargeOtlpEncoding(budget, jsonStringByteLength(event.name))
-            return {
-              attributes: otlpAttributes(event.attributes, budget),
-              name: event.name,
-              timeUnixNano: unixNanos(event.time, fallbackEndTime),
-            }
-          }),
+          events: span.events.map(event => ({
+            attributes: otlpAttributes(event.attributes),
+            name: event.name,
+            timeUnixNano: unixNanos(event.time, fallbackEndTime),
+          })),
         }
       : {}),
     kind: 1,
@@ -149,9 +80,28 @@ function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: 
     ...(span.parentSpanId ? { parentSpanId: span.parentSpanId } : {}),
     spanId: span.spanId,
     startTimeUnixNano: unixNanos(span.startTime, fallbackEndTime),
-    status: { code: statusCode, ...(span.status.message ? { message: span.status.message } : {}) },
+    status: { code: span.status.code === "ERROR" ? 2 : span.status.code === "OK" ? 1 : 0, ...(span.status.message ? { message: span.status.message } : {}) },
     traceId: span.traceId,
   }
+}
+
+function otlpLogRecord(record: OpenTelemetryLogRecordView) {
+  return {
+    attributes: otlpAttributes(record.attributes),
+    eventName: record.eventName,
+    ...(record.severityNumber ? { severityNumber: record.severityNumber } : {}),
+    ...(record.severityText ? { severityText: record.severityText } : {}),
+    observedTimeUnixNano: unixNanos(record.time, record.time),
+    spanId: record.spanId,
+    timeUnixNano: unixNanos(record.time, record.time),
+    traceId: record.traceId,
+  }
+}
+
+function otlpSignalEndpoint(endpoint: string, signal: "logs" | "traces"): string {
+  const url = new URL(endpoint)
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/v1/${signal}`
+  return url.toString()
 }
 
 function retryAfterMs(response: Response, attempt: number): number {
@@ -169,7 +119,26 @@ async function wait(milliseconds: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, milliseconds))
 }
 
-async function postOtlp(endpoint: string, headers: Headers, body: string): Promise<void> {
+function otlpResponseRejected(response: unknown, field: "rejectedLogRecords" | "rejectedSpans"): boolean {
+  if (!response || !hasRuntimeType(response, "object")) return false
+  // SAFETY: The runtime object guard establishes a record whose optional property can be inspected.
+  const partialSuccess = (response as { partialSuccess?: unknown }).partialSuccess
+  if (!partialSuccess || !hasRuntimeType(partialSuccess, "object")) return false
+  // SAFETY: The runtime object guard establishes an indexable record for the named OTLP field.
+  const value = (partialSuccess as Record<string, unknown>)[field]
+  if (hasRuntimeType(value, "number")) return value > 0
+  return hasRuntimeType(value, "string") && /^\d+$/.test(value) && !/^0+$/.test(value)
+}
+
+async function postOtlp(
+  endpoint: string,
+  headers: Headers,
+  body: string,
+  rejectedField: "rejectedLogRecords" | "rejectedSpans",
+): Promise<void> {
+  if (new TextEncoder().encode(body).byteLength > 4 * 1024 * 1024) {
+    throw new Error("OTLP/HTTP JSON telemetry payload exceeds 4 MiB.")
+  }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let response: Response
     try {
@@ -187,7 +156,21 @@ async function postOtlp(endpoint: string, headers: Headers, body: string): Promi
       }
       throw new Error("OTLP/HTTP JSON telemetry export failed.", { cause: error })
     }
-    if (response.ok) return
+    if (response.ok) {
+      const responseBody = await response.text()
+      if (!responseBody) return
+      let payload: unknown
+      try {
+        payload = JSON.parse(responseBody)
+      }
+      catch (error) {
+        throw new Error("OTLP/HTTP JSON telemetry export returned an invalid response.", { cause: error })
+      }
+      if (otlpResponseRejected(payload, rejectedField)) {
+        throw new Error("OTLP/HTTP JSON telemetry export was partially rejected.")
+      }
+      return
+    }
     if (attempt < 2 && retryableStatuses.has(response.status)) {
       await wait(retryAfterMs(response, attempt))
       continue
@@ -200,33 +183,40 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
   options: OtlpHttpJsonOptions<TRuntimeConfig>,
 ): AgentTelemetry<TRuntimeConfig> {
   return async (context) => {
-    if (!context.spans.length) return
+    if (context.signal === "logs" ? !context.records.length : !context.spans.length) return
     const [configuredHeaders, configuredResource] = await Promise.all([
       hasRuntimeType(options.headers, "function") ? options.headers(context) : options.headers,
       hasRuntimeType(options.resource, "function") ? options.resource(context) : options.resource,
     ])
     const headers = new Headers(configuredHeaders)
     headers.set("content-type", "application/json")
-    const fallbackEndTime = context.spans[0]?.endTime || new Date().toISOString()
     const resource = {
       "service.name": context.agent.name || "vitehub-agent",
       ...(context.agent.version ? { "service.version": context.agent.version } : {}),
       "vitehub.runtime.name": context.runtime.runtime,
       ...configuredResource,
     }
-    const budget: OtlpEncodingBudget = { encodedBytes: 0 }
-    const body = JSON.stringify({
+    if (context.signal === "logs") {
+      await postOtlp(otlpSignalEndpoint(options.endpoint, "logs"), headers, JSON.stringify({
+        resourceLogs: [{
+          resource: { attributes: otlpAttributes(resource) },
+          scopeLogs: [{
+            logRecords: context.records.map(otlpLogRecord),
+            scope: { name: "vitehub.agent" },
+          }],
+        }],
+      }), "rejectedLogRecords")
+      return
+    }
+    const fallbackEndTime = context.spans[0]?.endTime || new Date().toISOString()
+    await postOtlp(otlpSignalEndpoint(options.endpoint, "traces"), headers, JSON.stringify({
       resourceSpans: [{
-        resource: { attributes: otlpAttributes(resource, budget) },
+        resource: { attributes: otlpAttributes(resource) },
         scopeSpans: [{
           scope: { name: "vitehub.agent" },
-          spans: context.spans.map(span => otlpSpan(span, fallbackEndTime, budget)),
+          spans: context.spans.map(span => otlpSpan(span, fallbackEndTime)),
         }],
       }],
-    })
-    if (new TextEncoder().encode(body).byteLength > MAX_OTLP_REQUEST_BYTES) {
-      throw new RangeError(`OTLP/HTTP JSON payloads cannot exceed ${MAX_OTLP_REQUEST_BYTES} bytes.`)
-    }
-    await postOtlp(options.endpoint, headers, body)
+    }), "rejectedSpans")
   }
 }
