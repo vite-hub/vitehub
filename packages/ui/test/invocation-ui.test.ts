@@ -94,8 +94,10 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     };
 
-    expect(mount(AgentInvocation, { props: { invocation } }).text())
-      .toContain("Some trace content was truncated by the invocation journal.");
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-event__summary").text()).toContain("Trace content was truncated");
+    expect(wrapper.get("details").attributes("open")).toBeUndefined();
   });
 
   it("renders the working state with the loader-circle path", () => {

@@ -5,8 +5,8 @@ export const agentInvocationResolvedModelContextKey = "agent.inspection.modelRes
 
 export interface AgentInvocationResolvedConfiguration {
   instructions: string
-  model: AgentModelInput
-  tools: readonly string[]
+  model?: AgentModelInput
+  tools?: readonly string[]
 }
 
 function isCallbackContextValue(id: string): boolean {

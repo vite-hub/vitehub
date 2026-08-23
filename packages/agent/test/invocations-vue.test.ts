@@ -218,7 +218,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("does not retain unrefreshable older rows for a filtered standard requester", async () => {
+  it("keeps unrefreshable older rows for a filtered standard requester", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
@@ -229,7 +229,7 @@ describe("Agent Invocation Vue composables", () => {
     calls[1]!.resolve({ invocations: [record("inv-2")] });
     await refresh;
 
-    expect(resource.invocations.value).toEqual([record("inv-2")]);
+    expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-1")]);
     scope.stop();
   });
 

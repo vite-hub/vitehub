@@ -328,6 +328,7 @@ export function latestInvocationTokens(activities: readonly InvocationActivity[]
 }
 
 export function invocationActivityTitle(activity: InvocationActivity): string {
+  if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));

@@ -904,7 +904,7 @@ async function* runProvider(
       if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
     }
     await context.context.get<((configuration: AgentInvocationResolvedConfiguration) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.({
-      instructions: instructions ? [instructions] : [],
+      instructions: instructions ?? "",
       ...(options.model ? { model: options.model } : {}),
     })
     if (instructions) {

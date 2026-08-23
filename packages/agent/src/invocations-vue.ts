@@ -362,9 +362,6 @@ export function useAgentInvocations(
       for (const invocation of refreshedRetained.values()) {
         if (!matchesQuery(invocation)) departedIds.add(invocation.id);
       }
-      if (!options.requestSummaries && (statuses.size > 0 || search)) {
-        for (const id of retainedIds) departedIds.add(id);
-      }
       if (resetFirstPage || (statuses.size === 0 && !search)) {
         return { ...result, refreshedRetained };
       }
