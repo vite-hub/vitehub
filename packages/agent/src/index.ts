@@ -204,7 +204,7 @@ import type {
   WorkspaceName,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
-import type { OpenTelemetrySpanView } from "@vite-hub/runtime"
+import type { OpenTelemetrySpanView, TraceEventLogEntry } from "@vite-hub/runtime"
 
 export type {
   AgentInvocationAnnotationValue,
@@ -2258,17 +2258,36 @@ function agentContentTraceLog(
   invocationId: string,
   runId?: string,
 ): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
-  const content = createTraceEventLog({ content: "content" })
+  const maxEntries = 1024
+  const firstEntries: TraceEventLogEntry[] = []
+  const tailEntries: Array<TraceEventLogEntry | undefined> = Array.from({ length: maxEntries / 2 })
+  let count = 0
+  let failure: TraceEventLogEntry | undefined
+  let terminal: TraceEventLogEntry | undefined
+  const retainedEntries = () => {
+    const tail = tailEntries.filter(entry => entry !== undefined).sort((left, right) => left.sequence - right.sequence)
+    const evidence = [...new Map([failure, terminal].filter(entry => entry !== undefined).map(entry => [entry.sequence, entry])).values()]
+    const evidenceSequences = new Set(evidence.map(entry => entry.sequence))
+    const retainedTail = tail.filter(entry => !evidenceSequences.has(entry.sequence)).slice(-(tailEntries.length - evidence.length))
+    const retained = count <= maxEntries ? [...firstEntries, ...tail] : [...firstEntries, ...retainedTail, ...evidence]
+    return [...new Map(retained.map(entry => [entry.sequence, entry])).values()]
+      .sort((left, right) => left.sequence - right.sequence)
+  }
   const traceLog = {
     async append(event: Parameters<typeof destination.append>[0]) {
       const correlated = agentInvocationTraceEvent(event, invocationId, runId)
-      const [entry] = await Promise.all([
-        content.append(correlated),
-        destination.append(correlated),
-      ])
+      const normalized = await createTraceEventLog({ content: "content" }).append(correlated)
+      const entry = { ...normalized, sequence: count + 1 }
+      if (count < maxEntries / 2) firstEntries.push(entry)
+      else tailEntries[(count - maxEntries / 2) % tailEntries.length] = entry
+      const isFailure = entry.name === "run.error" || (entry.name === "agent.stream.error" && entry.attributes?.["error.recoverable"] !== true)
+      if (isFailure) failure = entry
+      if (entry.name === "agent.invocation.finish" || entry.name === "run.finish" || entry.name === "agent.invocation.error" || isFailure) terminal = entry
+      count += 1
+      await destination.append(correlated)
       return entry
     },
-    entries: () => content.entries(),
+    entries: retainedEntries,
   }
   if (agentInvocationJournalTraceLogSymbol in destination) {
     Object.defineProperty(traceLog, agentInvocationJournalTraceLogSymbol, { value: true })

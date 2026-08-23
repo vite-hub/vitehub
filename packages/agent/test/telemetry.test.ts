@@ -584,6 +584,44 @@ describe("Agent telemetry", () => {
     expect(JSON.stringify(telemetry.mock.calls[0]![0].spans)).toContain("application answer")
   })
 
+  it("bounds content trace accumulation before terminal export", async () => {
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn()
+    let retainedNames: string[] = []
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "bounded-content",
+        telemetry: { content: { outputs: true }, exporter: telemetry },
+      })],
+      driver: {
+        async run(context) {
+          for (let index = 0; index < 1_100; index += 1) {
+            await context.traceLog?.append({ name: `application.output.${index}`, type: "run" })
+            if (index === 600) {
+              await context.traceLog?.append({ attributes: { "error.recoverable": false }, name: "agent.stream.error", type: "error" })
+            }
+          }
+          retainedNames = context.traceLog?.entries().map(event => event.name) || []
+          return "ok"
+        },
+      },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-bounded-content" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    expect(retainedNames).toHaveLength(1_024)
+    expect(retainedNames).toContain("application.output.0")
+    expect(retainedNames).toContain("application.output.1099")
+    expect(retainedNames).toContain("agent.stream.error")
+    expect(telemetry.mock.calls[0]![0].spans[0].status).toEqual({ code: "ERROR" })
+  })
+
   it("retries transient OTLP responses", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response(null, { headers: { "retry-after": "0" }, status: 503 }))
