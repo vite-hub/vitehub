@@ -390,6 +390,40 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("prioritizes failed reconciliation checks in the next bounded poll", async () => {
+    const request = vi.fn<AgentInvocationRequester>();
+    const retained = Array.from({ length: 25 }, (_, index) => record(`inv-${index}`));
+    request.mockResolvedValueOnce({ invocations: retained });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+    await settle();
+
+    request.mockResolvedValueOnce({ invocations: [record("new")] });
+    let failedPath: string | undefined;
+    request.mockImplementationOnce((path) => {
+      failedPath = path;
+      return Promise.reject(new Error("temporary failure"));
+    });
+    for (const invocation of retained.slice(1, 20)) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+
+    request.mockResolvedValueOnce({ invocations: [record("newer")] });
+    request.mockResolvedValueOnce({ invocation: retained[0], observations: [] });
+    for (const invocation of retained.slice(20)) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    for (const invocation of retained.slice(0, 14)) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+
+    expect(request.mock.calls[23]?.[0]).toBe(failedPath);
+    expect(request).toHaveBeenCalledTimes(43);
+    scope.stop();
+  });
+
   it("removes displaced records that no longer match the status filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

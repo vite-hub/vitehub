@@ -269,6 +269,7 @@ export function useAgentInvocations(
   let loadMoreController: AbortController | undefined;
   let revision = 0;
   let reconciliationOffset = 0;
+  let reconciliationRetryIds = new Set<string>();
   let resetFirstPage = true;
   let departedIds = new Set<string>();
   let reconciledInvocations = new Map<string, AgentInvocationSummary>();
@@ -303,6 +304,7 @@ export function useAgentInvocations(
       invocations.value = [];
       cursor.value = undefined;
       reconciledInvocations = new Map();
+      reconciliationRetryIds = new Set();
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -312,6 +314,7 @@ export function useAgentInvocations(
         invocations.value = [];
         cursor.value = undefined;
         reconciliationOffset = 0;
+        reconciliationRetryIds = new Set();
       }
       revision++;
       loadMoreController?.abort();
@@ -330,16 +333,27 @@ export function useAgentInvocations(
       const search = query?.search?.trim().toLowerCase();
       if (resetFirstPage) return result;
       const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
+      for (const id of returnedIds) reconciliationRetryIds.delete(id);
       const retainedIds = invocations.value
         .filter(invocation => !returnedIds.has(invocation.id))
         .map(invocation => invocation.id);
-      const reconciliationCount = Math.min(retainedIds.length, retainedReconciliationLimit);
-      const displaced = Array.from({ length: reconciliationCount }, (_, index) =>
-        retainedIds[(reconciliationOffset + index) % retainedIds.length],
+      const retainedIdSet = new Set(retainedIds);
+      const retries = [...reconciliationRetryIds]
+        .filter(id => retainedIdSet.has(id))
+        .slice(0, retainedReconciliationLimit);
+      const retryIdSet = new Set(retries);
+      const rotatingIds = retainedIds.filter(id => !retryIdSet.has(id));
+      const rotatingCount = Math.min(
+        rotatingIds.length,
+        retainedReconciliationLimit - retries.length,
+      );
+      const rotating = Array.from({ length: rotatingCount }, (_, index) =>
+        rotatingIds[(reconciliationOffset + index) % rotatingIds.length],
       ).filter((id): id is string => id !== undefined);
-      reconciliationOffset = retainedIds.length === 0
+      const displaced = [...retries, ...rotating];
+      reconciliationOffset = rotatingIds.length === 0
         ? 0
-        : (reconciliationOffset + reconciliationCount) % retainedIds.length;
+        : (reconciliationOffset + rotatingCount) % rotatingIds.length;
       const reconciled = await Promise.allSettled(displaced.map(id =>
         request(detailPath(toValue(baseURL), id), { signal }).then(parseAgentInvocationDetailResult),
       ));
@@ -348,7 +362,11 @@ export function useAgentInvocations(
       for (const [index, outcome] of reconciled.entries()) {
         const id = displaced[index];
         if (!id) continue;
-        if (outcome.status === "rejected") continue;
+        if (outcome.status === "rejected") {
+          reconciliationRetryIds.add(id);
+          continue;
+        }
+        reconciliationRetryIds.delete(id);
         // SAFETY: The detail parser has validated the invocation summary fields; observations are the only detail-only field removed here.
         const { observations: _observations, ...searchableInvocation } = outcome.value.invocation as AgentInvocationSummary & { observations?: unknown };
         if (

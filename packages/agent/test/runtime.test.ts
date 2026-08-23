@@ -1107,10 +1107,10 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().find(event => event.name === "agent.title.recorded")?.attributes).toMatchObject({
       "vitehub.session.title": "Readable session",
     })
-    expect(traceLog.entries().filter(event => event.name === "agent.reasoning")).toEqual([
+    expect(traceLog.entries().filter(event => event.name === "agent.message.delta" && event.attributes?.["message.phase"] === "commentary")).toEqual([
       expect.objectContaining({ attributes: expect.objectContaining({ "message.content": "Inspecting the repository" }) }),
     ])
-    expect(traceLog.entries().filter(event => event.name === "agent.message")).toEqual([
+    expect(traceLog.entries().filter(event => event.name === "agent.message.delta" && event.attributes?.["message.phase"] === "final")).toEqual([
       expect.objectContaining({ attributes: expect.objectContaining({ "message.content": "Finished the review" }) }),
     ])
     expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ path: "README.md" })
@@ -9333,18 +9333,37 @@ describe("agent message protocol", () => {
     expect(finish).toHaveBeenCalledOnce()
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
-      "agent.message",
+      "agent.message.delta",
       "agent.tool.start",
       "agent.tool.finish",
       "agent.usage.recorded",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
-    expect(traceLog.entries().find(event => event.name === "agent.message")?.attributes?.["message.content"]).toBe("public")
+    expect(traceLog.entries().find(event => event.name === "agent.message.delta")?.attributes?.["message.content"]).toBe("public")
     expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ query: "users" })
     expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes?.["tool.output"]).toBe("42")
     expect(traceLog.entries().find(event => event.name === "agent.usage.recorded")?.attributes?.["usage.totalTokens"]).toBe(3)
     expect(JSON.stringify(traceLog.entries())).not.toContain("private")
+  })
+
+  it.each([
+    [{ outputTokenDetails: { reasoningTokens: 2 }, totalTokens: 3 }, 2],
+    [{ details: { reasoningOutputTokens: 2 }, totalTokens: 3 }, 2],
+  ])("records reasoning token usage for invocation activity", async (usage, expected) => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { type: "usage", usageRecord: { usage } }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(traceLog.entries().find(event => event.name === "agent.usage.recorded")?.attributes?.["usage.reasoningTokens"]).toBe(expected)
   })
 
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {

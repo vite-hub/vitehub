@@ -4,6 +4,7 @@ import { mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h } from "vue";
 import { describe, expect, it } from "vitest";
 import { AgentChatPrompt } from "../src/components/agent-chat-prompt.ts";
+import { AgentSession } from "../src/components/agent-session.ts";
 import { nextPromptFiles } from "../src/internal/prompt-files.ts";
 import { useAgentAttachments } from "../src/composables/attachments.ts";
 
@@ -38,6 +39,34 @@ const TrimGuardPrompt = defineComponent({
         slots.footer?.(),
       ]);
   },
+});
+
+describe("AgentSession", () => {
+  it("keeps session header and footer slots out of message rendering", () => {
+    const session = {
+      id: "session-1",
+      messages: [{ id: "message-1", parts: [{ text: "Hello", type: "text" as const }], role: "assistant" as const }],
+      title: "Session",
+    };
+    const wrapper = mount(AgentSession, {
+      global: {
+        components: {
+          UChatMessage: defineComponent({
+            setup(_props, { slots }) {
+              return () => h("article", [slots.header?.(), slots.body?.()]);
+            },
+          }),
+        },
+      },
+      props: { session },
+      slots: {
+        header: ({ session: value }: { session: typeof session }) => h("div", { class: "session-header" }, value.title),
+      },
+    });
+
+    expect(wrapper.findAll(".session-header")).toHaveLength(1);
+    expect(wrapper.text()).toContain("Session");
+  });
 });
 
 const EmptyStub = defineComponent({

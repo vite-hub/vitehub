@@ -11,8 +11,11 @@ export const AgentSession = defineComponent({
     status: { default: "ready", type: String as PropType<ChatStatus> },
   },
   setup(props, { attrs, slots }) {
-    return () =>
-      h(
+    return () => {
+      const chatSlots = Object.fromEntries(
+        Object.entries(slots).filter(([name]) => name !== "header" && name !== "footer"),
+      );
+      return h(
         "section",
         { ...attrs, class: ["vh-session", attrs.class], "data-session-id": props.session.id },
         [
@@ -25,10 +28,11 @@ export const AgentSession = defineComponent({
           h(
             AgentChat,
             { class: "vh-session__chat", messages: props.session.messages, status: props.status },
-            slots,
+            chatSlots,
           ),
           slots.footer?.({ session: props.session }),
         ],
       );
+    };
   },
 });
