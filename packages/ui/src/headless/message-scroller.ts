@@ -155,6 +155,11 @@ export const MessageScrollerViewport = defineComponent({
     const interruptFollowing = () => {
       context.following.value = false;
     };
+    const onKeydown = (event: KeyboardEvent) => {
+      if (["ArrowDown", "ArrowUp", "End", "Home", "PageDown", "PageUp", " "].includes(event.key)) {
+        interruptFollowing();
+      }
+    };
     const observeContent = () => {
       resizeObserver?.disconnect();
       mutationObserver?.disconnect();
@@ -199,6 +204,7 @@ export const MessageScrollerViewport = defineComponent({
           ...attrs,
           "data-at-end": context.atEnd.value ? "" : undefined,
           "data-slot": "message-scroller-viewport",
+          onKeydown,
           onPointerdown: interruptFollowing,
           onScroll,
           onWheel: interruptFollowing,

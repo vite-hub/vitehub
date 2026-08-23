@@ -73,6 +73,8 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.name": event.name,
       "tool.hasInput": event.input !== undefined,
       ...(event.input !== undefined ? { "tool.input": event.input } : {}),
+      "vitehub.activity.kind": event.activity?.kind || "tool",
+      "vitehub.action.name": event.activity?.kind === "action" ? event.activity.name : undefined,
     }
   }
   if (event.type === "tool-result") {

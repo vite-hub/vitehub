@@ -1141,6 +1141,12 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
+    const start = traceLog.entries().find(event => event.name === "agent.tool.start")
+    expect(start?.attributes).toMatchObject({
+      "vitehub.action.name": "repository-host.write",
+      "vitehub.activity.kind": "action",
+    })
+
     const span = traceEventsToOpenTelemetrySpans(traceLog.entries()).find(item => item.attributes?.["vitehub.step.id"] === "action-1")
     expect(span?.attributes).toMatchObject({
       "gen_ai.operation.name": "execute_tool",
