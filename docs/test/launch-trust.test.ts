@@ -117,7 +117,15 @@ describe("launch documentation trust boundaries", () => {
     expect(matrixComponent).toContain(
       "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host",
     );
-    expect(matrix).toMatch(/\| Sandbox\s+\|[^\n]+\| Cloudflare or Vercel \| Box provider\s+\|/);
+    expect(matrixComponent).toContain(
+      "Netlify requires an explicitly selected Cloudflare Sandbox or Vercel Sandbox provider",
+    );
+    expect(matrix).toMatch(
+      /\| Sandbox\s+\|[^\n]+\| Cloudflare or Vercel \| —\s+\| Cloudflare or Vercel \| Box provider\s+\|/,
+    );
+    expect(matrix).toContain(
+      "an explicit Cloudflare Sandbox or Vercel Sandbox provider because it cannot infer them",
+    );
     expect(matrix).toContain("Cloudflare Workflows");
     expect(matrix).toContain("Vercel Workflow");
     expect(matrixComponent).toContain("row.values[column.id]!.display");
@@ -145,6 +153,9 @@ describe("launch documentation trust boundaries", () => {
     expect(matrixComponent).toContain('scroll-margin-block-start: 7rem');
     expect(matrixComponent).toContain(
       'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
+    );
+    expect(matrixComponent).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.support-matrix-qualifications \{\s*padding-inline-start: 3\.25rem;/,
     );
     expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
     expect(matrixComponent).toContain(

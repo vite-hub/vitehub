@@ -423,7 +423,11 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
           ),
           cloudflare: cell("available", "Cloudflare Sandbox execution provider.", "CF Sandbox"),
           vercel: cell("available", "Vercel Sandbox execution provider.", "Vercel Sandbox"),
-          netlify: cell("none", "No Netlify Sandbox provider is provided.", "—"),
+          netlify: cell(
+            "package",
+            "Netlify requires an explicitly selected Cloudflare Sandbox or Vercel Sandbox provider.",
+            "Cloudflare / Vercel",
+          ),
           deno: cell("none", "No Deno Sandbox provider is provided.", "—"),
           nitro: cell(
             "package",
@@ -1320,6 +1324,10 @@ a.support-matrix-host-link:hover {
 
   .support-matrix-legend {
     justify-content: flex-start;
+  }
+
+  .support-matrix-qualifications {
+    padding-inline-start: 3.25rem;
   }
 
   .support-matrix-footer {
