@@ -178,8 +178,8 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
         values: {
           local: cell(
             "package",
-            "Pass localBrowser() to createBrowser() for a trusted local process. Browser Definitions do not select this provider.",
-            "localBrowser()",
+            "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted local process. Browser Definitions do not select this provider.",
+            "Local provider",
           ),
           cloudflare: cell(
             "available",
@@ -196,8 +196,8 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
           ),
           node: cell(
             "package",
-            "Pass localBrowser() to createBrowser() for a trusted self-hosted Node process. Browser Definitions do not select this provider.",
-            "localBrowser()",
+            "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted self-hosted Node process. Browser Definitions do not select this provider.",
+            "Local provider",
           ),
         },
       },
@@ -459,9 +459,9 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
             "Scheduled fn",
           ),
           deno: cell(
-            "available",
-            "Generated Deno.cron wake output for static Schedules.",
-            "Deno.cron",
+            "package",
+            "The standalone Schedule integration generates Deno.cron wake output. vitehub({ preset: \"deno\", schedule: true }) is not supported.",
+            "Standalone Deno.cron",
           ),
           nitro: cell(
             "available",

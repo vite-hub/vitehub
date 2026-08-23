@@ -56,17 +56,24 @@ describe("launch documentation trust boundaries", () => {
       expect(matrixHeader).toContain(host);
     }
     expect(matrix).toMatch(
-      /\| Browser\s+\| `localBrowser\(\)`\s+\| Browser Run.*\| `localBrowser\(\)`\s+\|/,
+      /\| Browser\s+\| Local provider\s+\| Browser Run.*\| Local provider\s+\|/,
     );
     expect(matrixComponent).toContain("Browser Definitions require ViteHub's Cloudflare preset");
     expect(matrixComponent).toContain(
-      "Pass localBrowser() to createBrowser() for a trusted local process",
+      "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted local process",
     );
     expect(matrixComponent).toContain(
-      "Pass localBrowser() to createBrowser() for a trusted self-hosted Node process",
+      "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted self-hosted Node process",
     );
     expect(matrix).toContain(
-      "Trusted local and self-hosted Node processes can pass `localBrowser()` directly to `createBrowser()`",
+      "Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`",
+    );
+    expect(matrix).toContain("Standalone `Deno.cron`");
+    expect(matrixComponent).toContain(
+      'vitehub({ preset: \\"deno\\", schedule: true }) is not supported',
+    );
+    expect(matrix).toContain(
+      '`vitehub({ preset: "deno", schedule: true })` rejects Schedule',
     );
     expect(matrix).toContain("**Available**");
     expect(matrix).toContain("**Package-specific**");
