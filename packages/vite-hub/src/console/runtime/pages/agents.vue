@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
           Select a session to inspect its work.
         </div>
         <UEmpty
-          v-else-if="errorMessage(detail.error.value)"
+          v-else-if="errorMessage(detail.error.value) && !invocationView"
           class="h-full"
           icon="i-lucide-cloud-off"
           title="Could not load this run"
@@ -481,12 +481,22 @@ onBeforeUnmount(() => {
         >
           <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
         </div>
-        <template v-else-if="invocationView">
+        <div v-else-if="invocationView" class="flex h-full min-h-0 flex-col">
+          <UAlert
+            v-if="errorMessage(detail.error.value)"
+            class="m-3 shrink-0"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not refresh this run"
+            :description="errorMessage(detail.error.value)"
+            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
+          />
           <USplitter
             v-if="isDesktop"
             id="agent-session-layout"
             :items="splitterItems"
-            class="h-full min-h-0"
+            class="min-h-0 flex-1"
           >
             <template #thread
               ><AgentInvocation :invocation="invocationView" class="h-full"
@@ -514,7 +524,7 @@ onBeforeUnmount(() => {
                     @click="detailsOpen = false" /></template></AgentInvocationInspector
             ></template>
           </USplitter>
-          <AgentInvocation v-else :invocation="invocationView" class="h-full"
+          <AgentInvocation v-else :invocation="invocationView" class="min-h-0 flex-1"
             ><template #title>{{ selectedSession.agentName || "Agent session" }}</template
             ><template #actions
               ><div class="flex items-center gap-1">
@@ -551,7 +561,7 @@ onBeforeUnmount(() => {
                     aria-label="Close session details"
                     @click="detailsOpen = false" /></template></AgentInvocationInspector></template
           ></USlideover>
-        </template>
+        </div>
       </div>
     </UDashboardPanel>
   </UDashboardGroup>

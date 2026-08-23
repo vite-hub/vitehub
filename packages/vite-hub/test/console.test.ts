@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
@@ -164,6 +166,33 @@ describe("Agent invocation console", () => {
     expect(await applyToEnvironment({ config: { consumer: "client" } } as never)).toBe(false)
     expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({ resolve: { noExternal: ["vite-hub"] } })
+  })
+
+  it("binds the project root when a real Vite development server loads an Agent realm", async () => {
+    const root = await mkdtemp(join(import.meta.dirname, ".console-vite-"))
+    const projectRoot = join(root, "project")
+    const frameworkAgentEntry = createRequire(import.meta.url).resolve("vite-hub/agent")
+    await writeFile(join(root, "agent-root.ts"), [
+      `import ${JSON.stringify(frameworkAgentEntry)}`,
+      'export const projectRoot = globalThis[Symbol.for("vitehub.console.invocations.root")]',
+      "",
+    ].join("\n"))
+    let server: Awaited<ReturnType<typeof createServer>> | undefined
+
+    try {
+      server = await createServer({
+        configFile: false,
+        plugins: [consoleInvocationRootPlugin(projectRoot)],
+        root,
+        server: { middlewareMode: true },
+      })
+      const loaded = await server.ssrLoadModule(join(root, "agent-root.ts")) as { projectRoot?: string }
+      expect(loaded.projectRoot).toBe(projectRoot)
+    }
+    finally {
+      await server?.close()
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("anchors the durable journal to the project root and shares it between runtime instances", async () => {

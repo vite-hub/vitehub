@@ -16,6 +16,7 @@ export function consoleInvocationRootPlugin(projectRoot: string): Plugin {
   return {
     name: "vite-hub/console-invocation-root",
     applyToEnvironment: environment => environment.config.consumer === "server",
+    perEnvironmentStartEndDuringDev: true,
     configEnvironment(_name, config) {
       if (config.consumer !== "server") return
       return { resolve: { noExternal: ["vite-hub"] } }
