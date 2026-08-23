@@ -2242,7 +2242,11 @@ function agentInvocationTraceLog(
     Object.defineProperty(invocationTraceLog, agentTelemetryPendingEntriesSymbol, {
       // SAFETY: The symbol presence check establishes the private pending-entry journal contract.
       value: (traceLog as typeof traceLog & {
-        [agentTelemetryPendingEntriesSymbol]: { entries: () => TraceEventLogEntry[], release: (sequence: number) => void }
+        [agentTelemetryPendingEntriesSymbol]: {
+          compact: () => void
+          entries: () => TraceEventLogEntry[]
+          release: (sequence: number) => void
+        }
       })[agentTelemetryPendingEntriesSymbol],
     })
   }
@@ -2307,6 +2311,9 @@ function agentContentTraceLog(
   }
   Object.defineProperty(traceLog, agentTelemetryPendingEntriesSymbol, {
     value: {
+      compact() {
+        pendingEntries.splice(0, pendingEntries.length, ...retainedEntries())
+      },
       entries: () => pendingEntries,
       release(sequence: number) {
         const retainedIndex = pendingEntries.findIndex(entry => entry.sequence > sequence)
@@ -2707,6 +2714,13 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
       if (finalBatchIncludesConfiguration) configurationDelivered.add(item)
     }
   }))
+  if (exports.some(result => result.status === "rejected")) {
+    // SAFETY: Only agentContentTraceLog installs this private journal and owns this method.
+    const pending = (runtime.traceLog as typeof runtime.traceLog & {
+      [agentTelemetryPendingEntriesSymbol]?: { compact: () => void }
+    })[agentTelemetryPendingEntriesSymbol]
+    pending?.compact()
+  }
   throwAgentTelemetryFailures(exports)
   const deliveredThrough = Math.min(...telemetry.map(item => cursors.get(item) || 0))
   // SAFETY: Only agentContentTraceLog installs this private journal and owns both methods.

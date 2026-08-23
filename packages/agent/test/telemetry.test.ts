@@ -616,6 +616,74 @@ describe("Agent telemetry", () => {
     error.mockRestore()
   })
 
+  it("bounds content retained after a live log failure", async () => {
+    vi.useFakeTimers()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      let releaseDriver!: () => void
+      let releaseExport!: () => void
+      let runtimeTraceLog: { append(event: { name: string, type: "run" }): unknown } | undefined
+      const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+      const accepted: Parameters<AgentTelemetry>[0][] = []
+      const tasks: Promise<unknown>[] = []
+      let failed = false
+      const telemetry = vi.fn(async (context: Parameters<AgentTelemetry>[0]) => {
+        if (context.signal === "logs" && !failed) {
+          await exportGate
+          failed = true
+          throw new Error("logs unavailable")
+        }
+        accepted.push(context)
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "live-content-fallback",
+          telemetry: { content: { outputs: true }, exporter: telemetry, live: true },
+        })],
+        driver: {
+          async run(context) {
+            runtimeTraceLog = context.traceLog
+            await driverGate
+            return "ok"
+          },
+        },
+      })
+
+      const active = runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})
+      await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
+      await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress.0", type: "run" }))
+      await vi.advanceTimersByTimeAsync(5_000)
+      await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(1))
+      for (let index = 1; index < 1_200; index += 1) {
+        await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
+      }
+
+      releaseDriver()
+      await active
+      releaseExport()
+      await vi.runAllTimersAsync()
+      await Promise.all(tasks)
+
+      const progress = accepted.flatMap(exported => exported.signal === "logs" ? exported.records : [])
+        .map(record => record.eventName)
+        .filter(name => name.startsWith("application.progress"))
+      expect(progress.length).toBeLessThanOrEqual(1_024)
+      expect(progress).toContain("application.progress.0")
+      expect(progress).toContain("application.progress.1199")
+      expect(progress).not.toContain("application.progress.600")
+      expect(accepted.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ events: undefined })] })
+    }
+    finally {
+      error.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("retains span events when an OTLP receiver partially accepts live logs", async () => {
     const requests: Array<{ body: unknown, endpoint: string }> = []
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
