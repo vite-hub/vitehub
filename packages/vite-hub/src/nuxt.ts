@@ -14,6 +14,7 @@ import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { assertLocalConsolePeer } from "./console/runtime/server/local-request.ts"
 import { consoleInvocationRootPlugin } from "./console/vite.ts"
+import { mergeGeneratedCollectionNitroConfig, type GeneratedCollectionHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
@@ -473,9 +474,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   } | undefined
   if (!emailPlugin) await emailCleanupPlugin?.api?.prepareTypes?.(projectRoot)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
-    api?: { prepareTypes?: (root: string) => Promise<void> }
+    api?: {
+      prepareTypes?: (options: {
+        projectRoot: string
+        serverDirs?: string[]
+      }) => Promise<GeneratedCollectionHandler[]>
+    }
   } | undefined
-  await typesPlugin?.api?.prepareTypes?.(projectRoot)
+  const collectionHandlers = await typesPlugin?.api?.prepareTypes?.({
+    projectRoot,
+    serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+  }) ?? []
 
   viteConfig.define = {
     ...viteConfig.define,
@@ -484,10 +493,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
-  nuxt.options.vite.plugins = [
+  const installedVitePlugins: unknown = [
     ...plugins.filter(plugin => !existingNames.has(plugin.name)),
     ...existing,
-  ] as PluginOption[]
+  ]
+  // SAFETY: Both arrays contain Vite plugins normalized or preserved by this integration.
+  nuxt.options.vite.plugins = installedVitePlugins as PluginOption[]
   const configuredEnvProjectRootOption = options.env && typeof options.env === "object"
     ? options.env.projectRoot
     : undefined
@@ -512,6 +523,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)
+    Object.assign(config, mergeGeneratedCollectionNitroConfig(config, collectionHandlers))
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
@@ -519,6 +531,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
   })
   if (options.agent) addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
+  addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (options.auth) {
     const envOptions = options.env || {}
     hubAuthNuxt({

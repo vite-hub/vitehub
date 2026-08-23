@@ -32,13 +32,20 @@ let media: MediaQueryList | undefined;
 
 useHead({ title: "Agents · ViteHub Console" });
 
-const request = createConsoleRequest(() => {
+const request = createConsoleRequest();
+const recordSuccessfulPoll = () => {
   lastSuccessfulPollAt.value = new Date();
-});
+};
 
-const list = useAgentInvocations({ baseURL: apiBase, pollInterval: 5_000, request });
+const list = useAgentInvocations({
+  baseURL: apiBase,
+  onSuccess: recordSuccessfulPoll,
+  pollInterval: 5_000,
+  request,
+});
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: apiBase,
+  onSuccess: recordSuccessfulPoll,
   pollInterval: 3_000,
   request,
 });

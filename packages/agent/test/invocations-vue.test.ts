@@ -65,43 +65,51 @@ afterEach(() => {
 describe("Agent Invocation Vue composables", () => {
   it("keeps prior state when transport records are malformed", async () => {
     const { calls, request } = controlledRequester();
+    const onSuccess = vi.fn();
     const scope = effectScope();
-    const resource = scope.run(() => useAgentInvocations({ request }))!;
+    const resource = scope.run(() => useAgentInvocations({ onSuccess, request }))!;
 
     calls[0]!.resolve({ invocations: [record("inv-1")] });
     await settle();
     expect(resource.invocations.value).toEqual([record("inv-1")]);
+    expect(onSuccess).toHaveBeenCalledOnce();
 
     const refresh = resource.refresh();
     calls[1]!.resolve({ invocations: [null] });
     await refresh;
     expect(resource.error.value).toBeInstanceOf(Error);
     expect(resource.invocations.value).toEqual([record("inv-1")]);
+    expect(onSuccess).toHaveBeenCalledOnce();
     scope.stop();
 
     const detailCalls = controlledRequester();
+    const onDetailSuccess = vi.fn();
     const detailScope = effectScope();
     const detail = detailScope.run(() =>
-      useAgentInvocation("inv-1", { request: detailCalls.request }),
+      useAgentInvocation("inv-1", { onSuccess: onDetailSuccess, request: detailCalls.request }),
     )!;
     detailCalls.calls[0]!.resolve({ invocation: record("inv-1"), observations: [observation(1)] });
     await settle();
+    expect(onDetailSuccess).toHaveBeenCalledOnce();
     const detailRefresh = detail.refresh();
     detailCalls.calls[1]!.resolve({ invocation: {}, observations: [null] });
     await detailRefresh;
     expect(detail.error.value).toBeInstanceOf(Error);
     expect(detail.invocation.value).toEqual(record("inv-1"));
     expect(detail.observations.value).toEqual([observation(1)]);
+    expect(onDetailSuccess).toHaveBeenCalledOnce();
     detailScope.stop();
   });
 
   it("reacts to list queries and ignores superseded requests", async () => {
     const { calls, request } = controlledRequester();
+    const onSuccess = vi.fn();
     const query = ref({ status: ["queued", "running"], limit: 20 });
     const scope = effectScope();
     const resource = scope.run(() =>
       useAgentInvocations({
         baseURL: "/internal/invocations",
+        onSuccess,
         query,
         request,
       }),
@@ -124,6 +132,7 @@ describe("Agent Invocation Vue composables", () => {
     expect(resource.cursor.value).toBe("next");
     expect(resource.isLoading.value).toBe(false);
     expect(resource.error.value).toBeNull();
+    expect(onSuccess).toHaveBeenCalledOnce();
 
     const older = resource.loadMore();
     expect(calls[2]!.path).toBe("/internal/invocations?status=finished&limit=10&cursor=next");
@@ -131,6 +140,7 @@ describe("Agent Invocation Vue composables", () => {
     await older;
     expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-3")]);
     expect(resource.cursor.value).toBeUndefined();
+    expect(onSuccess).toHaveBeenCalledTimes(2);
     scope.stop();
   });
 

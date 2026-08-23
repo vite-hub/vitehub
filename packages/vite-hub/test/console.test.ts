@@ -56,18 +56,14 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
-  it("records freshness only after a successful console response", async () => {
-    const onSuccess = vi.fn()
-    const request = createConsoleRequest(onSuccess)
+  it("returns only successful console responses", async () => {
+    const request = createConsoleRequest()
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(new Response("failed", { status: 500 }))
       .mockResolvedValueOnce(Response.json({ invocations: [] })))
 
     await expect(request("/first", {})).rejects.toThrow("status 500")
-    expect(onSuccess).not.toHaveBeenCalled()
-
     await expect(request("/second", {})).resolves.toEqual({ invocations: [] })
-    expect(onSuccess).toHaveBeenCalledOnce()
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {
@@ -128,16 +124,22 @@ describe("Agent invocation console", () => {
     const secondAgentRealm = { process }
     const unboundAgentRealm = { process }
 
+    // doctor-disable-next-line typescript/evidence/no-object-parameters -- VM contexts accept object realms and the test only checks injected symbol state.
     const bind = async (projectRoot: string, realm: object) => {
       const plugin = consoleInvocationRootPlugin(projectRoot)
+      // SAFETY: The console plugin declares this environment predicate on its Vite Plugin contract.
       const applyToEnvironment = plugin.applyToEnvironment as NonNullable<typeof plugin.applyToEnvironment>
-      const buildStart = plugin.buildStart as unknown as (this: object) => Promise<void>
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with a focused fake context.
+      const buildStart = plugin.buildStart as unknown as (this: typeof context) => Promise<void>
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with a focused fake context.
       const resolveId = plugin.resolveId as unknown as (
+        // doctor-disable-next-line typescript/evidence/no-object-parameters -- The fake Vite hook context is intentionally structural.
         this: object,
         source: string,
         importer: string | undefined,
         options: { isEntry: boolean },
       ) => Promise<{ external?: boolean, id: string } | undefined>
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with focused arguments.
       const transform = plugin.transform as unknown as (
         code: string,
         id: string,
@@ -149,7 +151,9 @@ describe("Agent invocation console", () => {
         },
         resolve: vi.fn(async () => ({ external: true, id: resolvedAgentEntry })),
       }
+      // SAFETY: The focused test inputs provide the only environment field read by the predicate.
       expect(await applyToEnvironment({ config: { consumer: "server" } } as never)).toBe(true)
+      // SAFETY: The focused test inputs provide the only environment field read by the predicate.
       expect(await applyToEnvironment({ config: { consumer: "client" } } as never)).toBe(false)
       await Reflect.apply(buildStart, context, [])
       const resolved = await Reflect.apply(resolveId, context, ["vite-hub/agent", "/app/server/example.agent.ts", { isEntry: false }])
@@ -157,6 +161,7 @@ describe("Agent invocation console", () => {
       expect(context.resolve).toHaveBeenCalledWith("vite-hub/agent", undefined, { skipSelf: true })
       expect(context.resolve).toHaveBeenCalledWith("vite-hub/agent", "/app/server/example.agent.ts", { isEntry: false, skipSelf: true })
       expect(resolved).toEqual({ external: false, id: resolvedAgentEntry })
+      // SAFETY: The evaluated fixture explicitly returns its VM global object.
       return runInNewContext(`${code}\nglobalThis`, realm) as object
     }
 
@@ -173,12 +178,15 @@ describe("Agent invocation console", () => {
 
   it("keeps the project-root binding out of client environments", async () => {
     const plugin = consoleInvocationRootPlugin("/private/project")
+    // SAFETY: The console plugin declares this environment predicate on its Vite Plugin contract.
     const applyToEnvironment = plugin.applyToEnvironment as NonNullable<typeof plugin.applyToEnvironment>
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with focused arguments.
     const configEnvironment = plugin.configEnvironment as unknown as (
       name: string,
       config: { consumer: "client" | "server" },
     ) => unknown
 
+    // SAFETY: The focused test input provides the only environment field read by the predicate.
     expect(await applyToEnvironment({ config: { consumer: "client" } } as never)).toBe(false)
     expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({ resolve: { noExternal: ["vite-hub"] } })
@@ -202,6 +210,7 @@ describe("Agent invocation console", () => {
         root,
         server: { middlewareMode: true },
       })
+      // SAFETY: The fixture module exports only the projectRoot value asserted below.
       const loaded = await server.ssrLoadModule(join(root, "agent-root.ts")) as { projectRoot?: string }
       expect(loaded.projectRoot).toBe(projectRoot)
     }

@@ -22,6 +22,7 @@ type AgentInvocationQuery = Record<string, QueryValue | readonly QueryValue[]> &
 export interface UseAgentInvocationsOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
@@ -47,6 +48,7 @@ export interface AgentInvocationDetailResult {
 export interface UseAgentInvocationOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   request: AgentInvocationRequester;
   watch?: boolean;
@@ -162,6 +164,7 @@ interface InvocationResourceOptions<T> {
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
+  onSuccess?: () => void;
   pollingPaused?: () => boolean;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   source: () => unknown;
@@ -209,6 +212,7 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
       if (active !== controller) return;
       if (result === undefined) options.clear();
       else options.apply(result);
+      if (result !== undefined) options.onSuccess?.();
       return result;
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return;
@@ -348,8 +352,8 @@ export function useAgentInvocations(
           pendingDepartureIds.add(id);
           continue;
         }
-        const { observations: _observations, ...searchableInvocation } = outcome.value
-          .invocation as AgentInvocationSummary & { observations?: unknown };
+        const searchableInvocation = { ...outcome.value.invocation };
+        Reflect.deleteProperty(searchableInvocation, "observations");
         if (
           (statuses.size > 0 && !statuses.has(outcome.value.invocation.status)) ||
           (search && !JSON.stringify(searchableInvocation).toLowerCase().includes(search))
@@ -358,6 +362,7 @@ export function useAgentInvocations(
       }
       return result;
     },
+    onSuccess: options.onSuccess,
     pollingPaused: () => isLoadingMore.value,
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
@@ -388,6 +393,7 @@ export function useAgentInvocations(
         ...result.invocations.filter((invocation) => !ids.has(invocation.id)),
       ];
       cursor.value = result.cursor;
+      options.onSuccess?.();
       return result;
     } catch (cause) {
       if (loadMoreController !== controller || isAbortError(cause)) return;
@@ -455,6 +461,7 @@ export function useAgentInvocation(
         parseInvocationDetailResult,
       );
     },
+    onSuccess: options.onSuccess,
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), toValue(id)],
     watch: options.watch !== false,
