@@ -1,6 +1,9 @@
 <script setup lang="ts">
 const route = useRoute();
 const isDocsRoute = computed(() => route.path.startsWith("/docs"));
+const isSupportMatrix = computed(
+  () => route.path.replace(/\/+$/, "") === "/docs/frameworks-hosts/support-matrix",
+);
 
 const navLinks = [
   { label: "Agents", to: "/docs/agents" },
@@ -18,7 +21,7 @@ const mobileLinks = [
 
 <template>
   <div class="sticky top-0 z-50">
-    <UHeader :to="'/'" title="ViteHub">
+    <UHeader :to="'/'" title="ViteHub" :ui="{ toggle: isSupportMatrix ? 'hidden' : undefined }">
       <template #title>
         <span class="vh-brand" aria-label="ViteHub">
           <span class="vh-brand-mark" aria-hidden="true">
@@ -67,11 +70,11 @@ const mobileLinks = [
       </template>
 
       <template #body>
-        <div v-if="isDocsRoute" class="-mx-4 -my-2">
+        <div v-if="isDocsRoute && !isSupportMatrix" class="-mx-4 -my-2">
           <DocsAsideLeftTop />
           <DocsAsideLeftBody />
         </div>
-        <nav v-else class="grid gap-1">
+        <nav v-else-if="!isDocsRoute" class="grid gap-1">
           <UButton
             v-for="link in mobileLinks"
             :key="link.to"

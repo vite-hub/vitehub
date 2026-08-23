@@ -33,14 +33,36 @@ function routeExists(route: string): boolean {
 describe("launch documentation trust boundaries", () => {
   it("publishes an inspectable host support matrix with qualified statuses", () => {
     const matrix = readFileSync(resolve(docsRoot, "frameworks-hosts/support-matrix.md"), "utf8");
+    const matrixComponent = readFileSync(
+      resolve(repoRoot, "docs/app/components/SupportMatrix.vue"),
+      "utf8",
+    );
+    const docsLayout = readFileSync(resolve(repoRoot, "docs/app/layouts/docs.vue"), "utf8");
+    const appHeader = readFileSync(resolve(repoRoot, "docs/app/components/AppHeader.vue"), "utf8");
+    const matrixHeader = matrix.split("\n").find((line) => line.startsWith("| Contract"));
 
-    expect(matrix).toContain("| Host | App-facing Runtime Helpers | Local providers | Generated Provider Output | Provision support | Production proof |");
+    expect(matrixHeader).toBeDefined();
+    for (const host of [
+      "Local Vite",
+      "Cloudflare",
+      "Vercel",
+      "Netlify",
+      "Deno",
+      "Nitro and UnJS",
+      "Node and self-hosted",
+    ]) {
+      expect(matrixHeader).toContain(host);
+    }
     expect(matrix).toContain("**Available**");
     expect(matrix).toContain("**Package-specific**");
     expect(matrix).toContain("**Local-only**");
     expect(matrix).toContain("**Not provided**");
     expect(matrix).toContain("**Contract-tested**");
     expect(matrix).toContain("**Live proof not published**");
+    expect(matrixComponent).toContain("support-matrix-navigation-panel");
+    expect(matrixComponent).toContain("<DocsAsideLeftBody />");
+    expect(docsLayout).toContain('<slot v-if="isSupportMatrix" />');
+    expect(appHeader).toContain("isDocsRoute && !isSupportMatrix");
   });
 
   it("keeps launch-facing docs free from stale version and internal process prose", () => {
