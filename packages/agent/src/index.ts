@@ -2278,7 +2278,6 @@ function agentContentTraceLog(
   let count = 0
   let failure: TraceEventLogEntry | undefined
   let terminal: TraceEventLogEntry | undefined
-  let releasedThroughSequence = 0
   const pendingEntries: TraceEventLogEntry[] = []
   const retainedEntries = () => {
     const tail = tailEntries.filter(entry => entry !== undefined).sort((left, right) => left.sequence - right.sequence)
@@ -2308,8 +2307,11 @@ function agentContentTraceLog(
   }
   Object.defineProperty(traceLog, agentTelemetryPendingEntriesSymbol, {
     value: {
-      entries: () => pendingEntries.filter(entry => entry.sequence > releasedThroughSequence),
-      release: (sequence: number) => { releasedThroughSequence = Math.max(releasedThroughSequence, sequence) },
+      entries: () => pendingEntries,
+      release(sequence: number) {
+        const retainedIndex = pendingEntries.findIndex(entry => entry.sequence > sequence)
+        pendingEntries.splice(0, retainedIndex < 0 ? pendingEntries.length : retainedIndex)
+      },
     },
   })
   if (destination && agentInvocationJournalTraceLogSymbol in destination) {
@@ -2817,7 +2819,6 @@ interface AgentTelemetryScheduler {
 
 const agentTelemetryBatchDelayMs = 5_000
 const agentTelemetryMaxBatchSize = 512
-const agentTelemetryExportTimeoutMs = 10_000
 
 function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig>(
   telemetry: AgentCapabilityRegistries["telemetry"],
@@ -2837,15 +2838,7 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
   let pendingThroughSequence: number | undefined
   const queue = (phase: "live" | "terminal", task: () => Promise<void>) => {
     exports = exports
-      .then(() => {
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        return Promise.race([
-          task(),
-          new Promise<void>((_, reject) => {
-            timeout = setTimeout(() => reject(new Error(`Agent telemetry export timed out after ${agentTelemetryExportTimeoutMs}ms.`)), agentTelemetryExportTimeoutMs)
-          }),
-        ]).finally(() => { if (timeout) clearTimeout(timeout) })
-      })
+      .then(task)
       .catch(error => reportAgentTelemetryFailure(error, runtime, agent, invocationId, phase))
     Object.defineProperty(exports, agentTelemetryTask, { value: true })
     registerAgentBackgroundTask(runtime, exports)

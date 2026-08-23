@@ -989,6 +989,7 @@ describe("Agent telemetry", () => {
 
       releaseDriver()
       await active
+      await vi.advanceTimersByTimeAsync(10_000)
       expect(failing).toHaveBeenCalledTimes(1)
       expect(blocked).toHaveBeenCalledTimes(1)
 
