@@ -4796,21 +4796,27 @@ async function handleChatSdkMessage(
                     const expectedPending = expectedRecoveryPending as never
                     // SAFETY: recoveryPending is normalized durable queue data owned by this route boundary.
                     const replacementPending = [recoveryPending] as never
+                    const atomicQueue = requireAtomicAgentStateQueue(state.state)
                     let replacedRecoveryPending = false
                     try {
-                      replacedRecoveryPending = await requireAtomicAgentStateQueue(state.state).queueReplaceHead(
-                        pendingQueue,
-                        expectedPending,
-                        replacementPending,
-                        1,
-                      )
+                      replacedRecoveryPending = await atomicQueue.queueReplaceHead(pendingQueue, expectedPending, replacementPending, 1)
                     } catch {
-                      await state.state.releaseLock(recoveredLock).catch(() => undefined)
-                      recoveredLock = null
-                      const remainingMs = recoveryDeadline - Date.now()
-                      if (remainingMs <= 0) return
-                      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
-                      continue
+                      try {
+                        const currentPending = await atomicQueue.queuePeek(pendingQueue)
+                        replacedRecoveryPending = JSON.stringify(currentPending) === JSON.stringify(recoveryPending)
+                      } catch {
+                        replacedRecoveryPending = false
+                      }
+                      if (replacedRecoveryPending) {
+                        expectedRecoveryPending = recoveryPending
+                      } else {
+                        await state.state.releaseLock(recoveredLock).catch(() => undefined)
+                        recoveredLock = null
+                        const remainingMs = recoveryDeadline - Date.now()
+                        if (remainingMs <= 0) return
+                        await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
+                        continue
+                      }
                     }
                     if (!replacedRecoveryPending) {
                       await state.state.releaseLock(recoveredLock).catch(() => undefined)

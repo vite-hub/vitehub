@@ -11959,6 +11959,17 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-start-verification-failure-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
+    const replaceQueueHead = state.queueReplaceHead.bind(state)
+    let interruptRecoveryReplacement = true
+    vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
+      const [, , replacement] = args
+      if (interruptRecoveryReplacement && replacement.length === 1) {
+        interruptRecoveryReplacement = false
+        await replaceQueueHead(...args)
+        throw new Error("state response lost after persisting recovery claim")
+      }
+      return await replaceQueueHead(...args)
+    })
     const originalExtendLock = state.extendLock.bind(state)
     let ownerVerificationAttempts = 0
     vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
@@ -12003,11 +12014,15 @@ describe("server helpers", () => {
       rejectWorkflow()
       await expect(response).resolves.toMatchObject({ status: 200 })
 
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+      await vi.advanceTimersByTimeAsync(250)
+      await vi.waitFor(() => expect(interruptRecoveryReplacement).toBe(false))
+
       expect(ownerVerificationAttempts).toBe(3)
       expect(createBatch).toHaveBeenCalledTimes(2)
       expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "Workflow failed.")
-      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
-      expect(ownershipKey).toBeDefined()
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
     } finally {
       rejectWorkflow()
