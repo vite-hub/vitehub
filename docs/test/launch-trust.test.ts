@@ -100,6 +100,10 @@ describe("launch documentation trust boundaries", () => {
     }
     expect(matrix).toContain("Cloudflare Queues");
     expect(matrix).toContain("Vercel Queues");
+    expect(matrix).toMatch(/\| Queue\s+\|[^\n]+\| Cloudflare or Vercel \| —\s+\|/);
+    expect(matrixComponent).toContain(
+      "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output",
+    );
     expect(matrix).toContain("Discovery only");
     expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
     expect(matrix).toContain("every other host requires an explicit compatible Unemail driver");
@@ -110,6 +114,10 @@ describe("launch documentation trust boundaries", () => {
     expect(matrixComponent).toContain(
       "Cloudflare Durable Objects provide the production room authority",
     );
+    expect(matrixComponent).toContain(
+      "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host",
+    );
+    expect(matrix).toMatch(/\| Sandbox\s+\|[^\n]+\| Cloudflare or Vercel \| Box provider\s+\|/);
     expect(matrix).toContain("Cloudflare Workflows");
     expect(matrix).toContain("Vercel Workflow");
     expect(matrixComponent).toContain("row.values[column.id]!.display");

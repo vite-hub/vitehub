@@ -349,8 +349,8 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
           deno: cell("none", "No Deno Queue provider is provided.", "—"),
           nitro: cell(
             "package",
-            "Cloudflare Queue bindings can be composed through Nitro output.",
-            "Cloudflare",
+            "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output.",
+            "Cloudflare / Vercel",
           ),
           node: cell("none", "No standalone self-hosted Queue provider is provided.", "—"),
         },
@@ -427,8 +427,8 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
           deno: cell("none", "No Deno Sandbox provider is provided.", "—"),
           nitro: cell(
             "package",
-            "Uses Cloudflare Sandbox when the Nitro host exposes its bindings.",
-            "Cloudflare",
+            "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host.",
+            "Cloudflare / Vercel",
           ),
           node: cell(
             "package",
