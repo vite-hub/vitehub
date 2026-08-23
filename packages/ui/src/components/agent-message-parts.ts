@@ -20,7 +20,7 @@ function isToolPart(part: Part): part is ToolLikePart {
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
 }
 
-function isSafeSourceUrl(value: string): boolean {
+function isSafeExternalUrl(value: string): boolean {
   try {
     const protocol = new URL(value).protocol;
     return protocol === "http:" || protocol === "https:";
@@ -29,11 +29,27 @@ function isSafeSourceUrl(value: string): boolean {
   }
 }
 
+function isSafeFileUrl(value: string): boolean {
+  if (isSafeExternalUrl(value)) return true;
+  return /^data:[^,]*,/i.test(value);
+}
+
 function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
+  const label = part.filename ?? part.mediaType;
+  if (!isSafeFileUrl(part.url)) {
+    return h("span", { class: "vh-attachment" }, [
+      h("span", { class: "vh-attachment__name" }, label),
+    ]);
+  }
   const image = part.mediaType === "image" || part.mediaType.startsWith("image/");
   return h(
     "a",
-    { class: "vh-attachment", download: part.filename, href: part.url, target: "_blank" },
+    {
+      class: "vh-attachment",
+      download: part.filename,
+      href: part.url,
+      target: isSafeExternalUrl(part.url) ? "_blank" : undefined,
+    },
     [
       image
         ? h("img", {
@@ -42,7 +58,7 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
             src: part.url,
           })
         : null,
-      h("span", { class: "vh-attachment__name" }, part.filename ?? part.mediaType),
+      h("span", { class: "vh-attachment__name" }, label),
     ],
   );
 }
@@ -107,7 +123,7 @@ export const AgentMessageParts = defineComponent({
             const label = part.title ?? part.url;
             return (
               slots.source?.({ index, part }) ??
-              (isSafeSourceUrl(part.url)
+              (isSafeExternalUrl(part.url)
                 ? h(
                     "a",
                     {

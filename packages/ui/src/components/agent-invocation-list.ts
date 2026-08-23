@@ -119,6 +119,7 @@ export const AgentInvocationList = defineComponent({
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,
     now: Number,
+    retryKey: [Number, String],
     selectedId: String,
     virtual: { default: true, type: Boolean },
   },
@@ -170,6 +171,10 @@ export const AgentInvocationList = defineComponent({
     watch(() => props.items.length, (length, previous) => {
       if (length < previous) requestedLength.value = undefined;
     });
+    watch(() => props.retryKey, () => {
+      requestedLength.value = undefined;
+      scrollRevision.value++;
+    });
     onMounted(() => {
       mounted.value = true;
       if (!viewport.value) return;
@@ -193,9 +198,6 @@ export const AgentInvocationList = defineComponent({
       class: "vh-invocation-list",
       onScroll: (event: Event) => {
         scrollTop.value = (event.currentTarget as HTMLElement).scrollTop;
-        if (!props.loading && requestedLength.value === props.items.length) {
-          requestedLength.value = undefined;
-        }
         scrollRevision.value++;
       },
       ref: viewport,

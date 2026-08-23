@@ -267,6 +267,39 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("refreshes retained summaries for unfiltered loaded pages", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries: request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await settle();
+    expect(calls[3]!.path).toContain("id=inv-1");
+    calls[3]!.resolve({
+      invocations: [{
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      }],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([
+      record("inv-3"),
+      record("inv-2"),
+      expect.objectContaining({ id: "inv-1", status: "completed" }),
+    ]);
+    scope.stop();
+  });
+
   it("removes first-page records that leave a search filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

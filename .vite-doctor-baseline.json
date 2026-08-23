@@ -2190,6 +2190,11 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "test/contracts.test.ts",
       "fingerprint": "091a99c0b95522ea86d3743711180af0855c1d5322f77aac41cb3491e186ee54"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/invocations.test.ts",
+      "fingerprint": "73c2d7a8668a052dc9fefb9e3ccdf84963eacfbae31e2335e6cf5ae21ae7507b"
     }
   ]
 }

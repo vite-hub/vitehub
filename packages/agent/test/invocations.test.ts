@@ -25,6 +25,20 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("excludes generated cursors from memory-store search", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-02-02T02:02:02.000Z",
+      id: "alpha",
+      observations: [],
+      status: "pending",
+      traceId: "alpha-trace",
+      updatedAt: "2026-02-02T02:02:02.000Z",
+    })
+
+    expect(store.list({ search: "1" })).toEqual({ invocations: [] })
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
@@ -130,6 +144,83 @@ describe("Agent Invocations", () => {
     const configured = (await invocations.getByRunId("bounded-configuration"))?.observations
       .find(entry => entry.name === "vitehub.agent.configured")
     expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
+  })
+
+  it("marks bounded ordinary observations as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-ordinary-observation"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: { metadata: "x".repeat(10_000) },
+      name: "tool.finish",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-ordinary-observation"))?.observations
+      .find(entry => entry.name === "tool.finish")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+  })
+
+  it("keeps resolved instructions out of metadata-only invocation journals", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: {
+        instructions: "Sensitive resolved instructions",
+        model: new MockLanguageModelV3({
+          doGenerate: {
+            content: [{ text: "done", type: "text" }],
+            finishReason: { raw: "stop", unified: "stop" },
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+            warnings: [],
+          },
+        }),
+      },
+      invocations,
+    })
+
+    await runAgent(agent, runtime("metadata-only-instructions"), { prompt: "hello" })
+
+    const configured = (await invocations.getByRunId("metadata-only-instructions"))?.observations
+      .findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
+  })
+
+  it("persists resolved instructions when invocation content is enabled", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: {
+        instructions: "Inspectable resolved instructions",
+        model: new MockLanguageModelV3({
+          doGenerate: {
+            content: [{ text: "done", type: "text" }],
+            finishReason: { raw: "stop", unified: "stop" },
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+            warnings: [],
+          },
+        }),
+      },
+      invocations,
+    })
+
+    await runAgent(agent, runtime("content-instructions"), { prompt: "hello" })
+
+    const configured = (await invocations.getByRunId("content-instructions"))?.observations
+      .findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      instructions: ["Inspectable resolved instructions"],
+    })
   })
 
   it("does not reacquire journal ownership for observations appended after finish", async () => {
@@ -1303,6 +1394,18 @@ describe("Agent Invocations", () => {
       await expect(restored.list({ search: "éclair" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
+      const localeLowercase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
+        return String(this).replaceAll("I", "ı").toLowerCase()
+      })
+      try {
+        await runAgent(agent, runtime("locale-search", { "github.repository": "INDIGO" }), {})
+        await expect(restored.list({ search: "indigo" })).resolves.toMatchObject({
+          invocations: [expect.objectContaining({ status: "completed" })],
+        })
+      }
+      finally {
+        localeLowercase.mockRestore()
+      }
       await expect(restored.list({ search: "missing repository" })).resolves.toEqual({ invocations: [] })
       for (const cursor of ["invalid", "01", "1.0", " 1", String(Number.MAX_SAFE_INTEGER + 1)]) {
         await expect(restored.list({ cursor })).rejects.toThrow("cursor is invalid")

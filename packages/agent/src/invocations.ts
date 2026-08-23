@@ -197,7 +197,7 @@ function normalizeSearch(search: string | undefined): string | undefined {
 
 function matchesInvocationSearch(record: AgentInvocationRecord, search: string | undefined): boolean {
   if (!search) return true
-  const { observations: _observations, ...summary } = record
+  const { cursor: _cursor, observations: _observations, ...summary } = record
   return JSON.stringify(summary).toLowerCase().includes(search.toLowerCase())
 }
 
@@ -284,7 +284,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
   if (observation.attributes && Object.keys(observation.attributes).length > MAX_OBSERVATION_ATTRIBUTES) {
     budget.truncated = true
   }
-  const attributes = observation.attributes
+  let attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)
         .slice(0, MAX_OBSERVATION_ATTRIBUTES)
         .flatMap(([key, value]) => {
@@ -292,8 +292,14 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
           return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]
         }))
     : undefined
-  if (budget.truncated && observation.name === "vitehub.agent.configured") {
-    attributes!["vitehub.agent.configurationTruncated"] = true
+  if (budget.truncated) {
+    attributes ||= {}
+    if (observation.name === "vitehub.agent.configured") {
+      attributes["vitehub.agent.configurationTruncated"] = true
+    }
+    else {
+      attributes[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] = true
+    }
   }
   return {
     ...observation,

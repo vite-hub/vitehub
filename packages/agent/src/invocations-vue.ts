@@ -27,6 +27,7 @@ export interface UseAgentInvocationsOptions {
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
+  requestSummaries?: AgentInvocationRequester;
   watch?: boolean;
 }
 
@@ -333,11 +334,34 @@ export function useAgentInvocations(
       const result = parseInvocationListResult(
         await request(appendQuery(toValue(baseURL), query), { signal }),
       );
+      const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
       const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
       const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
       const search = query?.search?.trim().toLowerCase();
+      const retainedIds = resetFirstPage
+        ? []
+        : invocations.value
+            .filter(invocation => !returnedIds.has(invocation.id))
+            .map(invocation => invocation.id);
+      if (options.requestSummaries && statuses.size === 0 && !search && retainedIds.length > 0) {
+        const requestSummaries = options.requestSummaries;
+        const summaries = await Promise.all(
+          Array.from({ length: Math.ceil(retainedIds.length / 100) }, (_, index) => {
+            const ids = retainedIds.slice(index * 100, (index + 1) * 100);
+            return requestSummaries(appendQuery(toValue(baseURL), { id: ids }), { signal })
+              .then(parseInvocationListResult);
+          }),
+        );
+        const refreshed = new Map(
+          summaries.flatMap(page => page.invocations).map(invocation => [invocation.id, invocation]),
+        );
+        for (const id of retainedIds) {
+          const summary = refreshed.get(id);
+          if (summary) reconciledInvocations.set(id, summary);
+          else departedIds.add(id);
+        }
+      }
       if (resetFirstPage || (statuses.size === 0 && !search)) return result;
-      const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
       for (const id of returnedIds) pendingDepartureIds.delete(id);
       const displaced = [...new Set([
         ...firstPage.filter(invocation => !returnedIds.has(invocation.id)).map(invocation => invocation.id),

@@ -3038,8 +3038,13 @@ async function createAgentInvocationContext<
       const traceConfiguration = async () => {
         const configuration = getAgentTelemetryConfiguration(invocationContext)?.value
         if (!configuration) return
+        const journalTraceLog = invocationJournal.context.traceLog
+        const persistedConfiguration = journalTraceLog
+          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog
+          ? configuration
+          : agentTelemetryConfigurationForContent(configuration, {})
         await runtimeContext.traceLog?.append({
-          attributes: { "vitehub.agent.configuration": configuration },
+          attributes: { "vitehub.agent.configuration": persistedConfiguration },
           name: "vitehub.agent.configured",
           ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
           type: "run",

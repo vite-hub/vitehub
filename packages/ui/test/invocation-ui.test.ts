@@ -33,6 +33,28 @@ describe("Agent Invocation UI", () => {
     expect(invocationActivities(invocation).every(activity => activity.truncated)).toBe(true);
   });
 
+  it("discloses bounded ordinary observations", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "bounded-observation",
+      observations: [{
+        attributes: { "vitehub.observation.truncated": true },
+        name: "tool.finish",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)).toEqual([
+      expect.objectContaining({ truncated: true }),
+    ]);
+  });
+
   it("renders only HTTP source URLs as links", () => {
     const parts: UIMessage["parts"] = [
       { sourceId: "safe", type: "source-url", url: "https://example.com/reference" },
@@ -44,6 +66,24 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual(["https://example.com/reference"]);
     expect(wrapper.text()).toContain("Unsafe source");
     expect(wrapper.text()).toContain("data:text/plain,source");
+  });
+
+  it("renders HTTP and package-generated data file URLs without executable schemes", () => {
+    const parts: UIMessage["parts"] = [
+      { filename: "safe.txt", mediaType: "text/plain", type: "file", url: "https://example.com/safe.txt" },
+      { filename: "unsafe.txt", mediaType: "text/plain", type: "file", url: "javascript:alert(1)" },
+      { filename: "inline.png", mediaType: "image/png", type: "file", url: "data:image/png;base64,c2FmZQ==" },
+    ];
+    const wrapper = mount(AgentMessageParts, { props: { parts } });
+
+    expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual([
+      "https://example.com/safe.txt",
+      "data:image/png;base64,c2FmZQ==",
+    ]);
+    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ=="]);
+    expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
+    expect(wrapper.text()).toContain("unsafe.txt");
+    expect(wrapper.text()).toContain("inline.png");
   });
 
   it("renders the working state with the loader-circle path", () => {
@@ -237,7 +277,10 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
 
-    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Checking.", "Done."]);
+    expect(invocationActivities(invocation).map(activity => [activity.kind, activity.body])).toEqual([
+      ["reasoning", "Checking."],
+      ["message", "Done."],
+    ]);
   });
 
   it("renders canonical tool, error, and approval decision details", () => {
@@ -333,14 +376,14 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
   });
 
-  it("settles repeated page failures until the consumer explicitly retries", async () => {
+  it("settles repeated page failures until the consumer changes the retry key", async () => {
     const items = Array.from({ length: 20 }, (_, index) => ({
       id: `inv-${index}`,
       status: "completed" as const,
       title: `Invocation ${index}`,
     }));
     const wrapper = mount(AgentInvocationList, {
-      props: { hasMore: true, items },
+      props: { hasMore: true, items, retryKey: 0 },
     });
     const viewport = wrapper.get("nav");
     Object.defineProperty(viewport.element, "scrollTop", {
@@ -358,7 +401,7 @@ describe("Agent Invocation UI", () => {
     await wrapper.setProps({ loading: false });
     expect(wrapper.emitted("endReached")).toHaveLength(1);
 
-    await viewport.trigger("scroll");
+    await wrapper.setProps({ retryKey: 1 });
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
