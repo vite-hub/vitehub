@@ -28,6 +28,7 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
     current = await readFile(path, "utf8")
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   if (current === contents) return
@@ -57,6 +58,7 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
       if (!resolved || resolved.external) {
         this.error(`[vitehub] Could not resolve Markdown template ${JSON.stringify(request.path)}${importer ? ` from ${JSON.stringify(importer)}` : ""}.`)
       }
+      if (parseMarkdownTemplateRequest(resolved.id) && resolved.id.includes("?")) return resolved.id
       return `${resolved.id}?${markdownTemplateModuleQuery}`
     },
     async load(id) {

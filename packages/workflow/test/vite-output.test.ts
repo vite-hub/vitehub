@@ -6,6 +6,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
@@ -535,7 +536,8 @@ it("preserves the active Vercel function after ownership state bookkeeping fails
   })).rejects.toThrow()
 
   const functionContents = await readFile(functionFile)
-  const ownership = JSON.parse(await readFile(markerFile, "utf8")) as { digest: string }
+  const ownership: unknown = JSON.parse(await readFile(markerFile, "utf8"))
+  if (!isRuntimeRecord(ownership) || !hasRuntimeType(ownership.digest, "string")) throw new TypeError("Expected a Workflow ownership digest.")
   expect(ownership.digest).toBe(createHash("sha256").update(functionContents).digest("hex"))
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
 })
@@ -831,7 +833,8 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("runAgentWorkflowDefinition")
     expect(registry).toContain("options: { rootStep: false }")
     expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
-    expect(registry).toContain(`${JSON.stringify(agentRecoveryName)}: async () => {`)
+    expect(registry).toContain(`${JSON.stringify(agentRecoveryName)}: Object.assign(async () => {`)
+    expect(registry).toContain("{ internalAgentInvocationRecovery: true })")
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain("agentWithColocatedSkills")
     expect(registry).toContain('agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, "Use flat Agent instructions.\\n")')
@@ -908,7 +911,9 @@ describe("Vite workflow provider outputs", () => {
     expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
       .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
-    const rebuiltRoutes = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).routes as unknown[]
+    const rebuiltConfig: unknown = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8"))
+    if (!isRuntimeRecord(rebuiltConfig) || !Array.isArray(rebuiltConfig.routes)) throw new TypeError("Expected rebuilt Vercel routes.")
+    const rebuiltRoutes = rebuiltConfig.routes
     const workflowRoutes = rebuiltRoutes.filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
     expect(workflowRoutes).toEqual([...new Set(workflowRoutes.map(route => JSON.stringify(route)))].map(route => JSON.parse(route)))
 

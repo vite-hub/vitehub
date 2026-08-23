@@ -96,6 +96,12 @@ export {
   cost,
   vercelAiGatewayPricing,
 } from "./cost.ts"
+export {
+  diagnostics,
+} from "./diagnostics.ts"
+export type {
+  DiagnosticsCapabilityOptions,
+} from "./diagnostics.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
@@ -128,6 +134,12 @@ export {
 export {
   mcp,
 } from "./mcp.ts"
+export {
+  otlp,
+} from "./otlp.ts"
+export type {
+  OtlpCapabilityOptions,
+} from "./otlp.ts"
 export {
   webSearch,
 } from "./web-search/index.ts"

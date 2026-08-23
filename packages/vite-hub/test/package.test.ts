@@ -22,23 +22,38 @@ import frameworkAuthHandler from "vite-hub/auth/server"
 import * as frameworkAuthVue from "vite-hub/auth/vue"
 import * as frameworkBlobContentType from "vite-hub/blob/content-type"
 import * as frameworkRateLimit from "vite-hub/rate-limit"
+import * as frameworkRuntimeNode from "vite-hub/runtime/node"
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state"
+import * as ownerRuntimeNode from "@vite-hub/runtime/node"
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
-const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+
+interface DistributionManifest {
   bin: Record<string, string>
   dependencies: Record<string, string>
-  exports: Record<string, string | { import: string, types?: string }>
+  exports: Record<string, string | { import: string; types?: string }>
 }
+
+function parseDistributionManifest(text: string): DistributionManifest {
+  const value: unknown = JSON.parse(text)
+  if (Object(value) !== value) throw new TypeError("Expected a package manifest object.")
+  const bin = Reflect.get(Object(value), "bin")
+  const dependencies = Reflect.get(Object(value), "dependencies")
+  const exports = Reflect.get(Object(value), "exports")
+  if (Object(bin) !== bin || Object(dependencies) !== dependencies || Object(exports) !== exports) {
+    throw new TypeError("Expected package manifest maps.")
+  }
+  // SAFETY: The checked package.json fields are the string maps exercised by these distribution tests.
+  return { bin, dependencies, exports } as DistributionManifest
+}
+
+const manifest = parseDistributionManifest(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 
-const consolidatedOwnerExports = new Set([
-  "@vite-hub/blob/ensure",
-  "@vite-hub/workspace/ai",
-])
+const consolidatedOwnerExports = new Set(["@vite-hub/blob/ensure", "@vite-hub/workspace/ai"])
 
 const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",
@@ -89,7 +104,10 @@ const generatedRuntimeOwnerExports = new Set([
 ])
 
 function sourceForwarderTargets(source: string): string[] | undefined {
-  const lines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  const lines = source
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
   if (!lines.length) return
 
   const targets: string[] = []
@@ -147,6 +165,7 @@ describe("framework package contract", () => {
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType)
     expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit)
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter)
+    expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources)
   })
 
   it("keeps the Database environment setter on its owner runtime instance", () => {
@@ -169,16 +188,18 @@ describe("framework package contract", () => {
     const exportedForwarders = new Set(manifestForwarders.map(({ source }) => source))
 
     expect(sourceForwarders).toEqual([...exportedForwarders].sort())
-    expect(manifestEntries
-      .filter(({ source }) => !exportedForwarders.has(source))
-      .map(({ subpath }) => subpath)
-      .sort(),
+    expect(
+      manifestEntries
+        .filter(({ source }) => !exportedForwarders.has(source))
+        .map(({ subpath }) => subpath)
+        .sort(),
     ).toEqual([
       ".",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
       "./database/drizzle",
       "./nuxt",
+      "./source",
     ])
 
     for (const { subpath, targets } of manifestForwarders) {
@@ -194,11 +215,16 @@ describe("framework package contract", () => {
 
     for (const packageName of Object.keys(manifest.dependencies).filter(name => name.startsWith("@vite-hub/"))) {
       const packageDirectory = packageName.slice("@vite-hub/".length)
-      const ownerManifest = JSON.parse(readFileSync(`${repoRoot}/packages/${packageDirectory}/package.json`, "utf8")) as {
-        exports?: Record<string, unknown>
+      const ownerManifest: unknown = JSON.parse(
+        readFileSync(`${repoRoot}/packages/${packageDirectory}/package.json`, "utf8"),
+      )
+      if (Object(ownerManifest) !== ownerManifest) throw new TypeError("Expected an owner manifest.")
+      const ownerExports = Reflect.get(Object(ownerManifest), "exports")
+      if (ownerExports !== undefined && Object(ownerExports) !== ownerExports) {
+        throw new TypeError("Expected an owner export map.")
       }
 
-      for (const subpath of Object.keys(ownerManifest.exports || {})) {
+      for (const subpath of Object.keys(Object(ownerExports))) {
         if (manifest.exports[distributionSubpath(packageName, subpath)]) continue
         if (ownerOnlyReason(packageName, subpath)) continue
         unclassified.push(ownerSpecifier(packageName, subpath))
@@ -216,14 +242,15 @@ describe("framework package contract", () => {
     })
 
     for (const value of Object.values(manifest.exports)) {
-      const target = typeof value === "string" ? value : value.import
+      const target = String(value) === value ? value : Reflect.get(Object(value), "import")
+      if (String(target) !== target) throw new TypeError("Expected an export target.")
       if (target === "./package.json") continue
       expect(existsSync(`${packageRoot}/${target}`), target).toBe(true)
     }
 
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(/^#!\/usr\/bin\/env node/)
     expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain('import "@vite-hub/env/vite"')
-    expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain('@cloudflare/workers-types')
+    expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain("@cloudflare/workers-types")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
 
@@ -236,22 +263,18 @@ describe("framework package contract", () => {
   })
 
   it("normalizes conditional export leaves into unique runtime entries", () => {
-    expect(distributionEntriesFromManifest({
-      ".": {
-        import: {
-          default: "./dist/index.js",
-          node: "./dist/index.js",
+    expect(
+      distributionEntriesFromManifest({
+        ".": {
+          import: {
+            default: "./dist/index.js",
+            node: "./dist/index.js",
+          },
+          types: "./dist/index.d.ts",
         },
-        types: "./dist/index.d.ts",
-      },
-      "./feature": [
-        { types: "./dist/feature.d.ts" },
-        { import: "./dist/feature.js" },
-      ],
-      "./package.json": "./package.json",
-    })).toEqual([
-      "src/feature.ts",
-      "src/index.ts",
-    ])
+        "./feature": [{ types: "./dist/feature.d.ts" }, { import: "./dist/feature.js" }],
+        "./package.json": "./package.json",
+      }),
+    ).toEqual(["src/feature.ts", "src/index.ts"])
   })
 })
