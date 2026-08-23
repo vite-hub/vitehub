@@ -29,6 +29,7 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = global
   if (!root && registered instanceof Map && registered.size > 1) {
     return scope[consoleInvocationsKey]
   }
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
   return processRegistry(scope)?.[consoleInvocationsKey] as AgentInvocations | undefined
     ?? scope[consoleInvocationsKey]
 }

@@ -197,6 +197,7 @@ describe("Agent telemetry", () => {
   it("exports run-event binding failures when waitUntil also throws", async () => {
     const telemetry = vi.fn()
     const agent = defineAgent({
+      // SAFETY: This test deliberately supplies an invalid run-event definition to exercise the binding failure.
       runEvents: {} as never,
       telemetry,
       driver: { run: () => "unreachable" },

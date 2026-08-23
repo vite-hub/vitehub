@@ -2119,8 +2119,10 @@ function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
         .filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
         .map((event) => {
           const configuration = event.attributes?.["vitehub.agent.configuration"]
-          if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return event
-          const { instructions: _instructions, ...metadata } = configuration as Record<string, unknown>
+          if (!configuration || Object(configuration) !== configuration || Array.isArray(configuration)) return event
+          const metadata = Object.fromEntries(
+            Object.entries(Object(configuration)).filter(([key]) => key !== "instructions"),
+          )
           return { ...event, attributes: { ...event.attributes, "vitehub.agent.configuration": metadata } }
         })
       const runs = deriveTraceRuns(events)
