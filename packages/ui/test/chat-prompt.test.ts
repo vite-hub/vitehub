@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { defineComponent, h } from "vue";
+import { defineComponent, effectScope, h } from "vue";
 import { describe, expect, it } from "vitest";
 import { AgentChatPrompt } from "../src/components/agent-chat-prompt.ts";
+import { nextPromptFiles } from "../src/internal/prompt-files.ts";
+import { useAgentAttachments } from "../src/composables/attachments.ts";
 
 const TrimGuardPrompt = defineComponent({
   props: { modelValue: { default: "", type: String } },
@@ -53,6 +55,27 @@ const global = {
 };
 
 describe("AgentChatPrompt", () => {
+  it("accepts multiple attachments by default", () => {
+    const scope = effectScope();
+    const attachments = scope.run(() => useAgentAttachments());
+    if (!attachments) throw new Error("Expected attachment state.");
+    attachments.add([
+      new File(["first"], "first.txt", { type: "text/plain" }),
+      new File(["second"], "second.txt", { type: "text/plain" }),
+    ]);
+
+    expect(attachments.inputProps.value.multiple).toBe(true);
+    expect(attachments.files.value.map(({ file }) => file.name)).toEqual(["first.txt", "second.txt"]);
+    scope.stop();
+  });
+
+  it("replaces the controlled attachment when multiple files are disabled", () => {
+    const oldFile = { filename: "old.txt", mediaType: "text/plain", type: "file" as const, url: "data:,old" };
+    const newFile = { filename: "new.txt", mediaType: "text/plain", type: "file" as const, url: "data:,new" };
+
+    expect(nextPromptFiles([oldFile], [newFile], false)).toEqual([newFile]);
+  });
+
   it("passes attachment-only form and keyboard submissions through a text-only host guard", async () => {
     const wrapper = mount(AgentChatPrompt, {
       global,

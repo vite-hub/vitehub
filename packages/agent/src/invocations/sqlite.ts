@@ -63,6 +63,15 @@ function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord
   return stored
 }
 
+function searchableRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
+  const { observations: _observations, ...summary } = record
+  return JSON.stringify(summary).toLocaleLowerCase()
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, match => `\\${match}`)
+}
+
 function listLimit(limit: number | undefined): number {
   if (limit === undefined) return 50
   if (!Number.isInteger(limit) || limit < 1) {
@@ -101,8 +110,29 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL,
+        search TEXT,
         record TEXT NOT NULL
       )`)
+      const columns = await client.execute(`PRAGMA table_info(${table})`)
+      if (!columns.rows.some(row => row.name === "search")) {
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN search TEXT`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
+          if (!currentColumns.rows.some(row => row.name === "search")) throw error
+        }
+      }
+      const missingSearch = await client.execute(`SELECT sequence, record FROM ${table} WHERE search IS NULL`)
+      for (const row of missingSearch.rows) {
+        const record = deserialize(row.record, row.sequence)
+        if (record) {
+          await client.execute({
+            args: [searchableRecord(storedRecord(record)), row.sequence as number],
+            sql: `UPDATE ${table} SET search = ? WHERE sequence = ?`,
+          })
+        }
+      }
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
@@ -143,8 +173,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         const result = await client.execute({
-          args: [input.id, input.status, serialize(input)],
-          sql: `INSERT OR IGNORE INTO ${table} (id, status, record) VALUES (?, ?, ?)`,
+          args: [input.id, input.status, searchableRecord(input), serialize(input)],
+          sql: `INSERT OR IGNORE INTO ${table} (id, status, search, record) VALUES (?, ?, ?, ?)`,
         })
         const record = await read(input.id)
         if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
@@ -175,8 +205,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const search = searchValue(listOptions.search)
       if (search) {
-        filters.push("json_remove(record, '$.observations') LIKE ? ESCAPE '\\' COLLATE NOCASE")
-        args.push(`%${search.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`)
+        filters.push("search LIKE ? ESCAPE '\\'")
+        args.push(`%${escapeLike(search.toLocaleLowerCase())}%`)
       }
       args.push(limit + 1)
       const result = await client.execute({
@@ -222,9 +252,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             return
           }
           const updated = applyAgentInvocationStoreUpdate(record, input)
+          const stored = storedRecord(updated)
           await transaction.execute({
-            args: [updated.status, serialize(storedRecord(updated)), id],
-            sql: `UPDATE ${table} SET status = ?, record = ? WHERE id = ?`,
+            args: [updated.status, searchableRecord(stored), serialize(stored), id],
+            sql: `UPDATE ${table} SET status = ?, search = ?, record = ? WHERE id = ?`,
           })
           await transaction.commit()
           return updated

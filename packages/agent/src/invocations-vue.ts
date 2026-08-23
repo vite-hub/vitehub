@@ -3,10 +3,7 @@ import * as v from "valibot";
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { MaybeRefOrGetter, ShallowRef } from "vue";
-import type {
-  AgentInvocationListResult,
-  AgentInvocationSummary,
-} from "./invocations.ts";
+import type { AgentInvocationListResult, AgentInvocationSummary } from "./invocations.ts";
 
 export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
@@ -18,12 +15,15 @@ export type AgentInvocationRequester = (
 ) => Promise<unknown>;
 
 type QueryValue = boolean | number | string | null | undefined;
+type AgentInvocationQuery = Record<string, QueryValue | readonly QueryValue[]> & {
+  search?: string;
+};
 
 export interface UseAgentInvocationsOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
-  query?: MaybeRefOrGetter<Record<string, QueryValue | readonly QueryValue[]>>;
+  query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
   watch?: boolean;
 }
@@ -63,7 +63,23 @@ export interface UseAgentInvocationReturn {
 
 const defaultBaseURL = "/api/invocations";
 
-const invocationStatusSchema = v.picklist(["pending", "running", "completed", "failed", "cancelled"]);
+function isInvocationStatus(value: unknown): value is AgentInvocationSummary["status"] {
+  return (
+    value === "pending" ||
+    value === "running" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "cancelled"
+  );
+}
+
+const invocationStatusSchema = v.picklist([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+]);
 const annotationValueSchema = v.union([v.boolean(), v.number(), v.string(), v.null()]);
 const invocationSummarySchema = v.looseObject({
   agentName: v.optional(v.string()),
@@ -88,11 +104,13 @@ const traceEventLogEntrySchema = v.looseObject({
   name: v.string(),
   sequence: v.number(),
   timestamp: v.string(),
-  trace: v.optional(v.object({
-    id: v.string(),
-    parentId: v.optional(v.string()),
-    sampled: v.optional(v.boolean()),
-  })),
+  trace: v.optional(
+    v.object({
+      id: v.string(),
+      parentId: v.optional(v.string()),
+      sampled: v.optional(v.boolean()),
+    }),
+  ),
   type: v.picklist(["approval", "capability", "error", "lifecycle", "policy", "run"]),
 });
 const invocationListResultSchema = v.object({
@@ -144,6 +162,7 @@ interface InvocationResourceOptions<T> {
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
+  pollingPaused?: () => boolean;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   source: () => unknown;
   watch: boolean;
@@ -168,6 +187,10 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
     if (interval === false || interval === undefined || !Number.isFinite(interval) || interval <= 0)
       return;
     timer = setTimeout(() => {
+      if (options.pollingPaused?.()) {
+        schedule();
+        return;
+      }
       void refresh();
     }, interval);
   }
@@ -229,7 +252,7 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
   if (options.immediate) void refresh();
   else schedule();
 
-  return { error, isLoading, refresh, stop };
+  return { error, isLoading, refresh, schedule, stop };
 }
 
 export function useAgentInvocations(
@@ -241,16 +264,16 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
+  let firstPage: readonly AgentInvocationSummary[] = [];
   let revision = 0;
   let resetFirstPage = true;
+  let departedIds = new Set<string>();
+  let pendingDepartureIds = new Set<string>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
   function currentSourceSignature() {
-    return JSON.stringify([
-      toValue(baseURL),
-      options.query ? toValue(options.query) : undefined,
-    ]);
+    return JSON.stringify([toValue(baseURL), options.query ? toValue(options.query) : undefined]);
   }
 
   const resource = useInvocationResource<AgentInvocationListResult>({
@@ -258,17 +281,24 @@ export function useAgentInvocations(
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
         cursor.value = result.cursor;
+        firstPage = result.invocations;
         resetFirstPage = false;
         return;
       }
-      const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
-      const retained = invocations.value.filter(invocation => !firstPageIds.has(invocation.id));
+      const firstPageIds = new Set(result.invocations.map((invocation) => invocation.id));
+      const retained = invocations.value.filter(
+        (invocation) => !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id),
+      );
+      departedIds = new Set();
       invocations.value = [...result.invocations, ...retained];
+      firstPage = result.invocations;
       if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
+      firstPage = [];
+      pendingDepartureIds = new Set();
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -277,6 +307,7 @@ export function useAgentInvocations(
       if (resetFirstPage) {
         invocations.value = [];
         cursor.value = undefined;
+        pendingDepartureIds = new Set();
       }
       revision++;
       loadMoreController?.abort();
@@ -285,13 +316,49 @@ export function useAgentInvocations(
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
-    load: async (signal) =>
-      parseInvocationListResult(
-        await request(
-          appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
-          { signal },
+    load: async (signal) => {
+      const query = options.query ? toValue(options.query) : undefined;
+      const result = parseInvocationListResult(
+        await request(appendQuery(toValue(baseURL), query), { signal }),
+      );
+      const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
+      const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
+      const search = query?.search?.trim().toLowerCase();
+      if (resetFirstPage || (statuses.size === 0 && !search)) return result;
+      const returnedIds = new Set(result.invocations.map((invocation) => invocation.id));
+      for (const id of returnedIds) pendingDepartureIds.delete(id);
+      const displaced = [
+        ...new Set([
+          ...firstPage
+            .filter((invocation) => !returnedIds.has(invocation.id))
+            .map((invocation) => invocation.id),
+          ...pendingDepartureIds,
+        ]),
+      ];
+      const reconciled = await Promise.allSettled(
+        displaced.map((id) =>
+          request(detailPath(toValue(baseURL), id), { signal }).then(parseInvocationDetailResult),
         ),
-      ),
+      );
+      departedIds = new Set();
+      pendingDepartureIds = new Set();
+      for (const [index, outcome] of reconciled.entries()) {
+        const id = displaced[index]!;
+        if (outcome.status === "rejected") {
+          pendingDepartureIds.add(id);
+          continue;
+        }
+        const { observations: _observations, ...searchableInvocation } = outcome.value
+          .invocation as AgentInvocationSummary & { observations?: unknown };
+        if (
+          (statuses.size > 0 && !statuses.has(outcome.value.invocation.status)) ||
+          (search && !JSON.stringify(searchableInvocation).toLowerCase().includes(search))
+        )
+          departedIds.add(id);
+      }
+      return result;
+    },
+    pollingPaused: () => isLoadingMore.value,
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,
@@ -310,16 +377,15 @@ export function useAgentInvocations(
     try {
       const query = options.query ? toValue(options.query) : undefined;
       const result = parseInvocationListResult(
-        await request(
-          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
-          { signal: controller.signal },
-        ),
+        await request(appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }), {
+          signal: controller.signal,
+        }),
       );
       if (loadMoreController !== controller || revision !== currentRevision) return;
-      const ids = new Set(invocations.value.map(invocation => invocation.id));
+      const ids = new Set(invocations.value.map((invocation) => invocation.id));
       invocations.value = [
         ...invocations.value,
-        ...result.invocations.filter(invocation => !ids.has(invocation.id)),
+        ...result.invocations.filter((invocation) => !ids.has(invocation.id)),
       ];
       cursor.value = result.cursor;
       return result;
@@ -330,6 +396,7 @@ export function useAgentInvocations(
       if (loadMoreController === controller) {
         loadMoreController = undefined;
         isLoadingMore.value = false;
+        resource.schedule();
       }
     }
   }
@@ -345,7 +412,16 @@ export function useAgentInvocations(
   }
 
   onScopeDispose(() => loadMoreController?.abort(), true);
-  return { cursor, invocations, isLoadingMore, loadMore, ...resource, stop };
+  return {
+    cursor,
+    error: resource.error,
+    invocations,
+    isLoading: resource.isLoading,
+    isLoadingMore,
+    loadMore,
+    refresh: resource.refresh,
+    stop,
+  };
 }
 
 export function useAgentInvocation(
@@ -384,5 +460,12 @@ export function useAgentInvocation(
     watch: options.watch !== false,
   });
 
-  return { invocation, observations, ...resource };
+  return {
+    error: resource.error,
+    invocation,
+    isLoading: resource.isLoading,
+    observations,
+    refresh: resource.refresh,
+    stop: resource.stop,
+  };
 }

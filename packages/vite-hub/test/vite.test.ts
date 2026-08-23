@@ -167,7 +167,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
       runtimeImport: "vite-hub/_internal/markdown-template",
     })
-    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({
+    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({}, {
       importBase: "vite-hub/auth",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
@@ -194,8 +194,7 @@ describe("vitehub", () => {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
-    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
-      driver: "fs",
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({ driver: "fs" }, {
       importBase: "vite-hub/_internal/blob",
       nitroOwned: true,
     })
@@ -219,7 +218,7 @@ describe("vitehub", () => {
       },
       runtimeImport: "vite-hub/_internal/schedule/runtime/static",
     })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
       agentImportBase: "vite-hub/_internal/agent",
       hosting: "node-server",
       importBase: "vite-hub/_internal/workflow",
@@ -232,13 +231,13 @@ describe("vitehub", () => {
       },
       workspaceImportBase: "vite-hub/_internal/workspace",
     })
-    expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     vitehub({ agent: true, preset: "node" })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       implicitlyEnabled: true,
       includeUserAppEntry: false,
     }))
@@ -256,7 +255,10 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({ imports: false }))
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith({ cli: { generate: false } })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: "vercel" }),
+      expect.any(Object),
+    )
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ root: ".data/workspaces" }))
 
     integrationMocks.hubQueue.mockClear()
@@ -324,7 +326,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({
       providerOutput: expect.anything(),
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       hosting: "cloudflare-module",
     }))
 
@@ -333,13 +335,13 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining({
       providerOutput: "standalone",
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       hosting: "vercel",
     }))
 
     vitehub({ preset: "netlify", schedule: true, workflow: true })
 
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       hosting: "netlify",
     }))
   })
@@ -381,7 +383,7 @@ describe("vitehub", () => {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
@@ -396,7 +398,7 @@ describe("vitehub", () => {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -532,8 +534,8 @@ describe("vitehub", () => {
     configResolved({ kv: { driver: "upstash" } })
 
     expect(upstashAliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
-    const workflowCall = integrationMocks.hubWorkflow.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
-    expect(workflowCall[0].providerImportAliases).toBe(upstashAliases)
+    const workflowCall = integrationMocks.hubWorkflow.mock.calls.at(-1) as unknown as [unknown, { providerImportAliases: Record<string, string> }]
+    expect(workflowCall[1].providerImportAliases).toBe(upstashAliases)
   })
 
   it.each([
@@ -811,7 +813,10 @@ describe("vitehub", () => {
   ] as const)("wires the %s Blob adapter from the deployment plan", (preset, driver) => {
     integrationMocks.hubBlob.mockClear()
     vitehub({ preset, blob: true })
-    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver }))
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
+      expect.objectContaining({ driver }),
+      { importBase: "vite-hub/_internal/blob", nitroOwned: true },
+    )
   })
 
   it("preserves a configured Netlify Blob store name", () => {
@@ -820,7 +825,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
       driver: "netlify-blobs",
       name: "assets",
-    }))
+    }), { importBase: "vite-hub/_internal/blob", nitroOwned: true })
   })
 
   it("keeps Blob disabled until requested and rejects unsupported presets", () => {
@@ -1018,7 +1023,10 @@ describe("vitehub", () => {
 
     integrationMocks.hubBlob.mockClear()
     vitehub({ name: "logical-app", preset: "cloudflare", blob: { driver: "fs" } })
-    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver: "fs" }))
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
+      expect.objectContaining({ driver: "fs" }),
+      { importBase: "vite-hub/_internal/blob", nitroOwned: true },
+    )
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {

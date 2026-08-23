@@ -27,7 +27,9 @@ describe("ViteHub UI Nuxt module", () => {
       ready: true,
     });
     try {
-      expect(nuxt.options.css).toContain("@vite-hub/ui/styles.css");
+      expect(nuxt.options.css).toEqual(
+        expect.arrayContaining([expect.stringMatching(/\/dist\/styles\.css$/)]),
+      );
       expect(nuxt.options.runtimeConfig.public.viteHubUI).toMatchObject({
         defaults: { messageScroller: { edgeThreshold: 12 } },
       });
@@ -43,10 +45,10 @@ describe("ViteHub UI Nuxt module", () => {
       await nuxt.callHook("components:extend", components as never);
       expect(components).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ export: "AgentChat", filePath: "@vite-hub/ui" }),
-          expect.objectContaining({ export: "AgentInvocationList", filePath: "@vite-hub/ui" }),
-          expect.objectContaining({ export: "AgentSession", filePath: "@vite-hub/ui" }),
-          expect.objectContaining({ export: "AgentTrace", filePath: "@vite-hub/ui" }),
+          expect.objectContaining({ export: "AgentChat", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentInvocationList", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentSession", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentTrace", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
         ]),
       );
     } finally {

@@ -1,5 +1,5 @@
 import type { App, InjectionKey, Plugin } from "vue";
-import { inject } from "vue";
+import { defineAsyncComponent, inject } from "vue";
 
 export interface ViteHubUIDefaults {
   markdown?: { class?: string };
@@ -26,6 +26,19 @@ const defaultOptions: ResolvedViteHubUIDefaults = {
   messageScroller: { edgeThreshold: 8, previousItemPeek: 64 },
 };
 
+const runtimeComponents = {
+  UBadge: defineAsyncComponent(() => import("@nuxt/ui/components/Badge.vue")),
+  UButton: defineAsyncComponent(() => import("@nuxt/ui/components/Button.vue")),
+  UChatMessage: defineAsyncComponent(() => import("@nuxt/ui/components/ChatMessage.vue")),
+  UChatPrompt: defineAsyncComponent(() => import("@nuxt/ui/components/ChatPrompt.vue")),
+  UChatPromptSubmit: defineAsyncComponent(
+    () => import("@nuxt/ui/components/ChatPromptSubmit.vue"),
+  ),
+  UChatReasoning: defineAsyncComponent(() => import("@nuxt/ui/components/ChatReasoning.vue")),
+  UChatTool: defineAsyncComponent(() => import("@nuxt/ui/components/ChatTool.vue")),
+  UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
+};
+
 export const ViteHubUIInjectionKey: InjectionKey<ResolvedViteHubUIDefaults> = Symbol("ViteHubUI");
 
 export function resolveViteHubUIDefaults(
@@ -44,6 +57,9 @@ export function useViteHubUI(): ResolvedViteHubUIDefaults {
 export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
   return {
     install(app: App) {
+      for (const [name, component] of Object.entries(runtimeComponents)) {
+        if (!app.component(name)) app.component(name, component);
+      }
       app.provide(ViteHubUIInjectionKey, resolveViteHubUIDefaults(options));
     },
   };

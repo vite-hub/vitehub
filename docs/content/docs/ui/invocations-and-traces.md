@@ -8,6 +8,26 @@ icon: i-ph-activity-light
 
 `AgentInvocation` accepts the structural shape of ViteHub's `AgentInvocationRecord`. It turns append-only observations into a coding-session thread: assistant prose stays unlabelled, user input remains visually distinct, and compact tool rows expand in place. `AgentInvocationInspector` presents the invocation metadata separately so the host can put it in a splitter, drawer, or its own route.
 
+Rich session replay requires a trace log created with `{ content: "content" }`. The default metadata-only trace policy records activity milestones but strips prompts, message text, tool input, and tool output. Agent Invocation journals still bound full-content records to 512 characters per string, 32 collection items, four nesting levels, and 256 observations per invocation.
+
+Enable full-content traces only when the store and the current viewer are authorized to retain and inspect that session content.
+
+## Invocation list
+
+`AgentInvocationList` renders application-loaded session summaries and keeps search, pagination, refresh, and routing in the host. Its virtual list supports thousands of rows and reserves extra height for terminal error descriptions.
+
+::component-preview{name="InvocationListExample"}
+::
+
+Pass `selectedId` and handle `select` to connect the list to the current route. Pass `hasMore`, `loading`, and handle `endReached` when the application lazy-loads another page.
+
+## Session details
+
+The thread and inspector accept the same authorized invocation record. The preview includes dummy messages, a command, usage, Capabilities, tools, Workspace, instructions, and copy-only identifiers.
+
+::component-preview{name="InvocationExample" flush}
+::
+
 ```vue
 <AgentInvocation :invocation="record" />
 
@@ -46,6 +66,9 @@ Only include instruction content when the application has explicitly authorized 
 ## Trace only
 
 Use `AgentTrace` when the application already called `deriveTraceRuns()`:
+
+::component-preview{name="TraceExample"}
+::
 
 ```vue
 <AgentTrace v-for="run in runs" :key="run.id" :run="run" />

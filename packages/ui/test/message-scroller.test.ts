@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { defineComponent, h } from "vue";
+import { defineComponent, h, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentChat } from "../src/components/agent-chat.ts";
 import { createViteHubUI } from "../src/config.ts";
@@ -70,6 +70,39 @@ describe("message scroller behavior", () => {
 
   it("preserves the reader offset when older content prepends", () => {
     expect(calculatePrependScrollTop(240, 800, 1_100)).toBe(540);
+  });
+
+  it("does not preserve an offset when replacing the message list", async () => {
+    const items = ref(["old"]);
+    const Harness = defineComponent({
+      setup() {
+        return () => h(MessageScrollerRoot, null, {
+          default: () => h(MessageScrollerViewport, null, {
+            default: () => h(MessageScrollerContent, { items: items.value }),
+          }),
+        });
+      },
+    });
+    const wrapper = mount(Harness);
+    const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    let scrollHeight = 500;
+    let scrollTop = 200;
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => { scrollTop = value; },
+      },
+    });
+    await viewport.trigger("scroll");
+
+    scrollHeight = 700;
+    items.value = ["new"];
+    await wrapper.vm.$nextTick();
+
+    expect(scrollTop).toBe(200);
   });
 
   it("shows a jump control away from the live edge and follows on demand", async () => {
@@ -164,7 +197,8 @@ describe("message scroller behavior", () => {
     const observer = resizeObservers[0]!;
     expect(observer.targets.has(content.element)).toBe(true);
     scrollTo.mockClear();
-    await viewport.trigger("wheel", { deltaY: -10 });
+    scrollTop = 250;
+    await viewport.trigger("scroll");
     scrollHeight = 600;
     observer.callback([], observer);
     expect(scrollTo).not.toHaveBeenCalled();

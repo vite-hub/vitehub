@@ -1024,7 +1024,7 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("emits stream milestone Trace Events without tracing text deltas", async () => {
+  it("emits content-free stream milestone Trace Events by default", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
@@ -1049,6 +1049,7 @@ describe("agent message protocol", () => {
 
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message.delta",
       "agent.tool.start",
       "agent.tool.finish",
       "agent.usage.recorded",
@@ -8971,7 +8972,7 @@ describe("agent message protocol", () => {
   it("traces fullStream results when UI message streams are requested", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const traceLog = createTraceEventLog()
+    const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
       driver: { run: () => ({
           fullStream: (async function* () {
@@ -9017,11 +9018,29 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts.some(part => part.type === "tool-search")).toBe(true)
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message.delta",
       "agent.tool.start",
       "agent.tool.finish",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
+    expect(traceLog.entries()[0]).toEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "input.messages": [expect.objectContaining({ role: "user" })],
+      }),
+      name: "agent.invocation.start",
+    }))
+    expect(traceLog.entries().slice(1)).not.toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "input.messages": expect.anything() }),
+    }))
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "tool.input": { query: "users" } }),
+      name: "agent.tool.start",
+    }))
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "tool.output": "42" }),
+      name: "agent.tool.finish",
+    }))
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
   })
 
@@ -9090,6 +9109,7 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(nativeResult)
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message.delta",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
@@ -9135,6 +9155,7 @@ describe("agent message protocol", () => {
     }))
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message.delta",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])

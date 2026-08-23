@@ -8,6 +8,9 @@ icon: i-ph-chat-text-light
 
 `AgentChatMessage` composes Nuxt UI's `UChatMessage` with `AgentMessageParts`.
 
+::component-preview{name="ChatMessageExample"}
+::
+
 ## Usage
 
 ```vue

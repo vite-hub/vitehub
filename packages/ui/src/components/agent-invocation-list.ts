@@ -11,6 +11,25 @@ function statusLabel(status: AgentInvocationStatus): string {
   }[status];
 }
 
+const invocationListRowSize = 86;
+const invocationListRowWithDescriptionSize = 106;
+
+function rowSize(item: AgentInvocationListItem): number {
+  return item.description ? invocationListRowWithDescriptionSize : invocationListRowSize;
+}
+
+function rowIndexAtOffset(offsets: readonly number[], offset: number): number {
+  let low = 0;
+  let high = offsets.length - 2;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (offset < offsets[middle]!) high = middle - 1;
+    else if (offset >= offsets[middle + 1]!) low = middle + 1;
+    else return middle;
+  }
+  return Math.max(0, Math.min(low, offsets.length - 2));
+}
+
 function relativeTime(value: string | undefined, now: number | undefined): string | undefined {
   if (!value || now === undefined) return;
   const elapsed = now - Date.parse(value);
@@ -33,7 +52,7 @@ function statusIcon(status: AgentInvocationStatus) {
     completed: ["m8 12 2.5 2.5L16 9", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
     failed: ["m9 9 6 6", "m15 9-6 6", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
     pending: ["M12 7v5l3 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
-    running: ["M21 12a9 9 0 0 1-9 9", "M3 12a9 9 0 0 1 9-9"],
+    running: ["M21 12a9 9 0 1 1-6.219-8.56"],
   };
   return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, paths[status].map(path => h("path", {
     d: path,
@@ -109,21 +128,32 @@ export const AgentInvocationList = defineComponent({
   },
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
+    const list = ref<HTMLElement | null>(null);
+    const mounted = ref(false);
+    const listOffset = computed(() => list.value?.offsetTop ?? 0);
     const requestedLength = ref<number>();
     const scrollRevision = ref(0);
     const scrollTop = ref(0);
     const viewportHeight = ref(0);
-    const rowSize = 86;
     const overscan = 6;
     let resizeObserver: ResizeObserver | undefined;
     let measureViewport: (() => void) | undefined;
+    const rowOffsets = computed(() => {
+      const offsets = [0];
+      for (const item of props.items) offsets.push(offsets.at(-1)! + rowSize(item));
+      return offsets;
+    });
     const virtualRows = computed(() => {
-      const visibleRows = Math.max(1, Math.ceil(viewportHeight.value / rowSize));
-      const start = Math.max(0, Math.floor(scrollTop.value / rowSize) - overscan);
-      const end = Math.min(props.items.length, start + visibleRows + overscan * 2);
+      if (!props.items.length) return [];
+      const offsets = rowOffsets.value;
+      const listScrollTop = Math.max(0, scrollTop.value - listOffset.value);
+      const firstVisible = rowIndexAtOffset(offsets, listScrollTop);
+      const lastVisible = rowIndexAtOffset(offsets, listScrollTop + Math.max(0, viewportHeight.value - 1));
+      const start = Math.max(0, firstVisible - overscan);
+      const end = Math.min(props.items.length, lastVisible + overscan + 1);
       return Array.from({ length: end - start }, (_, offset) => {
         const index = start + offset;
-        return { index, start: index * rowSize };
+        return { index, size: offsets[index + 1]! - offsets[index]!, start: offsets[index]! };
       });
     });
     watch(
@@ -141,6 +171,7 @@ export const AgentInvocationList = defineComponent({
       if (length < previous) requestedLength.value = undefined;
     });
     onMounted(() => {
+      mounted.value = true;
       if (!viewport.value) return;
       measureViewport = () => { viewportHeight.value = viewport.value?.clientHeight ?? 0; };
       measureViewport();
@@ -173,10 +204,11 @@ export const AgentInvocationList = defineComponent({
       props.items.length === 0
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
-      props.items.length && (props.virtual && typeof window !== "undefined")
+      props.items.length && props.virtual && mounted.value
         ? h("ul", {
             class: "vh-invocation-list__virtual",
-            style: { height: `${props.items.length * rowSize}px` },
+            ref: list,
+            style: { height: `${rowOffsets.value.at(-1)}px` },
           }, virtualRows.value.map(row => renderItem(
             props.items[row.index]!,
             props.selectedId,
@@ -186,7 +218,7 @@ export const AgentInvocationList = defineComponent({
             slots.harness,
             {
               "data-index": row.index,
-              style: { height: `${rowSize}px`, transform: `translateY(${row.start}px)` },
+              style: { height: `${row.size}px`, transform: `translateY(${row.start}px)` },
             },
           )))
         : props.items.length

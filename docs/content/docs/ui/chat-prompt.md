@@ -8,6 +8,9 @@ icon: i-ph-paper-plane-tilt-light
 
 `AgentChatPrompt` retains Nuxt UI's autoresize, IME handling, Enter behavior, Escape blur, error state, and submit button states. ViteHub adds an attachment row and one submit payload.
 
+::component-preview{name="ChatPromptExample"}
+::
+
 ```vue
 <AgentChatPrompt
   v-model="input"

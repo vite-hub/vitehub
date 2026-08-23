@@ -81,7 +81,9 @@ describe("Agent Invocation Vue composables", () => {
 
     const detailCalls = controlledRequester();
     const detailScope = effectScope();
-    const detail = detailScope.run(() => useAgentInvocation("inv-1", { request: detailCalls.request }))!;
+    const detail = detailScope.run(() =>
+      useAgentInvocation("inv-1", { request: detailCalls.request }),
+    )!;
     detailCalls.calls[0]!.resolve({ invocation: record("inv-1"), observations: [observation(1)] });
     await settle();
     const detailRefresh = detail.refresh();
@@ -124,9 +126,7 @@ describe("Agent Invocation Vue composables", () => {
     expect(resource.error.value).toBeNull();
 
     const older = resource.loadMore();
-    expect(calls[2]!.path).toBe(
-      "/internal/invocations?status=finished&limit=10&cursor=next",
-    );
+    expect(calls[2]!.path).toBe("/internal/invocations?status=finished&limit=10&cursor=next");
     calls[2]!.resolve({ invocations: [record("inv-3")] } satisfies AgentInvocationListResult);
     await older;
     expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-3")]);
@@ -201,8 +201,35 @@ describe("Agent Invocation Vue composables", () => {
     calls[2]!.resolve({ cursor: "new-page-2", invocations: [record("inv-3"), record("inv-2")] });
     await refresh;
 
-    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
+    expect(resource.invocations.value.map((invocation) => invocation.id)).toEqual([
+      "inv-3",
+      "inv-2",
+      "inv-1",
+      "inv-0",
+    ]);
     expect(resource.cursor.value).toBe("page-3");
+    scope.stop();
+  });
+
+  it("delays scheduled polling until a slow older page finishes", async () => {
+    vi.useFakeTimers();
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
+
+    calls[0]!.resolve({ cursor: "older", invocations: [record("inv-2")] });
+    await settle();
+    const older = resource.loadMore();
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.options.signal?.aborted).toBe(false);
+
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await older;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls).toHaveLength(3);
+    expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-1")]);
     scope.stop();
   });
 
@@ -212,7 +239,10 @@ describe("Agent Invocation Vue composables", () => {
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ query, request }))!;
 
-    calls[0]!.resolve({ cursor: "older", invocations: [record("inv-2")] } satisfies AgentInvocationListResult);
+    calls[0]!.resolve({
+      cursor: "older",
+      invocations: [record("inv-2")],
+    } satisfies AgentInvocationListResult);
     await settle();
     const older = resource.loadMore();
     calls[1]!.resolve({ invocations: [record("inv-1")] } satisfies AgentInvocationListResult);
@@ -229,10 +259,13 @@ describe("Agent Invocation Vue composables", () => {
 
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
-    const requestMock = vi.fn(async () => ({
-      cursor: "next",
-      invocations: [record("inv-1")],
-    }) as AgentInvocationListResult);
+    const requestMock = vi.fn(
+      async () =>
+        ({
+          cursor: "next",
+          invocations: [record("inv-1")],
+        }) as AgentInvocationListResult,
+    );
     const request: AgentInvocationRequester = (_path, _options) => requestMock();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;

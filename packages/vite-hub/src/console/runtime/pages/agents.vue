@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { AgentInvocation, AgentInvocationInspector } from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+
+import { createConsoleRequest } from "../request.ts";
 
 import type { SplitterItem } from "@nuxt/ui";
 import type { AgentInvocationSummary } from "vite-hub/agent";
@@ -30,21 +32,15 @@ let media: MediaQueryList | undefined;
 
 useHead({ title: "Agents · ViteHub Console" });
 
-const request = async (path: string, options: { signal?: AbortSignal }) => {
-  const response = await fetch(path, { signal: options.signal });
-  if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`);
-  return response.json();
-};
+const request = createConsoleRequest(() => {
+  lastSuccessfulPollAt.value = new Date();
+});
 
 const list = useAgentInvocations({ baseURL: apiBase, pollInterval: 5_000, request });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: apiBase,
   pollInterval: 3_000,
   request,
-});
-
-watch([list.invocations, detail.invocation], () => {
-  lastSuccessfulPollAt.value = new Date();
 });
 
 const sessions = computed<ConsoleSession[]>(() => {
@@ -75,9 +71,7 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   const invocation = detail.invocation.value;
   if (!invocation) return;
   const persistedConfiguration = invocationConfiguration(record(invocation)?.configuration);
-  const configuration =
-    persistedConfiguration ??
-    observedConfiguration(detail.observations.value);
+  const configuration = persistedConfiguration ?? observedConfiguration(detail.observations.value);
   const view: AgentInvocationView = {
     ...invocation,
     observations: detail.observations.value,
@@ -184,8 +178,8 @@ function runLabel(invocation: AgentInvocationSummary): string {
 }
 
 function sessionStatus(session: ConsoleSession): AgentInvocationSummary["status"] {
-  if (session.invocations.some(invocation => invocation.status === "running")) return "running";
-  if (session.invocations.some(invocation => invocation.status === "pending")) return "pending";
+  if (session.invocations.some((invocation) => invocation.status === "running")) return "running";
+  if (session.invocations.some((invocation) => invocation.status === "pending")) return "pending";
   return session.invocations[0]?.status ?? "pending";
 }
 
@@ -228,8 +222,8 @@ watch(
   sessions,
   async (next) => {
     const requestedSession = routeSession.value;
-    const requestedSessionMissing = requestedSession
-      && !next.some((session) => session.id === requestedSession);
+    const requestedSessionMissing =
+      requestedSession && !next.some((session) => session.id === requestedSession);
     if (next.length && (!requestedSession || (requestedSessionMissing && !list.cursor.value)))
       await selectSession(next[0]!);
   },
@@ -318,10 +312,7 @@ onBeforeUnmount(() => {
             :description="errorMessage(list.error.value)"
           />
         </div>
-        <div
-          v-if="!collapsed && list.isLoading.value && !sessions.length"
-          class="grid gap-2 px-3"
-        >
+        <div v-if="!collapsed && list.isLoading.value && !sessions.length" class="grid gap-2 px-3">
           <USkeleton v-for="index in 4" :key="index" class="h-16 rounded-lg" />
         </div>
         <UEmpty

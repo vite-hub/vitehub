@@ -8,6 +8,9 @@ icon: i-lucide-blocks
 
 `AgentMessageParts` dispatches the parts already present in an AI SDK `UIMessage`. Text uses `AgentMarkdown`; reasoning and tools use Nuxt UI; files and sources use accessible links.
 
+::component-preview{name="MessagePartsExample"}
+::
+
 ## Supported parts
 
 | Part                                 | Default rendering                                         |

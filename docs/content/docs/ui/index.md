@@ -10,54 +10,38 @@ icon: i-ph-squares-four-light
 `@vite-hub/ui` is the interface layer for ViteHub applications. It combines AI SDK message contracts, Nuxt UI styling, reusable Vue behavior, and Pierre's code views without replacing any of those foundations.
 
 ::u-page-grid{class="not-prose mt-8 sm:grid-cols-2"}
-:::u-page-card
-
----
-
-title: Install the package
-description: Configure the Nuxt module or Vite plugin and load the default styles.
-icon: i-lucide-package
-to: /docs/ui/installation
-
----
-
-:::
-:::u-page-card
-
----
-
-title: Render a chat
-description: Connect an AI SDK or ViteHub chat directly to the component layer.
-icon: i-ph-chat-circle-text-light
-to: /docs/ui/chat
-
----
-
-:::
-:::u-page-card
-
----
-
-title: Customize message parts
-description: Render text, reasoning, tools, files, sources, and typed data parts.
-icon: i-lucide-blocks
-to: /docs/ui/message-parts
-
----
-
-:::
-:::u-page-card
-
----
-
-title: Inspect Agent work
-description: Present invocation state and the trace runs derived by ViteHub Runtime.
-icon: i-ph-activity-light
-to: /docs/ui/invocations-and-traces
-
----
-
-:::
+  :::u-page-card
+  ---
+  title: Install the package
+  description: Configure the Nuxt module or Vite plugin and load the default styles.
+  icon: i-lucide-package
+  to: /docs/ui/installation
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Render a chat
+  description: Connect an AI SDK or ViteHub chat directly to the component layer.
+  icon: i-ph-chat-circle-text-light
+  to: /docs/ui/chat
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Customize message parts
+  description: Render text, reasoning, tools, files, sources, and typed data parts.
+  icon: i-lucide-blocks
+  to: /docs/ui/message-parts
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Inspect Agent work
+  description: Present invocation state and the trace runs derived by ViteHub Runtime.
+  icon: i-ph-activity-light
+  to: /docs/ui/invocations-and-traces
+  ---
+  :::
 ::
 
 ## Layers
@@ -80,4 +64,4 @@ The package does not own chat transport. Use `useChat()` from `@ai-sdk/vue` or t
 - [Chat prompt](/docs/ui/chat-prompt) and [attachments](/docs/ui/attachments)
 - [Message scroller](/docs/ui/message-scroller)
 - [Diff and file tree](/docs/ui/code-views)
-- [Invocations and traces](/docs/ui/invocations-and-traces)
+- [Invocation lists, session details, and traces](/docs/ui/invocations-and-traces)

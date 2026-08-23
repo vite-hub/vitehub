@@ -12,6 +12,7 @@ import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
+import { createConsoleRequest } from "../src/console/runtime/request.ts"
 import { consoleInvocationRootPlugin } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -50,10 +51,25 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe("Agent invocation console", () => {
+  it("records freshness only after a successful console response", async () => {
+    const onSuccess = vi.fn()
+    const request = createConsoleRequest(onSuccess)
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response("failed", { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ invocations: [] })))
+
+    await expect(request("/first", {})).rejects.toThrow("status 500")
+    expect(onSuccess).not.toHaveBeenCalled()
+
+    await expect(request("/second", {})).resolves.toEqual({ invocations: [] })
+    expect(onSuccess).toHaveBeenCalledOnce()
+  })
+
   it("supplies the console journal to framework Agent Definitions without a store", () => {
     const fallback = fakeInvocations("console")
     scope[consoleInvocationsKey] = fallback
