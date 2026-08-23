@@ -752,7 +752,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               ownsRecord = false
             }
           })().finally(() => {
-            if (!finished && terminalRetry === retry) terminalRetry = undefined
+            if (!finished && terminalRetry === retry) {
+              terminalRetry = undefined
+              finishing = false
+            }
           })
           terminalRetry = retry
           registerAgentInvocationRecovery(context, retry)
