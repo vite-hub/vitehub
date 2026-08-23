@@ -786,6 +786,55 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("initializes the libSQL search column concurrently", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-migration-"))
+    const url = `file:${join(directory, "invocations.sqlite")}`
+    const setupClient = createClient({ url })
+    const firstClient = createClient({ url })
+    const secondClient = createClient({ url })
+    try {
+      await setupClient.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        record TEXT NOT NULL
+      )`)
+
+      let inspections = 0
+      let releaseInspections!: () => void
+      const inspectionsComplete = new Promise<void>((resolve) => {
+        releaseInspections = resolve
+      })
+      const synchronizeInspection = (client: Client): Client => new Proxy(client, {
+        get(target, property) {
+          const value = Reflect.get(target, property)
+          if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            const result = await (client.execute as (...executeArgs: unknown[]) => Promise<unknown>)(...args)
+            const statement = typeof args[0] === "string" ? args[0] : undefined
+            if (statement?.startsWith("PRAGMA table_info") && inspections < 2) {
+              inspections++
+              if (inspections === 2) releaseInspections()
+              await inspectionsComplete
+            }
+            return result
+          }
+        },
+      }) as Client
+
+      await expect(Promise.all([
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(firstClient) }).list(),
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(secondClient) }).list(),
+      ])).resolves.toEqual([{ invocations: [] }, { invocations: [] }])
+    }
+    finally {
+      setupClient.close()
+      firstClient.close()
+      secondClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("recovers expired libSQL writer leases and fences previous writers", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-lease-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })

@@ -49,7 +49,9 @@ export default defineEventHandler(() => {
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources`, `createSource`, `defineCollection`, `custom` from `vite-hub/source` | Define Sources, create context-dependent readers, and combine keyed readers. |
+| `defineSource`, `defineSources`, `createSource`, `combineSources`, `custom` from `vite-hub/source` | Define Sources, create context-dependent readers, and combine keyed readers. |
+| `defineCollection`, `table` from `vite-hub/source`, `useCollection` from `vite-hub/source/client` | Turn a table or custom loader into a typed, paginated HTTP read model and consume it from Vue. |
+| `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
@@ -194,14 +196,14 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## Compose keyed Source readers
+## Combine keyed Source readers
 
-Use `defineCollection()` when several readers can return the same key. A
-Collection identifies each item with a `[source, key]` tuple, so the source
+Use `combineSources()` when several readers can return the same key. A
+combined reader identifies each item with a `[source, key]` tuple, so the source
 alias remains part of the runtime value and its inferred type.
 
 ```ts [server/recaps.ts]
-import { createSource, defineCollection, defineSource } from 'vite-hub/source'
+import { combineSources, createSource, defineSource } from 'vite-hub/source'
 
 const github = defineSource(context => ({
   async get(month: `${number}-${number}`) {
@@ -212,7 +214,7 @@ const github = defineSource(context => ({
   },
 }))
 
-export const recaps = defineCollection({
+export const recaps = combineSources({
   sources: {
     github: createSource(github, { rootDir: process.cwd() }),
   },
@@ -223,15 +225,105 @@ await recaps.items()
 // [{ key: '2026-07', source: 'github', identity: ['github', '2026-07'] }]
 ```
 
-Collection aliases must be strings. `get()` infers the accepted key and result
-for each alias. `items()` is available on every Collection, but it rejects a
-partially enumerable Collection before starting any reader. When every reader
+Source aliases must be strings. `get()` infers the accepted key and result
+for each alias. `items()` is available on every combined reader, but it rejects a
+partially enumerable reader before starting any work. When every reader
 implements `items()`, each returned item includes `source` and `identity`.
 
 `defineSource(context => reader)` declares a context-dependent keyed reader.
-`createSource()` creates that reader with a `SourceContext`. Collections do not
+`createSource()` creates that reader with a `SourceContext`. Combined readers do not
 change the process-local registry: `defineSources()`, `registerSources()`, and
 `useSource()` keep their existing behavior.
+
+## Expose a typed Collection
+
+A Source describes where data comes from. A Collection describes the paginated
+object shape an application exposes to a client. For a discovered Drizzle
+database, let the database adapter own the keyset query:
+
+```ts [server/collections/articles.ts]
+import { eq } from 'drizzle-orm'
+import * as v from 'valibot'
+import { useDatabase } from 'vite-hub/database/drizzle'
+import { defineCollection, table } from 'vite-hub/source'
+
+const { db, schema } = useDatabase('default')
+
+export const articles = defineCollection({
+  source: table({
+    db,
+    table: schema.articles,
+    orderBy: {
+      column: schema.articles.createdAt,
+      direction: 'desc',
+      tieBreaker: schema.articles.id,
+    },
+    defaultLimit: 25,
+    maxLimit: 100,
+    querySchema: v.object({ author: v.optional(v.string()) }),
+    where: ({ query, table }) => query.author
+      ? eq(table.author, query.author)
+      : undefined,
+  }),
+  transform: article => ({ id: article.id, title: article.title }),
+})
+```
+
+`column` and `tieBreaker` must be non-null columns on the selected table, and the
+tie-breaker must be unique. The table source applies `where` before its lexicographic
+cursor predicate, orders both columns consistently, requests the extra row, and
+keeps the cursor opaque to clients. Omit `querySchema` and `where` when the
+Collection has no filters.
+
+Use `defineCollection` directly when the origin is a Source reader, SDK, HTTP
+API, joined query, or another loader whose pagination is not a single Drizzle
+table. In that escape hatch, the loader owns its origin-specific cursor logic.
+
+```ts [server/collections/articles.ts]
+import { defineCollection } from 'vite-hub/source'
+import * as v from 'valibot'
+
+export const articles = defineCollection(async ({ cursor, limit, query }) => {
+  return db.listArticles({ after: cursor, author: query.author, limit })
+}, {
+  cursor: article => [article.createdAt, article.id] as const,
+  cursorSchema: v.tuple([v.number(), v.string()]),
+  defaultLimit: 25,
+  maxLimit: 100,
+  querySchema: v.object({ author: v.optional(v.string()) }),
+  transform: article => ({ id: article.id, title: article.title }),
+})
+```
+
+The generic Collection requests one extra row from the loader, enforces its configured
+limits, and turns the last visible row into an opaque cursor. `transform()` is
+the server-to-client boundary, so private columns and provider objects stay out
+of the response while its return type becomes the client item type. Any Standard
+Schema validator can provide `cursorSchema` and `querySchema`; their output types
+flow into the loader without manual generic annotations.
+
+```vue [app/pages/articles.vue]
+<script setup lang="ts">
+const author = ref<string>()
+const { items, pending, error, hasMore, loadMore } = useCollection('articles', {
+  filter: computed(() => ({ author: author.value })),
+})
+</script>
+```
+
+ViteHub discovers modules in `server/collections` and generates their type
+registry and read-only GET routes. Each module exports a Collection with the
+same name as its filename, so `articles.ts` exports `articles` and maps to
+`/api/articles`. The Nuxt module auto-imports `useCollection`; outside Nuxt,
+import it from `vite-hub/source/client`. Everything in `server/collections` is
+public through its transformed shape; keep private definitions elsewhere and do
+not create a matching `server/api` handler. Restart Nuxt after adding, removing,
+or renaming a Collection module so Nitro rebuilds its handler manifest. Use
+`filter` for validated request input. It stays
+fixed while `loadMore()` advances the opaque cursor. For a bounded Collection,
+set `all: true` to fetch every page asynchronously. `cursor` and `limit` are
+reserved route query parameters. Invalid limits, cursor encodings, and parsed
+filters return HTTP 400.
 
 ## Use Sources with Workspace
 

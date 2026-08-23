@@ -219,6 +219,59 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("excludes observations when reconciling search departures", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { search: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [] });
+    await settle();
+    calls[2]!.resolve({
+      invocation: {
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        observations: [{ value: "running" }],
+        status: "completed",
+      },
+      observations: [{ name: "output", sequence: 1, timestamp: "2026-08-22T12:00:30.000Z", type: "run", value: "running" }],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([]);
+    scope.stop();
+  });
+
+  it("retries failed filtered departure checks", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const firstRefresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [] });
+    await settle();
+    calls[2]!.reject(new Error("temporary failure"));
+    await firstRefresh;
+    expect(resource.invocations.value).toEqual([record("inv-1")]);
+
+    const secondRefresh = resource.refresh();
+    calls[3]!.resolve({ invocations: [] });
+    await settle();
+    calls[4]!.resolve({
+      invocation: { ...record("inv-1"), completedAt: "2026-08-22T12:01:00.000Z", status: "completed" },
+      observations: [],
+    });
+    await secondRefresh;
+
+    expect(resource.invocations.value).toEqual([]);
+    expect(calls).toHaveLength(5);
+    scope.stop();
+  });
+
   it("removes displaced records that no longer match the status filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

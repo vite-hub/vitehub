@@ -1484,12 +1484,21 @@ importers:
 
   packages/source:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
       effect:
         specifier: catalog:effect
         version: 4.0.0-beta.99
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22))
+      ofetch:
+        specifier: catalog:unjs
+        version: 1.5.1
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
@@ -1521,12 +1530,18 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      valibot:
+        specifier: catalog:runtime
+        version: 1.4.2(typescript@6.0.3)
       vite-plus:
         specifier: catalog:tooling
         version: 0.1.24(9cfc88fb4a0b6a8e26793e08a9c58092)
       vitest:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(9cfc88fb4a0b6a8e26793e08a9c58092)'
+      vue:
+        specifier: catalog:ui
+        version: 3.5.40(typescript@6.0.3)
 
   packages/ui:
     dependencies:
@@ -1627,6 +1642,9 @@ importers:
       '@netlify/blobs':
         specifier: catalog:storage
         version: 10.7.5
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@supabase/storage-js':
         specifier: catalog:storage
         version: 2.105.4
@@ -1729,6 +1747,9 @@ importers:
       google-auth-library:
         specifier: catalog:storage
         version: 10.6.2
+      mlly:
+        specifier: catalog:unjs
+        version: 1.8.2
       uploadthing:
         specifier: catalog:storage
         version: 7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3)
@@ -1739,6 +1760,9 @@ importers:
         specifier: catalog:workflow
         version: 5.0.0-beta.35(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.4)(react@19.2.6)(typescript@6.0.3)(ws@8.21.3)
     devDependencies:
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.17.4
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3

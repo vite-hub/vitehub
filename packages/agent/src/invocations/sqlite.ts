@@ -115,7 +115,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       )`)
       const columns = await client.execute(`PRAGMA table_info(${table})`)
       if (!columns.rows.some(row => row.name === "search")) {
-        await client.execute(`ALTER TABLE ${table} ADD COLUMN search TEXT`)
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN search TEXT`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
+          if (!currentColumns.rows.some(row => row.name === "search")) throw error
+        }
       }
       const missingSearch = await client.execute(`SELECT sequence, record FROM ${table} WHERE search IS NULL`)
       for (const row of missingSearch.rows) {

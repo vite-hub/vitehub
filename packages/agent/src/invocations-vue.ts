@@ -270,6 +270,7 @@ export function useAgentInvocations(
   let revision = 0;
   let resetFirstPage = true;
   let departedIds = new Set<string>();
+  let pendingDepartureIds = new Set<string>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
@@ -302,6 +303,7 @@ export function useAgentInvocations(
       invocations.value = [];
       cursor.value = undefined;
       firstPage = [];
+      pendingDepartureIds = new Set();
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -310,6 +312,7 @@ export function useAgentInvocations(
       if (resetFirstPage) {
         invocations.value = [];
         cursor.value = undefined;
+        pendingDepartureIds = new Set();
       }
       revision++;
       loadMoreController?.abort();
@@ -328,18 +331,28 @@ export function useAgentInvocations(
       const search = query?.search?.trim().toLowerCase();
       if (resetFirstPage || (statuses.size === 0 && !search)) return result;
       const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
-      const displaced = firstPage.filter(invocation => !returnedIds.has(invocation.id));
-      const reconciled = await Promise.allSettled(displaced.map(invocation =>
-        request(detailPath(toValue(baseURL), invocation.id), { signal }).then(parseAgentInvocationDetailResult),
+      for (const id of returnedIds) pendingDepartureIds.delete(id);
+      const displaced = [...new Set([
+        ...firstPage.filter(invocation => !returnedIds.has(invocation.id)).map(invocation => invocation.id),
+        ...pendingDepartureIds,
+      ])];
+      const reconciled = await Promise.allSettled(displaced.map(id =>
+        request(detailPath(toValue(baseURL), id), { signal }).then(parseAgentInvocationDetailResult),
       ));
-      departedIds = new Set(reconciled.flatMap((outcome, index) =>
-        outcome.status === "fulfilled" && (
+      departedIds = new Set();
+      pendingDepartureIds = new Set();
+      for (const [index, outcome] of reconciled.entries()) {
+        const id = displaced[index]!;
+        if (outcome.status === "rejected") {
+          pendingDepartureIds.add(id);
+          continue;
+        }
+        const { observations: _observations, ...searchableInvocation } = outcome.value.invocation as AgentInvocationSummary & { observations?: unknown };
+        if (
           (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))
-          || (search && !JSON.stringify(outcome.value.invocation).toLowerCase().includes(search))
-        )
-          ? [displaced[index]!.id]
-          : [],
-      ));
+          || (search && !JSON.stringify(searchableInvocation).toLowerCase().includes(search))
+        ) departedIds.add(id);
+      }
       return result;
     },
     pollInterval: options.pollInterval,

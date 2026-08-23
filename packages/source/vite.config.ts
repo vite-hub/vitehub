@@ -15,18 +15,20 @@ export default defineConfig({
       ],
     },
     entry: [
+      "src/client.ts",
       "src/index.ts",
       "src/file.ts",
       "src/github.ts",
       "src/glob.ts",
       "src/markdown.ts",
       "src/mcp.ts",
+      "src/server.ts",
     ],
     exports: {
       customExports(exports) {
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
-            if (typeof value !== "string" || !value.endsWith(".js")) {
+            if (String(value) !== value || !value.endsWith(".js")) {
               return [key, value];
             }
             return [
