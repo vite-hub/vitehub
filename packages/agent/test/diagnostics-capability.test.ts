@@ -120,7 +120,7 @@ describe("diagnostics Capability", () => {
     warn.mockRestore()
   })
 
-  it("releases a timed-out reporter before the next invocation", async () => {
+  it("does not overlap a timed-out reporter with the next invocation", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const reporter = vi.fn(() => new Promise<void>(() => {}))
     const agent = defineAgent({
@@ -131,7 +131,7 @@ describe("diagnostics Capability", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
 
-    expect(reporter).toHaveBeenCalledTimes(2)
+    expect(reporter).toHaveBeenCalledOnce()
     warn.mockRestore()
   })
 

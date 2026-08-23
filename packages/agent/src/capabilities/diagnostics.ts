@@ -87,10 +87,7 @@ function boundedReporter(reporter: RuntimeDiagnosticReporter, timeout: number): 
     while (active) {
       const remaining = deadline - Date.now()
       if (remaining <= 0) return
-      if (!await wait(active, remaining)) {
-        active = undefined
-        break
-      }
+      if (!await wait(active, remaining)) return
     }
     const delivery = Promise.resolve().then(() => reporter(event))
     const slot = delivery.then(() => undefined, () => undefined)

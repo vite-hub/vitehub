@@ -344,15 +344,37 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
   context: AgentTraceContext<TRuntimeConfig>,
 ) {
   let pendingText: Extract<StreamEvent, { type: "text-delta" }> | undefined
+  let pendingCommandOutput: StreamEvent | undefined
   const flush = async () => {
-    if (!pendingText) return
-    const event = pendingText
+    const events = [pendingText, pendingCommandOutput]
     pendingText = undefined
-    await traceAgentStreamEvent(context, event)
+    pendingCommandOutput = undefined
+    for (const event of events) {
+      if (event) await traceAgentStreamEvent(context, event)
+    }
   }
   return {
     flush,
     async write(event: StreamEvent) {
+      const data = event.type === "data-agent-event" ? record(event.data) : undefined
+      const value = record(data?.value)
+      if (data?.kind === "content.delta" && value?.streamKind === "command_output" && hasRuntimeType(value.delta, "string")) {
+        const pendingData = pendingCommandOutput?.type === "data-agent-event" ? record(pendingCommandOutput.data) : undefined
+        const pendingValue = record(pendingData?.value)
+        let remaining = value.delta
+        if (pendingCommandOutput && pendingCommandOutput.id === event.id && hasRuntimeType(pendingValue?.delta, "string")) {
+          remaining = pendingValue.delta + remaining
+          pendingCommandOutput = undefined
+        }
+        else await flush()
+        while (remaining.length > MAX_TRACE_TEXT_EVENT_LENGTH) {
+          pendingCommandOutput = { ...event, data: { ...data, value: { ...value, delta: remaining.slice(0, MAX_TRACE_TEXT_EVENT_LENGTH) } } }
+          remaining = remaining.slice(MAX_TRACE_TEXT_EVENT_LENGTH)
+          await flush()
+        }
+        pendingCommandOutput = { ...event, data: { ...data, value: { ...value, delta: remaining } } }
+        return
+      }
       if (event.type !== "text-delta" || !hasRuntimeType(event.text, "string")) {
         await flush()
         await traceAgentStreamEvent(context, event)

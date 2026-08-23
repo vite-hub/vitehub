@@ -2578,13 +2578,13 @@ interface AgentTelemetryScheduler {
 
 const agentLiveTelemetryTimeout = 10_000
 
-async function boundAgentLiveTelemetry(delivery: Promise<void>): Promise<void> {
+async function boundAgentTelemetry(delivery: Promise<void>, phase: "live" | "terminal"): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
       delivery,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new DOMException("Live Agent telemetry export timed out.", "TimeoutError")), agentLiveTelemetryTimeout)
+        timer = setTimeout(() => reject(new DOMException(`${phase === "live" ? "Live" : "Terminal"} Agent telemetry export timed out.`, "TimeoutError")), agentLiveTelemetryTimeout)
         // SAFETY: Agent runtimes may provide browser or Node timers; only Node timers expose unref().
         const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
         if (unref) unref.call(timer)
@@ -2618,13 +2618,16 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
     dirty = false
     const delivery = Promise.resolve()
       .then(() => exportAgentTelemetry(selected, runtime, context, agent, invocationId, !terminal))
-    const task = (terminal ? delivery : boundAgentLiveTelemetry(delivery))
+    const task = boundAgentTelemetry(delivery, terminal ? "terminal" : "live")
       .catch(error => reportAgentTelemetryFailure(error, runtime, agent, invocationId, terminal ? "terminal" : "live"))
-    active = task
+    // Keep ownership until the exporter itself settles. The bounded task lets the
+    // host finish, but must not permit another export to overlap uncancellable work.
+    active = delivery.then(() => undefined, () => undefined)
     Object.defineProperty(task, agentTelemetryTask, { value: true })
     registerAgentBackgroundTask(runtime, task)
-    void task.then(() => {
-      if (active !== task) return
+    const owned = active
+    void owned.then(() => {
+      if (active !== owned) return
       active = undefined
       drain()
     })

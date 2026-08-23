@@ -127,16 +127,21 @@ function unixNanos(value: string | undefined, fallback: string): string {
 
 function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: OtlpEncodingBudget) {
   const statusCode = span.status.code === "ERROR" ? 2 : span.status.code === "OK" ? 1 : 0
+  chargeOtlpEncoding(budget, jsonStringByteLength(span.name))
+  if (span.status.message) chargeOtlpEncoding(budget, jsonStringByteLength(span.status.message))
   return {
     attributes: otlpAttributes(span.attributes, budget),
     endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime),
     ...(span.events?.length
       ? {
-          events: span.events.map(event => ({
-            attributes: otlpAttributes(event.attributes, budget),
-            name: event.name,
-            timeUnixNano: unixNanos(event.time, fallbackEndTime),
-          })),
+          events: span.events.map((event) => {
+            chargeOtlpEncoding(budget, jsonStringByteLength(event.name))
+            return {
+              attributes: otlpAttributes(event.attributes, budget),
+              name: event.name,
+              timeUnixNano: unixNanos(event.time, fallbackEndTime),
+            }
+          }),
         }
       : {}),
     kind: 1,

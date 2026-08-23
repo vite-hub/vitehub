@@ -188,6 +188,29 @@ describe("Agent telemetry", () => {
     stringify.mockRestore()
   })
 
+  it("rejects oversized OTLP structural strings before serialization", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    const stringify = vi.spyOn(JSON, "stringify")
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      spans: [{
+        events: [{ name: "x".repeat(4 * 1024 * 1024), time: "2026-01-01T00:00:00.000Z" }],
+        name: "vitehub.run",
+        spanId: "0123456789abcdef",
+        startTime: "2026-01-01T00:00:00.000Z",
+        status: { code: "ERROR", message: "failed" },
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+    })).rejects.toThrow("OTLP/HTTP JSON payloads cannot exceed 4194304 bytes")
+
+    expect(stringify).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    stringify.mockRestore()
+  })
+
   it("rejects aggregate binary content before encoding the value that exceeds the request budget", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     const encode = vi.fn(globalThis.btoa)
@@ -735,7 +758,7 @@ describe("Agent telemetry", () => {
     }
   })
 
-  it("times out a stalled live export before sending terminal telemetry", async () => {
+  it("times out a stalled live export without overlapping terminal telemetry", async () => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
@@ -775,7 +798,7 @@ describe("Agent telemetry", () => {
       releaseDriver()
       await active
       await vi.advanceTimersByTimeAsync(10_000)
-      await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(2))
+      expect(telemetry).toHaveBeenCalledOnce()
       await Promise.all(tasks)
 
       expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
@@ -784,8 +807,39 @@ describe("Agent telemetry", () => {
         phase: "live",
         run_id: "run-stalled-live",
       }))
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      expect((telemetry.mock.calls[1]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds a stalled terminal telemetry export", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const tasks: Promise<unknown>[] = []
+      const telemetry = vi.fn(() => new Promise<void>(() => {}))
+      const agent = defineAgent({
+        capabilities: [telemetryCapability(telemetry)],
+        driver: { run: () => "ok" },
+      })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: "run-stalled-terminal" },
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})).resolves.toBe("ok")
+      await vi.advanceTimersByTimeAsync(10_000)
+      await Promise.all(tasks)
+
+      expect(telemetry).toHaveBeenCalledOnce()
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({ name: "TimeoutError" }),
+        event: "agent.telemetry.export.failed",
+        phase: "terminal",
+      }))
     }
     finally {
       consoleError.mockRestore()
