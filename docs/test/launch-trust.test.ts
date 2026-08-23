@@ -77,9 +77,14 @@ describe("launch documentation trust boundaries", () => {
     }
     expect(matrix).toContain("Cloudflare Queues");
     expect(matrix).toContain("Vercel Queues");
+    expect(matrix).toContain("Discovery only");
+    expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
     expect(matrix).toContain("Cloudflare Workflows");
     expect(matrix).toContain("Vercel Workflow");
     expect(matrixComponent).toContain("row.values[column.id]!.display");
+    expect(matrixComponent).toContain('class="support-matrix-cell-mark"');
+    expect(matrixComponent).toContain('<tbody v-for="(section, sectionIndex) in sections"');
+    expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
     );

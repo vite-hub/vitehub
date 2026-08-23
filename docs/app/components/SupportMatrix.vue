@@ -274,13 +274,17 @@ const sections: { label: string; rows: MatrixRow[] }[] = [
         description: "Message delivery",
         values: {
           local: cell(
-            "available",
-            "Local development runs discovered Queue handlers in the playground.",
-            "Local",
+            "none",
+            "Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs locally.",
+            "Discovery only",
           ),
           cloudflare: cell("available", "Cloudflare Queues bindings and consumers.", "Queues"),
           vercel: cell("available", "Vercel Queues callbacks and runtime client.", "Vercel Queues"),
-          netlify: cell("none", "No Netlify Queue provider is provided.", "—"),
+          netlify: cell(
+            "package",
+            "Select the Cloudflare or Vercel Queue Provider explicitly because Netlify cannot infer one.",
+            "Cloudflare / Vercel",
+          ),
           deno: cell("none", "No Deno Queue provider is provided.", "—"),
           nitro: cell(
             "package",
@@ -687,43 +691,42 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
               </th>
             </tr>
           </thead>
-          <tbody>
-            <template v-for="(section, sectionIndex) in sections" :key="section.label">
-              <tr class="support-matrix-section-row" :class="{ 'is-separated': sectionIndex > 0 }">
-                <th scope="rowgroup">{{ section.label }}</th>
-                <td v-for="column in columns" :key="column.id" />
-              </tr>
-              <tr v-for="row in section.rows" :key="row.id" class="support-matrix-data-row">
-                <th scope="row">
-                  <span>{{ row.label }}</span>
-                  <small>{{ row.description }}</small>
-                </th>
-                <td v-for="column in columns" :key="column.id">
-                  <UTooltip
-                    v-model:open="openDetails[`${row.id}-${column.id}`]"
-                    :text="row.values[column.id]!.detail"
-                    :content="{ side: 'top', sideOffset: 8, collisionPadding: 12 }"
-                    :ui="{ content: 'support-matrix-tooltip' }"
+          <tbody v-for="(section, sectionIndex) in sections" :key="section.label">
+            <tr class="support-matrix-section-row" :class="{ 'is-separated': sectionIndex > 0 }">
+              <th scope="rowgroup">{{ section.label }}</th>
+              <td v-for="column in columns" :key="column.id" />
+            </tr>
+            <tr v-for="row in section.rows" :key="row.id" class="support-matrix-data-row">
+              <th scope="row">
+                <span>{{ row.label }}</span>
+                <small>{{ row.description }}</small>
+              </th>
+              <td v-for="column in columns" :key="column.id">
+                <UTooltip
+                  v-model:open="openDetails[`${row.id}-${column.id}`]"
+                  :text="row.values[column.id]!.detail"
+                  :content="{ side: 'top', sideOffset: 8, collisionPadding: 12 }"
+                  :ui="{ content: 'support-matrix-tooltip' }"
+                >
+                  <button
+                    type="button"
+                    class="support-matrix-status"
+                    :data-status="row.values[column.id]!.status"
+                    :aria-label="`${column.label}, ${row.label}: ${statusMeta[row.values[column.id]!.status].label}. ${row.values[column.id]!.detail}`"
+                    @click="
+                      openDetails[`${row.id}-${column.id}`] = !openDetails[`${row.id}-${column.id}`]
+                    "
                   >
-                    <button
-                      type="button"
-                      class="support-matrix-status"
-                      :data-status="row.values[column.id]!.status"
-                      :aria-label="`${column.label}, ${row.label}: ${statusMeta[row.values[column.id]!.status].label}. ${row.values[column.id]!.detail}`"
-                      @click="
-                        openDetails[`${row.id}-${column.id}`] =
-                          !openDetails[`${row.id}-${column.id}`]
-                      "
-                    >
-                      <span aria-hidden="true">{{
-                        row.values[column.id]!.display ??
-                        statusMeta[row.values[column.id]!.status].mark
-                      }}</span>
-                    </button>
-                  </UTooltip>
-                </td>
-              </tr>
-            </template>
+                    <span class="support-matrix-cell-mark" aria-hidden="true">{{
+                      statusMeta[row.values[column.id]!.status].mark
+                    }}</span>
+                    <span v-if="row.values[column.id]!.display" aria-hidden="true">{{
+                      row.values[column.id]!.display
+                    }}</span>
+                  </button>
+                </UTooltip>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -746,7 +749,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
 .support-matrix-navigation {
   position: fixed;
   z-index: 40;
-  top: calc(var(--ui-header-height) + 0.5rem);
+  top: calc(var(--ui-header-height) + 42px + 0.5rem);
   left: 0.5rem;
 }
 
@@ -1030,10 +1033,12 @@ a.support-matrix-host-link:hover {
 }
 
 .support-matrix-status {
-  display: inline-grid;
+  display: inline-flex;
   width: 100%;
   min-height: 2rem;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
   padding: 0.25rem;
   border: 0;
   border-radius: 0.25rem;
@@ -1047,6 +1052,11 @@ a.support-matrix-host-link:hover {
   transition:
     background-color 120ms ease,
     color 120ms ease;
+}
+
+.support-matrix-cell-mark {
+  flex: none;
+  font-size: 0.75rem;
 }
 
 .support-matrix-status[data-status="available"] {
