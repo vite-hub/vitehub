@@ -519,6 +519,35 @@ describe("Agent telemetry", () => {
     expect(resolverEvent).toMatchObject({ attributes: { output: "resolver output" } })
   })
 
+  it("preserves resolver traces for metadata-only dynamic telemetry", async () => {
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: async (context) => {
+        await context.traceLog?.append({
+          attributes: { output: "resolver output", source: "resolver" },
+          name: "capability.resolving",
+          type: "run",
+        })
+        return [telemetryCapability(telemetry)]
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-resolved-metadata-telemetry" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    const resolverEvent = telemetry.mock.calls[0]![0].spans[0].events
+      .find((event: { name: string }) => event.name === "capability.resolving")
+    expect(resolverEvent).toMatchObject({ attributes: { source: "resolver" } })
+    expect(resolverEvent.attributes).not.toHaveProperty("output")
+  })
+
   it("exports invoker resolver traces through active-channel telemetry", async () => {
     const telemetry = vi.fn()
     const tasks: Promise<unknown>[] = []

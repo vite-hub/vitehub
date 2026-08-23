@@ -306,6 +306,17 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("keeps run errors failed after a later finish", async () => {
+    const events = [
+      { name: "run.error", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "error" as const },
+      { name: "run.finish", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+    ]
+
+    expect(deriveTraceRuns(events)).toEqual([
+      expect.objectContaining({ endTime: events[1]!.timestamp, id: "run-1", status: "failed" }),
+    ])
+  })
+
   it("derives yielded stream errors as failed runs even when finish follows", async () => {
     const log = createTraceEventLog()
     await log.append({

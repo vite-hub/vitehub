@@ -321,10 +321,53 @@ describe("Agent Invocations", () => {
 
       const record = await invocations.getByRunId("finish-deadline-outcomes")
       expect(record).toMatchObject({ status: "failed" })
-      expect(record?.observations.map(observation => observation.name)).toEqual([
-        "agent.stream.error",
-        "agent.invocation.finish",
-      ])
+      expect(record?.observations).toContainEqual(expect.objectContaining({ name: "agent.stream.error" }))
+      expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("persists an active fatal observation at the finish deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportFatalStarted!: () => void
+      let stallFatal = true
+      const fatalStarted = new Promise<void>((resolve) => { reportFatalStarted = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (stallFatal && input.observation?.name === "run.error") {
+              stallFatal = false
+              reportFatalStarted()
+              return await new Promise(() => {})
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-deadline-active-fatal"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "provider run failed" },
+        name: "run.error",
+        type: "error",
+      })
+      await fatalStarted
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+      const finishing = journal.finish("failed", new Error("provider run failed"))
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+
+      const record = await invocations.getByRunId("finish-deadline-active-fatal")
+      expect(record).toMatchObject({ status: "failed" })
+      expect(record?.observations).toContainEqual(expect.objectContaining({ name: "run.error" }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({ name: "agent.invocation.finish" }))
     }
     finally {
       vi.useRealTimers()

@@ -2786,6 +2786,11 @@ async function createAgentInvocationContext<
     failureTelemetry = agentCapabilityTelemetry(resolvedCapabilityDefinitions)
     const resolvedTelemetryUsesContent = failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
     if (mayResolveContentTelemetry && !resolvedTelemetryUsesContent) {
+      if (!resolvedContext.traceLog) {
+        for (const entry of runtimeContext.traceLog?.entries() || []) {
+          await correlatedTraceLog.append(entry)
+        }
+      }
       runtimeContext = { ...runtimeContext, traceLog: correlatedTraceLog }
     }
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"

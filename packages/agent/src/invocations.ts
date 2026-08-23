@@ -496,6 +496,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
+      let finishing = false
       let ownsRecord = false
       let observationCount = 0
       let observationsTruncated = false
@@ -514,6 +515,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let observationWrite: Promise<void> | undefined
       let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
+      const persistedObservationSequences = new Set<number>()
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
@@ -631,11 +633,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (updated && updated !== storeOperationTimedOut) {
               observationCount = updated.observations.length
               persisted = true
+              persistedObservationSequences.add(observation.sequence)
             }
           }
           finally {
             if (!persisted
               && !finished
+              && !finishing
               && outcomeObservationPriority(observation) !== undefined
               && !retriedObservations.has(observation)) {
               observationsTruncated = true
@@ -655,7 +659,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         observationWrite = settled
       }
       const observe = (observation: TraceEventLogEntry) => {
-        if (finished) return
+        if (finished || finishing) return
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
         const priority = outcomeObservationPriority(observation)
         const queuedObservation = priority !== undefined && (atCapacity || observationsTruncated)
@@ -679,13 +683,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content),
         },
         async finish(status, error) {
-          if (finished) return
+          if (finished || finishing) return
+          finishing = true
+          const finishingActiveObservation = activeObservation
           const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
           while (observationWrite && Date.now() < observationDeadline) {
             await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
-          const pendingFailure = pendingObservations.find(failureEvidenceObservation)
-          const pendingTerminal = pendingObservations.findLast(terminalObservation)
+          const outcomeObservations = [finishingActiveObservation, activeObservation, ...pendingObservations]
+            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
+            .filter((observation, index, observations) => observations.findIndex(candidate => candidate.sequence === observation.sequence) === index)
+          const unpersistedOutcomes = outcomeObservations.filter(observation => !persistedObservationSequences.has(observation.sequence))
+          const pendingFailure = unpersistedOutcomes.find(failureEvidenceObservation)
+          const pendingTerminal = unpersistedOutcomes.findLast(terminalObservation)
           const pendingOutcomes = [pendingFailure, pendingTerminal]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
             .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
