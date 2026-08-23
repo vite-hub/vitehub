@@ -199,6 +199,7 @@ pnpm add @nuxt/ui
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   vitehub: {
+    agent: true,
     console: true,
     preset: 'cloudflare',
   },

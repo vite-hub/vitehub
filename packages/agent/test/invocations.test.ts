@@ -109,6 +109,41 @@ describe("Agent Invocations", () => {
     })
   }, 5_000)
 
+  it("marks observations that time out before invocation completion", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseObservation!: () => void
+      const observationGate = new Promise<void>((resolve) => { releaseObservation = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation) await observationGate
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("timed-out-observation"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      journal.context.traceLog?.append({ name: "custom", type: "run" })
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      releaseObservation()
+      await vi.advanceTimersByTimeAsync(0)
+      await journal.finish("completed")
+
+      await expect(invocations.getByRunId("timed-out-observation")).resolves.toMatchObject({
+        observationsTruncated: true,
+        status: "completed",
+      })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("does not let a rejecting trace sink change Agent execution or journal completion", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const traceLog = {

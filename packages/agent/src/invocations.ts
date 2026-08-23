@@ -656,7 +656,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             observation: persistedObservation,
             timestamp,
           }, claimId))
-          if (updated && updated !== storeOperationTimedOut) observationCount = updated.observations.length
+          if (updated === storeOperationTimedOut) observationCapMarked = true
+          else if (updated) observationCount = updated.observations.length
         })().catch(() => {})
         const settled = task.finally(() => {
           if (observationWrite === settled) {
