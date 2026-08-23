@@ -213,6 +213,7 @@ function numericAttribute(attributes: Record<string, unknown>, ...keys: string[]
 
 export function invocationActivities(invocation: AgentInvocationView): InvocationActivity[] {
   const groups = new Map<string, TraceEventLogEntry[]>();
+  const traceTruncated = invocation.observations?.some(observation => observation.attributes?.["vitehub.observation.truncated"] === true) ?? false;
   let anonymousMessage = 0;
   let anonymousMessageKey: string | undefined;
   for (const observation of invocation.observations ?? []) {
@@ -260,7 +261,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     groups.set(key, [...(groups.get(key) ?? []), { ...observation, attributes }]);
   }
 
-  return [...groups.entries()]
+  const activities = [...groups.entries()]
     .map(([id, observations]): InvocationActivity => {
       const sorted = observations.slice().sort((left, right) => left.sequence - right.sequence);
       const first = sorted[0]!;
@@ -313,6 +314,11 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const rightSequence = groups.get(right.id)?.[0]?.sequence ?? 0;
       return leftSequence - rightSequence;
     });
+  if (traceTruncated && !activities.some(activity => activity.truncated)) {
+    if (activities.length > 0) activities[activities.length - 1] = { ...activities[activities.length - 1]!, truncated: true };
+    else activities.push({ attributes: {}, id: "trace-truncated", kind: "run", name: "vitehub.observation.truncated", patches: [], paths: [], status: "completed", truncated: true });
+  }
+  return activities;
 }
 
 export function latestInvocationTokens(activities: readonly InvocationActivity[]): number | undefined {

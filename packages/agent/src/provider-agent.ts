@@ -12,7 +12,8 @@ import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationResolvedModelContextKey } from "./invocation-context.ts"
+import type { AgentInvocationResolvedConfiguration } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
@@ -902,6 +903,10 @@ async function* runProvider(
       const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
       if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
     }
+    await context.context.get<((configuration: AgentInvocationResolvedConfiguration) => Promise<void>)>(agentInvocationResolvedModelContextKey)?.({
+      instructions: instructions ? [instructions] : [],
+      ...(options.model ? { model: options.model } : {}),
+    })
     if (instructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))

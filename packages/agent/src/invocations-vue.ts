@@ -344,6 +344,8 @@ export function useAgentInvocations(
           ).then(parseInvocationListResult),
         ),
       );
+      const failedRefresh = refreshed.find((outcome) => outcome.status === "rejected");
+      if (failedRefresh?.status === "rejected") throw failedRefresh.reason;
       const refreshedRetained = new Map(
         refreshed.flatMap((outcome) =>
           outcome.status === "fulfilled"
@@ -359,6 +361,9 @@ export function useAgentInvocations(
         && (!search || JSON.stringify(invocation).toLowerCase().includes(search));
       for (const invocation of refreshedRetained.values()) {
         if (!matchesQuery(invocation)) departedIds.add(invocation.id);
+      }
+      if (!options.requestSummaries && (statuses.size > 0 || search)) {
+        for (const id of retainedIds) departedIds.add(id);
       }
       if (resetFirstPage || (statuses.size === 0 && !search)) {
         return { ...result, refreshedRetained };

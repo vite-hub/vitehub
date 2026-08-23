@@ -727,6 +727,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (observationTimeRemaining > 0) {
             await boundedStoreOperation(() => persistObservationCap(), observationTimeRemaining)
           }
+          if (observationWrite || pendingObservations.length > 0) observationCapMarked = true
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })

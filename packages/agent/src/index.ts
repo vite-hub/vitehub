@@ -4469,7 +4469,7 @@ async function traceAgentConfiguration<TRuntimeConfig extends AgentRuntimeConfig
       ...(driver
         ? { driver: {
             kind: driver.kind,
-            ...(driver.model ? { model: driver.model } : {}),
+            ...(driver.model || driver.provider?.model ? { model: driver.model ?? driver.provider?.model } : {}),
             ...(driver.provider?.provider ? { provider: driver.provider.provider } : {}),
           } }
         : {}),

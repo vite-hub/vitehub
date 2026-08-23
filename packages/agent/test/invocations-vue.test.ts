@@ -218,6 +218,40 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("does not retain unrefreshable older rows for a filtered standard requester", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [record("inv-2")] });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([record("inv-2")]);
+    scope.stop();
+  });
+
+  it("fails a poll when a retained-summary batch fails", async () => {
+    const { calls, request } = controlledRequester();
+    const onSuccess = vi.fn();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ onSuccess, request, requestSummaries: request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [record("inv-2")] });
+    await settle();
+    calls[2]!.reject(new Error("summary unavailable"));
+    await refresh;
+
+    expect(resource.error.value).toEqual(new Error("summary unavailable"));
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    scope.stop();
+  });
+
   it("keeps lazy-loaded pages when polling refreshes the first page", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
