@@ -607,10 +607,26 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         return updated
       }
-      const writeNextObservation = () => {
+      const writeNextObservation = (flushFinal = false) => {
         if (finished || observationWrite) return
-        const observation = pendingObservations.shift()
+        if (
+          observationCount >= MAX_OBSERVATIONS - 1
+          && pendingObservations.length === 1
+          && !flushFinal
+        ) return
+        let observation = pendingObservations.shift()
         if (!observation) return
+        if (observationCount >= MAX_OBSERVATIONS - 1 && pendingObservations.length > 0) {
+          observation = {
+            ...observation,
+            attributes: {
+              ...observation.attributes,
+              [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+            },
+          }
+          pendingObservations.length = 0
+          observationCapMarked = true
+        }
         const task = (async () => {
           if (finished || !await renew()) return
           const timestamp = normalizedTimestamp(observation.timestamp)
@@ -636,9 +652,20 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let observationCapMarked = false
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) return
+        if (observationCapMarked) return
         if (observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS) {
-          if (observationCapMarked) return
-          observationCapMarked = true
+          const retained = pendingObservations.at(-1)
+          if (retained) {
+            pendingObservations[pendingObservations.length - 1] = {
+              ...retained,
+              attributes: {
+                ...retained.attributes,
+                [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+              },
+            }
+            observationCapMarked = true
+          }
+          return
         }
         pendingObservations.push(observation)
         writeNextObservation()
@@ -653,8 +680,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         async finish(status, error) {
           if (finished) return
           const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
-          while (observationWrite && Date.now() < observationDeadline) {
-            await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
+          while ((observationWrite || pendingObservations.length > 0) && Date.now() < observationDeadline) {
+            writeNextObservation(true)
+            if (observationWrite) {
+              await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
+            }
           }
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {

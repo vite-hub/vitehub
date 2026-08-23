@@ -59,17 +59,19 @@ describe("Agent invocation console", () => {
   it("orders grouped sessions and runs by their latest activity", () => {
     // SAFETY: The grouping helper only reads the summary fields provided by this focused fixture.
     const invocations = [
-      { id: "newer-created", threadId: "thread", updatedAt: "2026-08-23T10:00:00.000Z" },
+      { agentName: "first", id: "newer-created", threadId: "thread", updatedAt: "2026-08-23T10:00:00.000Z" },
       { id: "other", threadId: "other", updatedAt: "2026-08-23T10:30:00.000Z" },
-      { id: "older-created", threadId: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
+      { agentName: "first", id: "older-created", threadId: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
+      { agentName: "second", id: "separate-agent", threadId: "thread", updatedAt: "2026-08-23T10:45:00.000Z" },
     ] as Parameters<typeof groupConsoleSessions>[0]
 
     expect(groupConsoleSessions(invocations)).toMatchObject([
       {
-        id: "thread",
+        id: "5:first:thread",
         invocations: [{ id: "older-created" }, { id: "newer-created" }],
         updatedAt: "2026-08-23T11:00:00.000Z",
       },
+      { id: "6:second:thread", invocations: [{ id: "separate-agent" }] },
       { id: "other", invocations: [{ id: "other" }] },
     ])
   })

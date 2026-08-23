@@ -10,7 +10,9 @@ export type ConsoleSession = {
 export function groupConsoleSessions(invocations: AgentInvocationSummary[]): ConsoleSession[] {
   const grouped = new Map<string, ConsoleSession>();
   for (const invocation of invocations) {
-    const id = invocation.threadId || invocation.id;
+    const id = invocation.threadId
+      ? `${invocation.agentName?.length || 0}:${invocation.agentName || ""}:${invocation.threadId}`
+      : invocation.id;
     const session = grouped.get(id);
     if (session) {
       session.invocations.push(invocation);

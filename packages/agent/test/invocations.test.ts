@@ -526,14 +526,33 @@ describe("Agent Invocations", () => {
 
   it("stops observation writes at the durable cap and retries terminal writes", async () => {
     const memory = createMemoryAgentInvocationStore()
+    const records = new Map<string, Awaited<ReturnType<typeof memory.get>>>()
     let terminalFailures = 1
     let updates = 0
     const store: AgentInvocationStore = {
-      ...memory,
+      claim: memory.claim,
+      async create(input) {
+        const result = await memory.create(input)
+        records.set(input.id, result.record)
+        return result
+      },
+      get: id => records.get(id),
+      list: () => ({ invocations: [...records.values()].filter(record => record !== undefined) }),
+      release: memory.release,
       update(id, input, claimId) {
         updates++
         if (input.status === "completed" && terminalFailures-- > 0) return
-        return memory.update(id, input, claimId)
+        const record = records.get(id)
+        if (!record) return
+        const updated = {
+          ...record,
+          ...(input.error ? { error: input.error } : {}),
+          ...(input.observation ? { observations: [...record.observations, input.observation] } : {}),
+          ...(input.status ? { status: input.status } : {}),
+          updatedAt: input.timestamp,
+        }
+        records.set(id, updated)
+        return updated
       },
     }
     const invocations = defineAgentInvocations({ store })
