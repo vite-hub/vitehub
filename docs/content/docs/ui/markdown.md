@@ -8,6 +8,9 @@ icon: i-ph-markdown-logo-light
 
 `AgentMarkdown` wraps `@comark/vue` and applies the `vh-typeset vh-typeset-chat` defaults. The stylesheet uses block-start spacing, which remains stable while streaming content appends new nodes.
 
+::component-preview{name="MarkdownExample"}
+::
+
 ```vue
 <AgentMarkdown :value="part.text" :streaming="part.state === 'streaming'" />
 ```

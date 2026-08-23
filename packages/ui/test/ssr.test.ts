@@ -4,9 +4,40 @@ import { describe, expect, it } from "vitest";
 import { AgentChat } from "../src/components/agent-chat.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
+import { createViteHubUI } from "../src/config.ts";
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("UI server rendering", () => {
+  it("renders runtime Nuxt UI components through the Vue plugin", async () => {
+    const app = createSSRApp({
+      render: () =>
+        h(AgentChat, {
+          messages: [
+            { id: "user-1", parts: [{ text: "Inspect the failing check", type: "text" }], role: "user" },
+          ],
+        }),
+    });
+
+    app.use(createViteHubUI());
+
+    for (const name of [
+      "UBadge",
+      "UButton",
+      "UChatMessage",
+      "UChatPrompt",
+      "UChatPromptSubmit",
+      "UChatReasoning",
+      "UChatTool",
+      "UCollapsible",
+    ]) {
+      expect(app.component(name), name).toBeDefined();
+    }
+
+    const html = await renderToString(app);
+    expect(html).toContain("Inspect the failing check");
+    expect(html).toContain('data-role="user"');
+  });
+
   it("renders a coding-session list without owning navigation", async () => {
     const selected: string[] = [];
     const app = createSSRApp({

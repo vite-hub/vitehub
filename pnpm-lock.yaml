@@ -530,12 +530,18 @@ importers:
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.11.0(395d24e2f431396d7c3bdaaf42d506d0)
+      '@vite-hub/ui':
+        specifier: workspace:*
+        version: link:../packages/ui
       '@vueuse/core':
         specifier: catalog:ui
         version: 14.3.0(vue@3.5.40(typescript@6.0.3))
       agents:
         specifier: catalog:ai
         version: 0.17.4(bd026079a4afa4ba873e913ceba654be)
+      ai:
+        specifier: catalog:ai
+        version: 7.0.38(zod@4.4.3)
       docus:
         specifier: catalog:nuxt
         version: https://pkg.pr.new/docus@986a334(f4cc4aeed6ae272b473d0ffab9b7c7b7)
@@ -1573,6 +1579,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vitejs/plugin-vue':
+        specifier: ^6.0.8
+        version: 6.0.8(@voidzero-dev/vite-plus-core@0.1.24)(vue@3.5.40(typescript@6.0.3))
       '@vue/server-renderer':
         specifier: ^3.5.0
         version: 3.5.40

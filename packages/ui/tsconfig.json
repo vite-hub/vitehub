@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
+    "allowArbitraryExtensions": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["ESNext", "DOM"],
     "rootDir": "..",

@@ -22,7 +22,9 @@
   "dependencies": {
     "@nuxt/content": "catalog:nuxt",
     "@nuxt/ui": "catalog:nuxt",
+    "@vite-hub/ui": "workspace:*",
     "@vueuse/core": "catalog:ui",
+    "ai": "catalog:ai",
     "agents": "catalog:ai",
     "docus": "catalog:nuxt",
     "h3": "catalog:h3-v1-compat",

@@ -8,6 +8,9 @@ icon: i-ph-file-code-light
 
 ViteHub UI uses the official framework-agnostic `@pierre/diffs` and `@pierre/trees` models. The Vue adapters own mount, update, and cleanup behavior; Pierre continues to own syntax highlighting, selection, virtualization, and tree interaction.
 
+::component-preview{name="CodeViewsExample"}
+::
+
 ## Diff
 
 Render a unified patch:

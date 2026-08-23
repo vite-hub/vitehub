@@ -8,6 +8,9 @@ icon: i-ph-chat-circle-text-light
 
 `AgentChat` accepts AI SDK `UIMessage[]` and `ChatStatus`. It renders messages, preserves reader scroll intent during streaming, and exposes slots for application-specific presentation.
 
+::component-preview{name="ChatExample" flush}
+::
+
 ## Usage
 
 ```vue [app/pages/chat.vue]

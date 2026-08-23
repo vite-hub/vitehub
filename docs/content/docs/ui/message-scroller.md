@@ -8,6 +8,9 @@ icon: i-ph-scroll-light
 
 The message scroller is the headless layer of the package. It follows streaming output only while the reader remains at the live edge, preserves position when older messages prepend, and can jump to a stable message ID.
 
+::component-preview{name="MessageScrollerExample"}
+::
+
 ## Anatomy
 
 ```vue

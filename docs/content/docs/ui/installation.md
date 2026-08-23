@@ -11,7 +11,7 @@ icon: i-lucide-package
 Install the package and its public peers:
 
 ```bash
-pnpm add @vite-hub/ui @nuxt/ui ai vue
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
 ```
 
 Register the module. It installs Nuxt UI, registers ViteHub UI components, and includes the package stylesheet.
@@ -41,10 +41,20 @@ export default defineConfig({
 ```ts [src/main.ts]
 import { createApp } from "vue";
 import { createViteHubUI } from "@vite-hub/ui";
-import "@vite-hub/ui/styles.css";
+import NuxtUI from "@nuxt/ui/vue-plugin";
+import "./assets/main.css";
 import App from "./App.vue";
 
-createApp(App).use(createViteHubUI()).mount("#app");
+createApp(App)
+  .use(NuxtUI)
+  .use(createViteHubUI())
+  .mount("#app");
+```
+
+```css [src/assets/main.css]
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/ui/styles.css";
 ```
 
 The Vite integration configures Nuxt UI and Comark. Register imported ViteHub components locally or through your preferred component auto-import plugin.

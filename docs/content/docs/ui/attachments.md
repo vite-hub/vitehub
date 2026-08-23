@@ -8,6 +8,11 @@ icon: i-ph-files-light
 
 Use `useAgentAttachments()` when the application needs validation or wants to keep raw `File` values until submission.
 
+`AgentChatPrompt` accepts the resulting AI SDK file parts. This preview uses a dummy log attachment and does not upload data.
+
+::component-preview{name="ChatPromptExample"}
+::
+
 ```ts
 const attachments = useAgentAttachments({
   accept: "image/*,.pdf",

@@ -8,6 +8,9 @@ icon: i-ph-chats-circle-light
 
 AI SDK defines UI messages and chat state, but it does not impose a persistence schema for sessions. `ViteHubUISession` therefore stays deliberately small: an ID, messages, optional title and timestamps, and application metadata.
 
+::component-preview{name="SessionExample" flush}
+::
+
 ```ts
 const session: ViteHubUISession = {
   id: "session_01",

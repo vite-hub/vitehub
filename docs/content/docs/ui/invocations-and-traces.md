@@ -12,6 +12,22 @@ Rich session replay requires a trace log created with `{ content: "content" }`. 
 
 Enable full-content traces only when the store and the current viewer are authorized to retain and inspect that session content.
 
+## Invocation list
+
+`AgentInvocationList` renders application-loaded session summaries and keeps search, pagination, refresh, and routing in the host. Its virtual list supports thousands of rows and reserves extra height for terminal error descriptions.
+
+::component-preview{name="InvocationListExample"}
+::
+
+Pass `selectedId` and handle `select` to connect the list to the current route. Pass `hasMore`, `loading`, and handle `endReached` when the application lazy-loads another page.
+
+## Session details
+
+The thread and inspector accept the same authorized invocation record. The preview includes dummy messages, a command, usage, Capabilities, tools, Workspace, instructions, and copy-only identifiers.
+
+::component-preview{name="InvocationExample" flush}
+::
+
 ```vue
 <AgentInvocation :invocation="record" />
 
@@ -50,6 +66,9 @@ Only include instruction content when the application has explicitly authorized 
 ## Trace only
 
 Use `AgentTrace` when the application already called `deriveTraceRuns()`:
+
+::component-preview{name="TraceExample"}
+::
 
 ```vue
 <AgentTrace v-for="run in runs" :key="run.id" :run="run" />
