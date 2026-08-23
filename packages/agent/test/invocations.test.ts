@@ -259,7 +259,7 @@ describe("Agent Invocations", () => {
       const journal = await bindAgentInvocations(invocations, runtime("stalled-observations"))
       if (!journal) throw new Error("Expected the invocation journal to be configured.")
       await journal.running()
-      for (let index = 0; index < 100; index++) {
+      for (let index = 0; index < 300; index++) {
         journal.context.traceLog?.append({ name: `event-${index}`, type: "run" })
       }
 
@@ -635,8 +635,11 @@ describe("Agent Invocations", () => {
     })
 
     const run = runAgent(agent, runtime("finish-overflow"), {})
+    await vi.waitFor(() => expect(traceLog).toBeDefined())
+    const activeTraceLog = traceLog
+    if (!activeTraceLog) throw new Error("Expected the driver trace log to be available.")
+    await activeTraceLog.append({ name: "overflow", type: "run" })
     await started
-    await traceLog?.append({ name: "overflow", type: "run" })
     releaseFinalWrite()
     await vi.waitFor(async () => {
       const active = await invocations.getByRunId("finish-overflow")
