@@ -268,6 +268,23 @@ describe("Agent Invocation UI", () => {
     expect(invocationActivities(invocation)[0]?.status).toBe("completed");
   });
 
+  it("settles a stopped Provider task while its invocation keeps running", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "task-stopped",
+      observations: [
+        { attributes: { "step.id": "task" }, name: "agent.task.started", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "step.id": "task" }, name: "agent.task.cancelled", sequence: 2, timestamp, type: "run" as const },
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe("completed");
+  });
+
   it("routes Provider turn diffs through the patch activity model", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const diff = "diff --git a/src/old.ts b/src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-old\n+new";
@@ -420,6 +437,26 @@ describe("Agent Invocation UI", () => {
       ["Agent stream", "Recoverable stream error", "failed"],
       ["Approval denied", "Command is destructive", "failed"],
     ]);
+  });
+
+  it("keeps an undecided approval request running", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "pending-approval",
+      observations: [{
+        attributes: { "approval.id": "approval", "approval.name": "Run command" },
+        name: "agent.approval.request",
+        sequence: 1,
+        timestamp,
+        type: "approval" as const,
+      }],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe("running");
   });
 
   it("hydrates virtual invocation lists from the complete server-rendered list", async () => {

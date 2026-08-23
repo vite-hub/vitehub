@@ -311,7 +311,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
       const approvalDenied = attributes["approval.approved"] === false;
-      const completed = sorted.some(item => /\.(completed|decision|finish|recorded)$/.test(item.name));
+      const completed = sorted.some(item => /\.(cancelled|completed|decision|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
       const role = explicitRole ?? (attributes["result.text"]
         ? "assistant"
@@ -319,7 +319,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
-      const started = /\.(start|started)$/.test(first.name);
+      const started = /\.(request|start|started)$/.test(first.name);
       const unfinishedTerminalStatus = started
         && invocation.status !== "pending"
         && invocation.status !== "running"
