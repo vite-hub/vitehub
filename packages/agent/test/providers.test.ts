@@ -12630,7 +12630,7 @@ describe("server helpers", () => {
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
-      if (createBatch.mock.calls.length === 2 || createBatch.mock.calls.length === 3) {
+      if ([2, 3, 4].includes(createBatch.mock.calls.length)) {
         throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
       }
       return [{ id, status: async () => ({ status: "queued" }) }]
@@ -12679,13 +12679,13 @@ describe("server helpers", () => {
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
       await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
       expect(sideEffect).not.toHaveBeenCalled()
-      expect(createBatch).toHaveBeenCalledTimes(4)
+      expect(createBatch).toHaveBeenCalledTimes(5)
 
       await expect(
         runAgentWorkflowDefinition(
           // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
           agent as never,
-          { id: "recovered-steer", name: "calories", payload: workflowPayloads[3], provider: "cloudflare" },
+          { id: "recovered-steer", name: "calories", payload: workflowPayloads[4], provider: "cloudflare" },
           sideEffect,
         ),
       ).resolves.toBe("completed")

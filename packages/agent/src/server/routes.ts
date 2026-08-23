@@ -4751,64 +4751,78 @@ async function handleChatSdkMessage(
               if (!persistedMessage) throw new Error("[vitehub] Durable steered Channel delivery lost its persisted startup input.")
               context.waitUntil(
                 (async () => {
+                  let expectedRecoveryPending = persistedPending
                   let recoveredLock: Lock | null = null
-                  while (!recoveredLock) {
-                    try {
-                      recoveredLock = await state.state.acquireLock(steerLock.threadId, steerTtlMs)
-                    } catch {
-                      recoveredLock = null
+                  let recoveryDeadline: number | undefined
+                  while (true) {
+                    while (!recoveredLock) {
+                      try {
+                        recoveredLock = await state.state.acquireLock(steerLock.threadId, steerTtlMs)
+                      } catch {
+                        recoveredLock = null
+                      }
+                      if (recoveredLock) break
+                      const remainingMs = (recoveryDeadline ?? steerLock.expiresAt) - Date.now()
+                      if (remainingMs <= 0) return
+                      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                     }
-                    if (recoveredLock) break
-                    const remainingMs = steerLock.expiresAt - Date.now()
-                    if (remainingMs <= 0) return
-                    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
-                  }
-                  const recoveredClaimId = crypto.randomUUID()
-                  const recoveredDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
-                  const recoveryInput: AgentRunInput = {
-                    ...workflowInput,
-                    context: {
-                      ...workflowInput.context,
-                      [agentChannelDeliveryWorkflowContextKey]: {
-                        ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
-                        steer: {
-                          ...(isRecord(recoveredDelivery) && isRecord(recoveredDelivery.steer) ? recoveredDelivery.steer : {}),
-                          claimId: recoveredClaimId,
-                          lock: recoveredLock,
+                    recoveryDeadline ??= recoveredLock.expiresAt
+                    const recoveredClaimId = crypto.randomUUID()
+                    const recoveredDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+                    const recoveryInput: AgentRunInput = {
+                      ...workflowInput,
+                      context: {
+                        ...workflowInput.context,
+                        [agentChannelDeliveryWorkflowContextKey]: {
+                          ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
+                          steer: {
+                            ...(isRecord(recoveredDelivery) && isRecord(recoveredDelivery.steer) ? recoveredDelivery.steer : {}),
+                            claimId: recoveredClaimId,
+                            lock: recoveredLock,
+                          },
                         },
                       },
-                    },
-                  }
-                  const recoveryPending: DurableSteerQueueEntry = {
-                    ...persistedPending,
-                    message: {
-                      ...persistedMessage,
-                      claimId: recoveredClaimId,
-                      input: recoveryInput,
-                      ownerToken: recoveredLock.token,
-                    },
-                  }
-                  // SAFETY: persistedPending is normalized durable queue data owned by this route boundary.
-                  const expectedPending = persistedPending as never
-                  // SAFETY: recoveryPending is normalized durable queue data owned by this route boundary.
-                  const replacementPending = [recoveryPending] as never
-                  if (
-                    !(await requireAtomicAgentStateQueue(state.state).queueReplaceHead(
-                      pendingQueue,
-                      expectedPending,
-                      replacementPending,
-                      1,
-                    ))
-                  ) {
+                    }
+                    const recoveryPending: DurableSteerQueueEntry = {
+                      ...persistedPending,
+                      message: {
+                        ...persistedMessage,
+                        claimId: recoveredClaimId,
+                        input: recoveryInput,
+                        ownerToken: recoveredLock.token,
+                      },
+                    }
+                    // SAFETY: persistedPending is normalized durable queue data owned by this route boundary.
+                    const expectedPending = expectedRecoveryPending as never
+                    // SAFETY: recoveryPending is normalized durable queue data owned by this route boundary.
+                    const replacementPending = [recoveryPending] as never
+                    if (
+                      !(await requireAtomicAgentStateQueue(state.state).queueReplaceHead(
+                        pendingQueue,
+                        expectedPending,
+                        replacementPending,
+                        1,
+                      ))
+                    ) {
+                      await state.state.releaseLock(recoveredLock).catch(() => undefined)
+                      return
+                    }
+                    const stopRecoveryHeartbeat = startWebhookLockHeartbeat(state.state, recoveredLock, steerTtlMs, () => undefined)
+                    try {
+                      // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
+                      await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
+                      return
+                    } catch (recoveryError) {
+                      if (isAmbiguousAgentWorkflowStartFailure(recoveryError)) return
+                      expectedRecoveryPending = recoveryPending
+                    } finally {
+                      stopRecoveryHeartbeat()
+                    }
                     await state.state.releaseLock(recoveredLock).catch(() => undefined)
-                    return
-                  }
-                  const stopRecoveryHeartbeat = startWebhookLockHeartbeat(state.state, recoveredLock, steerTtlMs, () => undefined)
-                  try {
-                    // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
-                    await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
-                  } finally {
-                    stopRecoveryHeartbeat()
+                    recoveredLock = null
+                    const remainingMs = recoveryDeadline - Date.now()
+                    if (remainingMs <= 0) return
+                    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                   }
                 })().catch(() => undefined),
               )
