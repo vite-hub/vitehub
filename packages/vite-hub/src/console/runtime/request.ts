@@ -1,11 +1,29 @@
 import type { AgentInvocationSummary } from "vite-hub/agent";
 
+export const CONSOLE_SESSION_LOOKUP_PAGE_LIMIT = 3;
+
 export type ConsoleSession = {
   agentName?: string;
   id: string;
   invocations: AgentInvocationSummary[];
   updatedAt: string;
 };
+
+export function shouldLoadRequestedConsoleSession(options: {
+  cursor?: string;
+  isLoadingMore: boolean;
+  loadedPages: number;
+  requestedSession?: string;
+  sessions: readonly ConsoleSession[];
+}): boolean {
+  return Boolean(
+    options.requestedSession &&
+      !options.sessions.some((session) => session.id === options.requestedSession) &&
+      options.cursor &&
+      !options.isLoadingMore &&
+      options.loadedPages < CONSOLE_SESSION_LOOKUP_PAGE_LIMIT,
+  );
+}
 
 export function groupConsoleSessions(invocations: AgentInvocationSummary[]): ConsoleSession[] {
   const grouped = new Map<string, ConsoleSession>();

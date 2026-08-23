@@ -1107,10 +1107,10 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().find(event => event.name === "agent.title.recorded")?.attributes).toMatchObject({
       "vitehub.session.title": "Readable session",
     })
-    expect(traceLog.entries().filter(event => event.name === "agent.reasoning")).toEqual([
+    expect(traceLog.entries().filter(event => event.name === "agent.message.delta" && event.attributes?.["message.phase"] === "commentary")).toEqual([
       expect.objectContaining({ attributes: expect.objectContaining({ "message.content": "Inspecting the repository" }) }),
     ])
-    expect(traceLog.entries().filter(event => event.name === "agent.message")).toEqual([
+    expect(traceLog.entries().filter(event => event.name === "agent.message.delta" && event.attributes?.["message.phase"] === "final")).toEqual([
       expect.objectContaining({ attributes: expect.objectContaining({ "message.content": "Finished the review" }) }),
     ])
     expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ path: "README.md" })
@@ -1140,6 +1140,12 @@ describe("agent message protocol", () => {
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {})
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    const start = traceLog.entries().find(event => event.name === "agent.tool.start")
+    expect(start?.attributes).toMatchObject({
+      "vitehub.action.name": "repository-host.write",
+      "vitehub.activity.kind": "action",
+    })
 
     const span = traceEventsToOpenTelemetrySpans(traceLog.entries()).find(item => item.attributes?.["vitehub.step.id"] === "action-1")
     expect(span?.attributes).toMatchObject({
@@ -9327,14 +9333,14 @@ describe("agent message protocol", () => {
     expect(finish).toHaveBeenCalledOnce()
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
-      "agent.message",
+      "agent.message.delta",
       "agent.tool.start",
       "agent.tool.finish",
       "agent.usage.recorded",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
-    expect(traceLog.entries().find(event => event.name === "agent.message")?.attributes?.["message.content"]).toBe("public")
+    expect(traceLog.entries().find(event => event.name === "agent.message.delta")?.attributes?.["message.content"]).toBe("public")
     expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ query: "users" })
     expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes?.["tool.output"]).toBe("42")
     expect(traceLog.entries().find(event => event.name === "agent.usage.recorded")?.attributes?.["usage.totalTokens"]).toBe(3)

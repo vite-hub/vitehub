@@ -119,7 +119,10 @@ function fileChanges(attributes: Record<string, unknown>): { patches: string[]; 
   return { patches: [], paths: [] };
 }
 
-function commandDetails(attributes: Record<string, unknown>): InvocationCommand | undefined {
+function commandDetails(
+  attributes: Record<string, unknown>,
+  observations: readonly TraceEventLogEntry[],
+): InvocationCommand | undefined {
   const payloadFor = (key: string) => {
     const payload = record(attributes[key]);
     return record(payload?.item) ?? payload;
@@ -133,14 +136,24 @@ function commandDetails(attributes: Record<string, unknown>): InvocationCommand 
     ?? stringAttribute(input ?? {}, "command")
     ?? stringAttribute(output ?? {}, "command");
   if (!command) return;
-  const directOutput = attributes["tool.output"];
-  const outputText = typeof directOutput === "string"
-    ? directOutput
-    : typeof output?.aggregatedOutput === "string"
+  const streamedOutput = observations
+    .filter(observation => observation.name === "agent.tool.output")
+    .map(observation => observation.attributes?.["tool.output"])
+    .filter((value): value is string => typeof value === "string")
+    .join("");
+  const directOutput = observations
+    .filter(observation => /\.(finish|error)$/.test(observation.name))
+    .map(observation => observation.attributes?.["tool.output"])
+    .findLast(value => typeof value === "string");
+  const outputText = typeof output?.aggregatedOutput === "string"
       ? output.aggregatedOutput
-      : typeof output?.output === "string"
-        ? output.output
-        : typeof input?.aggregatedOutput === "string"
+      : streamedOutput
+        ? streamedOutput
+        : typeof directOutput === "string"
+          ? directOutput
+          : typeof output?.output === "string"
+            ? output.output
+            : typeof input?.aggregatedOutput === "string"
           ? input.aggregatedOutput
           : typeof input?.output === "string"
             ? input.output
@@ -307,7 +320,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         : kind === "message"
           ? "user"
           : undefined);
-      const command = commandDetails(attributes);
+      const command = commandDetails(attributes, sorted);
       const draft = {
         attributes,
         body: patches.join("") || messageBody || activityBody(attributes),

@@ -3,7 +3,12 @@ import { AgentInvocation, AgentInvocationInspector } from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { createConsoleRequest, groupConsoleSessions } from "../request.ts";
+import {
+  CONSOLE_SESSION_LOOKUP_PAGE_LIMIT,
+  createConsoleRequest,
+  groupConsoleSessions,
+  shouldLoadRequestedConsoleSession,
+} from "../request.ts";
 
 import type { SplitterItem } from "@nuxt/ui";
 import type { AgentInvocationSummary } from "vite-hub/agent";
@@ -23,6 +28,7 @@ const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
 const apiBase = `${appBaseURL}/api/_vitehub/console/invocations`;
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
+let requestedSessionLookup: { id: string; loadedPages: number } | undefined;
 
 useHead({ title: "Agents · ViteHub Console" });
 
@@ -206,16 +212,33 @@ function updateDesktop(event?: MediaQueryListEvent): void {
 }
 
 watch(
-  sessions,
-  async (next) => {
-    const requestedSession = routeSession.value;
+  [sessions, routeSession],
+  async ([next, requestedSession]) => {
+    if (requestedSession && requestedSessionLookup?.id !== requestedSession) {
+      requestedSessionLookup = { id: requestedSession, loadedPages: 0 };
+    } else if (!requestedSession) {
+      requestedSessionLookup = undefined;
+    }
     const requestedSessionMissing =
       requestedSession && !next.some((session) => session.id === requestedSession);
-    if (requestedSessionMissing && list.cursor.value && !list.isLoadingMore.value) {
+    const loadedPages = requestedSessionLookup?.loadedPages ?? 0;
+    if (
+      shouldLoadRequestedConsoleSession({
+        cursor: list.cursor.value,
+        isLoadingMore: list.isLoadingMore.value,
+        loadedPages,
+        requestedSession,
+        sessions: next,
+      })
+    ) {
+      requestedSessionLookup!.loadedPages++;
       await list.loadMore();
       return;
     }
-    if (next.length && (!requestedSession || (requestedSessionMissing && !list.cursor.value)))
+    const lookupExhausted =
+      requestedSessionMissing &&
+      (!list.cursor.value || loadedPages >= CONSOLE_SESSION_LOOKUP_PAGE_LIMIT);
+    if (next.length && (!requestedSession || lookupExhausted))
       await selectSession(next[0]!);
   },
   { immediate: true },

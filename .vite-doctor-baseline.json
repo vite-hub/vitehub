@@ -2210,6 +2210,16 @@
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
       "file": "packages/ui/src/internal/invocation-activity.ts",
       "fingerprint": "5e896e4ae6f6c09564776e73e0123f0d503eb7d7f49a306c099768cd06fb372b"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/ui/src/internal/invocation-activity.ts",
+      "fingerprint": "25c35c7b9ff0172d624fb763c75570de693bc42098f047dab9e348ed05c367d8"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/ui/src/internal/invocation-activity.ts",
+      "fingerprint": "55ab8e3706cb09fcec680f6046fe6dcf74b3649d2fa1d296bc7e198ed9adb474"
     }
   ]
 }

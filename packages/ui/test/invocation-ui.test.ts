@@ -223,6 +223,29 @@ describe("Agent Invocation UI", () => {
     expect(invocationActivities(invocation)[0]?.command?.output).toBe("clean");
   });
 
+  it.each(["agent.tool.finish", "agent.tool.error", "agent.tool.abort"])(
+    "preserves streamed Provider command output through %s",
+    (terminalName) => {
+      const timestamp = "2026-08-22T00:00:00.000Z";
+      const invocation = {
+        createdAt: timestamp,
+        id: "provider-command",
+        observations: [
+          { attributes: { "tool.id": "command", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
+          { attributes: { "tool.id": "command", "tool.output": "first\n", "tool.name": "shell" }, name: "agent.tool.output", sequence: 2, timestamp, type: "run" as const },
+          { attributes: { "tool.id": "command", "tool.output": "second\n", "tool.name": "shell" }, name: "agent.tool.output", sequence: 3, timestamp, type: "run" as const },
+          { attributes: { "tool.id": "command", "tool.output": { summary: "Still running" }, "tool.name": "shell" }, name: "agent.tool.progress", sequence: 4, timestamp, type: "run" as const },
+          { attributes: { "tool.id": "command", "tool.output": { detail: "terminal state" }, "tool.name": "shell" }, name: terminalName, sequence: 5, timestamp, type: terminalName.endsWith(".error") ? "error" as const : "run" as const },
+        ],
+        status: "completed" as const,
+        traceId: "trace",
+        updatedAt: timestamp,
+      } satisfies AgentInvocationView;
+
+      expect(invocationActivities(invocation)[0]?.command?.output).toBe("first\nsecond\n");
+    },
+  );
+
   it("routes Provider turn diffs through the patch activity model", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const diff = "diff --git a/src/old.ts b/src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-old\n+new";

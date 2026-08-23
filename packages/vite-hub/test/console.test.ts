@@ -13,7 +13,7 @@ import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocation
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
-import { createConsoleRequest, groupConsoleSessions } from "../src/console/runtime/request.ts"
+import { CONSOLE_SESSION_LOOKUP_PAGE_LIMIT, createConsoleRequest, groupConsoleSessions, shouldLoadRequestedConsoleSession } from "../src/console/runtime/request.ts"
 import { consoleInvocationRootPlugin } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -115,6 +115,26 @@ describe("Agent invocation console", () => {
 
     await expect(request("/first", {})).rejects.toThrow("status 500")
     await expect(request("/second", {})).resolves.toEqual({ invocations: [] })
+  })
+
+  it("bounds automatic lookup for a missing routed session", () => {
+    const options = {
+      cursor: "older",
+      isLoadingMore: false,
+      requestedSession: "missing",
+      sessions: [],
+    }
+
+    expect(shouldLoadRequestedConsoleSession({ ...options, loadedPages: 0 })).toBe(true)
+    expect(shouldLoadRequestedConsoleSession({
+      ...options,
+      loadedPages: CONSOLE_SESSION_LOOKUP_PAGE_LIMIT,
+    })).toBe(false)
+    expect(shouldLoadRequestedConsoleSession({
+      ...options,
+      loadedPages: 0,
+      sessions: [{ id: "missing", invocations: [], updatedAt: "2026-08-23T12:00:00.000Z" }],
+    })).toBe(false)
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {
