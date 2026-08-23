@@ -217,7 +217,11 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded" || observation.name === "vitehub.agent.configured") continue;
     const originalAttributes = observation.attributes ?? {};
-    const inputMessages = originalAttributes["input.messages"];
+    const inputMessages = Array.isArray(originalAttributes["input.messages"])
+      ? originalAttributes["input.messages"]
+      : Array.isArray(originalAttributes["input.prompt"])
+        ? originalAttributes["input.prompt"]
+        : undefined;
     if (Array.isArray(inputMessages)) {
       inputMessages.forEach((message, index) => {
         const value = record(message);

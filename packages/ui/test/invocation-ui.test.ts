@@ -107,6 +107,36 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("preserves prompt message roles and turn boundaries", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [{
+        attributes: {
+          "input.prompt": [
+            { id: "system", parts: [{ text: "Follow the repository rules.", type: "text" }], role: "system" },
+            { id: "user", parts: [{ text: "Review this change.", type: "text" }], role: "user" },
+            { id: "assistant", parts: [{ text: "I found one issue.", type: "text" }], role: "assistant" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => [activity.role, activity.body])).toEqual([
+      ["system", "Follow the repository rules."],
+      ["user", "Review this change."],
+      ["assistant", "I found one issue."],
+    ]);
+  });
+
   it("keeps phased assistant text separate when message IDs are reused", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

@@ -80,6 +80,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
   if (event.type === "approval-request") {
     return {
       "approval.id": event.id,
+      ...(event.input !== undefined ? { "approval.input": event.input } : {}),
       "approval.name": event.name,
       "approval.reason": event.reason,
       "approval.hasInput": event.input !== undefined,

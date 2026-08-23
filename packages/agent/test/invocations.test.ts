@@ -386,24 +386,30 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it("records visible message phases while keeping hidden commentary out of invocation traces", async () => {
+  it("preserves message phases and approval inputs through invocation tracing", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       driver: { async *run() {
         yield { id: "reply", phase: "commentary" as const, text: "Checking.", type: "text-delta" as const }
         yield { id: "reply", phase: "final" as const, text: "Done.", type: "text-delta" as const }
+        yield { id: "approval", input: { command: "pnpm test" }, name: "Run command", type: "approval-request" as const }
       } },
       invocations,
       runtime: false,
     })
 
-    const stream = await streamAgent(agent, runtime("phased-trace"), {})
+    const stream = await streamAgent(agent, {
+      ...runtime("phased-trace"),
+      traceLog: createTraceEventLog({ content: "content" }),
+    }, {})
     // SAFETY: streamAgent returns an async iterable for a generator-backed Agent driver.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
     const observations = (await invocations.getByRunId("phased-trace"))?.observations ?? []
     expect(observations.filter(event => event.name === "agent.message.delta").map(event => event.attributes?.["message.phase"]))
-      .toEqual(["final"])
+      .toEqual(["commentary", "final"])
+    expect(observations.find(event => event.name === "agent.approval.request")?.attributes)
+      .toMatchObject({ "approval.input": { command: "pnpm test" } })
   })
 
   it("normalizes non-finite observation numbers across stores", async () => {
@@ -853,6 +859,57 @@ describe("Agent Invocations", () => {
     }
     finally {
       client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("initializes the libSQL search column concurrently", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-migration-"))
+    const url = `file:${join(directory, "invocations.sqlite")}`
+    const setupClient = createClient({ url })
+    const firstClient = createClient({ url })
+    const secondClient = createClient({ url })
+    try {
+      await setupClient.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        record TEXT NOT NULL
+      )`)
+
+      let inspections = 0
+      let releaseInspections!: () => void
+      const inspectionsComplete = new Promise<void>((resolve) => {
+        releaseInspections = resolve
+      })
+      // SAFETY: the proxy forwards every Client member and only wraps execute with the same call contract.
+      const synchronizeInspection = (client: Client): Client => new Proxy(client, {
+        get(target, property) {
+          const value = Reflect.get(target, property)
+          if (property !== "execute") return value instanceof Function ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            // SAFETY: the proxy receives the arguments of Client.execute and forwards them unchanged.
+            const result = await (client.execute as (...executeArgs: unknown[]) => Promise<unknown>)(...args)
+            const statement = Object.prototype.toString.call(args[0]) === "[object String]" ? String(args[0]) : undefined
+            if (statement?.startsWith("PRAGMA table_info") && inspections < 2) {
+              inspections++
+              if (inspections === 2) releaseInspections()
+              await inspectionsComplete
+            }
+            return result
+          }
+        },
+      }) as Client
+
+      await expect(Promise.all([
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(firstClient) }).list(),
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(secondClient) }).list(),
+      ])).resolves.toEqual([{ invocations: [] }, { invocations: [] }])
+    }
+    finally {
+      setupClient.close()
+      firstClient.close()
+      secondClient.close()
       await rm(directory, { force: true, recursive: true })
     }
   })
