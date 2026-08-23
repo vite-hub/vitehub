@@ -266,7 +266,6 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
-  let firstPage: readonly AgentInvocationSummary[] = [];
   let revision = 0;
   let resetFirstPage = true;
   let departedIds = new Set<string>();
@@ -287,7 +286,6 @@ export function useAgentInvocations(
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
         cursor.value = result.cursor;
-        firstPage = result.invocations;
         resetFirstPage = false;
         return;
       }
@@ -298,13 +296,11 @@ export function useAgentInvocations(
       departedIds = new Set();
       reconciledInvocations = new Map();
       invocations.value = [...result.invocations, ...retained];
-      firstPage = result.invocations;
       if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
-      firstPage = [];
       pendingDepartureIds = new Set();
       reconciledInvocations = new Map();
     },
@@ -335,8 +331,11 @@ export function useAgentInvocations(
       if (resetFirstPage || (statuses.size === 0 && !search)) return result;
       const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
       for (const id of returnedIds) pendingDepartureIds.delete(id);
+      const retainedIds = invocations.value
+        .filter(invocation => !returnedIds.has(invocation.id))
+        .map(invocation => invocation.id);
       const displaced = [...new Set([
-        ...firstPage.filter(invocation => !returnedIds.has(invocation.id)).map(invocation => invocation.id),
+        ...retainedIds,
         ...pendingDepartureIds,
       ])];
       const reconciled = await Promise.allSettled(displaced.map(id =>
@@ -346,11 +345,13 @@ export function useAgentInvocations(
       pendingDepartureIds = new Set();
       reconciledInvocations = new Map();
       for (const [index, outcome] of reconciled.entries()) {
-        const id = displaced[index]!;
+        const id = displaced[index];
+        if (!id) continue;
         if (outcome.status === "rejected") {
           pendingDepartureIds.add(id);
           continue;
         }
+        // SAFETY: The detail parser has validated the invocation summary fields; observations are the only detail-only field removed here.
         const { observations: _observations, ...searchableInvocation } = outcome.value.invocation as AgentInvocationSummary & { observations?: unknown };
         if (
           (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))

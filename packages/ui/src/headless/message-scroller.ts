@@ -157,7 +157,10 @@ export const MessageScrollerViewport = defineComponent({
       context.following.value = false;
     };
     const onKeydown = (event: KeyboardEvent) => {
-      if (["ArrowDown", "ArrowUp", "End", "Home", "PageDown", "PageUp", " "].includes(event.key)) {
+      const movesBackward = ["ArrowUp", "Home", "PageUp"].includes(event.key)
+        || (event.key === " " && event.shiftKey);
+      const movesForward = ["ArrowDown", "End", "PageDown", " "].includes(event.key);
+      if (movesBackward || (movesForward && !context.atEnd.value)) {
         interruptFollowing();
       }
     };
