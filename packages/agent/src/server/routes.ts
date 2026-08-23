@@ -2669,6 +2669,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 const recoveredInvoker = resolveInputAgentInvoker(recoveredInput.context)
                 if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredInput, recoveredInvoker)
               }
+              let recoveredWorkflowAccepted = false
               try {
                 if (recoveryOwnershipLost || recoveredOwnershipLost) {
                   throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
@@ -2687,18 +2688,14 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                   recoveredWorkflowInput as never,
                 )
+                recoveredWorkflowAccepted = true
                 if (!recoveryOwnershipLost && !(await resolved.state.extendLock(recoveryLock, ttlMs))) recoveryOwnershipLost = true
                 if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) recoveredOwnershipLost = true
                 if (recoveryOwnershipLost || recoveredOwnershipLost) {
                   throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
                 }
               } catch (error) {
-                if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                  stopRecoveredHeartbeat()
-                  await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
-                  throw error
-                }
-                if (!isAmbiguousAgentWorkflowStartFailure(error)) {
+                if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
                   // Restore the expired Workflow's claim so a provider retry can autonomously
                   // attempt recovery again without waiting for another Channel webhook.
                   // SAFETY: Both entries came from this queue's normalized durable delivery payloads.
@@ -2706,6 +2703,13 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                     stopRecoveredHeartbeat()
                     throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration.")
                   }
+                }
+                if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                  stopRecoveredHeartbeat()
+                  await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+                  throw error
+                }
+                if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
                   stopRecoveredHeartbeat()
                   await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
                   throw error
@@ -4726,7 +4730,18 @@ async function handleChatSdkMessage(
         steerStartOwnershipLost = false
       } catch (error) {
         if (steerLock && steerQueue && steerPending && steerPendingPersisted && steerStartOwnershipLost) {
-          if (!isAmbiguousAgentWorkflowStartFailure(error) && (await state.state.extendLock(steerLock, steerTtlMs))) {
+          let recoveredScopeOwnership = false
+          if (!isAmbiguousAgentWorkflowStartFailure(error)) {
+            try {
+              recoveredScopeOwnership = await state.state.extendLock(steerLock, steerTtlMs)
+            } catch {
+              durableHandoff = true
+              await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+              detachAgentChannelDelivery(delivery)
+              return
+            }
+          }
+          if (recoveredScopeOwnership) {
             steerStartOwnershipLost = false
             try {
               // The scope owner is still authoritative even if its startup handoff
@@ -4735,16 +4750,15 @@ async function handleChatSdkMessage(
               // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
               await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
               durableHandoff = true
-              await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
-              detachAgentChannelDelivery(delivery)
-              return
             } catch (retryError) {
               if (isAmbiguousAgentWorkflowStartFailure(retryError)) {
                 durableHandoff = true
-                await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
-                detachAgentChannelDelivery(delivery)
-                return
               }
+            }
+            if (durableHandoff) {
+              await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+              detachAgentChannelDelivery(delivery)
+              return
             }
           }
         }

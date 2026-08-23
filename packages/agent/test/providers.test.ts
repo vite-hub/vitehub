@@ -11949,6 +11949,73 @@ describe("server helpers", () => {
     }
   })
 
+  it("detaches persisted steer input when lost ownership verification throws", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-start-verification-failure-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const originalExtendLock = state.extendLock.bind(state)
+    let ownerVerificationAttempts = 0
+    vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
+      if (!lock.threadId.includes("durable-steer") || lock.threadId.endsWith(":handoff")) return await originalExtendLock(lock, ttlMs)
+      ownerVerificationAttempts++
+      if (ownerVerificationAttempts === 1) return false
+      throw new Error("state temporarily unavailable")
+    })
+    const adapter = createTestChatAdapter()
+    let rejectWorkflow!: () => void
+    const workflowRejected = new Promise<void>((resolve) => {
+      rejectWorkflow = resolve
+    })
+    const createBatch = vi.fn(async () => {
+      await workflowRejected
+      throw Object.assign(new Error("Workflow unavailable"), { status: 503 })
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this fixture.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", errorFallbackText: "Workflow failed.", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      vi.useFakeTimers()
+      const response = handler(chatWebhookRequest(91_168), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } } },
+      })
+      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(150_000)
+      rejectWorkflow()
+      await expect(response).resolves.toMatchObject({ status: 200 })
+
+      expect(ownerVerificationAttempts).toBe(2)
+      expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "Workflow failed.")
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
+    } finally {
+      rejectWorkflow()
+      vi.useRealTimers()
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps overlapping steer input accepted when queued evidence cannot be journaled", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
