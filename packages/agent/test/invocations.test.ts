@@ -333,23 +333,29 @@ describe("Agent Invocations", () => {
     expect(full[1]?.attributes).not.toHaveProperty("content.omitted")
   })
 
-  it("records visible message phases while keeping hidden commentary out of invocation traces", async () => {
+  it("preserves message phases and approval inputs through invocation tracing", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       driver: { async *run() {
         yield { id: "reply", phase: "commentary" as const, text: "Checking.", type: "text-delta" as const }
         yield { id: "reply", phase: "final" as const, text: "Done.", type: "text-delta" as const }
+        yield { id: "approval", input: { command: "pnpm test" }, name: "Run command", type: "approval-request" as const }
       } },
       invocations,
       runtime: false,
     })
 
-    const stream = await streamAgent(agent, runtime("phased-trace"), {})
-    for await (const _event of stream as AsyncIterable<unknown>) {}
+    const stream = await streamAgent(agent, {
+      ...runtime("phased-trace"),
+      traceLog: createTraceEventLog({ content: "content" }),
+    }, {})
+    for await (const _event of stream) {}
 
     const observations = (await invocations.getByRunId("phased-trace"))?.observations ?? []
     expect(observations.filter(event => event.name === "agent.message.delta").map(event => event.attributes?.["message.phase"]))
-      .toEqual(["final"])
+      .toEqual(["commentary", "final"])
+    expect(observations.find(event => event.name === "agent.approval.request")?.attributes)
+      .toMatchObject({ "approval.input": { command: "pnpm test" } })
   })
 
   it("normalizes non-finite observation numbers across stores", async () => {
@@ -824,13 +830,15 @@ describe("Agent Invocations", () => {
       const inspectionsComplete = new Promise<void>((resolve) => {
         releaseInspections = resolve
       })
+      // SAFETY: the proxy forwards every Client member and only wraps execute with the same call contract.
       const synchronizeInspection = (client: Client): Client => new Proxy(client, {
         get(target, property) {
           const value = Reflect.get(target, property)
-          if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
+          if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
+            // SAFETY: the proxy receives the arguments of Client.execute and forwards them unchanged.
             const result = await (client.execute as (...executeArgs: unknown[]) => Promise<unknown>)(...args)
-            const statement = typeof args[0] === "string" ? args[0] : undefined
+            const statement = Object.prototype.toString.call(args[0]) === "[object String]" ? String(args[0]) : undefined
             if (statement?.startsWith("PRAGMA table_info") && inspections < 2) {
               inspections++
               if (inspections === 2) releaseInspections()

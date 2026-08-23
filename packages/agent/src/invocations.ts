@@ -401,6 +401,7 @@ function journalTraceLog(
           const content = entry.attributes?.["message.content"]
           const sameMessage = pending
             && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
+            && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
             && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
           if (sameMessage && (previousContent === undefined) === (content === undefined)) {
             const attributes = {
