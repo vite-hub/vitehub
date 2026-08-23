@@ -426,6 +426,22 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
   });
 
+  it("carries rounded duration seconds into minutes", () => {
+    const invocation: AgentInvocationView = {
+      completedAt: "2026-08-22T00:00:59.500Z",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "completed",
+      observations: [],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:59.500Z",
+    };
+
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 0s");
+  });
+
   it("settles repeated page failures until the consumer changes the retry key", async () => {
     const items = Array.from({ length: 20 }, (_, index) => ({
       id: `inv-${index}`,

@@ -338,11 +338,14 @@ export function useAgentInvocations(
         .filter(invocation => !returnedIds.has(invocation.id))
         .map(invocation => invocation.id);
       const retainedIdSet = new Set(retainedIds);
-      const retries = [...reconciliationRetryIds]
-        .filter(id => retainedIdSet.has(id))
-        .slice(0, retainedReconciliationLimit);
-      const retryIdSet = new Set(retries);
-      const rotatingIds = retainedIds.filter(id => !retryIdSet.has(id));
+      const retryCandidates = [...reconciliationRetryIds]
+        .filter(id => retainedIdSet.has(id));
+      const retryLimit = retainedIds.some(id => !reconciliationRetryIds.has(id))
+        ? Math.floor(retainedReconciliationLimit / 2)
+        : retainedReconciliationLimit;
+      const retries = retryCandidates.slice(0, retryLimit);
+      const retryCandidateSet = new Set(retryCandidates);
+      const rotatingIds = retainedIds.filter(id => !retryCandidateSet.has(id));
       const rotatingCount = Math.min(
         rotatingIds.length,
         retainedReconciliationLimit - retries.length,

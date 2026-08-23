@@ -424,6 +424,35 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("rotates retained reconciliation while persistent failures retry", async () => {
+    const request = vi.fn<AgentInvocationRequester>();
+    const retained = Array.from({ length: 30 }, (_, index) => record(`inv-${index}`));
+    request.mockResolvedValueOnce({ invocations: retained });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+    await settle();
+
+    request.mockResolvedValueOnce({ invocations: [record("new")] });
+    for (const _invocation of retained.slice(0, 20)) {
+      request.mockRejectedValueOnce(new Error("persistent failure"));
+    }
+    await resource.refresh();
+
+    request.mockResolvedValueOnce({ invocations: [record("newer")] });
+    for (const _invocation of retained.slice(0, 10)) {
+      request.mockRejectedValueOnce(new Error("persistent failure"));
+    }
+    for (const invocation of retained.slice(20, 30)) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+
+    const retriedPaths = new Set(retained.slice(0, 20).map(invocation => `/api/invocations/${invocation.id}`));
+    expect(request.mock.calls.slice(33, 43).map(([path]) => path)).toHaveLength(10);
+    expect(request.mock.calls.slice(33, 43).every(([path]) => !retriedPaths.has(path))).toBe(true);
+    scope.stop();
+  });
+
   it("removes displaced records that no longer match the status filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
