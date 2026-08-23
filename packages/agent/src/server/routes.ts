@@ -2706,8 +2706,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 }
                 if (recoveryOwnershipLost || recoveredOwnershipLost) {
                   stopRecoveredHeartbeat()
-                  await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
-                  throw error
+                  if (recoveredOwnershipLost) {
+                    await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+                    throw error
+                  }
+                  if (!recoveredWorkflowAccepted) throw error
                 }
                 if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
                   stopRecoveredHeartbeat()
@@ -2833,7 +2836,10 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         for (const deliveryId of binding.steer?.deliveryIds ?? []) {
           if (activePending.message?.settledDeliveryIds?.includes(deliveryId)) continue
           const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
-          if (mergedDelivery) await settleChannelDeliveryInvocation(mergedDelivery, status, status)
+          if (mergedDelivery) {
+            await mergedDelivery.event({ type: `invocation.${status}` })
+            await mergedDelivery.event({ type: status })
+          }
           const settledPending: DurableSteerQueueEntry = {
             ...activePending,
             message: {

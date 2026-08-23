@@ -12694,7 +12694,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("releases recovered steer ownership when its handoff lease is lost after startup", async () => {
+  it("retains recovered steer ownership when only its handoff lease is lost after accepted startup", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -12752,11 +12752,14 @@ describe("server helpers", () => {
           { id: "expired-steer-handoff-loss", name: "calories", payload: workflowPayloads[0], provider: "cloudflare" },
           vi.fn(async () => "must not run"),
         ),
-      ).rejects.toThrow("lost recovered startup ownership")
+      ).resolves.toBeUndefined()
       expect(loseRecoveryHandoff).toBe(false)
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
+      await handler(chatWebhookRequest(91_167), "telegram", runtime)
+      expect(createBatch).toHaveBeenCalledTimes(2)
+      expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(1)
       const reacquired = await state.acquireLock(ownershipKey!, 1_000)
-      expect(reacquired).not.toBeNull()
+      expect(reacquired).toBeNull()
       if (reacquired) await state.releaseLock(reacquired)
       extendLock.mockRestore()
     } finally {
@@ -13165,6 +13168,41 @@ describe("server helpers", () => {
       expect(binding?.steer?.deliveryIds).toHaveLength(1)
 
       await handler(chatWebhookRequest(91_160), "telegram", runtime)
+      const originalAppendToList = state.appendToList.bind(state)
+      let rejectMergedJournal = true
+      const appendToList = vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+        if (
+          rejectMergedJournal &&
+          key.startsWith("deliveries:") &&
+          key.endsWith(":events") &&
+          (value as { runId?: string; type?: string }).type === "invocation.completed" &&
+          (value as { runId?: string }).runId === undefined
+        ) {
+          rejectMergedJournal = false
+          throw new Error("merged delivery journal unavailable")
+        }
+        return await originalAppendToList(key, value, options)
+      })
+
+      await expect(
+        runAgentWorkflowDefinition(
+          // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
+          agent as never,
+          {
+            id: "merged-before-journal-failure",
+            name: "calories",
+            payload: workflowPayloads[1],
+            provider: "cloudflare",
+          },
+          sideEffect,
+        ),
+      ).resolves.toBe("completed")
+      expect(rejectMergedJournal).toBe(false)
+      expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91158", "91159"])
+      const uncheckpointed = (await state.queuePeek(binding!.steer!.pendingQueue)) as { message?: { settledDeliveryIds?: string[] } } | null
+      expect(uncheckpointed?.message?.settledDeliveryIds).toBeUndefined()
+      appendToList.mockRestore()
+
       const originalPeek = state.queuePeek.bind(state)
       let rejectSuccessorRead = true
       const queuePeek = vi.spyOn(state, "queuePeek").mockImplementation(async (queue) => {
@@ -13182,14 +13220,14 @@ describe("server helpers", () => {
           {
             id: "merged-before-successor-read-failure",
             name: "calories",
-            payload: workflowPayloads[1],
+            payload: workflowPayloads[2],
             provider: "cloudflare",
           },
           sideEffect,
         ),
-      ).resolves.toBe("completed")
+      ).resolves.toBeUndefined()
       expect(rejectSuccessorRead).toBe(false)
-      expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91158", "91159"])
+      expect(workflowPayloads[3]?.input?.messages?.map((message) => message.id)).toEqual(["91158", "91159"])
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const pending = (await state.queuePeek(binding!.steer!.pendingQueue)) as { message?: { settledDeliveryIds?: string[] } } | null
       expect(pending?.message?.settledDeliveryIds).toEqual(binding!.steer!.deliveryIds)
@@ -13201,14 +13239,14 @@ describe("server helpers", () => {
           {
             id: "merged-settlement-only-retry",
             name: "calories",
-            payload: workflowPayloads[2],
+            payload: workflowPayloads[3],
             provider: "cloudflare",
           },
           sideEffect,
         ),
       ).resolves.toBeUndefined()
       expect(sideEffect).toHaveBeenCalledTimes(2)
-      expect(workflowPayloads[3]?.input?.messages?.map((message) => message.id)).toEqual(["91160"])
+      expect(workflowPayloads[4]?.input?.messages?.map((message) => message.id)).toEqual(["91160"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_157), "telegram", runtime)
       const merged = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91158"))
