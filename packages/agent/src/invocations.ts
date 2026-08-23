@@ -479,7 +479,6 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
 ): TraceEventLog {
-  const normalizedTraceLog = createTraceEventLog({ content })
   const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
   const messageDeltaChunkEvents = 32
   let pendingMessageDelta: TraceEventLogEntry | undefined
@@ -554,7 +553,7 @@ function journalTraceLog(
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       try {
-        const safeEntry = await normalizedTraceLog.append({ ...event, timestamp: entry.timestamp })
+        const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
         if (safeEntry.name === "agent.message.delta") {
           queueMessageDelta(safeEntry)
         }

@@ -37,7 +37,7 @@ function relativeTime(value: string | undefined, now: number | undefined): strin
   if (elapsed < 60_000) return "now";
   if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
   if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`;
-  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(value));
 }
 
 function folderIcon() {
@@ -158,7 +158,10 @@ export const AgentInvocationList = defineComponent({
     });
     watch(
       [virtualRows, () => props.hasMore, () => props.loading, () => props.items.length, scrollRevision],
-      ([rows, hasMore, loading, length]) => {
+      ([rows, hasMore, loading, length], [, , previousLoading]) => {
+        if (previousLoading && !loading && requestedLength.value === length) {
+          requestedLength.value = undefined;
+        }
         if (!hasMore || loading || !length || requestedLength.value === length) return;
         if (rows.at(-1)?.index !== undefined && rows.at(-1)!.index >= length - 6) {
           requestedLength.value = length;

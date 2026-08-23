@@ -92,6 +92,40 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("derives commands from direct provider payloads", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "provider-command",
+      observations: [
+        {
+          attributes: { "tool.id": "command", "tool.input": { command: "git status", cwd: "/workspace" }, "tool.name": "shell" },
+          name: "agent.tool.start",
+          sequence: 1,
+          timestamp,
+          type: "run" as const,
+        },
+        {
+          attributes: { "tool.id": "command", "tool.output": { aggregatedOutput: "clean", exitCode: 0 }, "tool.name": "shell" },
+          name: "agent.tool.finish",
+          sequence: 2,
+          timestamp,
+          type: "run" as const,
+        },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.command).toEqual({
+      command: "git status",
+      cwd: "/workspace",
+      exitCode: 0,
+      output: "clean",
+    });
+  });
+
   it("keeps input history before the owning start event and retains structured turns", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -264,7 +298,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
   });
 
-  it("lets a user retry lazy loading by scrolling again after a failed page", async () => {
+  it("retries lazy loading after a failed page without another scroll", async () => {
     const items = Array.from({ length: 20 }, (_, index) => ({
       id: `inv-${index}`,
       status: "completed" as const,
@@ -285,8 +319,19 @@ describe("Agent Invocation UI", () => {
 
     await wrapper.setProps({ loading: true });
     await wrapper.setProps({ loading: false });
-    await viewport.trigger("scroll");
     expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
+  it("renders fallback dates in UTC for hydration stability", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "old", status: "completed", title: "Old session", updatedAt: "2026-08-23T00:30:00.000Z" }],
+        now: Date.parse("2026-08-25T00:30:00.000Z"),
+        virtual: false,
+      },
+    });
+
+    expect(wrapper.get("time").text()).toBe("Aug 23");
   });
 
   it("keeps virtual rows in list coordinates when a header precedes them", async () => {

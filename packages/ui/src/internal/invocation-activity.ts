@@ -111,20 +111,26 @@ function fileChanges(attributes: Record<string, unknown>): { patches: string[]; 
 }
 
 function commandDetails(attributes: Record<string, unknown>): InvocationCommand | undefined {
-  const itemFor = (key: string) => record(record(attributes[key])?.item);
-  const item = itemFor("tool.output") ?? itemFor("tool.input");
-  const action = Array.isArray(item?.commandActions) ? record(item.commandActions[0]) : undefined;
-  const command = typeof action?.command === "string"
-    ? action.command
-    : typeof item?.command === "string"
-      ? item.command
-      : undefined;
+  const payloadFor = (key: string) => {
+    const payload = record(attributes[key]);
+    return record(payload?.item) ?? payload;
+  };
+  const output = payloadFor("tool.output");
+  const input = payloadFor("tool.input");
+  const action = [output, input]
+    .map(item => Array.isArray(item?.commandActions) ? record(item.commandActions[0]) : undefined)
+    .find(candidate => stringAttribute(candidate ?? {}, "command") !== undefined);
+  const command = stringAttribute(action ?? {}, "command")
+    ?? stringAttribute(input ?? {}, "command")
+    ?? stringAttribute(output ?? {}, "command");
   if (!command) return;
   return {
     command,
-    ...(typeof item?.cwd === "string" ? { cwd: item.cwd } : {}),
-    ...(typeof item?.exitCode === "number" ? { exitCode: item.exitCode } : {}),
-    ...(typeof item?.aggregatedOutput === "string" ? { output: item.aggregatedOutput } : {}),
+    ...(typeof input?.cwd === "string" ? { cwd: input.cwd } : typeof output?.cwd === "string" ? { cwd: output.cwd } : {}),
+    ...(typeof output?.exitCode === "number" ? { exitCode: output.exitCode } : typeof input?.exitCode === "number" ? { exitCode: input.exitCode } : {}),
+    ...(typeof output?.aggregatedOutput === "string"
+      ? { output: output.aggregatedOutput }
+      : typeof input?.aggregatedOutput === "string" ? { output: input.aggregatedOutput } : {}),
   };
 }
 
