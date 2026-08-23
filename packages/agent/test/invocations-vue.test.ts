@@ -302,6 +302,31 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("rotates retained reconciliation after a full batch fails", async () => {
+    const request = vi.fn<AgentInvocationRequester>();
+    const retained = Array.from({ length: 25 }, (_, index) => record(`inv-${index}`));
+    request.mockResolvedValueOnce({ invocations: retained });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+    await settle();
+
+    request.mockResolvedValueOnce({ invocations: [record("new")] });
+    for (let index = 0; index < 20; index++) request.mockRejectedValueOnce(new Error("failed"));
+    await resource.refresh();
+
+    request.mockResolvedValueOnce({ invocations: [record("newer")] });
+    for (const invocation of [...retained.slice(20), ...retained.slice(0, 15)]) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+
+    const secondBatchPaths = request.mock.calls.slice(22).map(([path]) => path);
+    expect(secondBatchPaths.slice(1, 6)).toEqual(
+      retained.slice(19, 24).map(invocation => `/api/invocations/${invocation.id}`),
+    );
+    scope.stop();
+  });
+
   it("refreshes retained summaries during filtered reconciliation", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

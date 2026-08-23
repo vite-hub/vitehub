@@ -376,8 +376,8 @@ export function useAgentInvocations(
         ? 0
         : (reconciliationOffset + reconciliationCount) % retainedIds.length;
       const displaced = [...new Set([
-        ...nextPendingDepartureIds,
         ...selectedRetainedIds,
+        ...nextPendingDepartureIds,
       ])].slice(0, retainedReconciliationLimit);
       const reconciled = await Promise.allSettled(displaced.map(id =>
         request(detailPath(toValue(baseURL), id), { signal }).then(parseAgentInvocationDetailResult),
