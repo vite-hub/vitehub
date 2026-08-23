@@ -6935,6 +6935,36 @@ describe("server helpers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("handles channel routes when the process global is absent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
+        }),
+      },
+      driver: { run: () => "unexpected" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    vi.stubGlobal("process", undefined)
+    try {
+      const response = await handler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
+          body: "{}",
+          method: "POST",
+        }),
+        "github",
+      )
+      expect(response.status).toBe(401)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("handles signed GitHub channel webhooks without a chat adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -12331,8 +12361,8 @@ describe("server helpers", () => {
       expect(await state.queueDepth(queue)).toBe(3)
       await state.forceReleaseLock(ownershipKey!)
       await handler(request(91_134, "alpha"), "telegram", runtime)
-      expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91130", "91134"])
-      expect(await state.queueDepth(queue)).toBe(3)
+      expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91130"])
+      expect(await state.queueDepth(queue)).toBe(4)
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
       const first = (await state.dequeue(queue)) as { message?: { input?: AgentRunInput } } | null
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
@@ -12342,6 +12372,9 @@ describe("server helpers", () => {
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
       const third = (await state.dequeue(queue)) as { message?: { input?: AgentRunInput } } | null
       expect(third?.message?.input?.messages?.map((message) => message.id)).toEqual(["91133"])
+      // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+      const fourth = (await state.dequeue(queue)) as { message?: { input?: AgentRunInput } } | null
+      expect(fourth?.message?.input?.messages?.map((message) => message.id)).toEqual(["91134"])
     } finally {
       resetWorkflowRuntime()
       await state.disconnect()
@@ -13641,6 +13674,10 @@ describe("server helpers", () => {
       expect(binding!.steer!.lock.expiresAt).toBeGreaterThan(Date.now())
       rejectOwnerHeartbeat = true
       await vi.waitFor(() => expect(ownerHeartbeatRejected).toBe(true), { timeout: 6_000 })
+      expect(ownership!.abortSignal?.aborted).toBe(false)
+      ownerHeartbeatRejected = false
+      await expect(ownership!.verify!()).resolves.toBeUndefined()
+      expect(ownerHeartbeatRejected).toBe(true)
       expect(ownership!.abortSignal?.aborted).toBe(false)
       extendLock.mockRestore()
       await ownership!.settle("failed")

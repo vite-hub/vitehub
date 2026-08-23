@@ -468,7 +468,8 @@ function serializeErrorForLog(
 
 function detectRuntime(): AgentRuntimeName {
   if ("Deno" in globalThis) return "deno"
-  const env = isRuntimeObject(process) && process ? process.env : undefined
+  const runtimeProcess = globalThis.process
+  const env = isRuntimeObject(runtimeProcess) ? runtimeProcess.env : undefined
   if (env?.VERCEL) return "vercel"
   return "unknown"
 }
@@ -1213,6 +1214,7 @@ function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: numbe
         return
       }
       knownLeaseExpiresAt = extensionStartedAt + ttlMs
+      lock.expiresAt = knownLeaseExpiresAt
     } catch {
       if (stopped) return
       const remainingMs = knownLeaseExpiresAt - Date.now()
@@ -2732,11 +2734,27 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, loseOwnership)
     const verify = async () => {
       executionAbort.signal.throwIfAborted()
+      const extendWithinKnownLease = async (ownedLock: Lock, ownedTtlMs: number) => {
+        const retryMs = Math.max(1, Math.min(250, Math.floor(ownedTtlMs / 4)))
+        while (true) {
+          const extensionStartedAt = Date.now()
+          try {
+            const extended = await resolved.state.extendLock(ownedLock, ownedTtlMs)
+            if (extended) ownedLock.expiresAt = extensionStartedAt + ownedTtlMs
+            return extended
+          } catch (error) {
+            executionAbort.signal.throwIfAborted()
+            const remainingMs = ownedLock.expiresAt - Date.now()
+            if (remainingMs <= 0) throw error
+            await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryMs, remainingMs)))
+          }
+        }
+      }
       let executionOwned = false
       let scopeOwned = false
       try {
-        executionOwned = await resolved.state.extendLock(executionLock, executionTtlMs)
-        scopeOwned = executionOwned && (await resolved.state.extendLock(lock, ttlMs))
+        executionOwned = await extendWithinKnownLease(executionLock, executionTtlMs)
+        scopeOwned = executionOwned && (await extendWithinKnownLease(lock, ttlMs))
       } catch (error) {
         loseOwnership()
         throw error
@@ -4579,7 +4597,8 @@ async function handleChatSdkMessage(
           const deliveryIds = durableSteerDeliveryIds(previous?.message)
           const sameInvoker =
             !previous?.message?.input || (previous.message.settlementStatus === undefined && durableSteerInvokerKey(previous.message) === workflowInvokerKey)
-          if (sameInvoker) {
+          const coalesceHead = sameInvoker && (await state.state.queueDepth(steerQueue)) === 1
+          if (coalesceHead) {
             reclaimedMessage = previous?.message
             workflowInput = mergeDurableSteerInput(previous?.message?.input, workflowInput)
             workflowErrorDeliveries = mergeDurableSteerErrorDeliveries(previous?.message?.errorDeliveries, [currentErrorDelivery])
