@@ -128,6 +128,19 @@ describe("launch documentation trust boundaries", () => {
     expect(matrixComponent).toContain('anchor: "deployment-and-proof"');
     expect(matrixComponent).toContain('<section id="qualifications"');
     expect(matrixComponent).toContain('<h2>Qualifications</h2>');
+    const normalizeQualification = (value: string) =>
+      value.replace(/<[^>]+>|[*`]/g, "").replace(/\s+/g, " ").trim();
+    const markdownQualifications = matrix
+      .match(/## Qualifications\n\n([\s\S]*?)\n\nLocal memory/)![1]!
+      .split("\n")
+      .filter((line) => line.startsWith("- "))
+      .map((line) => normalizeQualification(line.slice(2)));
+    const renderedQualifications = [
+      ...matrixComponent
+        .match(/<section id="qualifications"[\s\S]*?<\/section>/)![0]!
+        .matchAll(/<li>([\s\S]*?)<\/li>/g),
+    ].map((match) => normalizeQualification(match[1]!));
+    expect(renderedQualifications).toEqual(markdownQualifications);
     expect(matrixComponent).toContain(':id="section.anchor" class="support-matrix-section-anchor"');
     expect(matrixComponent).toContain('scroll-margin-block-start: 7rem');
     expect(matrixComponent).toContain(

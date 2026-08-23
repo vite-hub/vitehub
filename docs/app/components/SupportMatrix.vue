@@ -838,8 +838,60 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
 
     <section id="qualifications" class="support-matrix-qualifications">
       <h2>Qualifications</h2>
+      <p>Select any status to inspect its package, provider, durability, and proof boundaries.</p>
+      <ul>
+        <li>
+          <strong>Local Vite:</strong> Active integrations expose their package imports and
+          generated registries. Blob <code>fs</code>, KV <code>fs-lite</code>, Rate Limit
+          <code>memory</code>, and Workspace <code>local</code> or <code>memory</code> provide local
+          state. A local build can still generate output for an explicit or inferred hosted
+          provider.
+        </li>
+        <li>
+          <strong>Cloudflare:</strong> Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule,
+          Workflow, and Workspace run in the live playground. Browser and Agent have package-owned
+          output outside the nightly run. Enabled integrations compose the Worker,
+          <code>wrangler.json</code>, bindings, callbacks, and runtime modules. ViteHub can
+          provision R2 buckets, D1 databases, and Cloudflare Queues.
+        </li>
+        <li>
+          <strong>Vercel:</strong> Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and
+          Workspace run in the live playground. Agent routes have separate package output outside
+          the nightly run. Enabled integrations write Vercel Build Output, functions, routes, cron
+          entries, and runtime modules. ViteHub can create a Blob store and configure the project
+          environment.
+        </li>
+        <li>
+          <strong>Netlify:</strong> Blob uses <code>netlify-blobs</code>. Agent HTTP routes and
+          static Schedules write functions under <code>.netlify/v1/functions</code>. CI runs the
+          real-project fixture through Netlify CLI. ViteHub does not provide Netlify provisioning or
+          published live proof.
+        </li>
+        <li>
+          <strong>Deno:</strong> Agent chat and webhook routes and KV with <code>deno-kv</code> are
+          supported with their documented permissions. The standalone Schedule integration writes a
+          <code>Deno.cron</code> entrypoint, but
+          <code>vitehub({ preset: "deno", schedule: true })</code> rejects Schedule because that
+          output is outside the deployed Nitro entrypoint. ViteHub does not generate a general Deno
+          bundle or publish live proof.
+        </li>
+        <li>
+          <strong>Nitro and UnJS:</strong> Auth and Agent handlers, the Schedule Nitro bridge,
+          Workspace runtime setup, and Database Nuxt D1 wiring are package-owned integrations. Nitro
+          is integration glue rather than a storage or execution provider. ViteHub does not provide
+          Nitro provisioning or one unified live matrix.
+        </li>
+        <li>
+          <strong>Node and self-hosted:</strong> Server APIs and handlers run when their selected
+          driver supports Node. Blob <code>fs</code>, KV <code>fs-lite</code>, Rate Limit
+          <code>memory</code>, and Workspace <code>local</code> or <code>memory</code> are
+          single-process providers. ViteHub does not emit one Node deployment bundle, provision a
+          self-hosted plan, or publish one live suite.
+        </li>
+      </ul>
       <p>
-        Select any status to inspect its package, provider, durability, and proof boundaries.
+        Local memory and filesystem providers stay single-process after deployment. Generated files
+        remain package-owned and must not be imported by application code.
       </p>
     </section>
 
@@ -1208,9 +1260,10 @@ a.support-matrix-host-link:hover {
 }
 
 .support-matrix-qualifications {
+  max-width: 72rem;
+  margin-inline: auto;
   padding: 0 1.5rem 3rem;
   scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem);
-  text-align: center;
 }
 
 .support-matrix-qualifications h2 {
@@ -1222,10 +1275,24 @@ a.support-matrix-host-link:hover {
 }
 
 .support-matrix-qualifications p {
-  margin: 0.5rem auto 0;
+  margin: 0.5rem 0 0;
   color: var(--ui-text-muted);
   font-size: 0.8125rem;
   line-height: 1.5;
+}
+
+.support-matrix-qualifications ul {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  padding-left: 1.25rem;
+  color: var(--ui-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.support-matrix-qualifications strong {
+  color: var(--ui-text-highlighted);
 }
 
 .support-matrix-footer {
