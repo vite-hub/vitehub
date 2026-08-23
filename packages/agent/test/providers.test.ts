@@ -12485,7 +12485,8 @@ describe("server helpers", () => {
       await handler(chatWebhookRequest(91_165), "telegram", runtime)
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
-      await state.forceReleaseLock(ownershipKey!)
+      if (!ownershipKey) throw new Error("Expected durable steer ownership lock")
+      await state.forceReleaseLock(ownershipKey)
       setActiveCloudflareEnv(env)
 
       const staleWorkflow = {
@@ -12495,17 +12496,20 @@ describe("server helpers", () => {
         provider: "cloudflare" as const,
       }
       const sideEffect = vi.fn(async () => "completed")
+      // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
       await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider operation failed")
       expect(sideEffect).not.toHaveBeenCalled()
       expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
 
+      // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
       await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
       expect(sideEffect).not.toHaveBeenCalled()
       expect(createBatch).toHaveBeenCalledTimes(4)
 
       await expect(
         runAgentWorkflowDefinition(
+          // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
           agent as never,
           { id: "recovered-steer", name: "calories", payload: workflowPayloads[3], provider: "cloudflare" },
           sideEffect,

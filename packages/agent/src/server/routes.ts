@@ -2695,6 +2695,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 if (!isAmbiguousAgentWorkflowStartFailure(error)) {
                   // Restore the expired Workflow's claim so a provider retry can autonomously
                   // attempt recovery again without waiting for another Channel webhook.
+                  // SAFETY: Both entries came from this queue's normalized durable delivery payloads.
                   if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, recoveredPending as never, [pending] as never, 1))) {
                     stopRecoveredHeartbeat()
                     throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration.")
