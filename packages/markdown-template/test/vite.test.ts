@@ -12,7 +12,7 @@ import {
   ScriptTarget,
 } from "typescript"
 import { build } from "vite"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { extractMarkdownTemplateImportSpecifiers, markdownTemplateMaterializationPath, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
@@ -51,6 +51,24 @@ describe("hubMarkdownTemplate", () => {
     expect(parseMarkdownTemplateRequest("./prompt.template.md?markdown-template")).toEqual({ path: "./prompt.template.md" })
   })
 
+  it("keeps resolved Markdown template module ids stable", async () => {
+    const resolveIdCandidate: unknown = hubMarkdownTemplate().resolveId
+    // SAFETY: hubMarkdownTemplate defines resolveId as this function hook; the test supplies its only used context method.
+    const resolveId = resolveIdCandidate as (
+      this: { resolve: (source: string) => Promise<{ id: string }> },
+      source: string,
+    ) => Promise<string | undefined>
+
+    const resolve = vi.fn(async (source: string) => ({ id: `/app/${source.slice(2)}` }))
+    await expect(resolveId.call({ resolve }, "./reply.template.md?markdown-template")).resolves.toBe(
+      "/app/reply.template.md?markdown-template",
+    )
+    expect(resolve).toHaveBeenCalledWith("./reply.template.md", undefined, { skipSelf: true })
+    await expect(resolveId.call({
+      resolve: async source => ({ id: `${source}?markdown-template` }),
+    }, "/app/reply.template.md")).resolves.toBe("/app/reply.template.md?markdown-template")
+  })
+
   it("extracts imports from indented paragraph continuations", () => {
     expect(extractMarkdownTemplateImportSpecifiers("Intro\n    @./context.md\n")).toEqual(["./context.md"])
     expect(extractMarkdownTemplateImportSpecifiers("    @./example.md\n")).toEqual([])
@@ -87,6 +105,7 @@ describe("hubMarkdownTemplate", () => {
     })
 
     await Promise.all([rm(template), rm(partial)])
+    // SAFETY: The fixture entry exports the declared default function and is built immediately above.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
     const typesPath = join(root, ".vitehub", "types", "markdown-template.d.ts")
@@ -136,6 +155,7 @@ describe("hubMarkdownTemplate", () => {
       .resolves.toContain('declare module "*.template.md"')
     await expect(readFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "utf8")).rejects.toThrow()
     await expect(readFile(join(root, ".vitehub", "types", "templates.d.ts"), "utf8")).rejects.toThrow()
+    // SAFETY: The fixture entry exports the declared default function and is built immediately above.
     const bundled = await import(`${pathToFileURL(join(app, "dist", "entry.mjs")).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
   }, 15_000)
