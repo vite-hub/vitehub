@@ -877,7 +877,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
 
 .support-matrix-navigation-panel {
   width: min(20rem, calc(100dvw - 1rem));
-  max-height: calc(100dvh - var(--ui-header-height) - 1rem);
+  max-height: var(--reka-popover-content-available-height);
   overflow: hidden;
   border: 1px solid var(--ui-border);
   border-radius: 0.5rem;
@@ -887,7 +887,7 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
 
 .support-matrix-sidebar {
   display: flex;
-  max-height: calc(100dvh - var(--ui-header-height) - 1rem);
+  max-height: var(--reka-popover-content-available-height);
   flex-direction: column;
 }
 

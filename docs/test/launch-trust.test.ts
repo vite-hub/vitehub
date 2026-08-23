@@ -126,6 +126,9 @@ describe("launch documentation trust boundaries", () => {
       'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
     );
     expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
+    expect(matrixComponent).toContain(
+      "max-height: var(--reka-popover-content-available-height)",
+    );
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
     );
