@@ -964,6 +964,40 @@ index ec86ba0c82a39dc0c250f40ac5fbb7d50fe9bd3b..cd39c764dde46204b7d31297b6d6dce7
  import { a as registerAgentInvocationInputHandler, n as agentInvocationControlId } from "./agent-invocation-control-3VAmvoDB.js";
  import { t as colocatedAgentSkillsContextKey } from "./colocated-agent-skills-BAz3kNyV.js";
  import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime";
+@@ -84,2 +84,3 @@
+ };
++const providerCleanupTimeoutMs = 1e4;
+ const providerHostEnvironmentKeys = [
+@@ -134,2 +135,17 @@
+ }
++function createProviderCleanupSignal(invocationSignal) {
++	const controller = new AbortController();
++	const timeout = setTimeout(() => {
++		controller.abort(new DOMException("[vitehub] Provider Agent Driver cleanup timed out.", "TimeoutError"));
++	}, providerCleanupTimeoutMs);
++	const abort = () => controller.abort(invocationSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"));
++	if (invocationSignal && !invocationSignal.aborted) invocationSignal.addEventListener("abort", abort, { once: true });
++	return {
++		dispose() {
++			clearTimeout(timeout);
++			invocationSignal?.removeEventListener("abort", abort);
++		},
++		signal: controller.signal
++	};
++}
+ async function acquireProviderSessionLock(locks, key, signal) {
+@@ -1034 +1046,10 @@
+-		for (const result of await Promise.allSettled([runtimeCleanupDeferred ? void 0 : runtime?.close(), toolServer?.close()])) if (result.status === "rejected") cleanupErrors.push(result.reason);
++		const cleanup = createProviderCleanupSignal(effectiveSignal);
++		let runtimeAndToolCleanup = [];
++		try {
++			runtimeAndToolCleanup = await waitForProviderOperation(Promise.allSettled([runtimeCleanupDeferred ? void 0 : runtime?.close(), toolServer?.close()]), cleanup.signal);
++		} catch (error) {
++			cleanupErrors.push(error);
++		} finally {
++			cleanup.dispose();
++		}
++		for (const result of runtimeAndToolCleanup) if (result.status === "rejected") cleanupErrors.push(result.reason);
 diff --git a/dist/routes-fS8GtRxT.js b/dist/routes-D8WXzG1x.js
 similarity index 99%
 rename from dist/routes-fS8GtRxT.js
