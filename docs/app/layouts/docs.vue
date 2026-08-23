@@ -1,7 +1,16 @@
+<script setup lang="ts">
+const route = useRoute();
+const isSupportMatrix = computed(
+  () => route.path.replace(/\/+$/, "") === "/docs/frameworks-hosts/support-matrix",
+);
+</script>
+
 <template>
   <UMain>
     <UContainer>
-      <UPage>
+      <slot v-if="isSupportMatrix" />
+
+      <UPage v-else>
         <template #left>
           <UPageAside>
             <DocsAsideLeftTop />
