@@ -20,7 +20,7 @@ function isToolPart(part: Part): part is ToolLikePart {
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
 }
 
-function isSafeSourceUrl(value: string): boolean {
+function isSafeExternalUrl(value: string): boolean {
   try {
     const protocol = new URL(value).protocol;
     return protocol === "http:" || protocol === "https:";
@@ -30,6 +30,12 @@ function isSafeSourceUrl(value: string): boolean {
 }
 
 function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
+  const label = part.filename ?? part.mediaType;
+  if (!isSafeExternalUrl(part.url)) {
+    return h("span", { class: "vh-attachment" }, [
+      h("span", { class: "vh-attachment__name" }, label),
+    ]);
+  }
   const image = part.mediaType === "image" || part.mediaType.startsWith("image/");
   return h(
     "a",
@@ -42,7 +48,7 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
             src: part.url,
           })
         : null,
-      h("span", { class: "vh-attachment__name" }, part.filename ?? part.mediaType),
+      h("span", { class: "vh-attachment__name" }, label),
     ],
   );
 }
@@ -107,7 +113,7 @@ export const AgentMessageParts = defineComponent({
             const label = part.title ?? part.url;
             return (
               slots.source?.({ index, part }) ??
-              (isSafeSourceUrl(part.url)
+              (isSafeExternalUrl(part.url)
                 ? h(
                     "a",
                     {

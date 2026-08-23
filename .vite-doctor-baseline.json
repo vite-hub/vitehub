@@ -1470,6 +1470,11 @@
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
       "file": "packages/agent/src/invocations.ts",
       "fingerprint": "c45d366d7b115284732e5217732bfceaf3e2c04c922da2a906986574b28035ff"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/invocations.test.ts",
+      "fingerprint": "73c2d7a8668a052dc9fefb9e3ccdf84963eacfbae31e2335e6cf5ae21ae7507b"
     }
   ]
 }

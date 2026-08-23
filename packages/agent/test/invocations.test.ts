@@ -25,6 +25,20 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("excludes generated cursors from memory-store search", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-02-02T02:02:02.000Z",
+      id: "alpha",
+      observations: [],
+      status: "pending",
+      traceId: "alpha-trace",
+      updatedAt: "2026-02-02T02:02:02.000Z",
+    })
+
+    expect(store.list({ search: "1" })).toEqual({ invocations: [] })
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({

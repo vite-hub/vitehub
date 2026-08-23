@@ -26,6 +26,20 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.text()).toContain("data:text/plain,source");
   });
 
+  it("renders only HTTP file URLs as links or images", () => {
+    const parts: UIMessage["parts"] = [
+      { filename: "safe.txt", mediaType: "text/plain", type: "file", url: "https://example.com/safe.txt" },
+      { filename: "unsafe.txt", mediaType: "text/plain", type: "file", url: "javascript:alert(1)" },
+      { filename: "unsafe.png", mediaType: "image/png", type: "file", url: "data:image/png;base64,unsafe" },
+    ];
+    const wrapper = mount(AgentMessageParts, { props: { parts } });
+
+    expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual(["https://example.com/safe.txt"]);
+    expect(wrapper.findAll("img")).toHaveLength(0);
+    expect(wrapper.text()).toContain("unsafe.txt");
+    expect(wrapper.text()).toContain("unsafe.png");
+  });
+
   it("renders the working state with the loader-circle path", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
@@ -313,14 +327,14 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
   });
 
-  it("settles repeated page failures until the consumer explicitly retries", async () => {
+  it("settles repeated page failures until the consumer changes the retry key", async () => {
     const items = Array.from({ length: 20 }, (_, index) => ({
       id: `inv-${index}`,
       status: "completed" as const,
       title: `Invocation ${index}`,
     }));
     const wrapper = mount(AgentInvocationList, {
-      props: { hasMore: true, items },
+      props: { hasMore: true, items, retryKey: 0 },
     });
     const viewport = wrapper.get("nav");
     Object.defineProperty(viewport.element, "scrollTop", {
@@ -338,7 +352,7 @@ describe("Agent Invocation UI", () => {
     await wrapper.setProps({ loading: false });
     expect(wrapper.emitted("endReached")).toHaveLength(1);
 
-    await viewport.trigger("scroll");
+    await wrapper.setProps({ retryKey: 1 });
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
