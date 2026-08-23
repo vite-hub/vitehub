@@ -312,6 +312,27 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("keeps phased anonymous assistant text separate", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [
+        { attributes: { "message.content": "Check", "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "message.content": "ing.", "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" as const },
+        { attributes: { "message.content": "Done.", "message.phase": "final", "message.role": "assistant" }, name: "agent.message.delta", sequence: 3, timestamp, type: "lifecycle" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => [activity.kind, activity.body])).toEqual([
+      ["reasoning", "Checking."],
+      ["message", "Done."],
+    ]);
+  });
+
   it("renders canonical tool, error, and approval decision details", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

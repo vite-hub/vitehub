@@ -252,6 +252,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   const groups = new Map<string, TraceEventLogEntry[]>();
   let anonymousMessage = 0;
   let anonymousMessageKey: string | undefined;
+  let anonymousMessagePhase: string | undefined;
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded" || observation.name === "vitehub.agent.configured") continue;
     const originalAttributes = observation.attributes ?? {};
@@ -285,10 +286,13 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     if (inputMessages !== undefined && Object.keys(attributes).length === 0) continue;
     const isAnonymousMessage = stringAttribute(attributes, "message.content") !== undefined
       && !attributes["message.id"];
-    if (isAnonymousMessage && !anonymousMessageKey) {
+    const messagePhase = stringAttribute(attributes, "message.phase") ?? "message";
+    if (isAnonymousMessage && (!anonymousMessageKey || anonymousMessagePhase !== messagePhase)) {
       anonymousMessageKey = `message:assistant:${anonymousMessage++}`;
+      anonymousMessagePhase = messagePhase;
     } else if (!isAnonymousMessage) {
       anonymousMessageKey = undefined;
+      anonymousMessagePhase = undefined;
     }
     const key = activityKey(observation, anonymousMessageKey);
     groups.set(key, [...(groups.get(key) ?? []), { ...observation, attributes }]);
