@@ -9347,6 +9347,25 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("private")
   })
 
+  it.each([
+    [{ outputTokenDetails: { reasoningTokens: 2 }, totalTokens: 3 }, 2],
+    [{ details: { reasoningOutputTokens: 2 }, totalTokens: 3 }, 2],
+  ])("records reasoning token usage for invocation activity", async (usage, expected) => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { type: "usage", usageRecord: { usage } }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(traceLog.entries().find(event => event.name === "agent.usage.recorded")?.attributes?.["usage.reasoningTokens"]).toBe(expected)
+  })
+
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {
     const { createUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

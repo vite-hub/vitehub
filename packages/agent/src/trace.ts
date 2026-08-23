@@ -110,9 +110,12 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
     }
   }
   if (event.type === "usage") {
+    const reasoningTokens = event.usageRecord.usage?.outputTokenDetails?.reasoningTokens
+      ?? event.usageRecord.usage?.details?.reasoningOutputTokens
     return {
       "usage.hasCost": event.usageRecord.cost !== undefined,
       "usage.hasRaw": event.usageRecord.raw !== undefined,
+      "usage.reasoningTokens": reasoningTokens,
       "usage.totalTokens": event.usageRecord.usage?.totalTokens,
     }
   }
