@@ -66,6 +66,7 @@ export interface UseAgentInvocationReturn {
 }
 
 const defaultBaseURL = "/api/invocations";
+const retainedReconciliationLimit = 20;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -277,6 +278,7 @@ export function useAgentInvocations(
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let revision = 0;
+  let reconciliationOffset = 0;
   let resetFirstPage = true;
   let pendingDepartureIds = new Set<string>();
   let sourceSignature: string | undefined;
@@ -319,7 +321,7 @@ export function useAgentInvocations(
       if (resetFirstPage) {
         invocations.value = [];
         cursor.value = undefined;
-        pendingDepartureIds = new Set();
+        reconciliationOffset = 0;
       }
       revision++;
       loadMoreController?.abort();
@@ -344,19 +346,19 @@ export function useAgentInvocations(
             .map(invocation => invocation.id);
       if (options.requestSummaries && statuses.size === 0 && !search && retainedIds.length > 0) {
         const requestSummaries = options.requestSummaries;
-        const summaries = await Promise.all(
-          Array.from({ length: Math.ceil(retainedIds.length / 100) }, (_, index) => {
-            const ids = retainedIds.slice(index * 100, (index + 1) * 100);
-            return requestSummaries(appendQuery(toValue(baseURL), { id: ids }), { signal })
-              .then(parseInvocationListResult);
-          }),
-        );
-        const refreshed = new Map(
-          summaries.flatMap(page => page.invocations).map(invocation => [invocation.id, invocation]),
-        );
+        const reconciliationCount = Math.min(retainedIds.length, retainedReconciliationLimit);
+        const selectedRetainedIds = Array.from({ length: reconciliationCount }, (_, index) =>
+          retainedIds[(reconciliationOffset + index) % retainedIds.length],
+        ).filter((id): id is string => id !== undefined);
+        reconciliationOffset = (reconciliationOffset + reconciliationCount) % retainedIds.length;
+        const summary = parseInvocationListResult(await requestSummaries(
+          appendQuery(toValue(baseURL), { id: selectedRetainedIds }),
+          { signal },
+        ));
+        const refreshed = new Map(summary.invocations.map(invocation => [invocation.id, invocation]));
         const departedIds = new Set<string>();
         const reconciledInvocations = new Map<string, AgentInvocationSummary>();
-        for (const id of retainedIds) {
+        for (const id of selectedRetainedIds) {
           const summary = refreshed.get(id);
           if (summary) reconciledInvocations.set(id, summary);
           else departedIds.add(id);
@@ -366,10 +368,17 @@ export function useAgentInvocations(
       if (resetFirstPage || (statuses.size === 0 && !search)) return result;
       const nextPendingDepartureIds = new Set(pendingDepartureIds);
       for (const id of returnedIds) nextPendingDepartureIds.delete(id);
+      const reconciliationCount = Math.min(retainedIds.length, retainedReconciliationLimit);
+      const selectedRetainedIds = Array.from({ length: reconciliationCount }, (_, index) =>
+        retainedIds[(reconciliationOffset + index) % retainedIds.length],
+      ).filter((id): id is string => id !== undefined);
+      reconciliationOffset = retainedIds.length === 0
+        ? 0
+        : (reconciliationOffset + reconciliationCount) % retainedIds.length;
       const displaced = [...new Set([
-        ...retainedIds,
         ...nextPendingDepartureIds,
-      ])];
+        ...selectedRetainedIds,
+      ])].slice(0, retainedReconciliationLimit);
       const reconciled = await Promise.allSettled(displaced.map(id =>
         request(detailPath(toValue(baseURL), id), { signal }).then(parseAgentInvocationDetailResult),
       ));

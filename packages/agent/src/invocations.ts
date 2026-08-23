@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
@@ -655,6 +655,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let ownsRecord = false
       let observationCount = 0
       let observationsTruncated = false
+      let truncationPersisted = false
       let observationSequence = 0
       let created = false
       let creationTimedOut = false
@@ -693,8 +694,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
               observationCount = result.record.observations.length
-              observationsTruncated = result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+              observationsTruncated = result.record.observationsTruncated === true
+                || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+              truncationPersisted = result.record.observationsTruncated === true
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+              finished = terminalStatus(result.record.status)
               created = true
             }
             else if (creationTask === task) {
@@ -762,6 +766,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         return updated
       }
+      const markTruncated = async (force = false) => {
+        if (truncationPersisted) return
+        truncationPersisted = await update({ observationsTruncated: true, timestamp: new Date().toISOString() }, force)
+      }
       const writeNextObservation = () => {
         if (finished || observationWrite) return
         const observation = pendingObservations.shift()
@@ -778,11 +786,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               timestamp,
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             })
-            const persistence = Promise.resolve(store.update(recordId, {
+            const persistence = Promise.resolve().then(() => store.update(recordId, {
               observation: persistedObservation,
               timestamp,
             }, claimId)).then((updated) => {
-              if (updated) persistedObservationSequences.add(observation.sequence)
+              if (updated?.observations.some(candidate => candidate.sequence === observation.sequence)) {
+                persistedObservationSequences.add(observation.sequence)
+              }
               return updated
             })
             const updated = await boundedStoreOperation(() => persistence)
@@ -795,7 +805,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           finally {
             if (failed && !finished) {
               observationsTruncated = true
-              void update({ observationsTruncated: true, timestamp: new Date().toISOString() })
+              void markTruncated()
             }
             if (!persisted
               && !finished
@@ -826,7 +836,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ? truncatedObservation(observation)
           : observation
         if (atCapacity) {
+          const persistTruncation = !observationsTruncated
           observationsTruncated = true
+          if (persistTruncation) void markTruncated()
           if (priority === undefined) return
           prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
           writeNextObservation()
@@ -893,7 +905,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               }, bindOptions.terminalTakeover)
             if (!updated) return false
             if (discardedObservationSequences.some(sequence => !persistedObservationSequences.has(sequence))) {
-              await update({ observationsTruncated: true, timestamp: new Date().toISOString() }, bindOptions.terminalTakeover)
+              await markTruncated(bindOptions.terminalTakeover)
             }
             finished = true
             stopHeartbeat()

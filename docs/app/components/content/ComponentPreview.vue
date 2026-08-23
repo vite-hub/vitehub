@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
 });
 
 const exampleModules = import.meta.glob("./examples/*.vue");
+// SAFETY: Vite's raw eager glob returns each matching file's default export as a string.
 const exampleSources = import.meta.glob("./examples/*.vue", {
   eager: true,
   import: "default",
@@ -25,6 +26,7 @@ if (!loader) {
   throw new Error(`Missing component preview loader: ${props.name}`);
 }
 
+// SAFETY: Vue files loaded through Vite expose their component as the module default export.
 const example = defineAsyncComponent(loader as () => Promise<{ default: object }>);
 const source = (exampleSources[examplePath] || "").trim();
 const sourceOpen = ref(false);

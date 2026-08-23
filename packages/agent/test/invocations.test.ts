@@ -83,6 +83,48 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
   }, 5_000)
 
+  it("persists truncation when a running invocation reaches observation capacity", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    for (let index = 0; index < 257; index++) {
+      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+    }
+
+    await vi.waitFor(async () => {
+      const record = await invocations.getByRunId("running-observation-capacity")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "running" })
+      expect(record?.observations).toHaveLength(256)
+    })
+  })
+
+  it("persists truncation after a synchronous observation-store failure", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let rejectObservation = true
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        update(id, input, claimId) {
+          if (rejectObservation && input.observation) {
+            rejectObservation = false
+            throw new Error("synchronous observation failure")
+          }
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("synchronous-observation-failure"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({ name: "ordinary", type: "run" })
+
+    await vi.waitFor(async () => {
+      await expect(invocations.getByRunId("synchronous-observation-failure"))
+        .resolves.toMatchObject({ observationsTruncated: true, status: "running" })
+    })
+  })
+
   it("does not let malformed custom trace entries fail Agent execution", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const traceLog = {
@@ -551,6 +593,51 @@ describe("Agent Invocations", () => {
       expect(record).toMatchObject({ status: "completed" })
       expect(record?.observations.map(observation => observation.name)).toEqual(["late"])
       expect(record?.observationsTruncated).toBeUndefined()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("marks truncation when terminalization overtakes a late observation no-op", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseObservation!: () => void
+      let reportObservationStarted!: () => void
+      let reportTerminalPersisted!: () => void
+      const observationGate = new Promise<void>((resolve) => { releaseObservation = resolve })
+      const observationStarted = new Promise<void>((resolve) => { reportObservationStarted = resolve })
+      const terminalPersisted = new Promise<void>((resolve) => { reportTerminalPersisted = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "late") {
+              reportObservationStarted()
+              await observationGate
+            }
+            const updated = await memory.update(id, input, claimId)
+            if (input.status === "completed") reportTerminalPersisted()
+            return updated
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-overtakes-late-observation"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "late", type: "run" })
+      await observationStarted
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      await terminalPersisted
+      releaseObservation()
+      await finishing
+
+      const record = await invocations.getByRunId("finish-overtakes-late-observation")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations).toEqual([])
     }
     finally {
       vi.useRealTimers()
@@ -1102,7 +1189,7 @@ describe("Agent Invocations", () => {
     })
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(updates).toBeLessThanOrEqual(260)
+    expect(updates).toBeLessThanOrEqual(261)
   })
 
   it("retains fatal stream evidence and the lifecycle terminal beyond the durable cap", async () => {

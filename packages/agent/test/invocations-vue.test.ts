@@ -1,4 +1,3 @@
-import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { effectScope, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -190,7 +189,7 @@ describe("Agent Invocation Vue composables", () => {
 
     calls[1]!.resolve({ invocations: [record("inv-2")] } satisfies AgentInvocationListResult);
     await refresh;
-    expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-1")]);
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-2", "inv-1"]);
     scope.stop();
   });
 
@@ -214,7 +213,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("reconciles every retained page while filters are active", async () => {
+  it("reconciles retained pages while filters are active", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({
@@ -241,6 +240,65 @@ describe("Agent Invocation Vue composables", () => {
 
     expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1"]);
     expect(calls).toHaveLength(5);
+    scope.stop();
+  });
+
+  it("refreshes retained summaries without a filter", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries: request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3")] });
+    await settle();
+    calls[3]!.resolve({
+      invocations: [{
+        ...record("inv-2"),
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      }, record("inv-1")],
+    });
+    await refresh;
+
+    expect(resource.invocations.value.map(invocation => ({
+      id: invocation.id,
+      status: invocation.status,
+      updatedAt: invocation.updatedAt,
+    }))).toEqual([
+      { id: "inv-3", status: "running", updatedAt: "2026-08-22T12:00:00.000Z" },
+      { id: "inv-2", status: "completed", updatedAt: "2026-08-22T12:01:00.000Z" },
+      { id: "inv-1", status: "running", updatedAt: "2026-08-22T12:00:00.000Z" },
+    ]);
+    scope.stop();
+  });
+
+  it("bounds retained reconciliation work across polls", async () => {
+    const request = vi.fn<AgentInvocationRequester>();
+    const retained = Array.from({ length: 25 }, (_, index) => record(`inv-${index}`));
+    request.mockResolvedValueOnce({ invocations: retained });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+    await settle();
+
+    request.mockResolvedValueOnce({ invocations: [record("new")] });
+    for (const invocation of retained.slice(0, 20)) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+    expect(request).toHaveBeenCalledTimes(22);
+
+    request.mockResolvedValueOnce({ invocations: [record("newer")] });
+    for (const invocation of [...retained.slice(20), ...retained.slice(0, 15)]) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+    expect(request).toHaveBeenCalledTimes(43);
     scope.stop();
   });
 

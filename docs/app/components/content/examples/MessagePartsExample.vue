@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { UIMessage } from "ai";
 
+// SAFETY: Every fixture entry below is a concrete AI SDK UIMessage part variant.
 const parts = [
   {
     type: "text",
