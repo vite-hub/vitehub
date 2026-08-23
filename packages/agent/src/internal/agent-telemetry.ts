@@ -98,7 +98,7 @@ export async function updateAgentTelemetryConfiguration(
         : {}),
     },
   })
-  await context.get<(() => Promise<void>)>(agentInvocationConfigurationUpdatedContextKey)?.()
+  await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 
 export function getAgentTelemetryConfiguration(

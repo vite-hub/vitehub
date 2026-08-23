@@ -15,7 +15,6 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
-import { agentInvocationResolvedModelContextKey } from "../src/invocation-context.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
@@ -972,7 +971,6 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-native-claude-instructions"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     let root = ""
-    const inspect = vi.fn(async () => undefined)
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
@@ -995,12 +993,15 @@ describe("Provider Agent Driver", () => {
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     })
-    runContext.context.set(agentInvocationResolvedModelContextKey, inspect)
+    setAgentTelemetryConfiguration(runContext.context, {
+      driver: { kind: "provider", provider: "claude-code" },
+      runtime: { name: "vite" },
+    })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "claude-code" }).generate(runContext as never)
 
-    expect(inspect).toHaveBeenCalledWith({ instructions: "native workspace instructions" })
+    expect(getAgentTelemetryConfiguration(runContext.context)?.value.instructions).toEqual(["native workspace instructions"])
   })
 
   it("reports runtime-wide provider errors without a thread association", async () => {

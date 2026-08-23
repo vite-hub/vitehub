@@ -114,7 +114,6 @@ describe("Agent Invocations", () => {
         await context.traceLog?.append({ name: "resolved.configuration", type: "run" })
         return "done"
       } },
-      instructions: "Persisted instructions",
       invocations,
       runtime: false,
     })

@@ -29,14 +29,14 @@ function isSafeExternalUrl(value: string): boolean {
   }
 }
 
-function isSafeFileUrl(value: string): boolean {
+function isSafeFileUrl(value: string, filename: string | undefined): boolean {
   if (isSafeExternalUrl(value)) return true;
-  return /^data:[^,]*,/i.test(value);
+  return Boolean(filename) && /^data:[^,]*,/i.test(value);
 }
 
 function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
   const label = part.filename ?? part.mediaType;
-  if (!isSafeFileUrl(part.url)) {
+  if (!isSafeFileUrl(part.url, part.filename)) {
     return h("span", { class: "vh-attachment" }, [
       h("span", { class: "vh-attachment__name" }, label),
     ]);

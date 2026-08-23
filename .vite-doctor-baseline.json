@@ -2195,6 +2195,21 @@
       "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/agent/test/invocations.test.ts",
       "fingerprint": "73c2d7a8668a052dc9fefb9e3ccdf84963eacfbae31e2335e6cf5ae21ae7507b"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/ui/src/internal/invocation-activity.ts",
+      "fingerprint": "06c2326a9d583cc02546c6f9bd26967518df04227169067e562c4dbb3751c09e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/ui/src/internal/invocation-activity.ts",
+      "fingerprint": "4fa5cde1a0444622904c0eaede2d6d10f30ede13b3f32a8f44ffecb46fffb2ce"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/ui/src/internal/invocation-activity.ts",
+      "fingerprint": "5e896e4ae6f6c09564776e73e0123f0d503eb7d7f49a306c099768cd06fb372b"
     }
   ]
 }

@@ -300,6 +300,44 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("ignores retained-summary reconciliation from a superseded refresh", async () => {
+    const { calls, request } = controlledRequester();
+    const summaryCalls: RequestCall[] = [];
+    const requestSummaries: AgentInvocationRequester = (path, options) =>
+      new Promise<unknown>((resolve, reject) => {
+        summaryCalls.push({ options, path, reject, resolve });
+      });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await loadMore;
+
+    const superseded = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await settle();
+    const current = resource.refresh();
+    calls[3]!.resolve({ cursor: "page-2", invocations: [record("inv-4"), record("inv-3")] });
+    await settle();
+
+    expect(summaryCalls[0]!.options.signal?.aborted).toBe(true);
+    summaryCalls[0]!.resolve({ invocations: [] });
+    await superseded;
+    summaryCalls[1]!.resolve({ invocations: [record("inv-2"), record("inv-1")] });
+    await current;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual([
+      "inv-4",
+      "inv-3",
+      "inv-2",
+      "inv-1",
+    ]);
+    scope.stop();
+  });
+
   it("removes first-page records that leave a search filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

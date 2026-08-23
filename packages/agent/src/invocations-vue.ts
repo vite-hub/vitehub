@@ -265,6 +265,11 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
 export function useAgentInvocations(
   options: UseAgentInvocationsOptions,
 ): UseAgentInvocationsReturn {
+  type ReconciledInvocationListResult = AgentInvocationListResult & {
+    departedIds?: ReadonlySet<string>
+    pendingDepartureIds?: ReadonlySet<string>
+    reconciledInvocations?: ReadonlyMap<string, AgentInvocationSummary>
+  }
   const invocations = shallowRef<readonly AgentInvocationSummary[]>([]);
   const cursor = shallowRef<string | undefined>();
   const isLoadingMore = shallowRef(false);
@@ -274,9 +279,7 @@ export function useAgentInvocations(
   let firstPage: readonly AgentInvocationSummary[] = [];
   let revision = 0;
   let resetFirstPage = true;
-  let departedIds = new Set<string>();
   let pendingDepartureIds = new Set<string>();
-  let reconciledInvocations = new Map<string, AgentInvocationSummary>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
@@ -287,7 +290,7 @@ export function useAgentInvocations(
     ]);
   }
 
-  const resource = useInvocationResource<AgentInvocationListResult>({
+  const resource = useInvocationResource<ReconciledInvocationListResult>({
     apply(result) {
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
@@ -296,12 +299,13 @@ export function useAgentInvocations(
         resetFirstPage = false;
         return;
       }
+      const departedIds = result.departedIds ?? new Set<string>();
+      const reconciledInvocations = result.reconciledInvocations ?? new Map<string, AgentInvocationSummary>();
       const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
       const retained = invocations.value
         .filter(invocation => !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id))
         .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
-      departedIds = new Set();
-      reconciledInvocations = new Map();
+      pendingDepartureIds = new Set(result.pendingDepartureIds ?? pendingDepartureIds);
       invocations.value = [...result.invocations, ...retained];
       firstPage = result.invocations;
       if (retained.length === 0) cursor.value = result.cursor;
@@ -311,7 +315,6 @@ export function useAgentInvocations(
       cursor.value = undefined;
       firstPage = [];
       pendingDepartureIds = new Set();
-      reconciledInvocations = new Map();
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -355,28 +358,32 @@ export function useAgentInvocations(
         const refreshed = new Map(
           summaries.flatMap(page => page.invocations).map(invocation => [invocation.id, invocation]),
         );
+        const departedIds = new Set<string>();
+        const reconciledInvocations = new Map<string, AgentInvocationSummary>();
         for (const id of retainedIds) {
           const summary = refreshed.get(id);
           if (summary) reconciledInvocations.set(id, summary);
           else departedIds.add(id);
         }
+        return { ...result, departedIds, reconciledInvocations };
       }
       if (resetFirstPage || (statuses.size === 0 && !search)) return result;
-      for (const id of returnedIds) pendingDepartureIds.delete(id);
+      const nextPendingDepartureIds = new Set(pendingDepartureIds);
+      for (const id of returnedIds) nextPendingDepartureIds.delete(id);
       const displaced = [...new Set([
         ...firstPage.filter(invocation => !returnedIds.has(invocation.id)).map(invocation => invocation.id),
-        ...pendingDepartureIds,
+        ...nextPendingDepartureIds,
       ])];
       const reconciled = await Promise.allSettled(displaced.map(id =>
         request(detailPath(toValue(baseURL), id), { signal }).then(parseAgentInvocationDetailResult),
       ));
-      departedIds = new Set();
-      pendingDepartureIds = new Set();
-      reconciledInvocations = new Map();
+      const departedIds = new Set<string>();
+      const reconciledInvocations = new Map<string, AgentInvocationSummary>();
+      nextPendingDepartureIds.clear();
       for (const [index, outcome] of reconciled.entries()) {
         const id = displaced[index]!;
         if (outcome.status === "rejected") {
-          pendingDepartureIds.add(id);
+          nextPendingDepartureIds.add(id);
           continue;
         }
         // SAFETY: Detail parsing establishes the summary fields, and observations are discarded before filtering.
@@ -387,7 +394,7 @@ export function useAgentInvocations(
         ) departedIds.add(id);
         else reconciledInvocations.set(id, searchableInvocation);
       }
-      return result;
+      return { ...result, departedIds, pendingDepartureIds: nextPendingDepartureIds, reconciledInvocations };
     },
     onSuccess: options.onSuccess,
     pollInterval: options.pollInterval,

@@ -73,6 +73,7 @@ describe("Agent Invocation UI", () => {
       { filename: "safe.txt", mediaType: "text/plain", type: "file", url: "https://example.com/safe.txt" },
       { filename: "unsafe.txt", mediaType: "text/plain", type: "file", url: "javascript:alert(1)" },
       { filename: "inline.png", mediaType: "image/png", type: "file", url: "data:image/png;base64,c2FmZQ==" },
+      { mediaType: "text/html", type: "file", url: "data:text/html,<script>alert(1)</script>" },
     ];
     const wrapper = mount(AgentMessageParts, { props: { parts } });
 
@@ -84,6 +85,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
     expect(wrapper.text()).toContain("unsafe.txt");
     expect(wrapper.text()).toContain("inline.png");
+    expect(wrapper.text()).toContain("text/html");
   });
 
   it("renders the working state with the loader-circle path", () => {
@@ -198,6 +200,52 @@ describe("Agent Invocation UI", () => {
       cwd: "/workspace",
       exitCode: 0,
       output: "clean",
+    });
+  });
+
+  it.each([
+    ["direct output", "clean"],
+    ["completed output", { output: "clean" }],
+  ])("preserves Provider command %s", (_label, output) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "provider-command",
+      observations: [
+        { attributes: { "tool.id": "command", "tool.input": { command: "git status" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "command", "tool.output": output, "tool.name": "shell" }, name: "agent.tool.finish", sequence: 2, timestamp, type: "run" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.command?.output).toBe("clean");
+  });
+
+  it("routes Provider turn diffs through the patch activity model", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const diff = "diff --git a/src/old.ts b/src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-old\n+new";
+    const invocation = {
+      createdAt: timestamp,
+      id: "provider-diff",
+      observations: [{
+        attributes: { "vitehub.activity.body": diff, "vitehub.activity.kind": "change" },
+        name: "agent.turn.diff.updated",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]).toMatchObject({
+      body: `${diff}\n`,
+      kind: "change",
+      patches: [`${diff}\n`],
+      paths: ["src/old.ts"],
     });
   });
 

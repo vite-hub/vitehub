@@ -1020,9 +1020,10 @@ async function* runProvider<
       })
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
+    const materializeInstructions = Boolean(instructions)
     if (!instructions && options.provider === "claude-code") {
-      const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
-      if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+      instructions = await readFile(join(root, "CLAUDE.md"), "utf8")
+        .catch(() => readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined))
     }
     await updateAgentTelemetryConfiguration(context.context, {
       driver: {
@@ -1034,7 +1035,7 @@ async function* runProvider<
         ? { tools: [...Object.keys(context.tools || {}), ...(context.providerTools || []).map(tool => tool.name)].sort().map(name => ({ name })) }
         : {}),
     })
-    if (instructions) {
+    if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))
     }
