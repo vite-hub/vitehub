@@ -35,6 +35,7 @@
     "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
+    "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue-tsc": "catalog:tooling"

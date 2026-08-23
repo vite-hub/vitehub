@@ -112,6 +112,7 @@ export default defineNuxtConfig({
         "lucide:sun",
         "lucide:terminal",
         "lucide:text-align-start",
+        "lucide:x",
         "ph:activity-light",
         "ph:arrows-split-light",
         "ph:book-bookmark-light",

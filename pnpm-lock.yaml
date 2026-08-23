@@ -556,6 +556,9 @@ importers:
       '@iconify-json/vscode-icons':
         specifier: catalog:ui
         version: 1.2.67
+      valibot:
+        specifier: catalog:runtime
+        version: 1.4.2(typescript@6.0.3)
       vite-plus:
         specifier: catalog:tooling
         version: 0.1.24(6247c093c2c4bd91bc0e3e5077e2c979)
