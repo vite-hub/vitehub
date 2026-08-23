@@ -65,6 +65,26 @@ afterEach(() => {
 });
 
 describe("Agent Invocation Vue composables", () => {
+  it("reports successful list and detail refreshes", async () => {
+    const listSuccess = vi.fn();
+    const detailSuccess = vi.fn();
+    const request = vi.fn(async (path: string) => path.endsWith("/inv-1")
+      ? { invocation: record("inv-1"), observations: [observation(1)] }
+      : { invocations: [record("inv-1")] });
+    const scope = effectScope();
+    const resources = scope.run(() => ({
+      detail: useAgentInvocation("inv-1", { immediate: false, onSuccess: detailSuccess, request }),
+      list: useAgentInvocations({ immediate: false, onSuccess: listSuccess, request }),
+    }))!;
+
+    await resources.list.refresh();
+    await resources.detail.refresh();
+
+    expect(listSuccess).toHaveBeenCalledOnce();
+    expect(detailSuccess).toHaveBeenCalledOnce();
+    scope.stop();
+  });
+
   it("uses the same-origin endpoint with an application requester", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invocations: [] }), {
       headers: { "content-type": "application/json" },

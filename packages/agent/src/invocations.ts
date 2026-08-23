@@ -222,42 +222,79 @@ function normalizedTimestamp(value: Date | string): string {
 interface ObservationBudget {
   items: number
   stringLength: number
+  truncated: boolean
 }
 
 function boundedObservationValue(value: unknown, budget: ObservationBudget, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
-  if (budget.items <= 0) return "[truncated]"
+  if (budget.items <= 0) {
+    budget.truncated = true
+    return "[truncated]"
+  }
   budget.items--
   if (value === undefined) return undefined
   if (hasRuntimeType(value, "string")) {
-    if (budget.stringLength <= 0) return "[truncated]"
+    if (budget.stringLength <= 0) {
+      budget.truncated = true
+      return "[truncated]"
+    }
     const length = Math.min(value.length, maxStringLength, budget.stringLength)
+    if (length < value.length) budget.truncated = true
     budget.stringLength -= length
     return value.slice(0, length)
   }
   if (value === null || hasRuntimeType(value, "boolean")) return value
   if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : null
-  if (hasRuntimeType(value, "bigint")) return boundedString(String(value))
-  if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
-  if (Array.isArray(value)) {
-    return value.slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
+  if (hasRuntimeType(value, "bigint")) {
+    const string = String(value)
+    if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+    return boundedString(string)
   }
-  if (!value || !hasRuntimeType(value, "object")) return boundedString(String(value))
+  if (depth >= MAX_OBSERVATION_DEPTH) {
+    budget.truncated = true
+    return "[truncated]"
+  }
+  if (Array.isArray(value)) {
+    const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    if (length < value.length) budget.truncated = true
+    return value.slice(0, length).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
+  }
+  if (!value || !hasRuntimeType(value, "object")) {
+    const string = String(value)
+    if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+    return boundedString(string)
+  }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items))
-    .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]))
+  const entries = Object.entries(value as Record<string, unknown>)
+  const length = Math.min(entries.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+  if (length < entries.length) budget.truncated = true
+  return Object.fromEntries(entries
+    .slice(0, length)
+    .flatMap(([key, child]) => {
+      if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+      return child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]
+    }))
 }
 
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   const budget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
     stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+    truncated: false,
+  }
+  if (observation.attributes && Object.keys(observation.attributes).length > MAX_OBSERVATION_ATTRIBUTES) {
+    budget.truncated = true
   }
   const attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)
         .slice(0, MAX_OBSERVATION_ATTRIBUTES)
-        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
+        .flatMap(([key, value]) => {
+          if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+          return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]
+        }))
     : undefined
+  if (budget.truncated && observation.name === "vitehub.agent.configured") {
+    attributes!["vitehub.agent.configurationTruncated"] = true
+  }
   return {
     ...observation,
     name: boundedString(observation.name)!,
@@ -556,7 +593,13 @@ function journalTraceLog(
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
-      const entry = await traceLog.append(event)
+      let entry: TraceEventLogEntry
+      try {
+        entry = await traceLog.append(event)
+      }
+      catch {
+        entry = await createTraceEventLog({ content }).append(event)
+      }
       try {
         const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
         if (safeEntry.name === "agent.message.delta") {

@@ -23,6 +23,7 @@ type AgentInvocationQuery = Record<string, QueryValue | readonly QueryValue[]> &
 export interface UseAgentInvocationsOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
@@ -48,6 +49,7 @@ export interface AgentInvocationDetailResult {
 export interface UseAgentInvocationOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   request: AgentInvocationRequester;
   watch?: boolean;
@@ -170,6 +172,7 @@ interface InvocationResourceOptions<T> {
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   source: () => unknown;
   watch: boolean;
@@ -212,6 +215,7 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
       if (active !== controller) return;
       if (result === undefined) options.clear();
       else options.apply(result);
+      options.onSuccess?.();
       return result;
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return;
@@ -361,6 +365,7 @@ export function useAgentInvocations(
       }
       return result;
     },
+    onSuccess: options.onSuccess,
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,
@@ -444,6 +449,7 @@ export function useAgentInvocation(
         parseAgentInvocationDetailResult,
       );
     },
+    onSuccess: options.onSuccess,
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), toValue(id)],
     watch: options.watch !== false,

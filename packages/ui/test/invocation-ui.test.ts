@@ -13,6 +13,26 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("discloses traces truncated by the invocation journal", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "truncated",
+      observations: [{
+        attributes: { "vitehub.trace.truncated": true },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).every(activity => activity.truncated)).toBe(true);
+  });
+
   it("renders only HTTP source URLs as links", () => {
     const parts: UIMessage["parts"] = [
       { sourceId: "safe", type: "source-url", url: "https://example.com/reference" },

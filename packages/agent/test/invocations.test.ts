@@ -89,6 +89,49 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
   })
 
+  it("isolates invocation persistence from a rejecting caller trace log", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const traceLog = {
+      append: vi.fn(async () => { throw new Error("trace sink unavailable") }),
+      entries: () => [],
+    }
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({ name: "resolved.configuration", type: "run" })
+        return "done"
+      } },
+      instructions: "Persisted instructions",
+      invocations,
+      runtime: false,
+    })
+
+    // SAFETY: This fixture supplies the runtime trace-log contract and intentionally makes append reject.
+    await expect(runAgent(agent, { ...runtime("rejecting-trace"), traceLog } as never, {})).resolves.toBe("done")
+    const persisted = await invocations.getByRunId("rejecting-trace")
+    expect(persisted).toMatchObject({ status: "completed" })
+    expect(persisted?.observations.map(entry => entry.name)).toEqual(expect.arrayContaining([
+      "vitehub.agent.configured",
+      "resolved.configuration",
+      "agent.invocation.finish",
+    ]))
+  })
+
+  it("marks bounded Agent configuration as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-configuration"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: { "vitehub.agent.configuration": { instructions: ["x".repeat(100_000)] } },
+      name: "vitehub.agent.configured",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const configured = (await invocations.getByRunId("bounded-configuration"))?.observations
+      .find(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
+  })
+
   it("does not reacquire journal ownership for observations appended after finish", async () => {
     const memory = createMemoryAgentInvocationStore()
     const claim = vi.fn(memory.claim)
@@ -651,6 +694,7 @@ describe("Agent Invocations", () => {
     })
     expect(record?.annotations).not.toHaveProperty("secret key")
     expect(record?.observations.map(event => event.name)).toEqual([
+      "vitehub.agent.configured",
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
@@ -702,6 +746,7 @@ describe("Agent Invocations", () => {
     const metadata = await run("metadata-content", "metadata", createTraceEventLog({ content: "content" }))
     const metadataDeltas = metadata.filter(entry => entry.name === "agent.message.delta")
     expect(metadata.map(entry => entry.name)).toEqual([
+      "vitehub.agent.configured",
       "agent.invocation.start",
       ...Array.from({ length: 10 }, () => "agent.message.delta"),
       "after-message",
@@ -826,7 +871,7 @@ describe("Agent Invocations", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await runAgent(agent, { ...runtime("custom-sequence"), traceLog } as never, {})
     const observations = (await invocations.getByRunId("custom-sequence"))?.observations || []
-    expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3])
+    expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3, 4])
     expect(observations.every(observation => Number.isSafeInteger(observation.sequence))).toBe(true)
   })
 
@@ -1094,6 +1139,7 @@ describe("Agent Invocations", () => {
     release()
     await expect(first).resolves.toBe("done")
     expect((await invocations.getByRunId("delivery-1"))?.observations.map(event => event.name)).toEqual([
+      "vitehub.agent.configured",
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
@@ -1245,11 +1291,12 @@ describe("Agent Invocations", () => {
         status: "completed",
       })
       expect((await restored.getByRunId("durable-run"))?.observations.map(event => event.name)).toEqual([
+        "vitehub.agent.configured",
         "agent.invocation.start",
         "numbers",
         "agent.invocation.finish",
       ])
-      expect((await restored.getByRunId("durable-run"))?.observations[1]?.attributes).toMatchObject({ nan: null })
+      expect((await restored.getByRunId("durable-run"))?.observations[2]?.attributes).toMatchObject({ nan: null })
       await expect(restored.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
