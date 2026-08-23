@@ -12,7 +12,7 @@ import {
   ScriptTarget,
 } from "typescript"
 import { build } from "vite"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { extractMarkdownTemplateImportSpecifiers, markdownTemplateMaterializationPath, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
@@ -49,6 +49,22 @@ describe("hubMarkdownTemplate", () => {
     expect(parseMarkdownTemplateRequest("./prompt.template.md?raw")).toBeUndefined()
     expect(parseMarkdownTemplateRequest("./prompt.template.md?url")).toBeUndefined()
     expect(parseMarkdownTemplateRequest("./prompt.template.md?markdown-template")).toEqual({ path: "./prompt.template.md" })
+  })
+
+  it("keeps resolved Markdown template module ids stable", async () => {
+    const resolveId = hubMarkdownTemplate().resolveId as unknown as (
+      this: { resolve: (source: string) => Promise<{ id: string }> },
+      source: string,
+    ) => Promise<string | undefined>
+
+    const resolve = vi.fn(async (source: string) => ({ id: `/app/${source.slice(2)}` }))
+    await expect(resolveId.call({ resolve }, "./reply.template.md?markdown-template")).resolves.toBe(
+      "/app/reply.template.md?markdown-template",
+    )
+    expect(resolve).toHaveBeenCalledWith("./reply.template.md", undefined, { skipSelf: true })
+    await expect(resolveId.call({
+      resolve: async source => ({ id: `${source}?markdown-template` }),
+    }, "/app/reply.template.md")).resolves.toBe("/app/reply.template.md?markdown-template")
   })
 
   it("extracts imports from indented paragraph continuations", () => {

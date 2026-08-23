@@ -10,7 +10,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 
-import type { PluginOption } from "vite"
+import type { Plugin, PluginOption } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => ({
   envHook: vi.fn((config: Record<string, unknown>) => {
     config.envReady = true
   }),
+  markdownTemplateLoad: vi.fn(),
+  markdownTemplateResolveId: vi.fn(),
   outputHook: vi.fn(),
   agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[]; nitro?: Record<string, unknown> }) => ({
     nitro: {
@@ -112,6 +114,8 @@ describe("ViteHub Nuxt integration", () => {
     mocks.existingQueueNitroConfig.mockClear()
     mocks.existingOwnerConfig.mockClear()
     mocks.envHook.mockClear()
+    mocks.markdownTemplateLoad.mockClear()
+    mocks.markdownTemplateResolveId.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
@@ -210,6 +214,47 @@ describe("ViteHub Nuxt integration", () => {
         config: mocks.envHook,
       },
     ])
+  })
+
+  it("loads colocated Markdown templates through Nitro Rollup", async () => {
+    const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [{
+      name: "@vite-hub/markdown-template/vite",
+      load: mocks.markdownTemplateLoad,
+      resolveId: mocks.markdownTemplateResolveId,
+    }])
+    const nitroConfig = { rollupConfig: { plugins: [existingPlugin] } }
+    const context = { marker: "nitro-context" }
+    mocks.markdownTemplateResolveId.mockResolvedValueOnce(
+      "\0raw:/app/server/api/reply.template.md?markdown-template",
+    )
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    const plugins = nitroConfig.rollupConfig.plugins
+    expect(plugins[0]).toBe(existingPlugin)
+    expect(plugins.map(plugin => plugin.name)).toEqual([
+      "existing-nitro-plugin",
+      "vite-hub/nuxt-markdown-templates",
+    ])
+
+    const markdownPlugin = plugins[1] as Plugin
+    const resolveId = markdownPlugin.resolveId as unknown as (
+      this: typeof context,
+      source: string,
+      importer: string,
+    ) => unknown
+    const load = markdownPlugin.load as unknown as (this: typeof context, id: string) => unknown
+    await expect(resolveId.call(context, "./reply.template.md", "/app/server/api/reply.ts")).resolves.toBe(
+      "/app/server/api/reply.template.md?markdown-template",
+    )
+    await load.call(context, "\0raw:/app/server/api/reply.template.md?markdown-template")
+    expect(mocks.markdownTemplateResolveId.mock.contexts[0]).toBe(context)
+    expect(mocks.markdownTemplateLoad.mock.contexts[0]).toBe(context)
+    expect(mocks.markdownTemplateLoad).toHaveBeenCalledWith(
+      "/app/server/api/reply.template.md?markdown-template",
+    )
   })
 
   it.each([

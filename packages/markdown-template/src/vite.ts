@@ -57,6 +57,7 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
       if (!resolved || resolved.external) {
         this.error(`[vitehub] Could not resolve Markdown template ${JSON.stringify(request.path)}${importer ? ` from ${JSON.stringify(importer)}` : ""}.`)
       }
+      if (parseMarkdownTemplateRequest(resolved.id) && resolved.id.includes("?")) return resolved.id
       return `${resolved.id}?${markdownTemplateModuleQuery}`
     },
     async load(id) {
