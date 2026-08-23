@@ -2693,7 +2693,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
                 }
               } catch (error) {
-                if (recoveryOwnershipLost || recoveredOwnershipLost) throw error
+                if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                  stopRecoveredHeartbeat()
+                  await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+                  throw error
+                }
                 if (!isAmbiguousAgentWorkflowStartFailure(error)) {
                   // Restore the expired Workflow's claim so a provider retry can autonomously
                   // attempt recovery again without waiting for another Channel webhook.
@@ -4721,6 +4725,12 @@ async function handleChatSdkMessage(
         }
         steerStartOwnershipLost = false
       } catch (error) {
+        if (steerLock && steerQueue && steerPending && steerPendingPersisted && steerStartOwnershipLost) {
+          durableHandoff = true
+          await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+          detachAgentChannelDelivery(delivery)
+          return
+        }
         if (steerLock && steerQueue && steerPending && isAmbiguousAgentWorkflowStartFailure(error)) {
           durableHandoff = true
           await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })

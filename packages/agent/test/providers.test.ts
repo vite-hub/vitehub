@@ -11881,6 +11881,74 @@ describe("server helpers", () => {
     }
   })
 
+  it("detaches persisted steer input when startup ownership is lost", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-start-ownership-loss-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const originalExtendLock = state.extendLock.bind(state)
+    const extendLock = vi.spyOn(state, "extendLock").mockImplementation(
+      async (lock, ttlMs) => (lock.threadId.includes("durable-steer") ? false : await originalExtendLock(lock, ttlMs)),
+    )
+    const adapter = createTestChatAdapter()
+    let acceptWorkflow!: () => void
+    const workflowAccepted = new Promise<void>((resolve) => {
+      acceptWorkflow = resolve
+    })
+    const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => {
+      await workflowAccepted
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this fixture.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", errorFallbackText: "Workflow failed.", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      vi.useFakeTimers()
+      const response = handler(chatWebhookRequest(91_167), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } } },
+      })
+      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(150_000)
+      acceptWorkflow()
+      await expect(response).resolves.toMatchObject({ status: 200 })
+
+      expect(createBatch).toHaveBeenCalledOnce()
+      expect(extendLock).toHaveBeenCalled()
+      expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "Workflow failed.")
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_167), "telegram", { agentIdentity: { name: "calories" } })
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91167"))
+      expect(delivery?.events.some((event) => event.type === "queued")).toBe(true)
+      expect(delivery?.events.some((event) => event.type === "failed")).toBe(false)
+    } finally {
+      acceptWorkflow()
+      vi.useRealTimers()
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps overlapping steer input accepted when queued evidence cannot be journaled", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
@@ -12551,6 +12619,79 @@ describe("server helpers", () => {
       expect(sideEffect).toHaveBeenCalledTimes(1)
       expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(0)
+    } finally {
+      setActiveCloudflareEnv(undefined)
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("releases recovered steer ownership when its handoff lease is lost after startup", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-recovered-handoff-loss-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const adapter = createTestChatAdapter()
+    const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
+      workflowPayloads.push(params)
+      return [{ id, status: async () => ({ status: "queued" }) }]
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this fixture.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", state },
+        }),
+      },
+      driver: { run: () => "unused" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+    try {
+      await state.connect()
+      const runtime = { agentIdentity: { name: "calories" }, cloudflare: { env } }
+      await handler(chatWebhookRequest(91_166), "telegram", runtime)
+      const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
+      expect(ownershipKey).toBeDefined()
+      await state.forceReleaseLock(ownershipKey!)
+      const originalExtendLock = state.extendLock.bind(state)
+      let loseRecoveryHandoff = true
+      const extendLock = vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
+        if (loseRecoveryHandoff && lock.threadId.endsWith(":handoff")) {
+          loseRecoveryHandoff = false
+          return false
+        }
+        return await originalExtendLock(lock, ttlMs)
+      })
+      setActiveCloudflareEnv(env)
+
+      await expect(
+        runAgentWorkflowDefinition(
+          // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
+          agent as never,
+          { id: "expired-steer-handoff-loss", name: "calories", payload: workflowPayloads[0], provider: "cloudflare" },
+          vi.fn(async () => "must not run"),
+        ),
+      ).rejects.toThrow("lost recovered startup ownership")
+      expect(loseRecoveryHandoff).toBe(false)
+      expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
+      const reacquired = await state.acquireLock(ownershipKey!, 1_000)
+      expect(reacquired).not.toBeNull()
+      if (reacquired) await state.releaseLock(reacquired)
+      extendLock.mockRestore()
     } finally {
       setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
