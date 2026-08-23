@@ -269,7 +269,6 @@ export function useAgentInvocations(
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let firstPage: readonly AgentInvocationSummary[] = [];
-  let loadedPageIds: string[][] = [];
   let revision = 0;
   let resetFirstPage = true;
   let departedIds = new Set<string>();
@@ -304,7 +303,6 @@ export function useAgentInvocations(
       invocations.value = [];
       cursor.value = undefined;
       firstPage = [];
-      loadedPageIds = [];
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -313,7 +311,6 @@ export function useAgentInvocations(
       if (resetFirstPage) {
         invocations.value = [];
         cursor.value = undefined;
-        loadedPageIds = [];
       }
       revision++;
       loadMoreController?.abort();
@@ -329,14 +326,15 @@ export function useAgentInvocations(
       );
       departedIds = new Set();
       const returnedIds = new Set(result.invocations.map((invocation) => invocation.id));
-      const retainedPageIds = resetFirstPage
+      const retainedIds = resetFirstPage
         ? []
-        : [
-            firstPage
-              .filter((invocation) => !returnedIds.has(invocation.id))
-              .map((invocation) => invocation.id),
-            ...loadedPageIds,
-          ].filter((ids) => ids.length > 0);
+        : invocations.value
+            .filter((invocation) => !returnedIds.has(invocation.id))
+            .map((invocation) => invocation.id);
+      const retainedPageIds = Array.from(
+        { length: Math.ceil(retainedIds.length / 50) },
+        (_, index) => retainedIds.slice(index * 50, (index + 1) * 50),
+      );
       const refreshed = await Promise.allSettled(
         retainedPageIds.map((ids) =>
           request(appendQuery(toValue(baseURL), { id: ids }), { signal }).then(parseInvocationListResult),
@@ -393,7 +391,6 @@ export function useAgentInvocations(
         ...invocations.value,
         ...result.invocations.filter((invocation) => !ids.has(invocation.id)),
       ];
-      loadedPageIds.push(result.invocations.map((invocation) => invocation.id));
       cursor.value = result.cursor;
       options.onSuccess?.();
       return result;

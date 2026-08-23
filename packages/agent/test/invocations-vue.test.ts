@@ -214,13 +214,11 @@ describe("Agent Invocation Vue composables", () => {
     calls[2]!.resolve({ cursor: "new-page-2", invocations: [record("inv-3"), record("inv-2")] });
     await settle();
     expect(calls.slice(3).map((call) => call.path)).toEqual([
-      "/api/invocations?id=inv-1",
-      "/api/invocations?id=inv-0",
+      "/api/invocations?id=inv-1&id=inv-0",
     ]);
     calls[3]!.resolve({
-      invocations: [{ ...record("inv-1"), status: "completed" }],
+      invocations: [{ ...record("inv-1"), status: "completed" }, record("inv-0")],
     });
-    calls[4]!.resolve({ invocations: [record("inv-0")] });
     await refresh;
 
     expect(resource.invocations.value.map((invocation) => invocation.id)).toEqual([
@@ -231,6 +229,33 @@ describe("Agent Invocation Vue composables", () => {
     ]);
     expect(resource.invocations.value[2]?.status).toBe("completed");
     expect(resource.cursor.value).toBe("page-3");
+    scope.stop();
+  });
+
+  it("keeps refreshing first-page rows displaced by successive polls", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+
+    const firstRefresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [record("inv-3"), record("inv-2")] });
+    await settle();
+    calls[2]!.resolve({ invocations: [record("inv-1")] });
+    await firstRefresh;
+
+    const secondRefresh = resource.refresh();
+    calls[3]!.resolve({ invocations: [record("inv-4"), record("inv-3")] });
+    await settle();
+    expect(calls[4]!.path).toBe("/api/invocations?id=inv-2&id=inv-1");
+    calls[4]!.resolve({
+      invocations: [record("inv-2"), { ...record("inv-1"), status: "completed" }],
+    });
+    await secondRefresh;
+
+    expect(resource.invocations.value.find(({ id }) => id === "inv-1")?.status).toBe("completed");
     scope.stop();
   });
 

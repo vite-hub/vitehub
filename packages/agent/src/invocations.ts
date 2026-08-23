@@ -79,6 +79,7 @@ export interface AgentInvocationStoreCreateResult {
 export interface AgentInvocationStoreUpdateInput {
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
+  observationsTruncated?: boolean
   status?: AgentInvocationRecordStatus
   timestamp: string
 }
@@ -325,7 +326,17 @@ export function applyAgentInvocationStoreUpdate(
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
-  const observations = input.observation && record.observations.length >= MAX_OBSERVATIONS
+  const observations = input.observationsTruncated && record.observations.length > 0
+    ? record.observations.map((observation, index) => index === record.observations.length - 1
+        ? {
+            ...observation,
+            attributes: {
+              ...observation.attributes,
+              [OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+            },
+          }
+        : observation)
+    : input.observation && record.observations.length >= MAX_OBSERVATIONS
     ? record.observations.map((observation, index) => index === record.observations.length - 1
         ? {
             ...observation,
@@ -504,6 +515,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let finished = false
       let ownsRecord = false
       let observationCount = 0
+      let acceptedObservationCount = 0
       let observationSequence = 0
       let created = false
       let creationTimedOut = false
@@ -539,6 +551,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
               observationCount = result.record.observations.length
+              acceptedObservationCount = observationCount
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
               created = true
             }
@@ -616,7 +629,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         ) return
         let observation = pendingObservations.shift()
         if (!observation) return
-        if (observationCount >= MAX_OBSERVATIONS - 1) {
+        if (observationCount >= MAX_OBSERVATIONS - 1 && observationCapMarked) {
           observation = {
             ...observation,
             attributes: {
@@ -650,10 +663,18 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         observationWrite = settled
       }
       let observationCapMarked = false
+      let observationCapPersisted = false
+      const persistObservationCap = async () => {
+        if (!observationCapMarked || observationCapPersisted) return
+        observationCapPersisted = await update({
+          observationsTruncated: true,
+          timestamp: new Date().toISOString(),
+        })
+      }
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) return
         if (observationCapMarked) return
-        if (observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS) {
+        if (acceptedObservationCount >= MAX_OBSERVATIONS) {
           const retained = pendingObservations.at(-1)
           if (retained) {
             pendingObservations[pendingObservations.length - 1] = {
@@ -665,8 +686,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
             observationCapMarked = true
           }
+          else observationCapMarked = true
           return
         }
+        acceptedObservationCount++
         pendingObservations.push(observation)
         writeNextObservation()
       }
@@ -686,6 +709,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
             }
           }
+          await persistObservationCap()
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })

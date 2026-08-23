@@ -629,6 +629,26 @@ describe("Agent Invocations", () => {
     expect(record?.observations.at(-1)?.attributes?.["vitehub.observation.truncated"]).toBe(true)
   })
 
+  it("does not mark an exactly full observation history as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (let index = 0; index < 253; index++) {
+          await context.traceLog?.append({ name: `event-${index}`, type: "run" })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("exact-observation-cap"), {})
+
+    const record = await invocations.getByRunId("exact-observation-cap")
+    expect(record?.observations).toHaveLength(256)
+    expect(record?.observations.at(-1)?.attributes?.["vitehub.observation.truncated"]).toBeUndefined()
+  })
+
   it("records cancellation while an invocation waits for driver capacity", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })

@@ -67,7 +67,8 @@ describe("Agent invocation console", () => {
       traceId: `trace-${id}`,
       updatedAt: "2026-08-23T12:00:00.000Z",
     }))
-    installConsoleInvocationFallback({ get } as unknown as AgentInvocations, process.cwd())
+    // SAFETY: This handler fixture exercises only the public get method.
+    installConsoleInvocationFallback({ get } as AgentInvocations, process.cwd())
     const requestEvent = event("127.0.0.1")
     const url = "http://localhost/api/_vitehub/console/invocations?id=inv-1&id=inv-2"
     requestEvent.node!.req!.url = url
