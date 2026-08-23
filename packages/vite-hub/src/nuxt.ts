@@ -19,7 +19,7 @@ import { mergeGeneratedCollectionNitroConfig, type GeneratedCollectionHandler } 
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
-import type { Plugin, PluginOption, UserConfig } from "vite"
+import type { HookHandler, Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
@@ -70,27 +70,29 @@ function installEmailTemplateResolver(config: Record<string, unknown>, root: str
   }
 }
 
-function markdownTemplateResolver(plugin: Plugin): Plugin {
-  const load = plugin.load as unknown as CallableFunction
-  const resolveId = plugin.resolveId as unknown as CallableFunction
+type MarkdownTemplatePlugin = Omit<Plugin, "load" | "resolveId"> & {
+  load: HookHandler<NonNullable<Plugin["load"]>>
+  resolveId(
+    this: ThisParameterType<HookHandler<NonNullable<Plugin["resolveId"]>>>,
+    ...args: Parameters<HookHandler<NonNullable<Plugin["resolveId"]>>>
+  ): Promise<string | undefined> | string | undefined
+}
+
+function markdownTemplateResolver(plugin: MarkdownTemplatePlugin): Plugin {
   return {
     name: "vite-hub/nuxt-markdown-templates",
     load(id, ...args) {
-      return Reflect.apply(load, this, [id.startsWith("\0raw:") ? id.slice(5) : id, ...args])
+      return plugin.load.call(this, id.startsWith("\0raw:") ? id.slice(5) : id, ...args)
     },
     async resolveId(...args) {
-      const resolved = await Reflect.apply(resolveId, this, args)
-      if (typeof resolved === "string" && resolved.startsWith("\0raw:")) return resolved.slice(5)
-      if (resolved && typeof resolved === "object" && "id" in resolved && resolved.id.startsWith("\0raw:")) {
-        return { ...resolved, id: resolved.id.slice(5) }
-      }
-      return resolved
+      const resolved = await plugin.resolveId.call(this, ...args)
+      return resolved?.startsWith("\0raw:") ? resolved.slice(5) : resolved
     },
   }
 }
 
-function installMarkdownTemplateResolver(config: Record<string, unknown>, plugin: Plugin | undefined): void {
-  if (typeof plugin?.load !== "function" || typeof plugin.resolveId !== "function") return
+function installMarkdownTemplateResolver(config: Record<string, unknown>, plugin: MarkdownTemplatePlugin | undefined): void {
+  if (!plugin) return
   // SAFETY: Nitro rollupConfig is an object namespace owned and initialized here.
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   // SAFETY: Nitro Rollup plugins use Vite's compatible Plugin contract.
@@ -492,7 +494,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         }
       })
     | undefined
-  const markdownTemplatePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/markdown-template/vite")
+  const markdownTemplatePluginCandidate: unknown = replayPlugins.find(
+    plugin => plugin.name === "@vite-hub/markdown-template/vite",
+  )
+  // SAFETY: The canonical Markdown Template plugin name identifies its function-hook contract.
+  const markdownTemplatePlugin = markdownTemplatePluginCandidate as MarkdownTemplatePlugin | undefined
   const emailTemplatePaths =
     (await emailPlugin?.api?.prepareTypes?.({
       materialize: true,

@@ -28,6 +28,7 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
     current = await readFile(path, "utf8")
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   if (current === contents) return

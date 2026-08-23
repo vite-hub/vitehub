@@ -239,17 +239,16 @@ describe("ViteHub Nuxt integration", () => {
       "vite-hub/nuxt-markdown-templates",
     ])
 
-    const markdownPlugin = plugins[1] as Plugin
-    const resolveId = markdownPlugin.resolveId as unknown as (
-      this: typeof context,
-      source: string,
-      importer: string,
-    ) => unknown
-    const load = markdownPlugin.load as unknown as (this: typeof context, id: string) => unknown
-    await expect(resolveId.call(context, "./reply.template.md", "/app/server/api/reply.ts")).resolves.toBe(
+    const markdownPluginCandidate: unknown = plugins[1]
+    // SAFETY: The preceding names assertion identifies the installed resolver and its function hooks.
+    const markdownPlugin = markdownPluginCandidate as {
+      load(this: typeof context, id: string): unknown
+      resolveId(this: typeof context, source: string, importer: string): unknown
+    }
+    await expect(markdownPlugin.resolveId.call(context, "./reply.template.md", "/app/server/api/reply.ts")).resolves.toBe(
       "/app/server/api/reply.template.md?markdown-template",
     )
-    await load.call(context, "\0raw:/app/server/api/reply.template.md?markdown-template")
+    await markdownPlugin.load.call(context, "\0raw:/app/server/api/reply.template.md?markdown-template")
     expect(mocks.markdownTemplateResolveId.mock.contexts[0]).toBe(context)
     expect(mocks.markdownTemplateLoad.mock.contexts[0]).toBe(context)
     expect(mocks.markdownTemplateLoad).toHaveBeenCalledWith(
