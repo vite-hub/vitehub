@@ -2576,6 +2576,26 @@ interface AgentTelemetryScheduler {
   finish: () => void
 }
 
+const agentLiveTelemetryTimeout = 10_000
+
+async function boundAgentLiveTelemetry(delivery: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      delivery,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new DOMException("Live Agent telemetry export timed out.", "TimeoutError")), agentLiveTelemetryTimeout)
+        // SAFETY: Agent runtimes may provide browser or Node timers; only Node timers expose unref().
+        const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
+        if (unref) unref.call(timer)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig>(
   telemetry: AgentCapabilityRegistries["telemetry"],
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
@@ -2596,8 +2616,9 @@ function createAgentTelemetryScheduler<TRuntimeConfig extends AgentRuntimeConfig
     if (!selected.length) return
     terminalPending = false
     dirty = false
-    const task = Promise.resolve()
+    const delivery = Promise.resolve()
       .then(() => exportAgentTelemetry(selected, runtime, context, agent, invocationId, !terminal))
+    const task = (terminal ? delivery : boundAgentLiveTelemetry(delivery))
       .catch(error => reportAgentTelemetryFailure(error, runtime, agent, invocationId, terminal ? "terminal" : "live"))
     active = task
     Object.defineProperty(task, agentTelemetryTask, { value: true })

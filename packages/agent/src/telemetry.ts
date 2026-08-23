@@ -25,7 +25,37 @@ const MAX_OTLP_BINARY_BYTES = 1024 * 1024
 const MAX_OTLP_REQUEST_BYTES = 4 * 1024 * 1024
 
 interface OtlpEncodingBudget {
-  encodedBinaryBytes: number
+  encodedBytes: number
+}
+
+function otlpEncodingLimitError(): RangeError {
+  return new RangeError(`OTLP/HTTP JSON payloads cannot exceed ${MAX_OTLP_REQUEST_BYTES} bytes.`)
+}
+
+function chargeOtlpEncoding(budget: OtlpEncodingBudget, bytes: number): void {
+  if (budget.encodedBytes + bytes > MAX_OTLP_REQUEST_BYTES) throw otlpEncodingLimitError()
+  budget.encodedBytes += bytes
+}
+
+function jsonStringByteLength(value: string): number {
+  let bytes = 2
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code === 0x22 || code === 0x5C || code === 0x08 || code === 0x09 || code === 0x0A || code === 0x0C || code === 0x0D) bytes += 2
+    else if (code < 0x20) bytes += 6
+    else if (code < 0x80) bytes += 1
+    else if (code < 0x800) bytes += 2
+    else if (code >= 0xD800 && code <= 0xDBFF && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1)
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        bytes += 4
+        index += 1
+      }
+      else bytes += 3
+    }
+    else bytes += 3
+  }
+  return bytes
 }
 
 function binaryBytes(value: unknown): Uint8Array | undefined {
@@ -43,6 +73,7 @@ function base64Bytes(bytes: Uint8Array): string {
 }
 
 function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget): OtlpAnyValue {
+  chargeOtlpEncoding(budget, 16)
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
@@ -53,24 +84,28 @@ function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget): OtlpAnyValue 
       ? { intValue: String(value) }
       : { stringValue: String(value) }
   }
-  if (hasRuntimeType(value, "string")) return { stringValue: value }
+  if (hasRuntimeType(value, "string")) {
+    chargeOtlpEncoding(budget, jsonStringByteLength(value))
+    return { stringValue: value }
+  }
   const bytes = binaryBytes(value)
   if (bytes) {
     if (bytes.byteLength > MAX_OTLP_BINARY_BYTES) {
       throw new RangeError(`OTLP binary attributes cannot exceed ${MAX_OTLP_BINARY_BYTES} bytes.`)
     }
     const encodedBytes = 4 * Math.ceil(bytes.byteLength / 3)
-    if (budget.encodedBinaryBytes + encodedBytes > MAX_OTLP_REQUEST_BYTES) {
-      throw new RangeError(`OTLP/HTTP JSON payloads cannot exceed ${MAX_OTLP_REQUEST_BYTES} bytes.`)
-    }
-    budget.encodedBinaryBytes += encodedBytes
+    chargeOtlpEncoding(budget, encodedBytes)
     return { bytesValue: base64Bytes(bytes) }
   }
   if (Array.isArray(value)) return { arrayValue: { values: value.map(child => otlpAnyValue(child, budget)) } }
   if (value && hasRuntimeType(value, "object")) {
     return {
       kvlistValue: {
-        values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child, budget) }]),
+        values: Object.entries(value).flatMap(([key, child]) => {
+          if (child === undefined) return []
+          chargeOtlpEncoding(budget, jsonStringByteLength(key) + 8)
+          return [{ key, value: otlpAnyValue(child, budget) }]
+        }),
       },
     }
   }
@@ -78,7 +113,11 @@ function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget): OtlpAnyValue 
 }
 
 function otlpAttributes(attributes: Record<string, unknown> | undefined, budget: OtlpEncodingBudget) {
-  return Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined ? [] : [{ key, value: otlpAnyValue(value, budget) }])
+  return Object.entries(attributes || {}).flatMap(([key, value]) => {
+    if (value === undefined) return []
+    chargeOtlpEncoding(budget, jsonStringByteLength(key) + 8)
+    return [{ key, value: otlpAnyValue(value, budget) }]
+  })
 }
 
 function unixNanos(value: string | undefined, fallback: string): string {
@@ -170,7 +209,7 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
       "vitehub.runtime.name": context.runtime.runtime,
       ...configuredResource,
     }
-    const budget: OtlpEncodingBudget = { encodedBinaryBytes: 0 }
+    const budget: OtlpEncodingBudget = { encodedBytes: 0 }
     const body = JSON.stringify({
       resourceSpans: [{
         resource: { attributes: otlpAttributes(resource, budget) },

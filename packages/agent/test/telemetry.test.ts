@@ -167,6 +167,7 @@ describe("Agent telemetry", () => {
 
   it("rejects oversized serialized OTLP requests before delivery", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    const stringify = vi.spyOn(JSON, "stringify")
     vi.stubGlobal("fetch", fetch)
 
     await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
@@ -182,7 +183,9 @@ describe("Agent telemetry", () => {
       }],
     })).rejects.toThrow("OTLP/HTTP JSON payloads cannot exceed 4194304 bytes")
 
+    expect(stringify).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
+    stringify.mockRestore()
   })
 
   it("rejects aggregate binary content before encoding the value that exceeds the request budget", async () => {
@@ -728,6 +731,64 @@ describe("Agent telemetry", () => {
       expect((telemetry.mock.calls[1]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
     }
     finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("times out a stalled live export before sending terminal telemetry", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      let releaseDriver!: () => void
+      let runtimeTraceLog: { append(event: { name: string, type: "run" }): unknown } | undefined
+      const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
+      const stalled = new Promise<void>(() => {})
+      const tasks: Promise<unknown>[] = []
+      const telemetry = vi.fn(async (_context: unknown) => {
+        if (telemetry.mock.calls.length === 1) await stalled
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "live-telemetry",
+          telemetry: { exporter: telemetry, live: true },
+        })],
+        driver: {
+          async run(context) {
+            runtimeTraceLog = context.traceLog
+            await driverGate
+            return "ok"
+          },
+        },
+      })
+
+      const active = runAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: "run-stalled-live" },
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})
+      await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
+      await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress", type: "run" }))
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(1))
+
+      releaseDriver()
+      await active
+      await vi.advanceTimersByTimeAsync(10_000)
+      await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(2))
+      await Promise.all(tasks)
+
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({ name: "TimeoutError" }),
+        event: "agent.telemetry.export.failed",
+        phase: "live",
+        run_id: "run-stalled-live",
+      }))
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      expect((telemetry.mock.calls[1]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
+    }
+    finally {
+      consoleError.mockRestore()
       vi.useRealTimers()
     }
   })
