@@ -382,7 +382,10 @@ function journalTraceLog(
   observe: (entry: TraceEventLogEntry) => void,
   nextSequence: () => number,
 ): TraceEventLog {
+  const messageDeltaChunkCharacters = 4_096
+  const messageDeltaChunkEvents = 32
   let pendingMessageDelta: TraceEventLogEntry | undefined
+  let pendingMessageDeltaEvents = 0
   const emit = (entry: TraceEventLogEntry) => {
     void observe({ ...entry, sequence: nextSequence() })
   }
@@ -390,6 +393,7 @@ function journalTraceLog(
     if (!pendingMessageDelta) return
     emit(pendingMessageDelta)
     pendingMessageDelta = undefined
+    pendingMessageDeltaEvents = 0
   }
   return {
     async append(event: TraceEvent) {
@@ -419,6 +423,12 @@ function journalTraceLog(
           else {
             flushMessageDelta()
             pendingMessageDelta = entry
+          }
+          pendingMessageDeltaEvents++
+          const pendingContent = pendingMessageDelta.attributes?.["message.content"]
+          if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
+            || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
+            flushMessageDelta()
           }
         }
         else {

@@ -225,7 +225,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     if (Array.isArray(inputMessages)) {
       inputMessages.forEach((message, index) => {
         const value = record(message);
-        const body = messageText(value);
+        const body = messageText(value) ?? (Array.isArray(value?.parts) ? JSON.stringify(value.parts, null, 2) : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;
@@ -237,7 +237,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
             "message.role": role,
           },
           name: "agent.input.message",
-          sequence: observation.sequence + index / Math.max(inputMessages.length, 1),
+          sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
         }]);
       });
     }
