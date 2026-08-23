@@ -586,6 +586,47 @@ describe("Agent Invocations", () => {
     expect(updates).toBeLessThanOrEqual(260)
   })
 
+  it("marks overflow while the final custom-store observation write is in flight", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let releaseFinalWrite!: () => void
+    const finalWrite = new Promise<void>((resolve) => { releaseFinalWrite = resolve })
+    let finalWriteStarted!: () => void
+    const started = new Promise<void>((resolve) => { finalWriteStarted = resolve })
+    const store: AgentInvocationStore = {
+      ...memory,
+      async update(id, input, claimId) {
+        if (input.observation?.sequence === 256) {
+          finalWriteStarted()
+          await finalWrite
+        }
+        return memory.update(id, input, claimId)
+      },
+    }
+    const invocations = defineAgentInvocations({ store })
+    let traceLog!: AgentRuntimeContext["traceLog"]
+    const agent = defineAgent({
+      driver: { async run(context) {
+        traceLog = context.traceLog
+        for (let index = 0; index < 254; index++) {
+          await context.traceLog?.append({ name: `event-${index}`, type: "run" })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    const run = runAgent(agent, runtime("finish-overflow"), {})
+    await started
+    await traceLog?.append({ name: "overflow", type: "run" })
+    releaseFinalWrite()
+    await run
+
+    const record = await invocations.getByRunId("finish-overflow")
+    expect(record?.observations).toHaveLength(256)
+    expect(record?.observations.at(-1)?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+  })
+
   it("records cancellation while an invocation waits for driver capacity", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
@@ -790,6 +831,17 @@ describe("Agent Invocations", () => {
 
     await expect(invocations.getByRunId("aliased-run", "support")).resolves.toMatchObject({ agentName: "support" })
     await expect(invocations.getByRunId("aliased-run", "host-alias")).resolves.toBeUndefined()
+  })
+
+  it("uses the discovered identity for an unnamed Agent Definition", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
+
+    await runAgent(agent, { ...runtime("discovered-run"), agentIdentity: { name: "discovered" } }, {})
+
+    await expect(invocations.getByRunId("discovered-run", "discovered")).resolves.toMatchObject({
+      agentName: "discovered",
+    })
   })
 
   it("isolates matching source run IDs by Agent Definition", async () => {

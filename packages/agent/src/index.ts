@@ -4518,7 +4518,7 @@ async function executeAgentInvocation<
       ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
         ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
         : {}),
-    }, { agentName: (definition as AgentDefinition).name })
+    }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined

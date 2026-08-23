@@ -209,6 +209,13 @@ describe("Agent Invocation Vue composables", () => {
 
     const refresh = resource.refresh();
     calls[2]!.resolve({ cursor: "new-page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await settle();
+    expect(calls.slice(3).map((call) => call.path)).toEqual([
+      "/api/invocations/inv-1",
+      "/api/invocations/inv-0",
+    ]);
+    calls[3]!.resolve({ invocation: { ...record("inv-1"), status: "completed" }, observations: [] });
+    calls[4]!.resolve({ invocation: record("inv-0"), observations: [] });
     await refresh;
 
     expect(resource.invocations.value.map((invocation) => invocation.id)).toEqual([
@@ -217,6 +224,7 @@ describe("Agent Invocation Vue composables", () => {
       "inv-1",
       "inv-0",
     ]);
+    expect(resource.invocations.value[2]?.status).toBe("completed");
     expect(resource.cursor.value).toBe("page-3");
     scope.stop();
   });

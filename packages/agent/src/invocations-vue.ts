@@ -269,6 +269,7 @@ export function useAgentInvocations(
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let firstPage: readonly AgentInvocationSummary[] = [];
+  let hasLoadedMore = false;
   let revision = 0;
   let resetFirstPage = true;
   let departedIds = new Set<string>();
@@ -280,7 +281,9 @@ export function useAgentInvocations(
     return JSON.stringify([toValue(baseURL), options.query ? toValue(options.query) : undefined]);
   }
 
-  const resource = useInvocationResource<AgentInvocationListResult>({
+  const resource = useInvocationResource<AgentInvocationListResult & {
+    refreshedRetained?: ReadonlyMap<string, AgentInvocationSummary>;
+  }>({
     apply(result) {
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
@@ -292,7 +295,7 @@ export function useAgentInvocations(
       const firstPageIds = new Set(result.invocations.map((invocation) => invocation.id));
       const retained = invocations.value.filter(
         (invocation) => !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id),
-      );
+      ).map((invocation) => result.refreshedRetained?.get(invocation.id) ?? invocation);
       departedIds = new Set();
       invocations.value = [...result.invocations, ...retained];
       firstPage = result.invocations;
@@ -302,6 +305,7 @@ export function useAgentInvocations(
       invocations.value = [];
       cursor.value = undefined;
       firstPage = [];
+      hasLoadedMore = false;
       pendingDepartureIds = new Set();
     },
     beforeLoad() {
@@ -312,6 +316,7 @@ export function useAgentInvocations(
         invocations.value = [];
         cursor.value = undefined;
         pendingDepartureIds = new Set();
+        hasLoadedMore = false;
       }
       revision++;
       loadMoreController?.abort();
@@ -325,11 +330,30 @@ export function useAgentInvocations(
       const result = parseInvocationListResult(
         await request(appendQuery(toValue(baseURL), query), { signal }),
       );
+      const returnedIds = new Set(result.invocations.map((invocation) => invocation.id));
+      const retainedIds = hasLoadedMore
+        ? invocations.value
+            .filter((invocation) => !returnedIds.has(invocation.id))
+            .map((invocation) => invocation.id)
+        : [];
+      const refreshed = await Promise.allSettled(
+        retainedIds.map((id) =>
+          request(detailPath(toValue(baseURL), id), { signal }).then(parseInvocationDetailResult),
+        ),
+      );
+      const refreshedRetained = new Map(
+        refreshed.flatMap((outcome) =>
+          outcome.status === "fulfilled"
+            ? [[outcome.value.invocation.id, outcome.value.invocation] as const]
+            : [],
+        ),
+      );
       const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
       const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
       const search = query?.search?.trim().toLowerCase();
-      if (resetFirstPage || (statuses.size === 0 && !search)) return result;
-      const returnedIds = new Set(result.invocations.map((invocation) => invocation.id));
+      if (resetFirstPage || (statuses.size === 0 && !search)) {
+        return { ...result, refreshedRetained };
+      }
       for (const id of returnedIds) pendingDepartureIds.delete(id);
       const displaced = [
         ...new Set([
@@ -360,7 +384,7 @@ export function useAgentInvocations(
         )
           departedIds.add(id);
       }
-      return result;
+      return { ...result, refreshedRetained };
     },
     onSuccess: options.onSuccess,
     pollingPaused: () => isLoadingMore.value,
@@ -392,6 +416,7 @@ export function useAgentInvocations(
         ...invocations.value,
         ...result.invocations.filter((invocation) => !ids.has(invocation.id)),
       ];
+      hasLoadedMore = true;
       cursor.value = result.cursor;
       options.onSuccess?.();
       return result;

@@ -72,7 +72,7 @@ describe("Agent invocation console", () => {
         updatedAt: "2026-08-23T11:00:00.000Z",
       },
       { id: "6:second:thread", invocations: [{ id: "separate-agent" }] },
-      { id: "other", invocations: [{ id: "other" }] },
+      { id: "0::other", invocations: [{ id: "other" }] },
     ])
   })
 
