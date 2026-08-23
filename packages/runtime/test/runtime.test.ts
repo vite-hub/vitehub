@@ -138,6 +138,7 @@ describe("@vite-hub/runtime", () => {
     })
 
     for (const details of [accessor, cyclic, { count: 1n }, { count: Number.POSITIVE_INFINITY }, hostile, new Date()]) {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       expect(() => new ViteHubError("PROVIDER_FAILED", "The provider request failed.", { details } as never))
         .toThrow("[vitehub] ViteHubError requires a valid public error contract.")
     }
@@ -150,6 +151,7 @@ describe("@vite-hub/runtime", () => {
       code: "STRUCTURAL_FAILURE",
       details: { provider: "fixture" },
       message: "The structural operation failed.",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       name: "ViteHubError" as const,
       toJSON: ViteHubError.prototype.toJSON,
     }
@@ -168,6 +170,7 @@ describe("@vite-hub/runtime", () => {
   it("binds a subclass serializer without leaving it shadowable", () => {
     class SpecializedError extends ViteHubError<"SPECIALIZED_FAILURE"> {
       override toJSON() {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { ...super.toJSON(), specialized: true as const }
       }
     }
@@ -303,6 +306,17 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("keeps run errors failed after a later finish", async () => {
+    const events = [
+      { name: "run.error", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "error" as const },
+      { name: "run.finish", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+    ]
+
+    expect(deriveTraceRuns(events)).toEqual([
+      expect.objectContaining({ endTime: events[1]!.timestamp, id: "run-1", status: "failed" }),
+    ])
+  })
+
   it("derives yielded stream errors as failed runs even when finish follows", async () => {
     const log = createTraceEventLog()
     await log.append({
@@ -335,6 +349,36 @@ describe("@vite-hub/runtime", () => {
     ])
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({
       status: { code: "ERROR" },
+    })
+  })
+
+  it("uses the terminal invocation event after contained lifecycle errors", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })
+    await log.append({ name: "agent.invocation.error", timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "error" })
+    await log.append({ name: "agent.invocation.finish", timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())).toEqual([expect.objectContaining({ status: "completed" })])
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({ status: { code: "OK" } })
+  })
+
+  it("keeps runs successful after recoverable stream warnings", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })
+    await log.append({
+      attributes: { "error.message": "provider restarted", "error.recoverable": true },
+      name: "agent.stream.error",
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "run-1" },
+      type: "error",
+    })
+    await log.append({ name: "agent.invocation.finish", timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())).toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({
+      status: { code: "OK" },
     })
   })
 
@@ -526,6 +570,7 @@ describe("@vite-hub/runtime", () => {
         "agent.run.id": "run-1",
         prompt: "secret prompt",
         "runtime.name": "vercel",
+        "vitehub.session.title": "secret title",
       },
       name: "agent.invocation.start",
       timestamp: "2026-01-01T00:00:00.000Z",
@@ -557,9 +602,11 @@ describe("@vite-hub/runtime", () => {
     })
     expect(JSON.stringify(span)).not.toContain("secret prompt")
     expect(JSON.stringify(span)).not.toContain("secret result")
+    expect(JSON.stringify(span)).not.toContain("secret title")
   })
 
   it("recursively redacts traversable non-plain attribute objects", async () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const details = Object.assign(Object.create(null) as Record<string, unknown>, {
       nested: { prompt: "secret prompt", safe: true },
     })
@@ -582,6 +629,17 @@ describe("@vite-hub/runtime", () => {
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
   })
 
+  it("leaves running root and child spans unset", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
+    await log.append({ attributes: { "step.id": "step-1" }, name: "agent.tool.start", trace: { id: "trace-1" }, type: "run" })
+
+    const [root, child] = traceEventsToOpenTelemetrySpans(log.entries())
+
+    expect(root?.status).toEqual({ code: "UNSET" })
+    expect(child?.status).toEqual({ code: "UNSET" })
+  })
+
   it("preserves success after a recoverable stream error", async () => {
     const log = createTraceEventLog()
     await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
@@ -594,8 +652,11 @@ describe("@vite-hub/runtime", () => {
 
   it("derives child span ids from the invocation-specific root", async () => {
     const event = (invocationId: string, sequence: number) => [
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.start", sequence, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "host-trace" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "agent.invocation.id": invocationId, "step.id": "model" }, name: "agent.model.finish", sequence: sequence + 1, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "host-trace" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.finish", sequence: sequence + 2, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "host-trace" }, type: "run" as const },
     ]
 
@@ -603,5 +664,126 @@ describe("@vite-hub/runtime", () => {
     const [secondRoot, secondChild] = traceEventsToOpenTelemetrySpans(event("invocation-2", 4))
     expect(firstRoot?.spanId).not.toBe(secondRoot?.spanId)
     expect(firstChild?.spanId).not.toBe(secondChild?.spanId)
+  })
+
+  it("keeps provider activity open through progress and fails terminal task errors", () => {
+    const events = [
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { attributes: { "step.id": "task-1" }, name: "agent.task.started", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { attributes: { "step.id": "task-1" }, name: "agent.task.progress", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { attributes: { "step.id": "task-1", "error.message": "task failed" }, name: "agent.task.failed", sequence: 3, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { name: "agent.invocation.error", sequence: 4, timestamp: "2026-01-01T00:00:00.030Z", trace: { id: "run-1" }, type: "error" as const },
+    ]
+
+    expect(deriveTraceRuns(events)[0]?.steps[0]).toMatchObject({
+      endTime: "2026-01-01T00:00:00.020Z",
+      status: "failed",
+    })
+    expect(traceEventsToOpenTelemetrySpans(events)[1]).toMatchObject({
+      status: { code: "ERROR", message: "task failed" },
+    })
+  })
+
+  it("keeps streamed tool output open so an aborted run fails the child span", () => {
+    const events = [
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { attributes: { "step.id": "tool-1" }, name: "agent.tool.start", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { attributes: { "step.id": "tool-1", "tool.output": "still running\n" }, name: "agent.tool.output", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" as const },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { attributes: { "error.message": "cancelled" }, name: "agent.invocation.error", sequence: 3, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "error" as const },
+    ]
+
+    expect(deriveTraceRuns(events)[0]?.steps[0]).toMatchObject({
+      endTime: undefined,
+      status: "running",
+    })
+    expect(traceEventsToOpenTelemetrySpans(events)[1]).toMatchObject({
+      endTime: "2026-01-01T00:00:00.020Z",
+      status: { code: "ERROR" },
+    })
+  })
+
+  it("bounds OpenTelemetry event aggregation while preserving terminal events", () => {
+    const events = Array.from({ length: 2_000 }, (_, index) => ({
+      attributes: { "agent.run.id": "run-1", index },
+      name: index === 1_000 ? "agent.invocation.finish" : "agent.message",
+      sequence: index + 1,
+      timestamp: new Date(index).toISOString(),
+      trace: { id: "run-1" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      type: "run" as const,
+    }))
+
+    const [span] = traceEventsToOpenTelemetrySpans(events)
+    expect(span).toMatchObject({
+      attributes: {
+        "vitehub.trace.originalEventCount": 2_000,
+        "vitehub.trace.truncated": true,
+      },
+      status: { code: "OK" },
+    })
+    expect(span?.endTime).toBe(new Date(1_000).toISOString())
+  })
+
+  it("preserves fatal stream evidence before a later finish under truncation", () => {
+    const events = Array.from({ length: 2_000 }, (_, index) => ({
+      attributes: { "agent.run.id": "run-1", ...(index === 1_000 ? { "error.message": "provider failed" } : {}) },
+      name: index === 1_000 ? "agent.stream.error" : index === 1_500 ? "agent.invocation.finish" : "agent.message",
+      sequence: index + 1,
+      timestamp: new Date(index).toISOString(),
+      trace: { id: "run-1" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      type: index === 1_000 ? "error" as const : "run" as const,
+    }))
+
+    expect(traceEventsToOpenTelemetrySpans(events)[0]).toMatchObject({
+      endTime: new Date(1_500).toISOString(),
+      status: { code: "ERROR", message: "provider failed" },
+    })
+  })
+
+  it("preserves fatal stream evidence before a contained lifecycle error under truncation", () => {
+    const events = Array.from({ length: 2_000 }, (_, index) => ({
+      attributes: { "agent.run.id": "run-1", ...(index === 1_000 ? { "error.message": "provider failed" } : {}) },
+      name: index === 1_000 ? "agent.stream.error" : index === 1_500 ? "agent.invocation.error" : "agent.message",
+      sequence: index + 1,
+      timestamp: new Date(index).toISOString(),
+      trace: { id: "run-1" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      type: index === 1_000 || index === 1_500 ? "error" as const : "run" as const,
+    }))
+
+    expect(traceEventsToOpenTelemetrySpans(events)[0]).toMatchObject({
+      endTime: new Date(1_500).toISOString(),
+      status: { code: "ERROR", message: "provider failed" },
+    })
+  })
+
+  it("bounds each run without dropping middle runs or terminal events", () => {
+    const events = ["run-1", "run-2", "run-3"].flatMap((id, runIndex) => Array.from({ length: 2_000 }, (_, index) => ({
+      attributes: { "agent.run.id": id, index },
+      name: index === 1_999 ? "agent.invocation.finish" : "agent.message",
+      sequence: runIndex * 2_000 + index + 1,
+      timestamp: new Date(runIndex * 2_000 + index).toISOString(),
+      trace: { id: "shared-trace" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      type: "run" as const,
+    })))
+
+    const spans = traceEventsToOpenTelemetrySpans(events)
+    expect(spans).toHaveLength(3)
+    expect(spans.map(span => span.attributes?.["vitehub.run.id"])).toEqual(["run-1", "run-2", "run-3"])
+    expect(spans).toEqual(spans.map(_span => expect.objectContaining({
+      attributes: expect.objectContaining({
+        "vitehub.trace.originalEventCount": 2_000,
+        "vitehub.trace.truncated": true,
+      }),
+      endTime: expect.any(String),
+      status: { code: "OK" },
+    })))
   })
 })

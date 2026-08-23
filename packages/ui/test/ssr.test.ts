@@ -76,6 +76,23 @@ describe("UI server rendering", () => {
     expect(selected).toEqual([]);
   });
 
+  it("renders older invocation dates with a hydration-stable locale", async () => {
+    const app = createSSRApp({
+      render: () => h(AgentInvocationList, {
+        items: [{
+          id: "ainv_old",
+          status: "completed",
+          title: "Older session",
+          updatedAt: "2026-08-20T00:00:00.000Z",
+        }],
+        now: Date.parse("2026-08-23T00:00:00.000Z"),
+      }),
+    });
+
+    const html = await renderToString(app);
+    expect(html).toContain("Aug 20");
+  });
+
   it("renders AI SDK messages without browser globals", async () => {
     const app = createSSRApp({
       render: () =>

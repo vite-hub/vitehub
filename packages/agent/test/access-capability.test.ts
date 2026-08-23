@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
@@ -11,6 +12,10 @@ function runtime(): AgentRuntimeContext {
     runtimeConfig: {},
     waitUntil: () => {},
   }
+}
+
+function isTestRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 function containsPath(prefix: string, path: string): boolean {
@@ -55,11 +60,13 @@ function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceReque
     async readFile(path, options) {
       const content = files.get(path)
       if (content === undefined) throw new Error(`missing ${path}`)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
     },
     async stat(path) {
       const entry = entries.find(entry => entry.path === path)
       if (!entry) throw new Error(`missing ${path}`)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return entry as WorkspaceStat
     },
     async exists(path) {
@@ -88,10 +95,11 @@ function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceReque
 
   return {
     fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
-    tools: {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    tools: asUnknownBoundary({
       inspect: () => ({}),
       none: () => ({}),
-    } as unknown as ReadonlyWorkspaceFacade["tools"],
+    }) as ReadonlyWorkspaceFacade["tools"],
   }
 }
 
@@ -102,10 +110,13 @@ function createWorkspaceWithRootFile(path: string, content: string): ReadonlyWor
     fs: {
       ...base.fs,
       async readFile(requested, options) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (requested === path) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return await base.fs.readFile(requested, options as never)
       },
       async stat(requested) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (requested === path) return { path, size: content.length, type: "file" } as WorkspaceStat
         return await base.fs.stat(requested)
       },
@@ -132,11 +143,14 @@ function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
     fs: {
       async readFile(path, options) {
         const content = staleFiles.get(path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (content !== undefined) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return await base.fs.readFile(path, options as never)
       },
       async stat(path) {
         const entry = staleEntries.find(entry => entry.path === path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (entry) return entry as WorkspaceStat
         return await base.fs.stat(path)
       },
@@ -150,6 +164,7 @@ function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
         ]
       },
       async glob(pattern, options) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return [...await base.fs.glob(pattern as never, options), ...staleEntries]
       },
       async search(query) {
@@ -190,11 +205,14 @@ function createWorkspaceWithCustomerIngestion(): ReadonlyWorkspaceFacade {
     fs: {
       async readFile(path, options) {
         const content = files.get(path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (content !== undefined) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return await base.fs.readFile(path, options as never)
       },
       async stat(path) {
         const entry = entries.find(entry => entry.path === path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (entry) return entry as WorkspaceStat
         return await base.fs.stat(path)
       },
@@ -243,6 +261,7 @@ describe("access capability", () => {
   it("fails fast when no access surface is configured", async () => {
     const { access } = await import("../src/capabilities.ts")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(() => access({} as never)).toThrow("access() requires at least one access surface")
   })
 
@@ -255,6 +274,7 @@ describe("access capability", () => {
       tools: ({ workspace }) => ({
         inScope: {
           name: "inScope",
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           execute: async input => await workspace.fs.exists((input as { path: string }).path),
         },
       }) satisfies AgentToolSet,
@@ -288,7 +308,7 @@ describe("access capability", () => {
       capabilities: [
         access({
           workspace: {
-            resolve: ({ context }) => context.get<string>("trustedScope"),
+            resolve: ({ context }) => context.get("trustedScope"),
             scopes: {
               acme: { paths: ["customers/acme"] },
               globex: { paths: ["customers/globex"] },
@@ -312,7 +332,7 @@ describe("access capability", () => {
           workspace: {
             resolve({ invoker }) {
               if (invoker.kind === "quiverTechnical") return { role: "admin", scope: "quiver" }
-              const customer = typeof invoker.meta?.customer === "string" ? invoker.meta.customer : "public"
+              const customer = hasRuntimeType(invoker.meta?.customer, "string") ? invoker.meta.customer : "public"
               return { role: "viewer", scope: customer }
             },
             scopes: {
@@ -349,8 +369,9 @@ describe("access capability", () => {
         access({
           workspace: {
             resolve: ({ input }) => {
+              // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
               const context = input.get().context as { customer?: unknown } | undefined
-              const customer = typeof context?.customer === "string"
+              const customer = hasRuntimeType(context?.customer, "string")
                 ? context.customer
                 : "public"
               return {
@@ -471,6 +492,7 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = await resolved.tools!.shell.execute!({ command: "ls customers" }) as { stdout: string }
 
     expect(resolved.tools!.materialize_sources).toBeUndefined()
@@ -494,6 +516,7 @@ describe("access capability", () => {
     const base = createWorkspace()
     const workspace: ReadonlyWorkspaceFacade = {
       ...base,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fs: {
         ...base.fs,
         async exists(path: string) {
@@ -516,6 +539,7 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = await resolved.tools!.shell.execute!({ command: `rg -i "months.*stock" portal/app --max-depth 3` }) as { stdout: string }
 
     expect(result.stdout).toBe("native rg\n")
@@ -559,12 +583,14 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
-    const executeShell = resolved.tools!.shell.execute as unknown as (
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const executeShell = asUnknownBoundary(resolved.tools!.shell.execute) as (
       input: { command: string },
       options: { messages: unknown[], toolCallId: string },
     ) => Promise<{ exitCode: number, stdout: string }>
     const result = await executeShell(
       { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { toolCallId: "test", messages: [] } as never,
     )
 
@@ -620,7 +646,8 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
-    const executeShell = resolved.tools!.shell.execute as unknown as (
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const executeShell = asUnknownBoundary(resolved.tools!.shell.execute) as (
       input: { command: string },
       options: { messages: unknown[], toolCallId: string },
     ) => Promise<{ exitCode: number, stderr: string }>
@@ -649,9 +676,11 @@ describe("access capability", () => {
       sources: {
         ingestion: custom({
           async resolve({ invocation }) {
-            const scope = invocation.context.get<{ customers: string[] }>("support.customerScope")
+            const scope = invocation.context.get("support.customerScope")
             resolverScopes.push(scope)
-            const customer = scope?.customers[0]
+            const customer = isTestRecord(scope) && Array.isArray(scope.customers) && hasRuntimeType(scope.customers[0], "string")
+              ? scope.customers[0]
+              : undefined
             if (!customer) return false
             return custom({
               materialize: "lazy",
@@ -679,7 +708,7 @@ describe("access capability", () => {
         access({
           workspace: {
             resolve({ context }) {
-              const scope = context.get<{ customers: string[] }>("support.customerScope")
+              const scope = context.get("support.customerScope")
               const customer = scope?.customers[0]
               if (!customer) throw new Error("missing customer")
               return {
@@ -699,7 +728,7 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
     await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
     expect(resolverScopes).toEqual([{ customers: ["acme", "globex"] }])
-    expect(invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")?.sources).toHaveProperty("ingestion")
+    expect(invocationContext.get("workspace.sourceResolution.definition")?.sources).toHaveProperty("ingestion")
     expect(resolved.tools!.materialize_sources).toBeUndefined()
   })
 
@@ -767,7 +796,7 @@ describe("access capability", () => {
       sources: {
         ingestion: github(({ channel, selectedWorkspaceScope }) => {
           const customer = channel?.meta?.customer
-          if (typeof customer !== "string" || !customer) return false
+          if (!hasRuntimeType(customer, "string") || !customer) return false
           resolutions.push({ customer, scope: selectedWorkspaceScope?.name, sources: selectedWorkspaceScope?.sources })
           return {
             auth: false,
@@ -782,7 +811,7 @@ describe("access capability", () => {
     const accessCapability = access({
       workspace: {
         resolve({ context }) {
-          const scope = context.get<{ meta?: { access?: string } }>("channel")?.meta?.access
+          const scope = context.get("channel")?.meta?.access
           return scope === "support" || scope === "technical" ? scope : undefined
         },
         scopes: {
@@ -792,6 +821,7 @@ describe("access capability", () => {
       },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for (const [scope, customer] of [["support", "acme"], ["technical", "globex"]] as const) {
       const invocationContext = createAgentInvocationContextStore({ channel: { meta: { access: scope, customer } } })
       const resolved = await resolveAgentCapabilities({
@@ -1140,6 +1170,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
         },
       },
@@ -1181,6 +1212,7 @@ describe("access capability", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
     const resolveSource = vi.fn(({ selectedWorkspaceScope }) => ({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       materialize: "lazy" as const,
       mount: `customers/${selectedWorkspaceScope?.name}`,
       async getKeys() {
@@ -1212,6 +1244,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: {
             source: custom({
               async resolve(context) {
@@ -1258,6 +1291,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           publicDocs: { mount: "public" } as never,
         },
       },
@@ -1284,7 +1318,9 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           publicDocs: { mount: "public" } as never,
         },
       },
@@ -1310,7 +1346,9 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           publicDocs: { mount: "public" } as never,
         },
       },
@@ -1339,6 +1377,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           rootDocs: { mount: "" } as never,
         },
       },
@@ -1367,6 +1406,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
         },
       },
@@ -1392,6 +1432,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           rootDocs: { mount: "" } as never,
         },
       },

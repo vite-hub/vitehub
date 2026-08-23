@@ -22,7 +22,9 @@ import frameworkAuthHandler from "vite-hub/auth/server"
 import * as frameworkAuthVue from "vite-hub/auth/vue"
 import * as frameworkBlobContentType from "vite-hub/blob/content-type"
 import * as frameworkRateLimit from "vite-hub/rate-limit"
+import * as frameworkRuntimeNode from "vite-hub/runtime/node"
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state"
+import * as ownerRuntimeNode from "@vite-hub/runtime/node"
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -163,6 +165,7 @@ describe("framework package contract", () => {
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType)
     expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit)
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter)
+    expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources)
   })
 
   it("keeps the Database environment setter on its owner runtime instance", () => {

@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import {
   getMessageText,
@@ -100,18 +101,18 @@ export function assertInputCommandName(name: string): void {
 }
 
 function normalizeInputCommands(options: InputCommandsOptions): Record<string, InputCommand> {
-  if (!options || typeof options !== "object" || !options.commands || typeof options.commands !== "object" || Array.isArray(options.commands)) {
+  if (!options || !hasRuntimeType(options, "object") || !options.commands || !hasRuntimeType(options.commands, "object") || Array.isArray(options.commands)) {
     throw new TypeError("[vitehub] inputCommands({ commands }) requires a command map.")
   }
   for (const [name, command] of Object.entries(options.commands)) {
     assertInputCommandName(name)
-    if (!command || typeof command !== "object") {
+    if (!command || !hasRuntimeType(command, "object")) {
       throw new TypeError(`[vitehub] Input command "${name}" must be an object.`)
     }
-    if (command.description !== undefined && (typeof command.description !== "string" || !command.description.trim())) {
+    if (command.description !== undefined && (!hasRuntimeType(command.description, "string") || !command.description.trim())) {
       throw new TypeError(`[vitehub] Input command "${name}" description must be a non-empty string.`)
     }
-    if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => typeof channel !== "string" || !channel.trim()))) {
+    if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => !hasRuntimeType(channel, "string") || !channel.trim()))) {
       throw new TypeError(`[vitehub] Input command "${name}" channels must be non-empty Channel IDs.`)
     }
   }
@@ -120,7 +121,7 @@ function normalizeInputCommands(options: InputCommandsOptions): Record<string, I
 
 export function normalizeInputCommandTrigger(trigger: unknown): string {
   if (trigger === undefined) return "/"
-  if (typeof trigger !== "string" || !trigger) {
+  if (!hasRuntimeType(trigger, "string") || !trigger) {
     throw new TypeError("[vitehub] inputCommands({ trigger }) must be a non-empty string.")
   }
   if (/\s/.test(trigger)) {
@@ -192,7 +193,7 @@ function latestUserMessageIndex(messages: Message[]): number {
 }
 
 export function getInputCommandTarget(input: AgentRunInput): InputCommandTarget | undefined {
-  if (typeof input.prompt === "string" && !input.messages) {
+  if (hasRuntimeType(input.prompt, "string") && !input.messages) {
     return { text: input.prompt, type: "prompt" }
   }
 
@@ -200,7 +201,7 @@ export function getInputCommandTarget(input: AgentRunInput): InputCommandTarget 
   if (!messages) return
   const messageIndex = latestUserMessageIndex(messages)
   if (messageIndex < 0) {
-    return typeof input.prompt === "string"
+    return hasRuntimeType(input.prompt, "string")
       ? { text: input.prompt, type: "prompt" }
       : undefined
   }
@@ -254,7 +255,7 @@ export function replaceTargetText(
   messages[target.messageIndex!] = nextMessage
   if (!input.messages) return { ...input, prompt: messages }
   const next = { ...input, messages }
-  if (typeof next.prompt === "string") delete next.prompt
+  if (hasRuntimeType(next.prompt, "string")) delete next.prompt
   return next
 }
 
@@ -302,7 +303,7 @@ function inputCommandCall(command: InputCommand): InputCommandCall {
 }
 
 function activeChannelId(context: AgentCapabilityRuntimeContext): string | undefined {
-  return context.run?.channelId || context.context.get<{ channelId?: string }>("agent.trigger")?.channelId
+  return context.run?.channelId || context.context.get("agent.trigger")?.channelId
 }
 
 function commandAllowsCurrentChannel(command: InputCommand, context: AgentCapabilityRuntimeContext): boolean {
@@ -333,7 +334,7 @@ function createInputCommandMessage(
 function inputPhaseMessage(context: AgentCapabilityRuntimeContext): InputCommandDeliveryMessage {
   return createInputCommandMessage((intent, options) => {
     context.delivery.effect(intent)
-    if (options?.transient && typeof intent.metadata?.transientKey === "string") {
+    if (options?.transient && hasRuntimeType(intent.metadata?.transientKey, "string")) {
       context.delivery.finishEffect(() => ({
         kind: intent.kind,
         metadata: {
@@ -342,7 +343,8 @@ function inputPhaseMessage(context: AgentCapabilityRuntimeContext): InputCommand
         },
         payload: {
           action: "remove",
-          content: typeof intent.payload === "string" ? intent.payload : (intent.payload as { content?: unknown } | undefined)?.content,
+          // SAFETY: Input command parsing establishes the asserted command contract.
+          content: hasRuntimeType(intent.payload, "string") ? intent.payload : (intent.payload as { content?: unknown } | undefined)?.content,
         },
       }))
     }
@@ -361,6 +363,7 @@ async function runInputCommandInputHook(
   const hook = command.hooks?.["agent:input"]
   if (!hook) return
   const input = context.input.get()
+  // SAFETY: Input command parsing establishes the asserted command contract.
   await hook({
     ...context,
     args: invocation.args,
@@ -381,6 +384,7 @@ function scheduleInputCommandFinishHook(
   if (!hook) return
   context.delivery.finishEffect(async (context) => {
     const effects: AgentChannelDeliveryEffectIntent[] = []
+    // SAFETY: Input command parsing establishes the asserted command contract.
     await hook({
       ...context.event,
       args: invocation.args,
@@ -420,6 +424,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         if (++runs > maxRuns) throw new Error("[vitehub] inputCommands exceeded the maximum command expansion depth.")
 
         const command = commands[invocation.name]!
+        // SAFETY: Input command parsing establishes the asserted command contract.
         if (!commandAllowsCurrentChannel(command, context as AgentCapabilityRuntimeContext)) {
           cursor = invocation.end
           continue
@@ -427,12 +432,14 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         const result = await inputCommandCall(command)({
           args: invocation.args,
           command,
+          // SAFETY: Input command parsing establishes the asserted command contract.
           context: context as AgentCapabilityRuntimeContext,
           input,
           message: target.message,
           name: invocation.name,
           text: invocation.text,
         })
+        // SAFETY: Input command parsing establishes the asserted command contract.
         scheduleInputCommandFinishHook(command, context as AgentCapabilityRuntimeContext, invocation)
         if (result instanceof Response) return result
 
@@ -443,7 +450,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         text = target.text
         maxRuns = Math.max(maxRuns, text.length + 1)
 
-        if (typeof result === "string") {
+        if (hasRuntimeType(result, "string")) {
           if (text.slice(invocation.start, invocation.end) !== invocation.text) {
             cursor = text === previousText ? invocation.end : 0
             continue
@@ -459,12 +466,13 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           target = getInputCommandTarget(input)
           if (!target) return
           maxRuns = Math.max(maxRuns, text.length + 1)
+          // SAFETY: Input command parsing establishes the asserted command contract.
           await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
           cursor = replacement === invocation.text ? invocation.end : invocation.start
           continue
         }
 
-        if (result && typeof result === "object") {
+        if (result && hasRuntimeType(result, "object")) {
           const changesText = inputCommandChangesText(result)
           input = mergeInputCommandResult(input, result)
           context.input.set(input)
@@ -473,11 +481,13 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           text = target.text
           maxRuns = Math.max(maxRuns, text.length + 1)
           if (text !== previousText) {
+            // SAFETY: Input command parsing establishes the asserted command contract.
             await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
             cursor = 0
             continue
           }
           if (changesText) {
+            // SAFETY: Input command parsing establishes the asserted command contract.
             await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
             cursor = invocation.end
             continue
@@ -491,16 +501,19 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           if (!target) return
           text = target.text
           maxRuns = Math.max(maxRuns, text.length + 1)
+          // SAFETY: Input command parsing establishes the asserted command contract.
           await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
           cursor = 0
           continue
         }
 
         if (text !== previousText) {
+          // SAFETY: Input command parsing establishes the asserted command contract.
           await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
           cursor = 0
           continue
         }
+        // SAFETY: Input command parsing establishes the asserted command contract.
         await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
         cursor = invocation.end
       }

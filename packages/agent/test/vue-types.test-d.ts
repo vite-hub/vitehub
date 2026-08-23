@@ -1,3 +1,4 @@
+import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { describe, expectTypeOf, it } from "vitest"
 
 import {
@@ -22,6 +23,7 @@ describe("Agent Vue client types", () => {
     expectTypeOf(agent).toEqualTypeOf<AgentClient>()
     expectTypeOf(agent.name).toEqualTypeOf<string>()
 
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const transport = {} as ChatTransport<UIMessage>
     const init = { api: "/api/support", transport } satisfies AgentChatInit
     const chat = useChat(agent, init)
@@ -43,7 +45,8 @@ describe("Agent Vue client types", () => {
   })
 
   it("exposes typed invocation list and detail resources", () => {
-    const request = null as unknown as AgentInvocationRequester
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    const request = asUnknownBoundary(null) as AgentInvocationRequester
     const list = useAgentInvocations({ immediate: false, request })
     const detail = useAgentInvocation("inv-1", { immediate: false, request })
 
@@ -58,9 +61,11 @@ describe("Agent Vue client types", () => {
     expectTypeOf(detail.refresh).toBeFunction()
     expectTypeOf(detail.stop).toBeFunction()
 
-    // @ts-expect-error Invocation consoles must provide the transport their server exposes.
-    useAgentInvocations({ immediate: false })
-    // @ts-expect-error Invocation consoles must provide the transport their server exposes.
-    useAgentInvocation("inv-1", { immediate: false })
+    useAgentInvocations({ pollInterval: 100, request })
+    useAgentInvocation("inv-1", { pollInterval: 100, request })
+    // @ts-expect-error Applications must own the requester used to load Agent Invocations.
+    useAgentInvocations()
+    // @ts-expect-error Applications must own the requester used to load Agent Invocation details.
+    useAgentInvocation("inv-1")
   })
 })

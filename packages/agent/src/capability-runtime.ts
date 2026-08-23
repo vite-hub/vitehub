@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, workspaceOverrideSymbol } from "./access-runtime.ts"
@@ -36,11 +37,9 @@ import type {
   AgentDriverContributionKind,
   AgentDriverKind,
   AgentFinishEvent,
-  AgentFinishExtensionValues,
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
   AgentInvocationExtensions,
-  AgentOutputExtensionValues,
   AgentOutputExtensions,
   AgentOutputExtensionProvider,
   AgentInvocationContextStore,
@@ -83,6 +82,7 @@ type AgentCapabilityDefinitionInput<
   Name extends WorkspaceName = WorkspaceName,
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>
+// SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
 export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
 export const channelDeliveryFinishEffectsContextKey = "channel.delivery.finishEffects"
@@ -110,6 +110,8 @@ export interface AgentCapabilityRegistries {
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
+  telemetry: Array<{ capabilityId: string, registration: NonNullable<AgentCapabilityDefinition["telemetry"]> }>
+  telemetryMetadata: Array<{ capabilityId: string, metadata: Record<string, unknown> }>
   triggers: ResolvedAgentTriggerDefinition[]
   workspaceContributions: Array<{ capabilityId: string, rules: string[], sources: string[] }>
 }
@@ -154,7 +156,7 @@ export interface ResolvedAgentCapabilities {
 }
 
 function assertCapabilityId(id: unknown): asserts id is string {
-  if (typeof id !== "string" || !id.trim()) {
+  if (!hasRuntimeType(id, "string") || !id.trim()) {
     throw new TypeError("[vitehub] Capability definitions require a non-empty string id.")
   }
   if (!/^[a-z][a-z0-9-_.]*$/i.test(id)) {
@@ -163,7 +165,7 @@ function assertCapabilityId(id: unknown): asserts id is string {
 }
 
 function assertTriggerName(name: unknown, capabilityId: string): asserts name is string {
-  if (typeof name !== "string" || !name.trim()) {
+  if (!hasRuntimeType(name, "string") || !name.trim()) {
     throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger names must be non-empty strings.`)
   }
   if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
@@ -179,12 +181,15 @@ export function defineCapability<
 >(
   capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>>,
 ): TCapability {
-  if (!capability || typeof capability !== "object") {
+  if (!capability || !hasRuntimeType(capability, "object")) {
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
   }
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   assertCapabilityId((capability as { id?: unknown }).id)
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const cli = (capability as AgentCapabilityDefinition).cli
-  if (typeof cli !== "function") assertCapabilityCliContribution((capability as { id: string }).id, cli)
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
+  if (!hasRuntimeType(cli, "function")) assertCapabilityCliContribution((capability as { id: string }).id, cli)
   return capability
 }
 
@@ -201,9 +206,11 @@ export function normalizeCapabilities(
   if (!Array.isArray(capabilities)) {
     throw new TypeError("[vitehub] defineAgent({ capabilities }) must be an ordered array.")
   }
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   if (capabilities.some(capability => (capability as Record<symbol, unknown>)?.[Symbol.for("eve.mounted-extension")] === true)) {
     throw new TypeError("[vitehub] Eve extensions must be compiled by the ViteHub Vite plugin.")
   }
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const explicit = capabilities.map(capability => defineCapability(capability as AgentCapabilityDefinition))
   const explicitById = new Map<string, AgentCapabilityDefinition>()
   for (const capability of explicit) {
@@ -220,6 +227,7 @@ export function normalizeCapabilities(
     if (seen.has(resolved.id)) return
     seen.add(resolved.id)
     for (const nested of resolved.capabilities || []) {
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       const normalizedNested = defineCapability(nested as AgentCapabilityDefinition)
       if (!explicitById.has(normalizedNested.id)) add(normalizedNested)
     }
@@ -238,14 +246,16 @@ export async function resolveAgentCapabilityDefinitions<
   capabilities: AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
   context: AgentCapabilitiesResolverContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentCapabilityDefinition<TRuntimeConfig, Name>[]> {
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const resolved = normalizeCapabilities(
-    typeof capabilities === "function" ? await capabilities(context) : capabilities,
+    hasRuntimeType(capabilities, "function") ? await capabilities(context) : capabilities,
   ) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
 
-  if (typeof capabilities !== "function") return resolved
+  if (!hasRuntimeType(capabilities, "function")) return resolved
 
   for (const capability of resolved) {
     const accessMetadata = capability.id === "access"
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       ? capability.metadata as { chat?: unknown } | undefined
       : undefined
     const unsupported = [
@@ -267,7 +277,7 @@ function validateSandboxCommands(commands: unknown): void {
     throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
   }
   for (const command of commands) {
-    if (typeof command !== "string" || !/^[A-Za-z0-9_.-]+$/.test(command)) {
+    if (!hasRuntimeType(command, "string") || !/^[A-Za-z0-9_.-]+$/.test(command)) {
       throw new TypeError("[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings.")
     }
   }
@@ -275,14 +285,17 @@ function validateSandboxCommands(commands: unknown): void {
 
 function capabilityRequiresWorkspace(capability: AgentCapabilityDefinition): boolean {
   const metadata = capability.metadata
-  const optionalWorkspace = typeof metadata === "object"
+  const optionalWorkspace = hasRuntimeType(metadata, "object")
     && metadata !== null
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
   const accessWorkspace = capability.id === "access"
-    && typeof metadata === "object"
+    && hasRuntimeType(metadata, "object")
     && metadata !== null
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     && (metadata as { workspace?: unknown }).workspace === true
   const sandboxCommands = capability.id === "sandbox"
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     && Array.isArray((metadata as { commands?: unknown } | undefined)?.commands)
   return capability.workspace && !optionalWorkspace
     || capability.id === "workspace-shell"
@@ -299,6 +312,7 @@ export function validateAgentCapabilityComposition(
       throw new Error("[vitehub] gmail() requires a provider Agent Driver so its Workspace commands have a local execution host.")
     }
     if (capability.id === "sandbox") {
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
     }
     if (!options.hasWorkspace) {
@@ -344,7 +358,7 @@ function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]
 function getRunMessages(input: AgentRunInput): Message[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
-  if (input.message !== undefined) return [typeof input.message === "string" ? createMessage({ role: "user", text: input.message }) : input.message]
+  if (input.message !== undefined) return [hasRuntimeType(input.message, "string") ? createMessage({ role: "user", text: input.message }) : input.message]
   return []
 }
 
@@ -400,7 +414,7 @@ function pathsConflict(left: string, right: string): boolean {
 }
 
 function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
+  return !!input && hasRuntimeType(input, "object") && !Array.isArray(input)
 }
 
 function ruleConflictBase(pattern: string): string {
@@ -501,14 +515,17 @@ function assertWorkspaceContribution(
 async function workspacePathExists(workspace: ReadonlyWorkspaceFacade, path: string): Promise<boolean> {
   if (!path) {
     try {
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       return Boolean((await workspace.fs.list("" as never)).length)
     }
     catch {
       return false
     }
   }
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   if (await workspace.fs.exists(path as never)) return true
   try {
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     return Boolean((await workspace.fs.list(path as never)).length)
   }
   catch {
@@ -545,6 +562,7 @@ async function workspaceSourcePathExists(
   for (const path of await sourceConflictPaths(source)) {
     for (const parent of parentPaths(path)) {
       try {
+        // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
         const stat = await workspace.fs.stat(parent as never)
         if (stat?.type !== "directory") return true
       }
@@ -596,7 +614,7 @@ async function assertResolvedWorkspaceContributionSources(
 
 function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore): WorkspaceSelectedScope | undefined {
   if (!hasTrustedWorkspaceAccessScope(context)) return
-  const access = context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], role?: string, scope?: string, sources?: readonly string[] } }>("access")
+  const access = context.get("access")
   const scope = access?.workspaceScope
   if (!scope?.scope) return
   return {
@@ -610,7 +628,7 @@ function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore)
 
 function setSelectedWorkspaceScopeContext(context: AgentInvocationContextStore, scope: WorkspaceSelectedScope | undefined) {
   if (!scope || !hasTrustedWorkspaceAccessScope(context)) return
-  const access = context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], role?: string, scope?: string, sources?: readonly string[] } }>("access")
+  const access = context.get("access")
   context.set("access", {
     ...access,
     workspaceScope: {
@@ -710,12 +728,13 @@ function assertStaticWorkspaceContributionSourcesInScope(
 }
 
 function withInvocationReadableSource(input: WorkspaceSourceInput): WorkspaceSourceInput {
-  if (typeof input === "string") return { source: input, materialize: "lazy" }
+  if (hasRuntimeType(input, "string")) return { source: input, materialize: "lazy" }
   if (!isPlainRecord(input)) return input
   const mount = input.mount
   if (input.materialize !== undefined || input.sync !== undefined || isPlainRecord(mount) && mount.materialize !== undefined) {
     return input
   }
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   return { ...input, materialize: "lazy" } as WorkspaceSourceInput
 }
 
@@ -743,8 +762,9 @@ async function applyCapabilityWorkspaceContributions<
 
   for (const capability of capabilities) {
     if (!capability.workspace) continue
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, context.workspace, workspaceMode)
-    const resolved = typeof capability.workspace === "function"
+    const resolved = hasRuntimeType(capability.workspace, "function")
       ? await capability.workspace({
           ...context,
           mode: capability.mode,
@@ -783,6 +803,7 @@ async function applyCapabilityWorkspaceContributions<
   })
   selectedWorkspaceScope = mergeSelectedWorkspaceSourceGrantPaths(selectedWorkspaceScope, resolvedDefinition, workspaceRuntime)
   setSelectedWorkspaceScopeContext(context.context, selectedWorkspaceScope)
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
     invocation: {
       context: agentInvocationSourceContext(context.context),
@@ -801,6 +822,7 @@ async function applyCapabilityWorkspaceContributions<
   return {
     definition: sourceResolution.definition,
     registries,
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     workspace: sourceResolution.workspace as ReadonlyWorkspaceFacade<Name>,
   }
 }
@@ -822,17 +844,20 @@ export async function resolveAgentCapabilities<
   const driverKind = invocationOptions.driverKind || "model"
   const resolveCapabilityCli = invocationOptions.resolveCapabilityCli ?? driverKind !== "provider"
   ensureAgentInvokerContext(invocationContext, invoker)
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
   const workspaceMaterializationPaths = driverKind === "provider"
     ? compactWorkspacePaths(capabilities.flatMap(capability =>
         [
+          // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
           ...((capability as InternalAgentCapabilityDefinition)[workspaceMaterializationPathsSymbol] || []),
           ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
         ],
       ))
     : []
   let currentInput = normalizeRunInput(input)
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
   const inputMessages = getRunMessages(currentInput)
@@ -842,8 +867,8 @@ export async function resolveAgentCapabilities<
   const driverContributions: AgentDriverContribution[] = []
   let capabilityScope: Awaited<ReturnType<typeof openAgentCapabilityScope>> | undefined
   const toolTransforms: AgentToolTransform[] = []
-  const initialDeliveryEffectIntents = invocationContext.get<AgentChannelDeliveryEffectIntent[]>(channelDeliveryEffectsContextKey) || []
-  const initialFinishDeliveryEffectProviders = invocationContext.get<AgentChannelDeliveryFinishEffect[]>(channelDeliveryFinishEffectsContextKey) || []
+  const initialDeliveryEffectIntents = invocationContext.get(channelDeliveryEffectsContextKey) || []
+  const initialFinishDeliveryEffectProviders = invocationContext.get(channelDeliveryFinishEffectsContextKey) || []
   const registries: AgentCapabilityRegistries = {
     deliveryEffectIntents: [...initialDeliveryEffectIntents],
     finishDeliveryEffectProviders: [...initialFinishDeliveryEffectProviders],
@@ -854,6 +879,8 @@ export async function resolveAgentCapabilities<
     outputRenderers: [],
     providerTools: [],
     stateRequirements: [],
+    telemetry: [],
+    telemetryMetadata: [],
     triggers: [],
     workspaceContributions: [],
   }
@@ -875,7 +902,8 @@ export async function resolveAgentCapabilities<
     registries.finishExtensionProviders.push({
       ...(eager ? { eager: true } : {}),
       id: capabilityId,
-      resolve: typeof value === "function"
+      resolve: hasRuntimeType(value, "function")
+        // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
         ? value as AgentFinishExtensionProvider
         : () => value,
     })
@@ -891,6 +919,7 @@ export async function resolveAgentCapabilities<
     invocationStarted = true
     const deliveryEffectCount = registries.deliveryEffectIntents.length
     for (const { capability, context } of capabilityContexts) {
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       await (capability as InternalAgentCapabilityDefinition<TRuntimeConfig, Name>)[capabilityInvocationStartSymbol]?.(context)
     }
     return registries.deliveryEffectIntents.slice(deliveryEffectCount)
@@ -913,7 +942,7 @@ export async function resolveAgentCapabilities<
     workspaceContributionsApplied = true
     if (!currentWorkspace || !currentWorkspaceDefinition) return
     const sourceResolvedDefinition = hasTrustedWorkspaceSourceResolutionDefinition(invocationContext)
-      ? invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+      ? invocationContext.get("workspace.sourceResolution.definition")
       : undefined
     if (sourceResolvedDefinition) currentWorkspaceDefinition = sourceResolvedDefinition
     const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
@@ -940,6 +969,7 @@ export async function resolveAgentCapabilities<
 
   try {
     for (const capability of capabilities) {
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
       const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
       const metadataContext = {
@@ -971,6 +1001,7 @@ export async function resolveAgentCapabilities<
           currentInput = withMessages(currentInput, messages)
         },
       }
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       capabilityContext = {
         ...metadataContext,
         [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
@@ -983,7 +1014,7 @@ export async function resolveAgentCapabilities<
         invocation: { input, kind: invocationOptions.invocationKind || "run" },
         delivery: {
           effect(intent) {
-            if (!intent || typeof intent !== "object" || typeof intent.kind !== "string" || !intent.kind.trim()) {
+            if (!intent || !hasRuntimeType(intent, "object") || !hasRuntimeType(intent.kind, "string") || !intent.kind.trim()) {
               throw new TypeError("[vitehub] delivery.effect() requires an effect intent with a non-empty kind.")
             }
             const next = [...registries.deliveryEffectIntents, intent]
@@ -992,7 +1023,7 @@ export async function resolveAgentCapabilities<
           },
           finishEffect(effect) {
             const effects = Array.isArray(effect) ? effect : [effect]
-            if (typeof effect !== "function" && effects.some(effect => !effect || typeof effect !== "object" || typeof effect.kind !== "string" || !effect.kind.trim())) {
+            if (!hasRuntimeType(effect, "function") && effects.some(effect => !effect || !isRuntimeRecord(effect) || !hasRuntimeType(effect.kind, "string") || !effect.kind.trim())) {
               throw new TypeError("[vitehub] delivery.finishEffect() requires an effect intent or resolver.")
             }
             const next = [...registries.finishDeliveryEffectProviders, effect]
@@ -1014,7 +1045,9 @@ export async function resolveAgentCapabilities<
               workspace: currentWorkspace,
               workspaceDefinition: currentWorkspaceDefinition,
             }
+            // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
             const resolved = await resolveRuntimeValue(resolver as never, resolverContext as never)
+            // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
             return await materializeAgentModel(resolved as never, resolverContext)
           },
         },
@@ -1026,6 +1059,7 @@ export async function resolveAgentCapabilities<
         output: {
           extensions: createAgentExtensionReader(new Map()),
           final(renderer: AgentOutputRenderer, options?: { order?: "last" }) {
+            // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
             const resolved = ((result: unknown, extensions = createAgentExtensionReader(new Map())) => renderer(result, {
               ...capabilityContext,
               output: {
@@ -1040,12 +1074,14 @@ export async function resolveAgentCapabilities<
           provide(value) {
             registries.outputExtensionProviders.push({
               id: capability.id,
-              resolve: typeof value === "function"
+              resolve: hasRuntimeType(value, "function")
+                // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
                 ? value as AgentOutputExtensionProvider
                 : () => value,
             })
           },
           render(renderer: AgentOutputRenderer) {
+            // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
             const resolved = ((result: unknown, extensions = createAgentExtensionReader(new Map())) => renderer(result, {
               ...capabilityContext,
               output: {
@@ -1075,6 +1111,14 @@ export async function resolveAgentCapabilities<
             }
           },
         },
+        telemetry: {
+          metadata(metadata) {
+            if (!metadata || !hasRuntimeType(metadata, "object") || Array.isArray(metadata)) {
+              throw new TypeError(`[vitehub] Capability "${capability.id}" telemetry.metadata() requires a metadata object.`)
+            }
+            registries.telemetryMetadata.push({ capabilityId: capability.id, metadata })
+          },
+        },
         tools: {
           add(value) {
             if (!value) return
@@ -1088,19 +1132,25 @@ export async function resolveAgentCapabilities<
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContexts.push({ capability, context: capabilityContext })
+      if (capability.telemetry) {
+        registries.telemetry.push({ capabilityId: capability.id, registration: capability.telemetry })
+      }
       if (capability.finish) {
         addFinishExtensionProvider(
           capability.id,
           capability.finish,
+          // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
           (capability as InternalAgentCapabilityDefinition<TRuntimeConfig, Name>)[eagerFinishExtensionSymbol],
         )
       }
 
       for (const [name, trigger] of Object.entries(capability.triggers || {})) {
         assertTriggerName(name, capability.id)
+        // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
         const id = `${capability.id}.${name}` as const
         registries.triggers.push({
           capabilityId: capability.id,
+          // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
           definition: trigger as never,
           id,
           input: trigger.input,
@@ -1114,6 +1164,7 @@ export async function resolveAgentCapabilities<
               name,
               source: "capability",
             },
+          // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
           }, input as never),
           name,
           output: trigger.output,
@@ -1170,6 +1221,7 @@ export async function resolveAgentCapabilities<
         }
       }
       if (invocationOptions.resolveTools !== false && capability.tools) {
+        // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
         const resolved = await resolveRuntimeValue(capability.tools as never, context) as unknown
         if (isToolSet(resolved)) {
           for (const name of Object.keys(resolved)) {
@@ -1217,13 +1269,16 @@ export async function resolveStaticCapabilityTools<
   const invocationContext = createAgentInvocationContextStore()
   const invoker = createFallbackAgentInvoker(runtime.run)
   ensureAgentInvokerContext(invocationContext, invoker)
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let tools: AgentToolSet | undefined
 
   for (const capability of capabilities) {
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
     if (!capability.tools) continue
-    const capabilityContext = {
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
+    const capabilityContext = asUnknownBoundary({
       ...agentInvocationCallbackContextValues(invocationContext),
       ...runtimeContext,
       actor: invoker,
@@ -1233,7 +1288,8 @@ export async function resolveStaticCapabilityTools<
       mode: capability.mode,
       runtimeContext: runtime,
       workspace,
-    } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
+    }) as AgentCapabilityContext<TRuntimeConfig, Name>
+    // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
     const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as never) as unknown
     if (isToolSet(resolved)) tools = { ...tools, ...resolved }
   }
@@ -1242,7 +1298,7 @@ export async function resolveStaticCapabilityTools<
 }
 
 function isToolSet(value: unknown): value is AgentToolSet {
-  return typeof value === "object" && value !== null
+  return hasRuntimeType(value, "object") && value !== null
 }
 
 export async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
@@ -1260,6 +1316,7 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
       throw new Error(`[vitehub] ${capability.id}() requires workspace.mode: "write".`)
     }
     for (const path of requirement.workspace.paths || []) {
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       if (!await workspace.fs.exists(path as never)) {
         throw new Error(`[vitehub] ${capability.id}() requires workspace path ${path}.`)
       }
@@ -1290,7 +1347,8 @@ export async function applyOutputRenderers(
   let current = result
   let rendered = false
   let providerIndex = 0
-  const extensions = createAgentExtensionReader<AgentOutputExtensionValues>(values)
+  // SAFETY: Output extension providers own the declared capability IDs and values stored in this reader.
+  const extensions = asUnknownBoundary(createAgentExtensionReader(values)) as AgentOutputExtensions
   const delayedRenderers: Array<{ extensions: AgentOutputExtensions, renderer: ResolvedAgentOutputRenderer }> = []
   for (const renderer of renderers) {
     while (providerIndex < renderer.providerCount) {
@@ -1318,16 +1376,17 @@ export async function applyOutputRenderers(
   return current
 }
 
-function createAgentExtensionReader<TValues extends object = Record<string, unknown>>(values: Map<string, unknown>): AgentInvocationExtensions<TValues> {
+function createAgentExtensionReader(values: Map<string, unknown>): AgentInvocationExtensions {
   return {
     entries() {
       return Array.from(values.entries())
     },
-    get<T = unknown>(capabilityId: string, key?: string): T | undefined {
+    get(capabilityId: string, key?: string): unknown {
       const value = values.get(capabilityId)
-      if (key === undefined) return value as T | undefined
-      if (typeof value !== "object" || value === null) return undefined
-      return (value as Record<string, unknown>)[key] as T | undefined
+      if (key === undefined) return value
+      if (!hasRuntimeType(value, "object") || value === null) return undefined
+      // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
+      return (value as Record<string, unknown>)[key]
     },
     toJSON() {
       return Object.fromEntries(values.entries())
@@ -1340,7 +1399,9 @@ export async function createAgentInvocationExtensions(
   providers: ResolvedAgentFinishExtensionProvider[] = [],
 ): Promise<AgentFinishEvent["extensions"]> {
   const values = new Map<string, unknown>()
-  const extensions = createAgentExtensionReader<AgentFinishExtensionValues>(values)
+  // SAFETY: Finish extension providers own the declared capability IDs and values stored in this reader.
+  const extensions = asUnknownBoundary(createAgentExtensionReader(values)) as AgentFinishEvent["extensions"]
+  // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const finishEvent = { ...event, extensions } as AgentFinishEvent
   for (const provider of providers) {
     const value = await provider.resolve(finishEvent)

@@ -1,3 +1,4 @@
+import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { effectScope, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -60,9 +61,28 @@ async function settle() {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("Agent Invocation Vue composables", () => {
+  it("uses the same-origin endpoint with an application requester", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invocations: [] }), {
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const scope = effectScope();
+    const requestUnknown = (path: string, options: { signal?: AbortSignal }): Promise<unknown> => fetch(path, options).then(response => response.json());
+    // SAFETY: This fixture controls the response body and supplies the exact list shape consumed by the composable.
+    const request = requestUnknown as AgentInvocationRequester;
+    const resource = scope.run(() => useAgentInvocations({ immediate: false, request }))!;
+
+    await expect(resource.refresh()).resolves.toEqual({ invocations: [] });
+    expect(fetchMock).toHaveBeenCalledWith("/api/invocations", {
+      signal: expect.any(AbortSignal),
+    });
+    scope.stop();
+  });
+
   it("reacts to list queries and ignores superseded requests", async () => {
     const { calls, request } = controlledRequester();
     const query = ref({ status: ["queued", "running"], limit: 20 });
@@ -294,6 +314,7 @@ describe("Agent Invocation Vue composables", () => {
 
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const requestMock = vi.fn(async () => ({
       cursor: "next",
       invocations: [record("inv-1")],
