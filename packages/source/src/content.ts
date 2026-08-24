@@ -1,5 +1,5 @@
 import { comarkContent } from "comark-content"
-import { defineEventHandler } from "h3"
+import { defineEventHandler, getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
 import { normalizeSafeSourcePath } from "./core/path.ts"
 import { useSource } from "./core/registry.ts"
@@ -20,6 +20,11 @@ export interface ContentSourceOptions {
 }
 
 type ContentSourceItem = SourceItem<string, unknown, object>
+type NodeContentRequest = {
+  aborted: boolean
+  method?: string
+  once(event: "aborted", listener: () => void): unknown
+}
 export type ContentSourceInput = SourceName | SourceReader | (() => SourceReader) | ComarkContentSource
 
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
@@ -42,8 +47,8 @@ function contentPath(item: ContentSourceItem): string {
 }
 
 function textContent(item: ContentSourceItem): string {
-  if (typeof item.content === "string") return item.content
   if (item.content instanceof Uint8Array) return new TextDecoder().decode(item.content)
+  if (item.content !== undefined) return item.content
   if (item.data !== undefined) {
     const serialized = JSON.stringify(item.data)
     if (serialized !== undefined) return serialized
@@ -51,20 +56,33 @@ function textContent(item: ContentSourceItem): string {
   throw new TypeError(`[vitehub] contentSource() cannot read ${JSON.stringify(item.key)} as content.`)
 }
 
+function isComarkContentSource(input: ContentSourceInput): input is ComarkContentSource {
+  return input instanceof Object && "getItem" in input && "keys" in input
+}
+
+function isSourceReaderFactory(input: SourceName | SourceReader | (() => SourceReader)): input is () => SourceReader {
+  return input instanceof Function
+}
+
+function isSourceName(input: SourceName | SourceReader | (() => SourceReader)): input is SourceName {
+  return !(input instanceof Object)
+}
+
 /** Adapt a registered ViteHub Source or Source Reader to the interface consumed by Comark Content. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
-  if (typeof input === "object" && "getItem" in input && "keys" in input) {
+  if (isComarkContentSource(input)) {
     return options.prefix === undefined && options.schema === undefined ? input : { ...input, ...options }
   }
+  // SAFETY: The native Comark Source branch returned above, leaving only ViteHub Source inputs.
   const sourceInput = input as SourceName | SourceReader | (() => SourceReader)
   const pendingLoads: Map<string, ContentSourceItem>[] = []
   let latestItems: Map<string, ContentSourceItem> | undefined
 
   async function loadItems() {
     const nextItems = new Map<string, ContentSourceItem>()
-    const currentReader = typeof sourceInput === "string"
+    const currentReader = isSourceName(sourceInput)
       ? useSource(sourceInput)
-      : typeof sourceInput === "function"
+      : isSourceReaderFactory(sourceInput)
         ? sourceInput()
         : sourceInput
     for (const item of await currentReader.items()) {
@@ -127,6 +145,7 @@ export function defineContent<
     ? Object.fromEntries(Object.entries(options.sources).map(([name, input]) => [name, contentSource(input)]))
     : undefined
 
+  // SAFETY: Comark plugins add their declared methods to the returned runtime object.
   return comarkContent({
     ...options,
     basePath: "/api/content",
@@ -139,5 +158,23 @@ export function defineContent<
 export function defineContentHandler(
   content: Pick<ComarkContent, "handler">,
 ): ReturnType<typeof defineEventHandler> {
-  return defineEventHandler((event: H3Event) => content.handler(event.req))
+  return defineEventHandler(async (event: H3Event) => {
+    if (event.req instanceof Request) return await content.handler(event.req)
+
+    if (!event.node) throw new TypeError("[vitehub] Content received an unsupported non-Web request.")
+    // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+    const nodeRequest = event.node.req as NodeContentRequest
+    const method = event.method || nodeRequest.method || "GET"
+    const body = method === "GET" || method === "HEAD" ? undefined : await readRawBody(event, false)
+    const abort = new AbortController()
+    if (nodeRequest.aborted) abort.abort()
+    else nodeRequest.once("aborted", () => abort.abort())
+
+    return await content.handler(new Request(getRequestURL(event), {
+      body,
+      headers: getRequestHeaders(event),
+      method,
+      signal: abort.signal,
+    }))
+  })
 }

@@ -1,9 +1,12 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { IncomingMessage, ServerResponse } from "node:http"
+import { Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createEvent } from "h3"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -257,11 +260,14 @@ describe("framework generated types", () => {
     const generatedModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
     if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
-    const response: unknown = await generatedHandler({
-      req: new Request("https://example.test/api/content/custom", { method: "POST" }),
-    })
-    expect(response).toBeInstanceOf(Response)
-    await expect((response as Response).text()).resolves.toBe("https://example.test/api/content/custom")
+    const nodeRequest = new IncomingMessage(new Socket())
+    nodeRequest.url = "/api/content/custom"
+    nodeRequest.method = "POST"
+    nodeRequest.headers = { host: "example.test", "x-forwarded-proto": "https" }
+    nodeRequest.push(null)
+    const response: unknown = await generatedHandler(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
+    if (!(response instanceof Response)) throw new TypeError("Expected the Content handler to return a response.")
+    await expect(response.text()).resolves.toBe("https://example.test/api/content/custom")
   })
 
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {
