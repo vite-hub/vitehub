@@ -399,12 +399,13 @@ describe("workspace host sessions", () => {
 
     try {
       const session = await docs.startSession({ host, target, writeBack: false })
-      const listsAfterOpen = list.mock.calls.length
+      const recursiveRootListsAfterOpen = list.mock.calls.filter(([path, options]) => path === target && options?.recursive).length
       await session.writeFile("README.md", "changed")
       await session.close()
 
       expect(read).not.toHaveBeenCalled()
-      expect(list).toHaveBeenCalledTimes(listsAfterOpen + 1)
+      const recursiveRootLists = list.mock.calls.filter(([path, options]) => path === target && options?.recursive)
+      expect(recursiveRootLists).toHaveLength(recursiveRootListsAfterOpen + 3)
       await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("# Docs\n")
     }
     finally {

@@ -113,6 +113,7 @@ describe("workspace publication", () => {
         store,
       })
       await Promise.all(Array.from({ length: 40 }, (_, index) => workspace.writeFile(`${index}.txt`, String(index))))
+      maxActive = 0
 
       await workspace.publish()
 
