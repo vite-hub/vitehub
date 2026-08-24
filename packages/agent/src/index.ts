@@ -862,7 +862,11 @@ export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunIn
   if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
   if (workflowInput.message && !hasRuntimeType(workflowInput.message, "string")) [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
-  return workflowInput
+  // Validate and detach the complete payload before it crosses a durable State
+  // or Workflow boundary. Materializing messages alone would still allow
+  // context and call options to be silently coerced by JSON persistence.
+  // SAFETY: cloneWorkflowJsonValue preserves the normalized AgentRunInput shape while rejecting non-JSON values.
+  return cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>
 }
 
 async function runAgentAsWorkflow<
@@ -939,7 +943,10 @@ async function runAgentAsWorkflow<
       waitUntil: context.waitUntil,
     },
   }
-  const workflowRunId = !options.fresh && context.run?.runId
+  // Durable Channel recovery may be a fresh provider start while still owning
+  // one persisted logical run. Reuse that ID so an ambiguous create can be
+  // retried without starting a second Workflow.
+  const workflowRunId = context.run?.runId && (!options.fresh || durableChannelDelivery)
     ? workflowConfig && workflowConfig.provider === "cloudflare"
       ? await portableAgentWorkflowRunId(context.run.runId)
       : context.run.runId
@@ -1002,12 +1009,12 @@ async function runAgentAsWorkflow<
   if (hasAgentDefinition(agent) && agent.invocations && run.provider !== "vercel") {
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
-      const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id
+      const sourceRunId = context.run?.runId ?? run.id
       if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
     }
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
-      run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
+      run: { ...context.run, runId: context.run?.runId ?? run.id },
     }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)

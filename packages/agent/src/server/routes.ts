@@ -2609,6 +2609,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                     delivery,
                     failure,
                     Date.now(),
+                    async () => {
+                      if (recoveryOwnershipLost || !(await resolved.state.extendLock(recoveryLock, ttlMs))) {
+                        throw new Error("[vitehub] Durable steered Channel delivery lost fallback ownership.")
+                      }
+                    },
                   ),
               )
               stopExecutionHeartbeat()
@@ -2817,6 +2822,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 delivery,
                 failure,
                 Date.now(),
+                verify,
               ),
           )
           await resolved.state.releaseLock(lock)
@@ -2957,6 +2963,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   delivery,
                   failure,
                   Date.now(),
+                  verify,
                 ),
             )
           } catch (settlementError) {
@@ -3182,6 +3189,7 @@ async function postDurableSteerErrorFallback(
   delivery: DurableSteerErrorDelivery,
   error: unknown,
   maximumInvocationDeadline: number,
+  verifyOwnership?: () => Promise<void>,
 ): Promise<void> {
   const baseOptions = getAgentChatOptions(agent)
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
@@ -3198,6 +3206,9 @@ async function postDurableSteerErrorFallback(
     throw new Error("[vitehub] Durable steered Channel error delivery could not resolve its configured Chat adapter.")
   }
   const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, options))
+  // Fence the external effect itself. An earlier heartbeat or verification can
+  // become stale while the adapter and Chat client are being resolved.
+  await verifyOwnership?.()
   const delivered = await postChatErrorFallback(
     error,
     chat.thread(delivery.message.threadId),
@@ -4659,7 +4670,9 @@ async function handleChatSdkMessage(
             reclaimingDeliveryQueued = true
             reclaimedMessage = previous.message
             reclaimedEntry = previous
-            workflowInput = previous.message.input
+            // The persisted entry remains the CAS expectation below. Rebinding
+            // steer ownership must not mutate that expected value in place.
+            workflowInput = structuredClone(previous.message.input)
             workflowInputHasResolvedInvoker = previous.message.resolvedInvoker === true
             workflowInvokerKey = durableSteerInvokerKey(previous.message)
             workflowCapabilities = previous.message.capabilities
@@ -4938,7 +4951,20 @@ async function handleChatSdkMessage(
                   steerPending,
                   error,
                   async (delivery, failure) =>
-                    await postDurableSteerErrorFallback(agent, context, registration, state.state, delivery, failure, maximumInvocationDeadline ?? Date.now()),
+                    await postDurableSteerErrorFallback(
+                      agent,
+                      context,
+                      registration,
+                      state.state,
+                      delivery,
+                      failure,
+                      maximumInvocationDeadline ?? Date.now(),
+                      async () => {
+                        if (!(await state.state.extendLock(steerLock!, steerTtlMs))) {
+                          throw new Error("[vitehub] Durable steered Channel delivery lost fallback ownership.")
+                        }
+                      },
+                    ),
                 )
               } catch (settlementError) {
                 retainSteerStartOwnership = true

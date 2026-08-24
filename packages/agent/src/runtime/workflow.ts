@@ -396,9 +396,11 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     while (backgroundTasks.length || agentInvocationRecoveryTasks(runtimeContext).length) {
       await Promise.allSettled([...backgroundTasks.splice(0), ...agentInvocationRecoveryTasks(runtimeContext)])
     }
+    // Recovery must establish replacement custody before terminal settlement
+    // can acknowledge the owner-fenced pending claim.
+    if (workflowRetryTasks.length) await Promise.all(workflowRetryTasks)
     await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
       if (channelOwnership.retrySettlementFailures) throw error
     })
-    if (workflowRetryTasks.length) await Promise.all(workflowRetryTasks)
   }
 }
