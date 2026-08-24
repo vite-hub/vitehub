@@ -232,6 +232,27 @@ describe("message scroller behavior", () => {
     wrapper.unmount();
   });
 
+  it("preserves a consumer-hidden jump control while active", async () => {
+    const Harness = defineComponent({
+      setup: () => () => h(MessageScrollerRoot, null, {
+        default: () => [h(MessageScrollerViewport), h(MessageScrollerButton, { hidden: true })],
+      }),
+    });
+    const wrapper = mount(Harness);
+    const viewport = wrapper.get("[data-slot='message-scroller-viewport']");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, value: 200, writable: true },
+    });
+
+    await viewport.trigger("scroll");
+
+    const button = wrapper.get("[data-slot='message-scroller-button']");
+    expect(button.attributes("data-active")).toBe("true");
+    expect(button.attributes("hidden")).toBe("");
+  });
+
   it("uses instant scrolling when reduced motion is requested", async () => {
     const reducedMotion = Object.assign(new EventTarget(), {
       addListener: vi.fn(),

@@ -359,7 +359,7 @@ export const MessageScrollerButton = defineComponent({
         }, attrs, {
           "data-active": active ? "true" : "false",
           "data-slot": "message-scroller-button",
-          hidden: active ? undefined : true,
+          hidden: active ? attrs.hidden : true,
           inert: active ? undefined : true,
           tabindex: active ? attrs.tabindex : -1,
           type: props.as === "button" ? "button" : undefined,

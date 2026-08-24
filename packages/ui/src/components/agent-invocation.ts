@@ -104,6 +104,13 @@ function renderFolderIcon() {
 
 type InspectTarget = "agent" | "workspace";
 
+const messageRoleLabels: Record<NonNullable<InvocationActivity["role"]>, string> = {
+  assistant: "Assistant",
+  system: "System",
+  tool: "Tool",
+  user: "User",
+};
+
 function renderMessage(
   activity: InvocationActivity,
   expanded: ReadonlySet<string>,
@@ -120,7 +127,7 @@ function renderMessage(
       key: activity.id,
     },
     [
-      h("span", { class: "vh-visually-hidden" }, `${activity.role === "user" ? "User" : "Assistant"} message`),
+      h("span", { class: "vh-visually-hidden" }, `${messageRoleLabels[activity.role ?? "assistant"]} message`),
       h("div", {
         class: "vh-invocation-message__content",
         "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
@@ -891,7 +898,7 @@ export const AgentInvocationInspector = defineComponent({
           h("span", { class: "vh-invocation-inspector__copy-label" }, label),
           h(
             "span",
-            { "aria-live": "polite", class: "vh-invocation-inspector__copy-state" },
+            { class: "vh-invocation-inspector__copy-state" },
             didCopy ? "Copied" : "Copy",
           ),
           h("span", { class: "vh-invocation-inspector__copy-icon" }, [copyIcon(didCopy)]),

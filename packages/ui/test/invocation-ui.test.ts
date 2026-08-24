@@ -283,6 +283,7 @@ describe("Agent Invocation UI", () => {
             { id: "system", parts: [{ text: "Follow the repository rules.", type: "text" }], role: "system" },
             { id: "user", parts: [{ text: "Review this change.", type: "text" }], role: "user" },
             { id: "assistant", parts: [{ text: "I found one issue.", type: "text" }], role: "assistant" },
+            { id: "tool", parts: [{ text: "The check passed.", type: "text" }], role: "tool" },
           ],
         },
         name: "agent.invocation.started",
@@ -299,7 +300,13 @@ describe("Agent Invocation UI", () => {
       ["system", "Follow the repository rules."],
       ["user", "Review this change."],
       ["assistant", "I found one issue."],
+      ["tool", "The check passed."],
     ]);
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.get('[data-role="system"] .vh-visually-hidden').text()).toBe("System message");
+    expect(wrapper.get('[data-role="user"] .vh-visually-hidden').text()).toBe("User message");
+    expect(wrapper.get('[data-role="assistant"] .vh-visually-hidden').text()).toBe("Assistant message");
+    expect(wrapper.get('[data-role="tool"] .vh-visually-hidden').text()).toBe("Tool message");
   });
 
   it("derives commands from direct provider payloads", () => {
@@ -723,6 +730,7 @@ describe("Agent Invocation UI", () => {
     expect(writeText).toHaveBeenCalledWith(invocation.traceId);
     expect(copy.attributes("aria-label")).toBe("Trace ID copied");
     expect(copy.text()).toContain("Copied");
+    expect(copy.find(".vh-invocation-inspector__copy-state").attributes("aria-live")).toBeUndefined();
     expect(wrapper.get('[role="status"]').text()).toBe("Trace ID copied");
     wrapper.unmount();
   });
