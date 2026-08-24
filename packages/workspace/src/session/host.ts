@@ -150,8 +150,8 @@ async function ensureHostWorkspaceRoot(host: WorkspaceSessionHost, root: string,
   const symlink = await isHostPath(host, root, "-L", abortSignal)
   const directory = !symlink && await isHostPath(host, root, "-d", abortSignal)
   if (directory) return false
-  if (symlink || await host.files.exists(root)) await host.files.remove(root, { recursive: false })
-  await host.files.mkdir(root, { recursive: true })
+  if (symlink || await host.files.exists(root, { signal: abortSignal })) await host.files.remove(root, { recursive: false, signal: abortSignal })
+  await host.files.mkdir(root, { recursive: true, signal: abortSignal })
   await assertHostWorkspaceRoot(host, root, abortSignal)
   return true
 }
@@ -162,7 +162,7 @@ async function removeHostSymlinkAncestors(host: WorkspaceSessionHost, root: stri
     ancestor = posix.join(ancestor, component)
     abortSignal?.throwIfAborted()
     if (!await isHostPath(host, ancestor, "-L", abortSignal)) continue
-    await host.files.remove(ancestor, { recursive: false })
+    await host.files.remove(ancestor, { recursive: false, signal: abortSignal })
     if (await isHostPath(host, ancestor, "-L", abortSignal))
       throw workspaceError(`[vitehub] Failed to remove Workspace symlink ancestor: ${ancestor}.`)
     return
@@ -172,7 +172,7 @@ async function removeHostSymlinkAncestors(host: WorkspaceSessionHost, root: stri
 async function removeHostPath(host: WorkspaceSessionHost, root: string, path: string, recursive: boolean, abortSignal?: AbortSignal) {
   abortSignal?.throwIfAborted()
   await removeHostSymlinkAncestors(host, root, path, abortSignal)
-  await host.files.remove(path, { recursive: await isHostPath(host, path, "-L", abortSignal) ? false : recursive })
+  await host.files.remove(path, { recursive: await isHostPath(host, path, "-L", abortSignal) ? false : recursive, signal: abortSignal })
 }
 
 async function assertNoHostSymlinkParent(host: WorkspaceSessionHost, root: string, target: string, abortSignal?: AbortSignal) {
@@ -197,10 +197,10 @@ function toWorkspaceEntry(root: string, entry: WorkspaceSessionHostFileEntry): W
   }
 }
 
-async function ensureHostParent(host: WorkspaceSessionHost, path: string) {
+async function ensureHostParent(host: WorkspaceSessionHost, path: string, abortSignal?: AbortSignal) {
   const parent = posix.dirname(path)
   if (parent && parent !== "." && parent !== "/")
-    await host.files.mkdir(parent, { recursive: true })
+    await host.files.mkdir(parent, { recursive: true, signal: abortSignal })
 }
 
 async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, path: string, abortSignal?: AbortSignal): Promise<string> {
@@ -212,16 +212,16 @@ async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, p
   return result.stdout.replace(/\n$/, "")
 }
 
-async function writeHostSymlink(host: WorkspaceSessionHost, root: string, path: string, target: string) {
-  await removeHostPath(host, root, path, false)
-  const result = await host.exec("ln", ["-s", target, fromHostPath(root, path)], { cwd: root })
+async function writeHostSymlink(host: WorkspaceSessionHost, root: string, path: string, target: string, abortSignal?: AbortSignal) {
+  await removeHostPath(host, root, path, false, abortSignal)
+  const result = await host.exec("ln", ["-s", target, fromHostPath(root, path)], { cwd: root, signal: abortSignal })
   if (result.code !== 0)
     throw workspaceError(`[vitehub] Failed to create workspace symlink: ${path}. ${result.stderr || "ln failed"}`)
 }
 
 async function readHostFile(host: WorkspaceSessionHost, root: string, path: string, abortSignal?: AbortSignal): Promise<WorkspaceFile | undefined> {
   await assertHostWorkspaceRoot(host, root, abortSignal)
-  if (!await host.files.exists(path)) return undefined
+  if (!await host.files.exists(path, { signal: abortSignal })) return undefined
   const content = await host.files.read(path, { signal: abortSignal })
   return content ? { content, path: fromHostPath(root, path) } : undefined
 }
@@ -283,8 +283,8 @@ async function listHostEntries(
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-async function makeHostFileExecutable(host: WorkspaceSessionHost, root: string, path: string) {
-  const result = await host.exec("chmod", ["+x", fromHostPath(root, path)], { cwd: root })
+async function makeHostFileExecutable(host: WorkspaceSessionHost, root: string, path: string, abortSignal?: AbortSignal) {
+  const result = await host.exec("chmod", ["+x", fromHostPath(root, path)], { cwd: root, signal: abortSignal })
   if (result.code !== 0)
     throw workspaceError(`[vitehub] Failed to preserve executable Workspace file: ${path}. ${result.stderr || "chmod failed"}`)
 }
@@ -297,7 +297,7 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
   abortSignal?.throwIfAborted()
   if (await isHostPath(host, root, "-L", abortSignal))
     throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
-  if (!await host.files.exists(root)) {
+  if (!await host.files.exists(root, { signal: abortSignal })) {
     return { contents: new Map<string, Uint8Array | string>(), snapshot: await createSnapshotFromEntries([], name) }
   }
   const entries = await listHostEntries(host, root, "", true, undefined, false, [], abortSignal)
@@ -331,7 +331,7 @@ async function captureExcludedHostState(host: WorkspaceSessionHost, root: string
   abortSignal?.throwIfAborted()
   if (await isHostPath(host, root, "-L", abortSignal))
     throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
-  if (!await host.files.exists(root)) return await captureHostEntriesState(host, root, [], "host-excluded", abortSignal)
+  if (!await host.files.exists(root, { signal: abortSignal })) return await captureHostEntriesState(host, root, [], "host-excluded", abortSignal)
   const entries = await listHostEntries(host, root, "", true, entry => isInsideExcludedWriteBackPath(entry.path, excluded), true, [], abortSignal)
   return await captureHostEntriesState(host, root, entries, "host-excluded", abortSignal)
 }
@@ -388,18 +388,18 @@ async function restoreExcludedHostState(
   for (const [path, entry] of entries) {
     abortSignal?.throwIfAborted()
     const target = toHostPath(root, path)
-    await removeHostSymlinkAncestors(host, root, target)
+    await removeHostSymlinkAncestors(host, root, target, abortSignal)
     if (entry.type === "directory") {
-      await host.files.mkdir(target, { recursive: true })
+      await host.files.mkdir(target, { recursive: true, signal: abortSignal })
       continue
     }
     const content = state.contents.get(path)
     if (content === undefined) continue
-    await ensureHostParent(host, target)
-    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content))
+    await ensureHostParent(host, target, abortSignal)
+    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content), abortSignal)
     else {
-      await host.files.write(target, contentToBytes(content))
-      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
+      await host.files.write(target, contentToBytes(content), { signal: abortSignal })
+      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
     }
   }
 }
@@ -424,18 +424,18 @@ async function restoreAttachedHost(
   for (const [path, entry] of baselineEntries) {
     abortSignal?.throwIfAborted()
     const target = toHostPath(root, path)
-    await removeHostSymlinkAncestors(host, root, target)
+    await removeHostSymlinkAncestors(host, root, target, abortSignal)
     if (entry.type === "directory") {
-      await host.files.mkdir(target, { recursive: true })
+      await host.files.mkdir(target, { recursive: true, signal: abortSignal })
       continue
     }
     const content = state.contents.get(path)
     if (content === undefined) continue
-    await ensureHostParent(host, target)
-    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content))
+    await ensureHostParent(host, target, abortSignal)
+    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content), abortSignal)
     else {
-      await host.files.write(target, contentToBytes(content))
-      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
+      await host.files.write(target, contentToBytes(content), { signal: abortSignal })
+      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
     }
   }
 }
@@ -516,9 +516,9 @@ async function extractRevisionArchive(
   const stagingRoot = posix.join(root, `.vitehub-workspace-${randomUUID()}`)
   const archive = posix.join(stagingRoot, "revision.tar.gz")
   const staging = posix.join(stagingRoot, "extracted")
-  await host.files.mkdir(stagingRoot, { recursive: true })
-  await host.files.write(archive, materialization.archive)
-  await host.files.mkdir(staging, { recursive: true })
+  await host.files.mkdir(stagingRoot, { recursive: true, signal })
+  await host.files.write(archive, materialization.archive, { signal })
+  await host.files.mkdir(staging, { recursive: true, signal })
   try {
     const listed = await host.exec("tar", ["-tzf", archive], { signal })
     if (listed.code !== 0) {
@@ -535,7 +535,7 @@ async function extractRevisionArchive(
     if (extracted.code !== 0) {
       throw workspaceError(`[vitehub] Failed to extract Workspace revision ${materialization.revision}: ${extracted.stderr || "tar failed"}`)
     }
-    const roots = (await host.files.list(staging)).filter(entry => entry.type === "directory")
+    const roots = (await host.files.list(staging, { signal })).filter(entry => entry.type === "directory")
     if (roots.length !== 1) {
       throw workspaceError(`[vitehub] Workspace revision archive must contain one repository root.`)
     }
@@ -566,9 +566,9 @@ async function extractRevisionArchive(
     else {
       for (const path of paths) {
         const selected = posix.join(source, path)
-        if (!await host.files.exists(selected)) continue
+        if (!await host.files.exists(selected, { signal })) continue
         const destination = toHostPath(root, posix.dirname(path) === "." ? "" : posix.dirname(path))
-        await host.files.mkdir(destination, { recursive: true })
+        await host.files.mkdir(destination, { recursive: true, signal })
         const copied = await host.exec("cp", ["-a", selected, destination], { signal })
         if (copied.code !== 0) {
           throw workspaceError(`[vitehub] Failed to materialize Workspace revision ${materialization.revision}: ${copied.stderr || "copy failed"}`)
@@ -577,7 +577,7 @@ async function extractRevisionArchive(
     }
   }
   finally {
-    await removeHostPath(host, root, stagingRoot, true)
+    await removeHostPath(host, root, stagingRoot, true, signal)
   }
 }
 
@@ -586,10 +586,10 @@ async function sanitizeHostSymlinks(host: WorkspaceSessionHost, root: string, ab
   for (const entry of symlinks) {
     abortSignal?.throwIfAborted()
     const path = toHostPath(root, entry.path)
-    const target = await readHostSymlinkTarget(host, root, path)
+    const target = await readHostSymlinkTarget(host, root, path, abortSignal)
     if (isSafeHostSymlink(root, entry.path, target)) continue
-    await host.files.remove(path, { recursive: false })
-    await host.files.write(path, contentToBytes(target))
+    await host.files.remove(path, { recursive: false, signal: abortSignal })
+    await host.files.write(path, contentToBytes(target), { signal: abortSignal })
   }
 }
 
@@ -654,7 +654,7 @@ async function materializeWorkspace(
     throw workspaceError(`[vitehub] Workspace path crosses a symlink parent: ${nested.path}.`)
   for (const entry of entries.filter(entry => entry.type === "directory")) {
     abortSignal?.throwIfAborted()
-    await host.files.mkdir(toHostPath(root, entry.path), { recursive: true })
+    await host.files.mkdir(toHostPath(root, entry.path), { recursive: true, signal: abortSignal })
     abortSignal?.throwIfAborted()
   }
   await withWorkspaceProgress(options?.onProgress, {
@@ -670,19 +670,19 @@ async function materializeWorkspace(
       abortSignal?.throwIfAborted()
       if (entry.type !== "file") continue
       const target = toHostPath(root, entry.path)
-      await ensureHostParent(host, target)
+      await ensureHostParent(host, target, abortSignal)
       if (isGitSymlinkEntry(entry)) {
         const symlinkTarget = typeof entry.metadata?.symlinkTarget === "string"
           ? entry.metadata.symlinkTarget
           : new TextDecoder().decode(contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
         if (isSafeHostSymlink(root, entry.path, symlinkTarget))
-          await writeHostSymlink(host, root, target, symlinkTarget)
+          await writeHostSymlink(host, root, target, symlinkTarget, abortSignal)
         else
-          await host.files.write(target, contentToBytes(symlinkTarget))
+          await host.files.write(target, contentToBytes(symlinkTarget), { signal: abortSignal })
       }
       else {
-        await host.files.write(target, contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
-        if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
+        await host.files.write(target, contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })), { signal: abortSignal })
+        if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
       }
       abortSignal?.throwIfAborted()
     }
@@ -699,10 +699,8 @@ async function commitHostChanges(
   contents: ReadonlyMap<string, Uint8Array | string>,
   mediaTypes: Map<string, string>,
   message?: string,
-  abortSignal?: AbortSignal,
 ) {
   for (const entry of diff.entries) {
-    abortSignal?.throwIfAborted()
     if (entry.after?.type === "directory") {
       if (entry.before?.type === "file") await workspace.rm(entry.path, { force: true })
       await workspace.mkdir(entry.path, { recursive: true })
@@ -725,7 +723,6 @@ async function commitHostChanges(
       })
     }
   }
-  abortSignal?.throwIfAborted()
   return await workspace.snapshot({ name: message || "host-commit" })
 }
 
@@ -939,10 +936,10 @@ export async function createHostedWorkspaceSession(
           if (content === undefined) continue
           const target = toHostPath(root, entry.path)
           await removeHostPath(host, root, target, false)
-          await host.files.write(target, contentToBytes(content))
+          await host.files.write(target, contentToBytes(content), { signal: abortSignal })
         }
         try {
-          await commitHostChanges(workspace, publicationDiff, capturedState.contents, mediaTypes, commitOptions?.message, abortSignal)
+          await commitHostChanges(workspace, publicationDiff, capturedState.contents, mediaTypes, commitOptions?.message)
         }
         catch (error) {
           if (baseRevision) {

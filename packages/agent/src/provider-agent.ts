@@ -448,16 +448,22 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       processes: "arbitrary",
     }),
     files: {
-      async exists(path) {
+      async exists(path, options) {
+        options?.signal?.throwIfAborted()
         // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        return await lstat(path).then(() => true, error => (error as NodeJS.ErrnoException).code === "ENOENT" ? false : Promise.reject(error))
+        const exists = await lstat(path).then(() => true, error => (error as NodeJS.ErrnoException).code === "ENOENT" ? false : Promise.reject(error))
+        options?.signal?.throwIfAborted()
+        return exists
       },
       async list(path, options) {
+        options?.signal?.throwIfAborted()
         const entries: WorkspaceSessionHostFileEntry[] = []
         const excluded = options?.exclude?.map(item => resolve(item)) || []
         const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         const visit = async (directory: string) => {
+          options?.signal?.throwIfAborted()
           for (const entry of await readdir(directory, { withFileTypes: true })) {
+            options?.signal?.throwIfAborted()
             const target = join(directory, entry.name)
             if (isExcluded(resolve(target))) continue
             const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
@@ -474,18 +480,23 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
         return entries
       },
       async mkdir(path, options) {
+        options?.signal?.throwIfAborted()
         await mkdir(path, options)
+        options?.signal?.throwIfAborted()
       },
-      async read(path) {
+      async read(path, options) {
         // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        return await readFile(path).then(value => new Uint8Array(value), error => (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(error))
+        return await readFile(path, { signal: options?.signal }).then(value => new Uint8Array(value), error => (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(error))
       },
       async remove(path, options) {
+        options?.signal?.throwIfAborted()
         await rm(path, { force: true, recursive: options?.recursive })
+        options?.signal?.throwIfAborted()
       },
-      async write(path, content) {
+      async write(path, content, options) {
+        options?.signal?.throwIfAborted()
         await mkdir(dirname(path), { recursive: true })
-        await writeFile(path, content)
+        await writeFile(path, content, { signal: options?.signal })
       },
     },
     async exec(command, args = [], options = {}) {

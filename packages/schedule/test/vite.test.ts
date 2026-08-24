@@ -1,4 +1,6 @@
 import { existsSync } from "node:fs"
+import { spawn } from "node:child_process"
+import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -218,6 +220,7 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")
     expect(pluginSource).toContain("const shutdownSignals = ['SIGINT', 'SIGTERM']")
     expect(pluginSource).toContain("nodeProcess?.prependOnceListener(signal, closeRuntimeOnSignal)")
+    expect(pluginSource).toContain("nodeProcess.kill(nodeProcess.pid, signal)")
     expect(pluginSource).toContain("nitroApp.hooks.hook('close', closeRuntime)")
     expect(pluginSource).toContain("export default definePlugin((nitroApp) => {")
     expect(pluginSource).not.toContain("definePlugin(async")
@@ -225,6 +228,33 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("staticScheduleRegistry from \"./static-registry.js\"")
     expect(pluginSource).toContain("staticRegistry: staticScheduleRegistry")
     expect(pluginSource).not.toContain("cloudflare:scheduled")
+    const shutdownStart = pluginSource.indexOf("  const nodeProcess = globalThis.process")
+    const shutdownEnd = pluginSource.indexOf("  nitroApp.hooks.hook('request'", shutdownStart)
+    expect(shutdownStart).toBeGreaterThan(-1)
+    expect(shutdownEnd).toBeGreaterThan(shutdownStart)
+    const proof = join(root, "schedule-close.txt")
+    const childFile = join(root, "schedule-signal.mjs")
+    await writeFile(childFile, [
+      "import { writeFile } from 'node:fs/promises'",
+      `const proof = ${JSON.stringify(proof)}`,
+      "const captureRuntimeError = console.error",
+      "const runtimeInstallation = Promise.resolve({ controller: { close: async () => { await writeFile(proof, 'closed') } } })",
+      pluginSource.slice(shutdownStart, shutdownEnd).replace(": NodeJS.Signals", ""),
+      "process.stdout.write('ready')",
+      "setInterval(() => {}, 1000)",
+    ].join("\n"), "utf8")
+    const child = spawn(process.execPath, [childFile], { stdio: ["ignore", "pipe", "pipe"] })
+    if (!child.stdout) throw new Error("Expected Schedule signal test stdout.")
+    const exited = once(child, "exit")
+    await Promise.race([
+      once(child.stdout, "data"),
+      exited.then(([code, signal]) => {
+        throw new Error(`Schedule signal child exited before installing listeners: ${code ?? signal}`)
+      }),
+    ])
+    child.kill("SIGTERM")
+    await expect(exited).resolves.toEqual([null, "SIGTERM"])
+    await expect(readFile(proof, "utf8")).resolves.toBe("closed")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     resolvePluginConfig(plugin, root)

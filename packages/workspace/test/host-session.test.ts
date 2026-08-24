@@ -966,6 +966,27 @@ describe("workspace host sessions", () => {
     await session.close()
   })
 
+  it("finishes durable publication after cancellation arrives during the first write", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    const session = await docs.startSession({ host })
+    await session.writeFile("first.txt", "first")
+    await session.writeFile("second.txt", "second")
+    const writeFile = docs.writeFile.bind(docs)
+    let writes = 0
+    docs.writeFile = async (...args) => {
+      await writeFile(...args)
+      if (++writes === 1) abort.abort(new DOMException("cleanup deadline", "TimeoutError"))
+    }
+
+    await expect(session.commit({ abortSignal: abort.signal, message: "published" })).resolves.toBeUndefined()
+
+    await expect(docs.readFile("first.txt")).resolves.toBe("first")
+    await expect(docs.readFile("second.txt")).resolves.toBe("second")
+    await session.close()
+  })
+
   it("does not inspect the host after publication has succeeded", async () => {
     const docs = workspace()
     const host = memoryHost()

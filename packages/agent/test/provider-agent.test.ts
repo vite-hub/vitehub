@@ -897,6 +897,23 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it("stops local Workspace traversal when cleanup is aborted", async () => {
+    const root = `/tmp/vitehub-provider-aborted-traversal-${crypto.randomUUID()}`
+    await mkdir(root, { recursive: true })
+    try {
+      await writeFile(`${root}/README.md`, "docs")
+      const controller = new AbortController()
+      const reason = new DOMException("cleanup deadline", "TimeoutError")
+      controller.abort(reason)
+
+      await expect(localWorkspaceHost().files.list(root, { recursive: true, signal: controller.signal })).rejects.toBe(reason)
+      await expect(localWorkspaceHost().files.read(`${root}/README.md`, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("binds Workspace command directory variables to the active root", async () => {
     const cwd = new URL("fixtures/workspace-source-root", import.meta.url).pathname
     const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ INIT_CWD: process.env.INIT_CWD, OLDPWD: process.env.OLDPWD, PWD: process.env.PWD, cwd: process.cwd() }))"], {

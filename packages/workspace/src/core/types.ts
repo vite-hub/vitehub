@@ -161,12 +161,12 @@ export interface WorkspaceSessionHostFileEntry {
 }
 
 export interface WorkspaceSessionHostFiles {
-  exists(path: string): Promise<boolean>
+  exists(path: string, options?: { signal?: AbortSignal }): Promise<boolean>
   list(path: string, options?: { exclude?: readonly string[], recursive?: boolean, signal?: AbortSignal }): Promise<readonly WorkspaceSessionHostFileEntry[]>
-  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  mkdir(path: string, options?: { recursive?: boolean, signal?: AbortSignal }): Promise<void>
   read(path: string, options?: { signal?: AbortSignal }): Promise<Uint8Array | null>
-  remove(path: string, options?: { recursive?: boolean }): Promise<void>
-  write(path: string, content: Uint8Array): Promise<void>
+  remove(path: string, options?: { recursive?: boolean, signal?: AbortSignal }): Promise<void>
+  write(path: string, content: Uint8Array, options?: { signal?: AbortSignal }): Promise<void>
 }
 
 export interface WorkspaceSessionHost {
