@@ -983,6 +983,104 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('.vh-invocation-lifecycle[data-activity-group="github-lifecycle"] .vh-invocation-lifecycle__emoji').text()).toBe("👀");
   });
 
+  it("renders unsafe pull request annotations as text and failed preparation as failed", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      annotations: {
+        "github.pullRequest": 1040,
+        "github.repository": "vite-hub/vitehub",
+        "github.url": "javascript:alert(1)",
+      },
+      createdAt: timestamp,
+      id: "failed-preparation",
+      observations: [{
+        attributes: {
+          "vitehub.activity.kind": "preparation",
+          "vitehub.activity.title": "Workspace failed",
+        },
+        name: "vitehub.workspace.error",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-preparation__summary").text()).toContain("Session preparation failed");
+    expect(wrapper.find(".vh-invocation-preparation__context a").exists()).toBe(false);
+    expect(wrapper.get(".vh-invocation-preparation__context").text()).toContain("PR #1040");
+  });
+
+  it("preserves input transcript order when the latest user has no response", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "unanswered-turn",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "user-1", parts: [{ text: "First question", type: "text" }], role: "user" },
+            { id: "assistant-1", parts: [{ text: "First answer", type: "text" }], role: "assistant" },
+            { id: "user-2", parts: [{ text: "Unanswered question", type: "text" }], role: "user" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const messages = wrapper.findAll(".vh-invocation-message");
+
+    expect(messages.map(message => message.text())).toEqual(["First question", "First answer", "Unanswered question"]);
+    expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
+  });
+
+  it("renders grouped delivery outcomes, reaction intents, and truncation honestly", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const event = (sequence: number, attributes: Record<string, unknown>) => ({
+      attributes: { "vitehub.activity.group": "github-lifecycle", "vitehub.activity.kind": "delivery", ...attributes },
+      name: "vitehub.channel.delivery",
+      sequence,
+      timestamp,
+      type: "lifecycle" as const,
+    });
+    const invocation = {
+      createdAt: timestamp,
+      id: "delivery-outcomes",
+      observations: [
+        event(1, { "channel.effect.kind": "reply", "channel.effect.supported": false }),
+        event(2, { "channel.effect.kind": "status", "channel.effect.skipped": "missing target" }),
+        event(3, { "channel.effect.intent": "completed", "channel.effect.kind": "reaction" }),
+        event(4, { "channel.effect.intent": "failed", "channel.effect.kind": "reaction" }),
+      ],
+      observationsTruncated: true,
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.findAll(".vh-invocation-lifecycle__title").map(title => title.text())).toEqual([
+      "Reply not supported",
+      "Status skipped",
+      "Reacted with hooray",
+      "Reacted with confused",
+    ]);
+    expect(wrapper.findAll(".vh-invocation-lifecycle__emoji").map(emoji => [emoji.text(), emoji.attributes("aria-label")])).toEqual([
+      ["🎉", "hooray"],
+      ["😕", "confused"],
+    ]);
+    expect(wrapper.get(".vh-invocation-event__notice").text()).toContain("truncated");
+  });
+
   it("groups consecutive lifecycle rows and renders structured GitHub labels", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const event = (sequence: number, attributes: Record<string, unknown>, name: string) => ({

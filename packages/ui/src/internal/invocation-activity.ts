@@ -430,6 +430,9 @@ function channelDeliveryTitle(activity: InvocationActivity): string {
   const rawKind = String(activity.attributes["channel.effect.kind"] ?? "").trim();
   const kind = rawKind.toLocaleLowerCase();
   const intent = String(activity.attributes["channel.effect.intent"] ?? "").trim().toLocaleLowerCase();
+  const delivery = rawKind.includes(".") ? rawKind : kind ? normalizedTitle(kind) : "Channel delivery";
+  if (activity.attributes["channel.effect.supported"] === false) return `${delivery} not supported`;
+  if (stringAttribute(activity.attributes, "channel.effect.skipped")) return `${delivery} skipped`;
   if (kind === "reaction") {
     const reaction: Record<string, string> = { completed: "hooray", failed: "confused", started: "eyes" };
     return reaction[intent] ? `Reacted with ${reaction[intent]}` : "Reaction sent";

@@ -10,6 +10,7 @@ import {
   terminalText,
   type InvocationActivity,
 } from "../internal/invocation-activity.ts";
+import { isSafeExternalUrl } from "../internal/url.ts";
 import { AgentDiff } from "./agent-diff.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 
@@ -287,7 +288,8 @@ function activityDetail(activity: InvocationActivity): string | undefined {
 }
 
 function githubUrl(invocation: AgentInvocationView): string | undefined {
-  return stringAttribute(invocation.annotations ?? {}, "github.url");
+  const value = stringAttribute(invocation.annotations ?? {}, "github.url");
+  return value && isSafeExternalUrl(value) ? value : undefined;
 }
 
 function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
@@ -349,14 +351,15 @@ function renderPreparationGroup(
   inspect: (target: InspectTarget) => void,
 ) {
   const url = githubUrl(invocation);
+  const failed = activities.some(activity => activity.status === "failed");
   return h("li", {
     class: "vh-invocation-preparation",
     key: `preparation:${activities[0]?.id}`,
   }, [
     h("details", { class: "vh-invocation-preparation__details" }, [
       h("summary", { class: "vh-invocation-preparation__summary" }, [
-        renderNamedActivityIcon("check"),
-        h("strong", "Session prepared"),
+        renderNamedActivityIcon(failed ? "error" : "check"),
+        h("strong", failed ? "Session preparation failed" : "Session prepared"),
         renderPreparationContext(invocation, url),
         h("small", `${activities.length} steps`),
         renderChevronDown("vh-invocation-preparation__disclosure"),
@@ -414,7 +417,13 @@ function renderGroupedActivityIcon(activity: InvocationActivity) {
   if (stringAttribute(activity.attributes, "github.label.name")) return renderNamedActivityIcon("label");
   const delivery = stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase();
   if (delivery === "reaction") {
-    return h("span", { "aria-label": "eyes", class: "vh-invocation-lifecycle__emoji", role: "img" }, "👀");
+    const intent = stringAttribute(activity.attributes, "channel.effect.intent")?.toLocaleLowerCase();
+    const reaction = intent === "completed"
+      ? { label: "hooray", value: "🎉" }
+      : intent === "failed"
+        ? { label: "confused", value: "😕" }
+        : { label: "eyes", value: "👀" };
+    return h("span", { "aria-label": reaction.label, class: "vh-invocation-lifecycle__emoji", role: "img" }, reaction.value);
   }
   if (["reply", "status", "update"].includes(delivery ?? "")) return renderNamedActivityIcon("message");
   return renderActivityIcon(activity);
@@ -448,6 +457,9 @@ function renderActivityGroup(
           renderLabelChip(activity),
           !stringAttribute(activity.attributes, "github.label.name") && channelDeliverySummary(activity)
             ? h("code", { class: "vh-invocation-lifecycle__detail" }, channelDeliverySummary(activity))
+            : null,
+          activity.truncated
+            ? h("span", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
             : null,
         ]),
       ]);
@@ -605,9 +617,16 @@ function renderInvocationActivities(
     return renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect);
   }
   const firstUser = activities.findIndex(activity => activity.kind === "message" && activity.role === "user");
+  let lastUser = -1;
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    if (activities[index]!.kind === "message" && activities[index]!.role === "user") {
+      lastUser = index;
+      break;
+    }
+  }
   let lastAssistant = -1;
   for (let index = activities.length - 1; index >= 0; index -= 1) {
-    if (activities[index]!.kind === "message" && activities[index]!.role === "assistant") {
+    if (index > lastUser && activities[index]!.kind === "message" && activities[index]!.role === "assistant") {
       lastAssistant = index;
       break;
     }
