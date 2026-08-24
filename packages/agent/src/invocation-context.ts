@@ -2,6 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInvocationContextStore } from "./types.ts"
 
 export const agentInvocationRunId = Symbol.for("vitehub.agent.invocationRunId")
+export const agentInvocationConfigurationUpdatedContextKey = "agent.inspection.configurationUpdated"
 
 function isCallbackContextValue(id: string): boolean {
   return id !== "actor"

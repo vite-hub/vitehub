@@ -108,7 +108,7 @@ describe("workflow config", () => {
   })
 
   it("keeps explicit Workflow provider enforcement when Schedule prepares a Netlify build", async () => {
-    const plugin = hubWorkflow(undefined, { hosting: "netlify" })
+    const plugin = hubWorkflow({}, { hosting: "netlify" })
     ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
 
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toThrow(/cannot be inferred for Netlify/)

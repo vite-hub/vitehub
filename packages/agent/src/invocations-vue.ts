@@ -23,9 +23,11 @@ type AgentInvocationQuery = Record<string, QueryValue | readonly QueryValue[]> &
 export interface UseAgentInvocationsOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
+  requestSummaries?: AgentInvocationRequester;
   watch?: boolean;
 }
 
@@ -48,6 +50,7 @@ export interface AgentInvocationDetailResult {
 export interface UseAgentInvocationOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   request: AgentInvocationRequester;
   watch?: boolean;
@@ -171,6 +174,7 @@ interface InvocationResourceOptions<T> {
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
+  onSuccess?: () => void;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
   source: () => unknown;
   watch: boolean;
@@ -213,6 +217,7 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
       if (active !== controller) return;
       if (result === undefined) options.clear();
       else options.apply(result);
+      options.onSuccess?.();
       return result;
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return;
@@ -261,6 +266,11 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
 export function useAgentInvocations(
   options: UseAgentInvocationsOptions,
 ): UseAgentInvocationsReturn {
+  type ReconciledInvocationListResult = AgentInvocationListResult & {
+    departedIds?: ReadonlySet<string>
+    pendingDepartureIds?: ReadonlySet<string>
+    reconciledInvocations?: ReadonlyMap<string, AgentInvocationSummary>
+  }
   const invocations = shallowRef<readonly AgentInvocationSummary[]>([]);
   const cursor = shallowRef<string | undefined>();
   const isLoadingMore = shallowRef(false);
@@ -269,10 +279,8 @@ export function useAgentInvocations(
   let loadMoreController: AbortController | undefined;
   let revision = 0;
   let reconciliationOffset = 0;
-  let reconciliationRetryIds = new Set<string>();
   let resetFirstPage = true;
-  let departedIds = new Set<string>();
-  let reconciledInvocations = new Map<string, AgentInvocationSummary>();
+  let pendingDepartureIds = new Set<string>();
   let sourceSignature: string | undefined;
   let stopped = false;
 
@@ -283,7 +291,7 @@ export function useAgentInvocations(
     ]);
   }
 
-  const resource = useInvocationResource<AgentInvocationListResult>({
+  const resource = useInvocationResource<ReconciledInvocationListResult>({
     apply(result) {
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
@@ -291,20 +299,20 @@ export function useAgentInvocations(
         resetFirstPage = false;
         return;
       }
+      const departedIds = result.departedIds ?? new Set<string>();
+      const reconciledInvocations = result.reconciledInvocations ?? new Map<string, AgentInvocationSummary>();
       const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
       const retained = invocations.value
         .filter(invocation => !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id))
         .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
-      departedIds = new Set();
-      reconciledInvocations = new Map();
+      pendingDepartureIds = new Set(result.pendingDepartureIds ?? pendingDepartureIds);
       invocations.value = [...result.invocations, ...retained];
-      cursor.value = result.cursor;
+      if (retained.length === 0) cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
-      reconciledInvocations = new Map();
-      reconciliationRetryIds = new Set();
+      pendingDepartureIds = new Set();
     },
     beforeLoad() {
       const nextSignature = currentSourceSignature();
@@ -314,7 +322,6 @@ export function useAgentInvocations(
         invocations.value = [];
         cursor.value = undefined;
         reconciliationOffset = 0;
-        reconciliationRetryIds = new Set();
       }
       revision++;
       loadMoreController?.abort();
@@ -328,49 +335,63 @@ export function useAgentInvocations(
       const result = parseInvocationListResult(
         await request(appendQuery(toValue(baseURL), query), { signal }),
       );
+      const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
       const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
       const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
       const search = query?.search?.trim().toLowerCase();
-      if (resetFirstPage) return result;
-      const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
-      for (const id of returnedIds) reconciliationRetryIds.delete(id);
-      const retainedIds = invocations.value
-        .filter(invocation => !returnedIds.has(invocation.id))
-        .map(invocation => invocation.id);
-      const retainedIdSet = new Set(retainedIds);
-      const retryCandidates = [...reconciliationRetryIds]
-        .filter(id => retainedIdSet.has(id));
-      const retryLimit = retainedIds.some(id => !reconciliationRetryIds.has(id))
-        ? Math.floor(retainedReconciliationLimit / 2)
-        : retainedReconciliationLimit;
-      const retries = retryCandidates.slice(0, retryLimit);
-      const retryCandidateSet = new Set(retryCandidates);
-      const rotatingIds = retainedIds.filter(id => !retryCandidateSet.has(id));
-      const rotatingCount = Math.min(
-        rotatingIds.length,
-        retainedReconciliationLimit - retries.length,
-      );
-      const rotating = Array.from({ length: rotatingCount }, (_, index) =>
-        rotatingIds[(reconciliationOffset + index) % rotatingIds.length],
+      const retainedIds = resetFirstPage
+        ? []
+        : invocations.value
+            .filter(invocation => !returnedIds.has(invocation.id))
+            .map(invocation => invocation.id);
+      if (options.requestSummaries && statuses.size === 0 && !search && retainedIds.length > 0) {
+        const requestSummaries = options.requestSummaries;
+        const reconciliationCount = Math.min(retainedIds.length, retainedReconciliationLimit);
+        const selectedRetainedIds = Array.from({ length: reconciliationCount }, (_, index) =>
+          retainedIds[(reconciliationOffset + index) % retainedIds.length],
+        ).filter((id): id is string => id !== undefined);
+        reconciliationOffset = (reconciliationOffset + reconciliationCount) % retainedIds.length;
+        const summary = parseInvocationListResult(await requestSummaries(
+          appendQuery(toValue(baseURL), { id: selectedRetainedIds }),
+          { signal },
+        ));
+        const refreshed = new Map(summary.invocations.map(invocation => [invocation.id, invocation]));
+        const departedIds = new Set<string>();
+        const reconciledInvocations = new Map<string, AgentInvocationSummary>();
+        for (const id of selectedRetainedIds) {
+          const summary = refreshed.get(id);
+          if (summary) reconciledInvocations.set(id, summary);
+          else departedIds.add(id);
+        }
+        return { ...result, departedIds, reconciledInvocations };
+      }
+      if (resetFirstPage || (statuses.size === 0 && !search)) return result;
+      const nextPendingDepartureIds = new Set(pendingDepartureIds);
+      for (const id of returnedIds) nextPendingDepartureIds.delete(id);
+      const reconciliationCount = Math.min(retainedIds.length, retainedReconciliationLimit);
+      const selectedRetainedIds = Array.from({ length: reconciliationCount }, (_, index) =>
+        retainedIds[(reconciliationOffset + index) % retainedIds.length],
       ).filter((id): id is string => id !== undefined);
-      const displaced = [...retries, ...rotating];
-      reconciliationOffset = rotatingIds.length === 0
+      reconciliationOffset = retainedIds.length === 0
         ? 0
-        : (reconciliationOffset + rotatingCount) % rotatingIds.length;
+        : (reconciliationOffset + reconciliationCount) % retainedIds.length;
+      const displaced = [...new Set([
+        ...selectedRetainedIds,
+        ...nextPendingDepartureIds,
+      ])].slice(0, retainedReconciliationLimit);
       const reconciled = await Promise.allSettled(displaced.map(id =>
         request(detailPath(toValue(baseURL), id), { signal }).then(parseAgentInvocationDetailResult),
       ));
-      departedIds = new Set();
-      reconciledInvocations = new Map();
+      const departedIds = new Set<string>();
+      const reconciledInvocations = new Map<string, AgentInvocationSummary>();
+      nextPendingDepartureIds.clear();
       for (const [index, outcome] of reconciled.entries()) {
         const id = displaced[index];
         if (!id) continue;
         if (outcome.status === "rejected") {
-          reconciliationRetryIds.delete(id);
-          reconciliationRetryIds.add(id);
+          nextPendingDepartureIds.add(id);
           continue;
         }
-        reconciliationRetryIds.delete(id);
         // SAFETY: The detail parser has validated the invocation summary fields; observations are the only detail-only field removed here.
         const { observations: _observations, ...searchableInvocation } = outcome.value.invocation as AgentInvocationSummary & { observations?: unknown };
         if (
@@ -379,8 +400,9 @@ export function useAgentInvocations(
         ) departedIds.add(id);
         else reconciledInvocations.set(id, searchableInvocation);
       }
-      return result;
+      return { ...result, departedIds, pendingDepartureIds: nextPendingDepartureIds, reconciledInvocations };
     },
+    onSuccess: options.onSuccess,
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,
@@ -464,6 +486,7 @@ export function useAgentInvocation(
         parseAgentInvocationDetailResult,
       );
     },
+    onSuccess: options.onSuccess,
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), toValue(id)],
     watch: options.watch !== false,

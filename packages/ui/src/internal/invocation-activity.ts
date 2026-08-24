@@ -35,6 +35,7 @@ export interface InvocationActivity {
   role?: "assistant" | "system" | "tool" | "user";
   status: "running" | "completed" | "failed";
   totalTokens?: number;
+  truncated?: boolean;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -250,6 +251,8 @@ function numericAttribute(attributes: Record<string, unknown>, ...keys: string[]
 
 export function invocationActivities(invocation: AgentInvocationView): InvocationActivity[] {
   const groups = new Map<string, TraceEventLogEntry[]>();
+  const traceTruncated = invocation.observationsTruncated === true
+    || (invocation.observations?.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true) ?? false);
   let anonymousMessage = 0;
   let anonymousMessageKey: string | undefined;
   let anonymousMessagePhase: string | undefined;
@@ -280,6 +283,9 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
             "message.content": body,
             "message.id": value ? stringAttribute(value, "id") ?? key : key,
             "message.role": role,
+            ...(originalAttributes["vitehub.observation.truncated"] === true
+              ? { "vitehub.observation.truncated": true }
+              : {}),
           },
           name: "agent.input.message",
           sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
@@ -304,7 +310,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     groups.set(key, [...(groups.get(key) ?? []), { ...observation, attributes }]);
   }
 
-  return [...groups.entries()]
+  const activities = [...groups.entries()]
     .map(([id, observations]): InvocationActivity => {
       const sorted = observations.slice().sort((left, right) => left.sequence - right.sequence);
       const first = sorted[0]!;
@@ -345,6 +351,9 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           : {}),
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
+        ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
+          ? { truncated: true }
+          : {}),
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
           : {}),
@@ -360,6 +369,11 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const rightSequence = groups.get(right.id)?.[0]?.sequence ?? 0;
       return leftSequence - rightSequence;
     });
+  if (traceTruncated && !activities.some(activity => activity.truncated)) {
+    if (activities.length > 0) activities[activities.length - 1] = { ...activities[activities.length - 1]!, truncated: true };
+    else activities.push({ attributes: {}, id: "trace-truncated", kind: "run", name: "vitehub.observation.truncated", patches: [], paths: [], status: "completed", truncated: true });
+  }
+  return activities;
 }
 
 export function latestInvocationTokens(activities: readonly InvocationActivity[]): number | undefined {
@@ -368,6 +382,7 @@ export function latestInvocationTokens(activities: readonly InvocationActivity[]
 }
 
 export function invocationActivityTitle(activity: InvocationActivity): string {
+  if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));

@@ -967,6 +967,80 @@ describe("Provider Agent Driver", () => {
     }) as never)).rejects.toThrow()
   })
 
+  it("reports native Claude Workspace instructions to invocation inspection", async () => {
+    const threadId = "thread-native-claude-instructions"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let root = ""
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(`${root}/CLAUDE.md`, "native workspace instructions")
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    })
+    setAgentTelemetryConfiguration(runContext.context, {
+      driver: { kind: "provider", provider: "claude-code" },
+      runtime: { name: "vite" },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate(runContext as never)
+
+    expect(getAgentTelemetryConfiguration(runContext.context)?.value.instructions).toEqual(["native workspace instructions"])
+  })
+
+  it("materializes AGENTS.md fallback instructions for Claude", async () => {
+    const threadId = "thread-claude-agents-fallback"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let root = ""
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async (command: string, args: string[]) => {
+        if (command === "git" && args.includes("add")) {
+          expect(await readFile(`${root}/CLAUDE.md`, "utf8")).toBe("workspace instructions")
+        }
+        return { code: 0, stderr: "", stdout: "" }
+      }),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(`${root}/AGENTS.md`, "workspace instructions")
+        return session
+      }),
+      tools: {},
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+
+    expect(session.exec).toHaveBeenCalled()
+  })
+
   it("reports runtime-wide provider errors without a thread association", async () => {
     runtime("thread-global-error", [{ payload: { message: "runtime failed" }, type: "runtime.error" }])
 

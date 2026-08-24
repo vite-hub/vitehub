@@ -56,6 +56,7 @@ export interface AgentInvocationConfiguration {
     provider?: string;
   };
   instructions?: readonly string[];
+  truncated?: boolean;
   runtime?: {
     name?: string;
   };
@@ -78,6 +79,7 @@ export interface AgentInvocationView {
   failedAt?: string;
   id: string;
   observations: readonly import("@vite-hub/runtime").TraceEventLogEntry[];
+  observationsTruncated?: boolean;
   origin?: string;
   startedAt?: string;
   status: AgentInvocationStatus;

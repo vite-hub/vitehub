@@ -153,7 +153,8 @@
     "chat": "catalog:chat",
     "comark": "catalog:ui",
     "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27"
+    "esbuild": "catalog:esbuild-v27",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@ai-sdk/mcp": "catalog:ai",

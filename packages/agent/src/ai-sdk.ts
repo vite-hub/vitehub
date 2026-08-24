@@ -1252,7 +1252,7 @@ async function createAgent(
   const toolSet = { ...resolvedTools, ...providerTools }
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
-  updateAgentTelemetryConfiguration(context.context, {
+  await updateAgentTelemetryConfiguration(context.context, {
     driver: {
       model: {
         ...(hasRuntimeType(telemetryModel?.modelId, "string") ? { id: telemetryModel.modelId } : {}),

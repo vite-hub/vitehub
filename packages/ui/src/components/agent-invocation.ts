@@ -106,7 +106,12 @@ function renderMessage(activity: InvocationActivity) {
       "data-role": activity.role,
       key: activity.id,
     },
-    [markdown(activity.body, "vh-invocation-message__body")],
+    [
+      markdown(activity.body, "vh-invocation-message__body"),
+      activity.truncated
+        ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+        : null,
+    ],
   );
 }
 
@@ -154,7 +159,7 @@ function renderEvent(activity: InvocationActivity) {
     ? formatTokens(activity.reasoningTokens)
     : undefined;
   const suffix = activity.preview ? compactCommand(activity.preview) : tokenLabel;
-  const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body);
+  const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated);
   const summary = h(hasDetails ? "summary" : "div", { class: "vh-invocation-event__summary" }, [
     renderActivityIcon(activity),
     h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
@@ -173,9 +178,13 @@ function renderEvent(activity: InvocationActivity) {
       class: "vh-invocation-event",
     }, [
       summary,
-      activity.patches.length
-        ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentDiff, { key: index, patch })))
-        : command
+      hasDetails ? h("div", { class: "vh-invocation-event__details" }, [
+        activity.truncated
+          ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          : null,
+        activity.patches.length
+          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentDiff, { key: index, patch })))
+          : command
           ? h("div", { class: "vh-invocation-command" }, [
               h("div", { class: "vh-invocation-command__bar" }, [
                 h("code", command.command),
@@ -189,6 +198,7 @@ function renderEvent(activity: InvocationActivity) {
           : activity.body
             ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
             : null,
+      ]) : null,
     ]),
   ]);
 }
@@ -215,6 +225,9 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
   const driver = configurationLabel(configuration);
   const workspace = workspaceLabel(configuration);
   return [
+    configuration.truncated
+      ? inspectorSection("Configuration notice", h("p", "Some configuration values were truncated by the invocation journal."))
+      : null,
     inspectorSection("Environment", h("dl", { class: "vh-invocation-inspector__list" }, [
       inspectorRow("Driver", driver),
       inspectorRow("Runtime", configuration.runtime?.name),

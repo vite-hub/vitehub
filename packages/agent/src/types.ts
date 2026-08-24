@@ -135,6 +135,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
   actor: AgentActor
   "agent.errorHook": boolean
   "agent.finishHook": boolean
+  "agent.inspection.configurationUpdated": () => Promise<void>
   "chat.sessionId": string
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]

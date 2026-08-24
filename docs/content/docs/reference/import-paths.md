@@ -26,6 +26,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
+| `vite-hub/console` | Route metadata for the local read-only invocation console. |
+| `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |

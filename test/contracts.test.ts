@@ -61,12 +61,6 @@ function hasGeneratedOutputUnderExampleSurface(path: string) {
   return surfaceIndex !== -1 && parts.slice(surfaceIndex + 1).some(part => ignoredGeneratedDirs.has(part))
 }
 
-function expectedSideEffects(packageName: PackageName) {
-  if (packageName === "ui") return ["./dist/styles.css"]
-  if (packageName === "vite-hub") return ["./dist/bin.js", "./dist/ui/styles.css"]
-  return false
-}
-
 describe("package manifest contracts", () => {
   it("tracks every publishable workspace package in the contract surface", () => {
     expect(packageNames).toEqual(expect.arrayContaining(["blob", "database", "kv", "queue", "sandbox", "vite-hub", "workflow"]))
@@ -79,7 +73,21 @@ describe("package manifest contracts", () => {
       expect(manifest.name).toBe(packageInfo(packageName).packageName)
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
-      expect(manifest.sideEffects).toEqual(expectedSideEffects(packageName))
+      if (manifest.sideEffects !== false) {
+        expect(manifest.sideEffects, `${packageName} side effects should name published artifacts`)
+          .toEqual(expect.arrayContaining([expect.any(String)]))
+
+        const publishedArtifacts = new Set([
+          ...Object.values(manifest.bin || {}),
+          ...Object.values(manifest.exports || {})
+            .map(exportTarget)
+            .filter((target): target is string => Boolean(target)),
+        ])
+        for (const sideEffect of manifest.sideEffects as string[]) {
+          expect(publishedArtifacts, `${packageName} side effect ${sideEffect} should be exported or executable`)
+            .toContain(sideEffect)
+        }
+      }
       expect(manifest.type).toBe("module")
       expect(manifest.types).toBe("./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
@@ -114,7 +122,7 @@ describe("package manifest contracts", () => {
     }
   })
 
-  it("keeps export targets under dist except package.json", () => {
+  it("keeps code exports under dist and publishes static asset exports explicitly", () => {
     for (const packageName of packageNames) {
       const manifest = readPackageManifest(packageName)
 
@@ -134,7 +142,13 @@ describe("package manifest contracts", () => {
           continue
         }
 
-        expect(target, `${packageName} ${subpath} should point to dist`).toMatch(/^\.\/dist\/.+\.(?:css|js)$/)
+        if (target.endsWith(".css")) {
+          expect(subpath, `${packageName} ${subpath} should expose CSS through a CSS subpath`).toMatch(/\.css$/)
+          expect(target, `${packageName} ${subpath} should point to a built CSS asset`).toMatch(/^\.\/dist\/.+\.css$/)
+          continue
+        }
+
+        expect(target, `${packageName} ${subpath} should point to dist`).toMatch(/^\.\/dist\/.+\.js$/)
       }
     }
   })

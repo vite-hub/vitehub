@@ -49,7 +49,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { agentInvocationCallbackContextValues, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
@@ -986,7 +986,7 @@ async function runAgentAsWorkflow<
         const invocationJournal = await bindAgentInvocations(agent.invocations, {
           ...context,
           run: { ...context.run, runId: failedRunId },
-        }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
+        }, { agentName: agent.name || context.agentIdentity?.name, deferClaim: ambiguous, terminalTakeover: true })
         if (!ambiguous) await invocationJournal?.finish("failed", error)
       }
     }
@@ -1004,7 +1004,7 @@ async function runAgentAsWorkflow<
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
-    }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
+    }, { agentName: agent.name || context.agentIdentity?.name, deferClaim: true, terminalTakeover: true })
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
@@ -3200,7 +3200,7 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const settings = (definition as AgentDefinition & { __vitehubAgentSettings?: AgentSettings } | undefined)?.__vitehubAgentSettings
     const configuredDriver = settings ? normalizeAgentDriver(settings) : undefined
-    if (capabilities.registries.telemetry.length) setAgentTelemetryConfiguration(invocationContext, {
+    if (capabilities.registries.telemetry.length || invocationJournal) setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
         ...(definition?.version ? { version: definition.version } : {}),
@@ -3293,6 +3293,25 @@ async function createAgentInvocationContext<
     }
     invocationContext.set("agent.errorHook", Boolean(invocation.errorHook), { overwrite: true })
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
+    if (invocationJournal) {
+      const traceConfiguration = async () => {
+        const configuration = getAgentTelemetryConfiguration(invocationContext)?.value
+        if (!configuration) return
+        const journalTraceLog = invocationJournal.context.traceLog
+        const persistedConfiguration = journalTraceLog
+          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog
+          ? configuration
+          : agentTelemetryConfigurationForContent(configuration, {})
+        await runtimeContext.traceLog?.append({
+          attributes: { "vitehub.agent.configuration": persistedConfiguration },
+          name: "vitehub.agent.configured",
+          ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
+          type: "run",
+        })
+      }
+      invocationContext.set(agentInvocationConfigurationUpdatedContextKey, traceConfiguration, { overwrite: true })
+      await traceConfiguration()
+    }
     await traceAgentInvocationStart(toTraceContext(invocation))
     await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
     const startCapabilities = capabilities.start
@@ -5449,7 +5468,7 @@ async function executeAgentInvocation<
         ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
         : {}),
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    }, { agentName: (definition as AgentDefinition).name })
+    }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined

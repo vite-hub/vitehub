@@ -89,6 +89,8 @@
     "./browser/providers/local": "./dist/browser/providers/local.js",
     "./channels": "./dist/channels.js",
     "./channels/server": "./dist/channels/server.js",
+    "./console": "./dist/console.js",
+    "./console/server": "./dist/console/server.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",
     "./email": "./dist/email.js",
@@ -208,14 +210,19 @@
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@nuxt/ui": "^4.11.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@nuxt/ui": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

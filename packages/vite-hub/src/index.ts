@@ -188,6 +188,7 @@ export interface ViteHubOptions {
   blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
   channels?: boolean | ChannelsVitePluginOptions
+  console?: boolean
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
