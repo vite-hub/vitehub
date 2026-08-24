@@ -277,8 +277,10 @@ function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undef
 }
 
 function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | undefined {
-  if (!isRecord(result) || !isRecord(result.providerMetadata)) return
-  for (const metadata of Object.values(result.providerMetadata)) {
+  if (!isRecord(result)) return
+  const providerMetadata = ownValue(result, "providerMetadata")
+  if (!isRecord(providerMetadata)) return
+  for (const metadata of Object.values(providerMetadata)) {
     const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
     if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
