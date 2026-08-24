@@ -3060,10 +3060,24 @@ async function acquireRequiredStateLock(state: StateAdapter, key: string, ttlMs:
 
 function mergeDurableSteerInput(previous: AgentRunInput | undefined, current: AgentRunInput): AgentRunInput {
   if (!previous?.messages?.length || !current.messages?.length) return current
-  const currentById = new Map(current.messages.map((message) => [message.id, message]))
-  const previousIds = new Set(previous.messages.map((message) => message.id))
-  const refreshedPrevious = previous.messages.map((message) => currentById.get(message.id) ?? message)
-  const appended = current.messages.filter((message) => !previousIds.has(message.id))
+  const currentById = new Map<string, NonNullable<typeof current.messages>>()
+  for (const message of current.messages) {
+    const matches = currentById.get(message.id) ?? []
+    matches.push(message)
+    currentById.set(message.id, matches)
+  }
+  const consumedById = new Map<string, number>()
+  const refreshedPrevious = previous.messages.map((message) => {
+    const consumed = consumedById.get(message.id) ?? 0
+    consumedById.set(message.id, consumed + 1)
+    return currentById.get(message.id)?.[consumed] ?? message
+  })
+  const appended = current.messages.filter((message) => {
+    const remaining = consumedById.get(message.id) ?? 0
+    if (remaining === 0) return true
+    consumedById.set(message.id, remaining - 1)
+    return false
+  })
   return appended.length ? { ...current, messages: [...refreshedPrevious, ...appended] } : { ...current, messages: refreshedPrevious }
 }
 
@@ -3104,6 +3118,7 @@ interface DurableSteerQueueEntry {
 
 const durableSteerQueueMaximum = Number.MAX_SAFE_INTEGER
 const durableSteerFallbackProgressWriteAttempts = 2
+const durableSteerRecoveryStartMaximumAttempts = 4
 
 function durableSteerPendingQueue(queue: string): string {
   return `${queue}:pending`
@@ -4755,6 +4770,7 @@ async function handleChatSdkMessage(
                   let recoveredLock: Lock | null = null
                   let recoveryInput: AgentRunInput | null = null
                   let recoveryPending: DurableSteerQueueEntry | null = null
+                  let recoveryStartAttempts = 0
                   const recoveryDeadline = Date.now() + steerTtlMs
                   while (true) {
                     while (!recoveredLock) {
@@ -4833,6 +4849,7 @@ async function handleChatSdkMessage(
                     const stopRecoveryHeartbeat = startWebhookLockHeartbeat(state.state, recoveredLock, steerTtlMs, () => undefined)
                     try {
                       // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
+                      recoveryStartAttempts++
                       await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
                       return
                     } catch (recoveryError) {
@@ -4845,9 +4862,11 @@ async function handleChatSdkMessage(
                     recoveredLock = null
                     recoveryInput = null
                     recoveryPending = null
+                    if (recoveryStartAttempts >= durableSteerRecoveryStartMaximumAttempts) return
                     const remainingMs = recoveryDeadline - Date.now()
                     if (remainingMs <= 0) return
-                    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
+                    const retryDelayMs = 250 * 2 ** (recoveryStartAttempts - 1)
+                    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryDelayMs, remainingMs)))
                   }
                 })().catch(() => undefined),
               )

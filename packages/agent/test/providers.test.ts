@@ -12659,7 +12659,10 @@ describe("server helpers", () => {
     }
   })
 
-  it("retries a definitively rejected recovered steer start without another webhook", async () => {
+  it.each([
+    { persistentOutage: false, title: "retries a definitively rejected recovered steer start without another webhook" },
+    { persistentOutage: true, title: "bounds recovered steer starts during a persistent provider outage" },
+  ])("$title", async ({ persistentOutage }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -12676,7 +12679,7 @@ describe("server helpers", () => {
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
-      if ([2, 3, 4].includes(createBatch.mock.calls.length)) {
+      if ([2, 3, 4].includes(createBatch.mock.calls.length) || (persistentOutage && createBatch.mock.calls.length === 5)) {
         throw Object.assign(new Error("recovered Workflow unavailable"), { status: 503 })
       }
       return [{ id, status: async () => ({ status: "queued" }) }]
@@ -12726,6 +12729,11 @@ describe("server helpers", () => {
       await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
       expect(sideEffect).not.toHaveBeenCalled()
       expect(createBatch).toHaveBeenCalledTimes(5)
+
+      if (persistentOutage) {
+        expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
+        return
+      }
 
       await expect(
         runAgentWorkflowDefinition(
