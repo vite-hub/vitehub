@@ -190,7 +190,6 @@ import type {
   AgentInvocationSnapshot,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
-import type { AgentChannelContext } from "./chat-trigger.ts"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
@@ -5089,8 +5088,9 @@ async function executeAgentInvocationWithCapacityLease<
                   unresolvedLazyStreamSurfaces--
                 }
                 const existingSource = preservedSources.get(renderedStream)
+                const existingStream = preservedStreams.get(renderedStream)
                 const normalizedStream = normalizeUiMessageStream(
-                  toReadableAsyncIterableStream(existingSource?.stream ?? renderedStream),
+                  toReadableAsyncIterableStream(existingStream ?? existingSource?.stream ?? renderedStream),
                 )
                 const tracedStream = invocation.runtimeContext.traceLog
                   ? traceUiMessageStream(normalizedStream, invocation)

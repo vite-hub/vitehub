@@ -1214,15 +1214,26 @@ describe("agent message protocol", () => {
       },
     })
     const agent = defineAgent({
-      driver: { run: () => ({
-          fullStream: sharedStream,
-          toUIMessageStream: () => sharedStream,
-        }) },
+      driver: {
+        run: () => {
+          const result = {
+            toUIMessageStream: () => sharedStream,
+          }
+          Object.defineProperty(result, "fullStream", {
+            configurable: true,
+            enumerable: true,
+            get: () => sharedStream,
+          })
+          return result
+        },
+      },
     })
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as {
+      fullStream: ReadableStream<unknown>
       toUIMessageStream: () => ReadableStream<unknown>
     }
+    expect(result.fullStream).toBeInstanceOf(ReadableStream)
     const events: unknown[] = []
     for await (const event of result.toUIMessageStream()) events.push(event)
 
