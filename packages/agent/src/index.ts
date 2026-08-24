@@ -4943,7 +4943,6 @@ async function executeAgentInvocationWithCapacityLease<
         let finishing = false
         let preserved: object
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
-        const preservedUiStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
           if (options.holdCapacity !== true) return outcome
           const cancellations = await Promise.allSettled(
@@ -4996,13 +4995,9 @@ async function executeAgentInvocationWithCapacityLease<
             return await finishTask
           }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          let preservedStream: AsyncIterable<unknown> = value
-          // SAFETY: Stream-result detection established that this property is a ReadableStream before reading pipeThrough.
-          if (hasRuntimeType((renderedStream as ReadableStream<unknown>).pipeThrough, "function")) {
-            const [primaryStream, uiStream] = toReadableAsyncIterableStream(value).tee()
-            preservedStream = toReadableAsyncIterableStream(primaryStream)
-            preservedUiStreams.set(renderedStream, toReadableAsyncIterableStream(uiStream))
-          }
+          const preservedStream = hasRuntimeType((renderedStream as ReadableStream<unknown>).pipeThrough, "function")
+            ? toReadableAsyncIterableStream(value)
+            : value
           preservedStreams.set(renderedStream, preservedStream)
           return preservedStream
         }
@@ -5094,7 +5089,7 @@ async function executeAgentInvocationWithCapacityLease<
                   unresolvedLazyStreamSurfaces--
                 }
                 const existingSource = preservedSources.get(renderedStream)
-                const existingStream = preservedUiStreams.get(renderedStream)
+                const existingStream = preservedStreams.get(renderedStream)
                 const normalizedStream = normalizeUiMessageStream(
                   toReadableAsyncIterableStream(existingStream ?? existingSource?.stream ?? renderedStream),
                 )
