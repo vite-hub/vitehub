@@ -234,6 +234,7 @@ async function installConsole(
   await refreshAgentDefinitions()
   if (nuxt.options.dev) {
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
+    // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
     const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: () => Promise<void>) => void) | undefined
     hookBuilderWatch?.("builder:watch", refreshAgentDefinitions)
   }

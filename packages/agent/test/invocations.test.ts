@@ -1609,6 +1609,13 @@ describe("Agent Invocations", () => {
       await expect(restored.list({ agentName: "review-assistant" })).resolves.toEqual({
         invocations: [],
       })
+      const agentQueryPlan = await readerClient.execute({
+        args: ["review"],
+        sql: "EXPLAIN QUERY PLAN SELECT sequence, record FROM vitehub_agent_invocations WHERE agent_name = ? ORDER BY sequence DESC LIMIT 51",
+      })
+      expect(agentQueryPlan.rows.map(row => String(row.detail))).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_agent_name_sequence"),
+      )
       const localeLowercase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
         return String(this).replaceAll("I", "ı").toLowerCase()
       })
@@ -1674,6 +1681,7 @@ describe("Agent Invocations", () => {
       )`)
       await setupClient.execute({
         args: [JSON.stringify({
+          agentName: "review",
           annotations: { repository: "Éclair" },
           createdAt: "2026-01-01T00:00:00.000Z",
           id: "legacy",
@@ -1716,8 +1724,12 @@ describe("Agent Invocations", () => {
         { invocations: [expect.objectContaining({ id: "legacy" })] },
         { invocations: [expect.objectContaining({ id: "legacy" })] },
       ])
+      const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
+      expect(migratedAgent.rows[0]?.agent_name).toBe("review")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toEqual({ invocations: [] })
+      await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
+        .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
     }
     finally {
       setupClient.close()
