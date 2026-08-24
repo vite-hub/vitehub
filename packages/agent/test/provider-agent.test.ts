@@ -1321,8 +1321,9 @@ describe("Provider Agent Driver", () => {
       readFile: vi.fn(async () => new Uint8Array()),
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
     const runContext = context(threadId, {
-      workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
+      workspace,
       workspaceAutoCommit: true,
       workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
       workspaceMode: "read",
@@ -1333,6 +1334,7 @@ describe("Provider Agent Driver", () => {
 
     expect(session.diff).not.toHaveBeenCalled()
     expect(session.commit).not.toHaveBeenCalled()
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ writeBack: false }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
     expect(session.close).toHaveBeenCalledOnce()

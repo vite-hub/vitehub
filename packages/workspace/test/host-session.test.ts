@@ -1283,6 +1283,26 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/partial.txt")).toBeUndefined()
   })
 
+  it("restores a non-publishing Session without reading runtime files", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "# Docs\n")
+    await docs.snapshot({ name: "baseline" })
+    const host = memoryHost()
+    const read = vi.spyOn(host.files, "read")
+    const session = await docs.startSession({ host, writeBack: false })
+
+    expect(read).not.toHaveBeenCalled()
+    await session.writeFile("README.md", "changed")
+    await session.writeFile("generated.md", "generated")
+    await expect(session.diff()).rejects.toThrow("writeBack is false")
+    await expect(session.commit()).rejects.toThrow("writeBack is false")
+    await session.close()
+
+    expect(read).not.toHaveBeenCalled()
+    expect(host.readText("/workspace/README.md")).toBe("# Docs\n")
+    expect(host.readText("/workspace/generated.md")).toBeUndefined()
+  })
+
   it("refreshes an unchanged host when the authoritative revision advances", async () => {
     const docs = workspace()
     const firstHost = memoryHost()

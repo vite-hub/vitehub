@@ -658,6 +658,39 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/b.md")).resolves.toBe("# b.md\n")
   })
 
+  it("persists complete source metadata at lifecycle boundaries", async () => {
+    const store = createMemoryWorkspaceStore()
+    const statuses: string[] = []
+    const setMeta = store.setMeta!.bind(store)
+    store.setMeta = async (key, value) => {
+      if (key === "source:docs:snapshot" && value && typeof value === "object" && "status" in value) {
+        statuses.push(String(value.status))
+      }
+      await setMeta(key, value)
+    }
+    const view = createWorkspaceSourceView({
+      name: "source-metadata-boundaries",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return Array.from({ length: 100 }, (_, index) => `${index}.md`)
+          },
+          async getItem(key) {
+            return { content: `# ${key}\n`, key, path: key }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      files: 100,
+      sources: [expect.objectContaining({ status: "ready" })],
+    })
+
+    expect(statuses).toEqual(["updating", "ready"])
+  })
+
   it("checks stale root source files sequentially while refreshing", async () => {
     let keys = ["a.bin", "b.bin", "c.bin"]
     let activeReads = 0

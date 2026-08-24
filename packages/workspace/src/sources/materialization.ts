@@ -367,19 +367,6 @@ export async function materializeWorkspaceSources(
           commit ||= entry.metadata.ref || entry.metadata.sha
           sourceFiles++
           sourceBytes += entry.reused.size || 0
-          if (completeSource) {
-            await writeSourceSnapshotMetadata(store, {
-              configHash,
-              source: source.key,
-              mountPath: source.mountPath,
-              status: "updating",
-              commit,
-              files: sourceFiles,
-              bytes: sourceBytes,
-              items: checkpointItems(itemMetadata),
-              cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-            })
-          }
           if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
             lastProgressAt = Date.now()
             await reportMaterializationProgress(options, source, {
@@ -406,19 +393,6 @@ export async function materializeWorkspaceSources(
         })
         sourceFiles++
         sourceBytes += written.size || 0
-        if (completeSource) {
-          await writeSourceSnapshotMetadata(store, {
-            configHash,
-            source: source.key,
-            mountPath: source.mountPath,
-            status: "updating",
-            commit,
-            files: sourceFiles,
-            bytes: sourceBytes,
-            items: checkpointItems(itemMetadata),
-            cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-          })
-        }
         if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
           lastProgressAt = Date.now()
           await reportMaterializationProgress(options, source, {

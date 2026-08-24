@@ -613,6 +613,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     host: localWorkspaceHost(),
     paths,
     target: root,
+    ...(context.workspaceMode === "write" ? {} : { writeBack: false }),
   })
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
   return session

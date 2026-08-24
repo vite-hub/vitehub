@@ -71,7 +71,7 @@ describe("local workspace store", () => {
     ])
   })
 
-  it("hashes local file entries without reading whole files into memory", async () => {
+  it("hashes local files only for stats and snapshots", async () => {
     const store = await createStore()
     const content = new Uint8Array([0, 1, 2, 3, 254, 255])
     const digest = createHash("sha256").update(content).digest("hex")
@@ -80,9 +80,12 @@ describe("local workspace store", () => {
     vi.mocked(readFile).mockClear()
 
     await expect(store.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ digest, path: "assets/blob.bin", type: "file" }),
+      expect.not.objectContaining({ digest: expect.anything() }),
     ]))
     await expect(store.stat("assets/blob.bin")).resolves.toMatchObject({ digest })
+    await expect(store.snapshot()).resolves.toMatchObject({
+      entries: { "assets/blob.bin": expect.objectContaining({ digest }) },
+    })
     expect(readFile).not.toHaveBeenCalled()
   })
 

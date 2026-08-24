@@ -148,7 +148,7 @@ export interface WorkspaceSessionOptions {
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   target?: string
-  writeBack?: {
+  writeBack?: false | {
     exclude?: readonly string[]
   }
 }

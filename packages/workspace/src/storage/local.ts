@@ -64,7 +64,13 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
   }
 }
 
-async function walk(root: string, current = root, excluded: readonly string[] = [], recursive = true): Promise<WorkspaceEntry[]> {
+async function walk(
+  root: string,
+  current = root,
+  excluded: readonly string[] = [],
+  recursive = true,
+  includeDigest = false,
+): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
   const entries: WorkspaceEntry[] = []
@@ -85,7 +91,7 @@ async function walk(root: string, current = root, excluded: readonly string[] = 
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      if (recursive) entries.push(...await walk(root, absolute, excluded))
+      if (recursive) entries.push(...await walk(root, absolute, excluded, true, includeDigest))
       continue
     }
     if (dirent.isFile()) {
@@ -94,7 +100,7 @@ async function walk(root: string, current = root, excluded: readonly string[] = 
         type: "file",
         size: info.size,
         mtime: info.mtimeMs,
-        digest: await fileDigest(absolute),
+        ...(includeDigest ? { digest: await fileDigest(absolute) } : {}),
       })
     }
   }
@@ -241,9 +247,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
+    return await this.#list(prefix, options, false)
+  }
+
+  async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const all = await walk(this.root, current, options.exclude, options.recursive === true)
+    const all = await walk(this.root, current, options.exclude, options.recursive === true, includeDigest)
     return all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
@@ -348,7 +358,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {
     const entries: WorkspaceSnapshot["entries"] = {}
-    for (const entry of await this.list("", { recursive: true })) {
+    for (const entry of await this.#list("", { recursive: true }, true)) {
       entries[entry.path] = {
         type: entry.type,
         digest: entry.digest,
