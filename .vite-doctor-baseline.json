@@ -2250,6 +2250,476 @@
       "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
       "file": "packages/agent/src/vite.ts",
       "fingerprint": "e440fef4835c185e3db3193b8be392b95d7ab1b2bb67236cf675e6e21bee857c"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "121a53117128919690de163b4a615db4e39e8b076d927be193ddc4c77ab8f9f7"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "ee2a16f5f671a2cfa9238a10188500f170e77614ae175b9e4a2d764490f4b4a5"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "def74a0ad57c407fc5ede14c41060d5b666f32d507926638322a9ae9ddf2f2b8"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "415391d919d21ab1d5824f71b8cbea9ccc5929202f26bec3d8303028a18150cf"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "f0d3d4fc9bbae0d50cb94df30f05e3c3f8e12e56fd5e8af7bdbda2c005afce63"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "e11b93402d58bc2a7423b03ab1711cf1c71650c66345d2b448730182d207ccf0"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "ab3a92c9e8389e048aa402c93b3bbe29881d191364cdc4fdd1d00449805236f5"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "3e45809b1eaf530ee02ea8d04a1e4b86d65dfd246ec17b13667aa2f03d6922ed"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "d3728e5d22e1b3baca480f948e7210ec79589c2d123ea854ce1992383b585de5"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "101ef61aed6e5763a4416ddd2166aebac9594f9825a3bf9f0898fe3f50cb528d"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "46e02fb107bfa595578d8acf315eb7ea8ba5edffa945ab94135533655a3136e8"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "e44a8f7bb91f0a52e27abe5f921e2f2c2392194ebc3753904da644759a83a841"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "1ca2a261ffa00b2b4773f851de249786419c5791eb91c75b2c5e271b4e09b7c6"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "6bc7fd66ed24df571baa8be8d3d43f7041c138de3e27277f82d00351065782d9"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "9a96800b9491bfdd123bdd6fa59d8a4b1bae7b7eb2e343d5635ada0cb226ad9c"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "0dbf47083eb19e2ac54afc302524a216696ae220678775dc090f354017db1a8e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "1db5e4868b488845e261058a8141ea9260f97e288ce758f84151ecfd2ad144cc"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "fa7517658fe51ee1926fda12ee2419e71e58b47dfe356be3dd6ff8741f690e49"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "5c8b521ea3205d6da04f935005a3538eca5dbbd943a6e8a4c37524e41f63f6e3"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "7096d4482d8d3a246479046ba8ef36c0cc38d2032273ebaebe0c96e24dbc980e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "39e5cc95c4bba9ee7730f9687e5c1fc1c4e98bf5fb410a242aa2a1a5d5405ac3"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "139329a1aebe58b9212b3dcfd4b0cdd6c0aa85c5694791fd84a8effc6f9102d2"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "24b5e5134f183068937de92529bce75c30284ac5c00e9fa447a78bcb5f326111"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "bbd7f52e2ac8fce558def95dda5a31f3055ca6b81309e62898d96fe8f6ee1754"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "fc624fa71fe208554518ba92c10023fa262ad1155517aadfced5c9274d952412"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "888fba26cb2d7e8bcf3c347d7d19d808f2a0d64960e45cc2840a490464c1e4ed"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "cb8b8605a410410cd3b9688bdb919deae179aa2dd84ff394678bc6061d12fb7d"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "90099a06b8383b576c2e0d92701d87e8f7c07fdd6f604ac21386e905d5d36c5c"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "ffdd0258168a89c9850e4389b1350a72d56fec09fb082e05c707299149140cbb"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "00a5c85c1432aa671f169031fa8723cdd74004b3cdb0d6de23e58a08d7d04ac6"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "b9ed42450e1219383a342df4350ed462099dff2ede6eff9e9a2eb27a322ab134"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "64f2cce197c47dccbe84d9c1acdd07dd6936e63dbd7210fe75c7e50ac6558716"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "0f208353c6a5a75d272ae939f8723f035baf01d1d022b52b5ca58b1143abb5d3"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "c98cd2fc300d22fcd90cbec82140586ce6ac7246e547f1de09c7a97cfa026659"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "75dfc0ca9da1b19f5ee307d4ca2f89936e90e37563276249aff0d17b157424b1"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "b9ca1b677d8d4a519184e607ddaf9f3253889c3079153b5cd8e2e5baa8e357a6"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "7940da60ede068b741666911e8e4350f97fbe85ce7a723bca28a6b6e0dcea396"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "d7a7410f7efed62221ea189d86d2a339c0df8ffd2fc4349936e1e24d4daa0748"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "ff637d176caec97d1af5da6415703d4ddabff2e5aaf5f966675dc75b1e2cf1f8"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "1cf81aaa8a2cfa49892d741d8a9e1053780be809651d5ba684be5b17eb0d40e9"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "e16e03c03d57cc064e7c502b505778b5e76c475e6e70ae2cf87907ebf2d30883"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "36ab4992e91cc1672177c7039eddfe273d8bf21918cfb572baee0fa3c2cf9435"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "236f8fb32eee33034e92b332ad9a2850e355d2bcbe9387daceb920920cf06eb6"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "924a8f3a18e056ea781e1b3b40e9ca522b0756f67f341db9d7ab6e057f775e02"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "59168ee10605b8f8d8a7123a33a3cb4f7b513eab070d7021f89bb18301bbe02f"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "2f3d3c69aaa3c78d2ccd2fc16e81049a3326798fd60a0d54e2cad25a31b1a047"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "a350170f7323fe7542f732f3bf3e91784ca55e7d0e0123ad66c07bc3c506ac67"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "3359be563e1cb7ccbc917881116ba0d6da129c48038b5faa50b9d64f3deb5266"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "0915be1193527d5fd8d45e68f7e10143861c91bb5a16e670486a23a6446d2e48"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "935ee099867dc1bea0dcd46f94fdd6c9a65513830481c304495ce75ba9e1e42b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "a8df6d4cd48cd860fc9f706b90baecf1da6088f66a0669f1152ab6b1358c9804"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "d85d687e642e051f509550c837e33f0ac6b6175003cdcb9684a5fb205256c42e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "ca05fbecd7c71a696282c76786a3278ad97fd3091fe31e7b06cc780ead24a4f6"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "ccbded291c7d09f7fe9375ffb2843d7e18b29509a615fe5bbd83d99cc9395e40"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "b2b285231e03db88e1b338d8c3015aff0656c8eb4b024bcc8718c14c466f1e50"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "b21cc8e1e6ed3f430c21f423f602532922955c5edbd1c28b9ee11221cacc85ae"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "9b5415358aae3cbc8d6959c247543f5c9918c45493383f439e6e011f09abe0f8"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "140b0f7e6b6ce6bb7b1b5d4f160b8a7d8e6795ae7d170f01d45598e1d3ec842b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "dcd7f197c9ea52a3663787b1d5a4fe1d04d704c068fb0edf7872ef886b2e1fd4"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "c8b91c2e4d62a266ad6b387ca4e81928ffd535311a953ae9b837f52231093ede"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "f39569534d3e3377a6136757f1e3cfa39a2bcf4dc97aeb9a0945f1f8cc9bbbb8"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "078cb20538da28ce483117972ce58c98ef49c8f2924bbadbbd23d205cbcbf59d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "da41e61b7c9267637c04d0a1c624a3de8d124190a9b5ea8bf235614c5447092c"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "057ed9abf15a65d6351aaef663a8ef53622a3ac6f4ee26f7e4b930ee5d506998"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "76210613f3cdda3f1b0bcec308a5efafeb8a29940fa158d063c18d20e63f6a18"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "0f0ba4a6c7f4f577b9651e1fb218055ede6bd1ed726a6ce6d16f953ba2327f75"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "b40acfde1f4b3eaae7ccef8c2ddbe9df17da55a82de4697ed3a523b69eaf98f0"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "b1e3b958ee68e93bde0b045985888c59c1680fc22852a2371b2637e0f8cb94ac"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "76e1847be837e4801c43e51c96f5d6a5d669b8a38dd7b88e73b71ac19dab8707"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "8bb458dbf65966460ab858a639153b691c550c08b7e3db41607d832f71b224a8"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "1a75af0f96425870441098c9f78bb736bbb8b8b0ee34b2296d9975f8123fefc1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "006d7dc67fa8488f577562c1ff0d93f09950e3e80faafb2c32928936e98527bf"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "6522ef11e2d2cf00c4e8fdf8dcfc8dfa4e03e8853f1ac993d70ea6b03c44b4c2"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "2990db5d5ac24c5137e700728f6afd3f3a8feca2a53abcd93dc356b55e209a8b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "59e8275a0c117cde02e1a5f2fa006d3aa0c6167d55c2205bf0a2c3ec06a5d20a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "48b9027455bb5870c7d25d4e699e16cfe250ff28882bb39cc7cb37f56c40c406"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "0f7e045f4c62cb6213cf3181925d567dafc39711abe09fd44adc8c129e056215"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "e49fd7a59d1317372922cf4bbbce4801fac9f0348fda7fdb66bdee6adec66b73"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "5cb6f488d8cc63d29257b94f33a55cb8579d371b1d50eab5dad3378941586555"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "da7f8db501629d97e0cc6e54c33799a3d07e1c1f526ab6cdbbee1a0e66a14180"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "02fc6cfcf72050dd754bf6c1e9c7ceac4443265fb3c6e50d91cbbde3c4487557"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "c286135d1ea8af5221ee6ff44f4a9d4fbf4e5b4110a2b4fd4f44ffbc2acb212e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "b085ab2f58b331fa94821404e8e48d917f2dad6611d652d9e4cca82a4d15ecf0"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "6b85a5ecc70668bffaabb229d57f57bbee014e51aa60e8b4c8310b72a5aaceb8"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "414da7a1f29c36b90075472908b886c7a27101e2266665853cc09725eff72152"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "f5b91afe4caa5c63947d49df2f603c12b5f7f004cc5c33194b43a5694c479d02"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "0ecdbdf5df4014f10972238cb0f38cc5ac331b5cd7a3eac6d793dd469af654df"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "8593c781cc573302ee4634e0f822a0519e2bc6c23637b9df3e70399e317dccdf"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "3a66642c990f67a647e381b8dd2dba59ca60df5a8339d32c7185835c72e65a9d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "56daeea4128baa4ec7a1b7b1d41781c87f5f92e28ca76432ca1ad2088856faa6"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "dc404bfb6c7d1652f2fcc0049ccd1139020f2f1eaabdf6678ea53d6e8134582e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "75236d9d307474f759ed25ece91396f4b243cc53991a5d6a75ef251a06caf225"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "fac31cb593ba7313b23f69c05ff99f38714eaf4d5d8e87830a6f674080c6bd76"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "e1c33e8a299c55a512f4bb869a54c9b27622b2c489a2c303630f7a79c9ae8e66"
     }
   ]
 }
