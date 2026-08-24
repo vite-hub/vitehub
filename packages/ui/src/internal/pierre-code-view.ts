@@ -72,7 +72,7 @@ function controlledOptions<T extends { controlledSelection?: boolean }>(
 function accessibleOptions<T extends { controlledSelection?: boolean; enableLineSelection?: boolean }>(
   options: T | undefined,
   selectedLines: unknown,
-): T {
+) {
   return {
     ...controlledOptions(options, selectedLines),
     enableLineSelection: false,
