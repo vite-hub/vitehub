@@ -208,7 +208,7 @@ async function installConsole(nuxt: NuxtLike, projectRoot: string): Promise<void
     if (!handlers.some(candidate => candidate.route === handler.route)) handlers.push(handler)
   }
   const plugins = (nitro.plugins ??= [])
-  const plugin = join(nuxt.options.buildDir, "vitehub-console-plugin.mjs")
+  const plugin = join(projectRoot, ".vitehub/nitro/console/plugin.mjs")
   // Nitro runs in another runtime realm, so install a second journal instance over the same project SQLite file.
   await writeConsoleNitroPlugin(plugin, projectRoot)
   if (!plugins.includes(plugin)) plugins.push(plugin)
