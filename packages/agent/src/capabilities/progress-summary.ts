@@ -89,7 +89,7 @@ const defaultProgressSummaryTemplate = [
 ].join("\n")
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return hasRuntimeType(value, "object")
+  return value !== null && hasRuntimeType(value, "object")
 }
 
 function eventType(value: unknown): string {

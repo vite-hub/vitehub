@@ -4869,7 +4869,8 @@ async function executeAgentInvocationWithCapacityLease<
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
                 let source: ReturnType<typeof cancellableAsyncIterableSource>
                 try {
-                  const normalizedStream = normalizeUiMessageStream(toUIMessageStream.apply(rendered, args))
+                  source = cancellableAsyncIterableSource(toUIMessageStream.apply(rendered, args))
+                  const normalizedStream = normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))
                   const enrichedStream = withEagerStreamUsageExtensions(
                     toReadableAsyncIterableStream(normalizedStream),
                     invocation,
@@ -4878,25 +4879,24 @@ async function executeAgentInvocationWithCapacityLease<
                   const renderedStream = invocation.runtimeContext.traceLog
                     ? traceUiMessageStream(toReadableAsyncIterableStream(enrichedStream), invocation)
                     : enrichedStream
-                  source = cancellableAsyncIterableSource(renderedStream)
+                  return withReadableStreamCleanup(
+                    toReadableAsyncIterableStream(renderedStream),
+                    finishPreserved,
+                    {
+                      abortSignal: invocation.input.abortSignal,
+                      cancelOnAbort: source.cancel,
+                      onChunk(chunk) {
+                        collectToolResult(chunk)
+                        streamedText += uiMessageTextDelta(chunk) || ""
+                        streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+                      },
+                    },
+                  )
                 }
                 catch (error) {
                   void finishPreserved({ error, failed: true }).catch(() => {})
                   throw error
                 }
-                return withReadableStreamCleanup(
-                  toReadableAsyncIterableStream(source.stream),
-                  finishPreserved,
-                  {
-                    abortSignal: invocation.input.abortSignal,
-                    cancelOnAbort: source.cancel,
-                    onChunk(chunk) {
-                      collectToolResult(chunk)
-                      streamedText += uiMessageTextDelta(chunk) || ""
-                      streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
-                    },
-                  },
-                )
               },
             },
           })
