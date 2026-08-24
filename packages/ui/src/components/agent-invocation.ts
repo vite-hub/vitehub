@@ -1,6 +1,7 @@
 import { computed, defineComponent, h, onBeforeUnmount, ref, type PropType, Suspense } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
+  agentConfigurationSummary,
   invocationActivities,
   invocationActivityTitle,
   latestInvocationTokens,
@@ -98,7 +99,10 @@ function renderFolderIcon() {
   ]);
 }
 
-function renderMessage(activity: InvocationActivity) {
+function renderMessage(activity: InvocationActivity, expanded: ReadonlySet<string>, toggleExpanded: (id: string) => void) {
+  const body = activity.body ?? "";
+  const collapsible = activity.role === "user" && (body.length > 720 || body.split(/\r?\n/).length > 12);
+  const isExpanded = expanded.has(activity.id);
   return h(
     "li",
     {
@@ -107,15 +111,26 @@ function renderMessage(activity: InvocationActivity) {
       key: activity.id,
     },
     [
-      markdown(activity.body, "vh-invocation-message__body"),
+      h("div", {
+        class: "vh-invocation-message__content",
+        "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
+      }, [markdown(body, "vh-invocation-message__body")]),
       activity.truncated
         ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+        : null,
+      collapsible
+        ? h("button", {
+            "aria-expanded": String(isExpanded),
+            class: "vh-invocation-message__more",
+            onClick: () => toggleExpanded(activity.id),
+            type: "button",
+          }, isExpanded ? "Show less" : "Read more")
         : null,
     ],
   );
 }
 
-type ActivityIcon = "action" | "approval" | "bot" | "change" | "command" | "error" | "eye" | "search" | "tool";
+type ActivityIcon = "action" | "approval" | "bot" | "change" | "command" | "error" | "eye" | "folder" | "search" | "tool";
 
 function activityIcon(activity: InvocationActivity): ActivityIcon {
   if (activity.status === "failed" || activity.kind === "error") return "error";
@@ -126,7 +141,9 @@ function activityIcon(activity: InvocationActivity): ActivityIcon {
   if (name.includes("search") || name.includes("find")) return "search";
   if (activity.kind === "reasoning" || activity.kind === "model") return "bot";
   if (activity.kind === "approval") return "approval";
-  if (activity.kind === "action") return "action";
+  if (activity.kind === "action" || activity.kind === "delivery") return "action";
+  if (activity.kind === "preparation") return "folder";
+  if (activity.kind === "system") return "bot";
   return "tool";
 }
 
@@ -138,6 +155,7 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
   command: ["m4 17 6-6-6-6", "M12 19h8"],
   error: ["M18 6 6 18", "m6 6 12 12"],
   eye: ["M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6"],
+  folder: ["M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
   search: ["m21 21-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16"],
   tool: ["M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-2.4 2.4-2.1-2.1a4 4 0 0 0 5 5L3 18l3 3 9.3-9.3a4 4 0 0 0 5-5l-2.1 2.1-2.4-2.4z"],
 };
@@ -153,14 +171,31 @@ function renderActivityIcon(activity: InvocationActivity) {
   ]);
 }
 
-function renderEvent(activity: InvocationActivity) {
+function renderEvent(activity: InvocationActivity, inspect: (target: "agent" | "workspace") => void) {
   const command = activity.command;
   const tokenLabel = activity.kind === "reasoning" || activity.kind === "model"
     ? formatTokens(activity.reasoningTokens)
     : undefined;
-  const suffix = activity.preview ? compactCommand(activity.preview) : tokenLabel;
+  const suffix = agentConfigurationSummary(activity) ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
   const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated);
-  const summary = h(hasDetails ? "summary" : "div", { class: "vh-invocation-event__summary" }, [
+  const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
+  const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
+  const summary = h(hasDetails ? "summary" : "div", {
+    class: "vh-invocation-event__summary",
+    ...(inspectable
+      ? {
+          role: hasDetails ? undefined : "button",
+          tabindex: hasDetails ? undefined : 0,
+          onClick: () => inspect(inspectTarget),
+          onKeydown: (event: KeyboardEvent) => {
+            if (!hasDetails && (event.key === "Enter" || event.key === " ")) {
+              event.preventDefault();
+              inspect(inspectTarget);
+            }
+          },
+        }
+      : {}),
+  }, [
     renderActivityIcon(activity),
     h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
@@ -171,6 +206,7 @@ function renderEvent(activity: InvocationActivity) {
   return h("li", {
     class: "vh-invocation-activity",
     "data-kind": activity.kind,
+    "data-inspectable": inspectable ? "true" : undefined,
     "data-status": activity.status,
     key: activity.id,
   }, [
@@ -254,14 +290,103 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
   ];
 }
 
+function renderInvocationActivity(
+  activity: InvocationActivity,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (id: string) => void,
+  inspect: (target: "agent" | "workspace") => void,
+) {
+  return activity.kind === "message"
+    ? renderMessage(activity, expanded, toggleExpanded)
+    : renderEvent(activity, inspect);
+}
+
+function isExternalActivity(activity: InvocationActivity): boolean {
+  return activity.kind === "preparation" || activity.kind === "delivery" || activity.kind === "action";
+}
+
+function renderChevronDown(className: string) {
+  return h("svg", { "aria-hidden": "true", class: className, fill: "none", viewBox: "0 0 24 24" }, [
+    h("path", { d: "m6 9 6 6 6-6", "stroke-linecap": "round", "stroke-linejoin": "round" }),
+  ]);
+}
+
+function renderWorkSummary(
+  activities: readonly InvocationActivity[],
+  invocation: AgentInvocationView,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (id: string) => void,
+  inspect: (target: "agent" | "workspace") => void,
+) {
+  if (!activities.length) return null;
+  const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
+  const duration = formatDuration(invocation.startedAt, endedAt);
+  return h("li", { class: "vh-invocation-work", key: "invocation-work" }, [
+    h("details", { class: "vh-invocation-work__details" }, [
+      h("summary", { class: "vh-invocation-work__summary" }, [
+        h("span", { class: "vh-invocation-work__title" }, duration ? `Worked for ${duration}` : "Work details"),
+        renderChevronDown("vh-invocation-work__disclosure"),
+      ]),
+      h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
+      h("ol", { class: "vh-invocation-work__activities" }, activities.map(activity => renderInvocationActivity(activity, expanded, toggleExpanded, inspect))),
+    ]),
+  ]);
+}
+
+function renderInvocationActivities(
+  activities: readonly InvocationActivity[],
+  invocation: AgentInvocationView,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (id: string) => void,
+  inspect: (target: "agent" | "workspace") => void,
+) {
+  const render = (activity: InvocationActivity) => renderInvocationActivity(activity, expanded, toggleExpanded, inspect);
+  if (invocation.status === "pending" || invocation.status === "running") return activities.map(render);
+
+  const firstUser = activities.findIndex(activity => activity.kind === "message" && activity.role === "user");
+  if (firstUser < 0) return activities.map(render);
+
+  let finalAssistant = -1;
+  for (let index = activities.length - 1; index > firstUser; index -= 1) {
+    if (activities[index]!.kind === "message" && activities[index]!.role === "assistant") {
+      finalAssistant = index;
+      break;
+    }
+  }
+
+  const workEnd = finalAssistant < 0 ? activities.length : finalAssistant;
+  const between = activities.slice(firstUser + 1, workEnd);
+  const external = between.filter(isExternalActivity);
+  const work = between.filter(activity => !isExternalActivity(activity));
+  const suffix = finalAssistant < 0 ? [] : activities.slice(finalAssistant);
+
+  return [
+    ...activities.slice(0, firstUser + 1).map(render),
+    ...external.map(render),
+    renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect),
+    ...suffix.map(render),
+  ].filter(item => item !== null);
+}
+
 export const AgentInvocation = defineComponent({
   name: "AgentInvocation",
+  emits: {
+    inspect: (target: "agent" | "workspace") => target === "agent" || target === "workspace",
+  },
   props: {
     header: { default: true, type: Boolean },
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
   },
-  setup(props, { slots }) {
+  setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
+    const expandedMessages = ref<ReadonlySet<string>>(new Set());
+
+    function toggleExpanded(id: string) {
+      const next = new Set(expandedMessages.value);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      expandedMessages.value = next;
+    }
 
     return () => {
       return h("article", {
@@ -287,7 +412,13 @@ export const AgentInvocation = defineComponent({
                 ])
               : null,
             activities.value.length
-              ? h("ol", { "aria-label": "Session thread", class: "vh-invocation-activities" }, activities.value.map(activity => activity.kind === "message" ? renderMessage(activity) : renderEvent(activity)))
+              ? h("ol", { "aria-label": "Session thread", class: "vh-invocation-activities" }, renderInvocationActivities(
+                  activities.value,
+                  props.invocation,
+                  expandedMessages.value,
+                  toggleExpanded,
+                  target => emit("inspect", target),
+                ))
               : h("div", { class: "vh-invocation-empty" }, [h("span", { "aria-hidden": "true" }, "○"), h("p", "Waiting for the first update…")]),
             slots.footer?.({ invocation: props.invocation }),
           ]),

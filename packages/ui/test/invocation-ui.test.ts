@@ -117,6 +117,110 @@ describe("Agent Invocation UI", () => {
     expect(rows[1]!.attributes("style")).toContain("transform: translateY(106px)");
   });
 
+  it("renders configuration and delivery lifecycle events", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "lifecycle",
+      observations: [
+        {
+          attributes: {
+            "vitehub.agent.configuration": {
+              capabilities: [{ id: "db" }, { id: "blob" }],
+              driver: { model: { id: "claude-sonnet-4-5" } },
+              tools: [{ name: "search" }],
+            },
+          },
+          name: "vitehub.agent.configured",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: { "channel.effect.kind": "telegram.message.sent", "vitehub.inspect.target": "workspace" },
+          name: "agent.channel.delivery",
+          sequence: 2,
+          timestamp,
+          type: "run" as const,
+        },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const activities = invocationActivities(invocation);
+    expect(activities.map(activity => [activity.kind, invocationActivityTitle(activity)])).toEqual([
+      ["system", "Agent configured"],
+      ["delivery", "telegram.message.sent"],
+    ]);
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.get('[data-kind="system"] .vh-invocation-event__suffix').text()).toBe("claude-sonnet-4-5 · 2 capabilities · 1 tool");
+    await wrapper.get('[data-kind="system"] .vh-invocation-event__summary').trigger("click");
+    await wrapper.get('[data-kind="delivery"] .vh-invocation-event__summary').trigger("keydown", { key: " " });
+    expect(wrapper.emitted("inspect")).toEqual([["agent"], ["workspace"]]);
+  });
+
+  it("collapses long user messages until requested", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "long-message",
+      observations: [{
+        attributes: { "message.content": "x".repeat(721), "message.id": "user", "message.role": "user" },
+        name: "agent.message",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.get(".vh-invocation-message__content").attributes("data-collapsed")).toBe("true");
+    expect(wrapper.get(".vh-invocation-message__more").text()).toBe("Read more");
+
+    await wrapper.get(".vh-invocation-message__more").trigger("click");
+    expect(wrapper.get(".vh-invocation-message__content").attributes("data-collapsed")).toBeUndefined();
+    expect(wrapper.get(".vh-invocation-message__more").text()).toBe("Show less");
+  });
+
+  it("groups terminal work while keeping external effects and the final answer visible", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      cancelledAt: "2026-08-22T00:00:05.000Z",
+      createdAt: timestamp,
+      id: "completed-thread",
+      observations: [
+        { attributes: { "message.content": "Run it.", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "tool.id": "shell", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "shell", "tool.output": "passed", "tool.name": "shell" }, name: "agent.tool.finish", sequence: 3, timestamp, type: "run" as const },
+        { attributes: { "channel.effect.kind": "telegram.message.sent" }, name: "agent.channel.delivery", sequence: 4, timestamp, type: "run" as const },
+        { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 5, timestamp, type: "lifecycle" as const },
+      ],
+      startedAt: timestamp,
+      status: "cancelled" as const,
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:09.000Z",
+    } satisfies AgentInvocationView;
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const rows = wrapper.findAll(".vh-invocation-activities > li");
+    expect(rows.map(row => row.classes().find(name => name.startsWith("vh-invocation-") && name !== "vh-invocation-activities"))).toEqual([
+      "vh-invocation-message",
+      "vh-invocation-activity",
+      "vh-invocation-work",
+      "vh-invocation-message",
+    ]);
+    expect(rows[1]!.attributes("data-kind")).toBe("delivery");
+    expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 5s");
+    expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
+    expect(rows[3]!.text()).toContain("Done.");
+  });
+
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {
     const base = { timestamp: "2026-08-22T00:00:00.000Z", type: "lifecycle" as const };
     const invocation = {
