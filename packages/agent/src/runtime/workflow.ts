@@ -413,6 +413,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
       await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
         if (channelOwnership.retrySettlementFailures) throw error
       })
+    } else {
+      await channelOwnership?.releaseExecutionCustody?.()
     }
   }
 }

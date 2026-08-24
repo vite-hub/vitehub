@@ -81,6 +81,7 @@ export interface AgentChannelDeliveryWorkflowOwnership {
   abortSignal?: AbortSignal
   checkpoint?(status: "completed" | "failed"): Promise<void>
   handedOff?: boolean
+  releaseExecutionCustody?(): Promise<void>
   retrySettlementFailures?: boolean
   settlementStatus?: "completed" | "failed"
   verify?(): Promise<void>

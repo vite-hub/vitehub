@@ -2939,7 +2939,8 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             if (retryInvoker) retryInput = withResolvedAgentInvokerInput(successorInput, retryInvoker)
           }
           const retryMessage = queued.message
-          context.waitUntil(
+          registerAgentWorkflowRetry(
+            context,
             new Promise<void>((resolve) => setTimeout(resolve, 10))
               .then(async () =>
                 await startAgentInvocation(
@@ -2955,8 +2956,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: The successor input was cloned and JSON-validated before State persistence.
                   retryInput as never,
                 ),
-              )
-              .catch(() => undefined),
+              ),
           )
           return
         }
@@ -3073,6 +3073,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     return {
       abortSignal: executionAbort.signal,
       checkpoint,
+      releaseExecutionCustody: async () => {
+        stopHeartbeat()
+        stopExecutionHeartbeat()
+        await resolved.state.releaseLock(executionLock).catch(() => undefined)
+      },
       retrySettlementFailures: true,
       settlementStatus: claimedPending.message.settlementStatus,
       verify,
