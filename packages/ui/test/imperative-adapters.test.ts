@@ -84,9 +84,11 @@ describe("Pierre lifecycle adapters", () => {
   });
 
   it("disables Pierre's pointer-only diff interactions", async () => {
+    // SAFETY: Bypass the public type to prove the runtime guard also protects JavaScript consumers.
+    const unsafeOptions = { enableLineSelection: true, expandUnchanged: false } as never;
     mount(AgentDiff, {
       props: {
-        options: { enableLineSelection: true, expandUnchanged: false } as never,
+        options: unsafeOptions,
         patch: "first.patch",
       },
     });

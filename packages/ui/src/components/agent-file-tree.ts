@@ -70,7 +70,7 @@ export const AgentFileTree = defineComponent({
       model.render({ fileTreeContainer: host });
       mountedModel = model;
       host.shadowRoot?.querySelector<HTMLElement>("[role='tree']")
-        ?.setAttribute("aria-label", typeof attrs["aria-label"] === "string" ? attrs["aria-label"] : "Files");
+        ?.setAttribute("aria-label", attrs["aria-label"] == null ? "Files" : String(attrs["aria-label"]));
     };
     const setHost = (node: Element | null) => {
       host = node instanceof HTMLElement ? node : null;

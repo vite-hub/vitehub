@@ -234,15 +234,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated);
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
-  const summary = h(hasDetails ? "summary" : inspectable ? "button" : "div", {
-    class: "vh-invocation-event__summary",
-    ...(inspectable && !hasDetails
-      ? {
-          onClick: () => inspect(inspectTarget),
-          type: "button",
-        }
-      : {}),
-  }, [
+  const summaryContent = [
     renderActivityIcon(activity),
     h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
     activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
@@ -250,7 +242,14 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     hasDetails
       ? h("span", { class: "vh-invocation-event__disclosure", "aria-hidden": "true" }, "⌄")
       : null,
-  ]);
+  ];
+  const summary = inspectable && !hasDetails
+    ? h("button", {
+        class: "vh-invocation-event__summary",
+        onClick: () => inspect(inspectTarget),
+        type: "button",
+      }, summaryContent)
+    : h(hasDetails ? "summary" : "div", { class: "vh-invocation-event__summary" }, summaryContent);
   return h("li", {
     class: "vh-invocation-activity",
     "data-activity-id": activity.id,
@@ -466,29 +465,29 @@ function renderActivityGroup(
     h("ol", { "aria-label": group, class: "vh-invocation-lifecycle__rows" }, activities.map(activity => {
       const target = activity.attributes["vitehub.inspect.target"];
       const inspectable = target === "agent" || target === "workspace";
+      const rowContent = [
+        renderGroupedActivityIcon(activity),
+        h("span", { class: "vh-invocation-lifecycle__title" }, groupedActivityTitle(activity)),
+        renderLabelChip(activity),
+        !stringAttribute(activity.attributes, "github.label.name") && channelDeliverySummary(activity)
+          ? h("code", { class: "vh-invocation-lifecycle__detail" }, channelDeliverySummary(activity))
+          : null,
+        activity.status === "failed" && activity.body
+          ? h("span", { class: "vh-invocation-lifecycle__failure" }, activity.body)
+          : null,
+        activity.truncated
+          ? h("span", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          : null,
+      ];
       return h("li", {
         "data-activity-id": activity.id,
         "data-kind": activity.kind,
         "data-status": activity.status,
         key: activity.id,
       }, [
-        h(inspectable ? "button" : "div", {
-          class: "vh-invocation-lifecycle__row",
-          ...(inspectable ? { onClick: () => inspect(target), type: "button" } : {}),
-        }, [
-          renderGroupedActivityIcon(activity),
-          h("span", { class: "vh-invocation-lifecycle__title" }, groupedActivityTitle(activity)),
-          renderLabelChip(activity),
-          !stringAttribute(activity.attributes, "github.label.name") && channelDeliverySummary(activity)
-            ? h("code", { class: "vh-invocation-lifecycle__detail" }, channelDeliverySummary(activity))
-            : null,
-          activity.status === "failed" && activity.body
-            ? h("span", { class: "vh-invocation-lifecycle__failure" }, activity.body)
-            : null,
-          activity.truncated
-            ? h("span", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
-            : null,
-        ]),
+        inspectable
+          ? h("button", { class: "vh-invocation-lifecycle__row", onClick: () => inspect(target), type: "button" }, rowContent)
+          : h("div", { class: "vh-invocation-lifecycle__row" }, rowContent),
       ]);
     })),
   ]);

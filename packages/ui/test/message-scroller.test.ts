@@ -215,7 +215,8 @@ describe("message scroller behavior", () => {
     expect(button.exists()).toBe(true);
     expect(button.attributes("data-active")).toBe("true");
     expect(button.attributes("inert")).toBeUndefined();
-    (button.element as HTMLElement).focus();
+    if (!(button.element instanceof HTMLElement)) throw new TypeError("Expected the scroll control to be an HTML element");
+    button.element.focus();
     await button.trigger("click");
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 500 });
     expect(document.activeElement).toBe(viewport.element);
@@ -230,7 +231,14 @@ describe("message scroller behavior", () => {
   });
 
   it("uses instant scrolling when reduced motion is requested", async () => {
-    const matchMedia = vi.spyOn(globalThis, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+    const reducedMotion = Object.assign(new EventTarget(), {
+      addListener: vi.fn(),
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      removeListener: vi.fn(),
+    }) satisfies MediaQueryList;
+    const matchMedia = vi.spyOn(globalThis, "matchMedia").mockReturnValue(reducedMotion);
     const scrollTo = vi.fn();
     const Harness = defineComponent({
       setup() {

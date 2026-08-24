@@ -347,23 +347,22 @@ export const MessageScrollerButton = defineComponent({
       const active = context.isScrollable.value && !context.atEnd.value;
       return h(
         props.as,
-        {
-          ...attrs,
+        mergeProps({
           "aria-label": attrs["aria-label"] ?? "Scroll to latest message",
-          "data-active": active ? "true" : "false",
-          "data-slot": "message-scroller-button",
-          inert: active ? undefined : true,
           onClick: (event: MouseEvent) => {
             if (!active) return;
             if (document.activeElement === event.currentTarget) {
               context.viewport.value?.focus({ preventScroll: true });
             }
             context.scrollToEnd({ behavior: props.behavior });
-            if (typeof attrs.onClick === "function") attrs.onClick(event);
           },
+        }, attrs, {
+          "data-active": active ? "true" : "false",
+          "data-slot": "message-scroller-button",
+          inert: active ? undefined : true,
           tabindex: active ? attrs.tabindex : -1,
           type: props.as === "button" ? "button" : undefined,
-        },
+        }),
         slots.default?.({ scrollToEnd: context.scrollToEnd }) ?? "↓",
       );
     };
