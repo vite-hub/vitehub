@@ -5,7 +5,7 @@ import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
-import { validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { agentOutputRepairSymbol, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
@@ -4562,7 +4562,23 @@ async function materializeAgentStructuredOutput(
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
       const rejectedText = hasRuntimeType(streamError?.text, "string") ? streamError.text : text
-      if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
+      if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") {
+        try {
+          await validateAgentOutput(output, rejectedText)
+        }
+        catch (error) {
+          const repair = result && hasRuntimeType(result, "object")
+            ? Reflect.get(result, agentOutputRepairSymbol)
+            : undefined
+          if (hasRuntimeType(repair, "function")) {
+            return await repair({
+              error: error instanceof Error ? error : new Error(String(error)),
+              text: rejectedText,
+            })
+          }
+          throw error
+        }
+      }
       throw streamError ?? new Error(event.error)
     }
     if (event.type === "text-delta") text += event.text
@@ -5227,9 +5243,7 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
-    const driverUsageRecord = hasEagerFinishExtension
-      && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
+    const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
       ? undefined
       : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)

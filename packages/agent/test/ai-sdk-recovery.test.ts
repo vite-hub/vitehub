@@ -191,6 +191,45 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(3)
   })
 
+  it("repairs invalid structured output from streamed invocations", async () => {
+    const fakeModel = model(["{\"text\":\"repaired\"}"])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: "{\"text\":1}", id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    const events = []
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
+    expect(fakeModel.calls).toHaveLength(1)
+  })
+
   it("allows structured-output repair to be disabled", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":\"must not run\"}"])
     const agent = defineAgent({

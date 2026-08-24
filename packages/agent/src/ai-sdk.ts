@@ -13,7 +13,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { agentOutputInstructions, agentOutputJsonSchema, agentOutputRepairSymbol, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
@@ -1175,11 +1175,13 @@ function withCapturedStreamUsage<T extends {
                 }
               },
               async cancel(reason) {
+                const primaryCapture = captures()[0]
+                primaryCapture?.start()
                 try {
                   await reader.cancel(reason)
                 }
                 finally {
-                  captures()[0]?.complete()
+                  primaryCapture?.complete()
                 }
               },
             }, { highWaterMark: 0 })
@@ -1840,14 +1842,25 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
-      const { agent, model, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture)
+      const { agent, model, repairOutput, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
       }
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
-      const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures]
+      const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
+      const repairCallInput = () => {
+        const repairUsageCapture = createUsageCapture()
+        repairUsageCaptures.push(repairUsageCapture)
+        return {
+          ...callInput,
+          onEnd: repairUsageCapture.onEnd,
+          onLanguageModelCallEnd: repairUsageCapture.onLanguageModelCallEnd,
+          onStepEnd: repairUsageCapture.onStepEnd,
+        }
+      }
+      const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const streamed = await agent.stream({
         ...callInput,
@@ -1861,6 +1874,15 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
         usageCaptures,
       ), model) as StreamTextResult<ToolSet, never, never>
+      if (repairOutput && context.output) {
+        Object.defineProperty(result, agentOutputRepairSymbol, {
+          configurable: true,
+          value: async (failure: { error: Error, text: string }) => await repairOutput({
+            ...failure,
+            evidence: fallbackCapture?.evidence(),
+          }, repairCallInput),
+        })
+      }
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },

@@ -12,6 +12,8 @@ const agentOutputErrorMessages = {
 
 type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 
+export const agentOutputRepairSymbol = Symbol.for("vitehub.agent.output-repair")
+
 function agentOutputValidationError(code: AgentOutputValidationErrorCode, options?: ErrorOptions) {
   if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
     throw new TypeError("[vitehub] Agent output errors require a known code.")
