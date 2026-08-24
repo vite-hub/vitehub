@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { nextTick } from "vue";
+import { nextTick, reactive } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface TreeModelStub {
@@ -28,12 +28,12 @@ interface CodeViewModelStub {
 }
 
 const treeState = vi.hoisted(() => ({ instances: [] as TreeModelStub[] }));
-const codeViewState = vi.hoisted(() => ({ instances: [] as CodeViewModelStub[] }));
-const diffState = vi.hoisted(() => ({
-  files: [] as DiffModelStub[],
-  diffs: [] as DiffModelStub[],
-  unresolvedFiles: [] as DiffModelStub[],
-}));
+const codeViewState = vi.hoisted<{ instances: CodeViewModelStub[] }>(() => ({ instances: [] }));
+const diffState = vi.hoisted<{
+  files: DiffModelStub[];
+  diffs: DiffModelStub[];
+  unresolvedFiles: DiffModelStub[];
+}>(() => ({ files: [], diffs: [], unresolvedFiles: [] }));
 
 vi.mock("@pierre/trees", () => ({
   FILE_TREE_TAG_NAME: "div",
@@ -110,11 +110,14 @@ vi.mock("@pierre/diffs", () => ({
     }
   },
   getSingularPatch: (patch: string) => ({ name: patch }),
-  parseDiffFromFile: (oldFile: { name?: string } | null, newFile: { name?: string } | null) => ({
-    name: `${oldFile?.name ?? "missing"}->${newFile?.name ?? "missing"}`,
-  }),
+  parseDiffFromFile: vi.fn(
+    (oldFile: { name?: string } | null, newFile: { name?: string } | null) => ({
+      name: `${oldFile?.name ?? "missing"}->${newFile?.name ?? "missing"}`,
+    }),
+  ),
 }));
 
+import { parseDiffFromFile } from "@pierre/diffs";
 import { FileTree } from "@pierre/trees";
 import { AgentFileTree } from "../src/components/agent-file-tree.ts";
 import {
@@ -135,6 +138,7 @@ beforeEach(() => {
   diffState.files.length = 0;
   diffState.diffs.length = 0;
   diffState.unresolvedFiles.length = 0;
+  vi.mocked(parseDiffFromFile).mockClear();
 });
 
 describe("Pierre lifecycle adapters", () => {
@@ -210,23 +214,59 @@ describe("Pierre lifecycle adapters", () => {
 
     const instance = diffState.diffs[0]!;
     expect(wrapper.text()).toBe("missing->new.ts");
+    expect(instance.setOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ controlledSelection: true }),
+    );
     expect(instance.setSelectedLines).toHaveBeenLastCalledWith(selectedLines);
 
     wrapper.unmount();
     expect(instance.cleanUp).toHaveBeenCalledOnce();
   });
 
+  it("reparses reactive file contents and parse options", async () => {
+    const newFile = reactive({ contents: "new", name: "status.ts" });
+    const options = reactive({ parseDiffOptions: { context: 3 } });
+    const wrapper = mount(PierreDiff, { props: { newFile, oldFile: null, options } });
+    await flushRender();
+
+    expect(parseDiffFromFile).toHaveBeenCalledOnce();
+    newFile.contents = "newer";
+    await flushRender();
+    expect(parseDiffFromFile).toHaveBeenLastCalledWith(
+      null,
+      expect.objectContaining({ contents: "newer" }),
+      expect.objectContaining({ context: 3 }),
+    );
+
+    options.parseDiffOptions.context = 9;
+    await flushRender();
+    expect(parseDiffFromFile).toHaveBeenLastCalledWith(
+      null,
+      expect.objectContaining({ contents: "newer" }),
+      expect.objectContaining({ context: 9 }),
+    );
+
+    wrapper.unmount();
+  });
+
   it("owns File and UnresolvedFile lifecycles", async () => {
+    const file = reactive({ contents: "const ready = true", name: "ready.ts" });
+    const unresolvedFile = reactive({ contents: "<<<<<<< current", name: "conflict.ts" });
     const fileWrapper = mount(PierreFile, {
-      props: { file: { contents: "const ready = true", name: "ready.ts" } },
+      props: { file },
     });
     const unresolvedWrapper = mount(PierreUnresolvedFile, {
-      props: { file: { contents: "<<<<<<< current", name: "conflict.ts" } },
+      props: { file: unresolvedFile },
     });
     await flushRender();
 
     expect(fileWrapper.text()).toBe("ready.ts");
     expect(unresolvedWrapper.text()).toBe("conflict.ts");
+    file.name = "updated.ts";
+    unresolvedFile.name = "resolved.ts";
+    await flushRender();
+    expect(fileWrapper.text()).toBe("updated.ts");
+    expect(unresolvedWrapper.text()).toBe("resolved.ts");
     fileWrapper.unmount();
     unresolvedWrapper.unmount();
     expect(diffState.files[0]!.cleanUp).toHaveBeenCalledOnce();
@@ -235,11 +275,14 @@ describe("Pierre lifecycle adapters", () => {
 
   it("sets up and cleans the virtualized CodeView model", async () => {
     const items = [{ file: { contents: "ok", name: "status.ts" }, id: "status", type: "file" }] as const;
-    const wrapper = mount(PierreCodeView, { props: { items } });
+    const wrapper = mount(PierreCodeView, { props: { items, selectedLines: null } });
     await flushRender();
 
     const instance = codeViewState.instances[0]!;
     expect(instance.setup).toHaveBeenCalledOnce();
+    expect(instance.setOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ controlledSelection: true }),
+    );
     expect(instance.setItems).toHaveBeenLastCalledWith(items);
     expect(instance.render).toHaveBeenLastCalledWith(true);
 

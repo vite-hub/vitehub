@@ -19,101 +19,120 @@ import {
   type UnresolvedFileOptions,
 } from "@pierre/diffs";
 import {
+  computed,
   defineComponent,
   h,
-  markRaw,
   onBeforeUnmount,
   type PropType,
   toRaw,
   type VNodeRef,
+  watchEffect,
 } from "vue";
+
+export const pierrePropTypes = {
+  // SAFETY: Vue validates the array container; Pierre validates each item while rendering.
+  codeViewItems: Array as PropType<readonly CodeViewItem<unknown>[]>,
+  // SAFETY: Vue validates the object container; Pierre owns the options schema.
+  codeViewOptions: Object as PropType<CodeViewOptions<unknown>>,
+  // SAFETY: Vue validates the object container; Pierre owns the selection schema.
+  codeViewSelection: Object as PropType<CodeViewLineSelection | null | undefined>,
+  // SAFETY: Vue validates the array container; Pierre owns the annotation schema.
+  diffLineAnnotations: Array as PropType<DiffLineAnnotation<unknown>[]>,
+  // SAFETY: Vue validates the object container; Pierre owns the file schema.
+  fileContents: Object as PropType<FileContents>,
+  // SAFETY: Vue validates the object container; Pierre owns the parsed diff schema.
+  fileDiff: Object as PropType<FileDiffMetadata>,
+  // SAFETY: Vue validates the object container; Pierre owns the options schema.
+  fileDiffOptions: Object as PropType<FileDiffOptions<unknown>>,
+  // SAFETY: Vue validates the object container; Pierre owns the options schema.
+  fileOptions: Object as PropType<FileOptions<unknown>>,
+  // SAFETY: Vue validates the array container; Pierre owns the annotation schema.
+  lineAnnotations: Array as PropType<LineAnnotation<unknown>[]>,
+  // SAFETY: Vue accepts an object or null; Pierre owns the file schema.
+  nullableFileContents: [Object, null] as PropType<FileContents | null>,
+  // SAFETY: Vue validates the object container; Pierre owns the selection schema.
+  selectedLines: Object as PropType<SelectedLineRange | null | undefined>,
+  // SAFETY: Vue validates the object container; Pierre owns the options schema.
+  unresolvedFileOptions: Object as PropType<UnresolvedFileOptions<unknown>>,
+};
 
 const selectedLinesProp = {
   default: undefined,
-  type: Object as PropType<SelectedLineRange | null | undefined>,
+  type: pierrePropTypes.selectedLines,
 };
+
+function controlledOptions<T extends { controlledSelection?: boolean }>(
+  options: T | undefined,
+  selectedLines: unknown,
+) {
+  const rawOptions = toRaw(options);
+  return selectedLines === undefined ? rawOptions : { ...rawOptions, controlledSelection: true };
+}
+
+function copyFile(file: FileContents | null): FileContents | null {
+  return file === null ? null : { ...file };
+}
+
+function copyParseDiffOptions(options: FileDiffOptions<unknown>["parseDiffOptions"]) {
+  if (!options) return;
+  return {
+    ...options,
+    headerOptions: options.headerOptions ? { ...options.headerOptions } : undefined,
+  };
+}
 
 export const PierreDiff = defineComponent({
   name: "ViteHubPierreDiff",
   inheritAttrs: false,
   props: {
-    fileDiff: { type: Object as PropType<FileDiffMetadata> },
-    lineAnnotations: { type: Array as PropType<DiffLineAnnotation<unknown>[]> },
-    newFile: { type: [Object, null] as PropType<FileContents | null> },
-    oldFile: { type: [Object, null] as PropType<FileContents | null> },
-    options: { type: Object as PropType<FileDiffOptions<unknown>> },
+    fileDiff: { type: pierrePropTypes.fileDiff },
+    lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },
+    newFile: { type: pierrePropTypes.nullableFileContents },
+    oldFile: { type: pierrePropTypes.nullableFileContents },
+    options: { type: pierrePropTypes.fileDiffOptions },
     patch: { type: String },
     selectedLines: selectedLinesProp,
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
     let instance: PierreFileDiffModel<unknown> | undefined;
-    let parsedPatch: { patch: string; fileDiff: FileDiffMetadata } | undefined;
-    let parsedFiles:
-      | {
-          fileDiff: FileDiffMetadata;
-          newFile: FileContents | null;
-          oldFile: FileContents | null;
-          parseDiffOptions: FileDiffOptions<unknown>["parseDiffOptions"];
-        }
-      | undefined;
-
-    const getFileDiff = (): FileDiffMetadata | undefined => {
+    const fileDiff = computed<FileDiffMetadata | undefined>(() => {
       if (props.fileDiff) return toRaw(props.fileDiff);
-      if (props.patch !== undefined) {
-        if (parsedPatch?.patch !== props.patch) {
-          parsedPatch = { fileDiff: getSingularPatch(props.patch), patch: props.patch };
-        }
-        return parsedPatch.fileDiff;
-      }
+      if (props.patch !== undefined) return getSingularPatch(props.patch);
       if (props.oldFile !== undefined && props.newFile !== undefined) {
-        const oldFile = toRaw(props.oldFile);
-        const newFile = toRaw(props.newFile);
-        const parseDiffOptions = toRaw(props.options?.parseDiffOptions);
-        if (
-          parsedFiles?.oldFile !== oldFile ||
-          parsedFiles.newFile !== newFile ||
-          parsedFiles.parseDiffOptions !== parseDiffOptions
-        ) {
-          parsedFiles = {
-            fileDiff: parseDiffFromFile(oldFile, newFile, parseDiffOptions),
-            newFile,
-            oldFile,
-            parseDiffOptions,
-          };
-        }
-        return parsedFiles.fileDiff;
+        return parseDiffFromFile(
+          copyFile(props.oldFile),
+          copyFile(props.newFile),
+          copyParseDiffOptions(props.options?.parseDiffOptions),
+        );
       }
-    };
+    });
 
     const render = () => {
       if (!host) return;
-      const fileDiff = getFileDiff();
-      if (!fileDiff) {
+      if (!fileDiff.value) {
         instance?.cleanUp();
         instance = undefined;
         return;
       }
-      if (!instance) instance = markRaw(new PierreFileDiffModel(toRaw(props.options), undefined, true));
-      instance.setOptions(toRaw(props.options));
+      const options = controlledOptions(props.options, props.selectedLines);
+      if (!instance) instance = new PierreFileDiffModel(options, undefined, true);
+      instance.setOptions(options);
       instance.render({
         fileContainer: host,
-        fileDiff,
+        fileDiff: fileDiff.value,
         forceRender: true,
         lineAnnotations: toRaw(props.lineAnnotations),
       });
       if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
     };
-    const setHost = (node: Element | null) => {
+    const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
-      render();
     };
+    watchEffect(render, { flush: "post" });
     onBeforeUnmount(() => instance?.cleanUp());
     expose({ getInstance: () => instance });
-    return () => {
-      queueMicrotask(render);
-      return h(DIFFS_TAG_NAME, { ...attrs, ref: setHost as VNodeRef });
-    };
+    return () => h(DIFFS_TAG_NAME, { ...attrs, ref: setHost });
   },
 });
 
@@ -121,41 +140,40 @@ export const PierreFile = defineComponent({
   name: "ViteHubPierreFile",
   inheritAttrs: false,
   props: {
-    file: { type: Object as PropType<FileContents> },
-    lineAnnotations: { type: Array as PropType<LineAnnotation<unknown>[]> },
-    options: { type: Object as PropType<FileOptions<unknown>> },
+    file: { type: pierrePropTypes.fileContents },
+    lineAnnotations: { type: pierrePropTypes.lineAnnotations },
+    options: { type: pierrePropTypes.fileOptions },
     selectedLines: selectedLinesProp,
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
     let instance: PierreFileModel<unknown> | undefined;
+    const file = computed(() => (props.file ? copyFile(props.file) : undefined));
     const render = () => {
       if (!host) return;
-      if (!props.file) {
+      if (!file.value) {
         instance?.cleanUp();
         instance = undefined;
         return;
       }
-      if (!instance) instance = markRaw(new PierreFileModel(toRaw(props.options), undefined, true));
-      instance.setOptions(toRaw(props.options));
+      const options = controlledOptions(props.options, props.selectedLines);
+      if (!instance) instance = new PierreFileModel(options, undefined, true);
+      instance.setOptions(options);
       instance.render({
-        file: toRaw(props.file),
+        file: file.value,
         fileContainer: host,
         forceRender: true,
         lineAnnotations: toRaw(props.lineAnnotations),
       });
       if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
     };
-    const setHost = (node: Element | null) => {
+    const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
-      render();
     };
+    watchEffect(render, { flush: "post" });
     onBeforeUnmount(() => instance?.cleanUp());
     expose({ getInstance: () => instance });
-    return () => {
-      queueMicrotask(render);
-      return h(DIFFS_TAG_NAME, { ...attrs, ref: setHost as VNodeRef });
-    };
+    return () => h(DIFFS_TAG_NAME, { ...attrs, ref: setHost });
   },
 });
 
@@ -163,43 +181,40 @@ export const PierreUnresolvedFile = defineComponent({
   name: "ViteHubPierreUnresolvedFile",
   inheritAttrs: false,
   props: {
-    file: { type: Object as PropType<FileContents> },
-    lineAnnotations: { type: Array as PropType<DiffLineAnnotation<unknown>[]> },
-    options: { type: Object as PropType<UnresolvedFileOptions<unknown>> },
+    file: { type: pierrePropTypes.fileContents },
+    lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },
+    options: { type: pierrePropTypes.unresolvedFileOptions },
     selectedLines: selectedLinesProp,
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
     let instance: PierreUnresolvedFileModel<unknown> | undefined;
+    const file = computed(() => (props.file ? copyFile(props.file) : undefined));
     const render = () => {
       if (!host) return;
-      if (!props.file) {
+      if (!file.value) {
         instance?.cleanUp();
         instance = undefined;
         return;
       }
-      if (!instance) {
-        instance = markRaw(new PierreUnresolvedFileModel(toRaw(props.options), undefined, true));
-      }
-      instance.setOptions(toRaw(props.options));
+      const options = controlledOptions(props.options, props.selectedLines);
+      if (!instance) instance = new PierreUnresolvedFileModel(options, undefined, true);
+      instance.setOptions(options);
       instance.render({
-        file: toRaw(props.file),
+        file: file.value,
         fileContainer: host,
         forceRender: true,
         lineAnnotations: toRaw(props.lineAnnotations),
       });
       if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
     };
-    const setHost = (node: Element | null) => {
+    const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
-      render();
     };
+    watchEffect(render, { flush: "post" });
     onBeforeUnmount(() => instance?.cleanUp());
     expose({ getInstance: () => instance });
-    return () => {
-      queueMicrotask(render);
-      return h(DIFFS_TAG_NAME, { ...attrs, ref: setHost as VNodeRef });
-    };
+    return () => h(DIFFS_TAG_NAME, { ...attrs, ref: setHost });
   },
 });
 
@@ -207,11 +222,11 @@ export const PierreCodeView = defineComponent({
   name: "ViteHubPierreCodeView",
   inheritAttrs: false,
   props: {
-    items: { required: true, type: Array as PropType<readonly CodeViewItem<unknown>[]> },
-    options: { type: Object as PropType<CodeViewOptions<unknown>> },
+    items: { required: true, type: pierrePropTypes.codeViewItems },
+    options: { type: pierrePropTypes.codeViewOptions },
     selectedLines: {
       default: undefined,
-      type: Object as PropType<CodeViewLineSelection | null | undefined>,
+      type: pierrePropTypes.codeViewSelection,
     },
   },
   setup(props, { attrs, expose }) {
@@ -219,26 +234,24 @@ export const PierreCodeView = defineComponent({
     let instance: PierreCodeViewModel<unknown> | undefined;
     const render = () => {
       if (!host) return;
+      const options = controlledOptions(props.options, props.selectedLines);
       if (!instance) {
-        instance = markRaw(new PierreCodeViewModel(toRaw(props.options), undefined, true));
+        instance = new PierreCodeViewModel(options, undefined, true);
         instance.setup(host);
       }
-      instance.setOptions(toRaw(props.options));
+      instance.setOptions(options);
       instance.setItems(toRaw(props.items));
       if (props.selectedLines !== undefined) {
         instance.setSelectedLines(toRaw(props.selectedLines), { notify: false });
       }
       instance.render(true);
     };
-    const setHost = (node: Element | null) => {
+    const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
-      render();
     };
+    watchEffect(render, { flush: "post" });
     onBeforeUnmount(() => instance?.cleanUp());
     expose({ getInstance: () => instance });
-    return () => {
-      queueMicrotask(render);
-      return h("div", { ...attrs, ref: setHost as VNodeRef });
-    };
+    return () => h("div", { ...attrs, ref: setHost });
   },
 });

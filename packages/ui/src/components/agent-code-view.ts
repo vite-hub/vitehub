@@ -1,30 +1,18 @@
-import type {
-  CodeViewItem,
-  CodeViewLineSelection,
-  CodeViewOptions,
-  DiffLineAnnotation,
-  FileContents,
-  FileDiffMetadata,
-  FileDiffOptions,
-  FileOptions,
-  LineAnnotation,
-  SelectedLineRange,
-  UnresolvedFileOptions,
-} from "@pierre/diffs";
-import { defineComponent, h, type PropType } from "vue";
+import { defineComponent, h } from "vue";
 import {
   PierreCodeView,
   PierreDiff,
   PierreFile,
   PierreUnresolvedFile,
+  pierrePropTypes,
 } from "../internal/pierre-code-view.ts";
 
 const diffProps = {
-  lineAnnotations: { type: Array as PropType<DiffLineAnnotation<unknown>[]> },
-  options: { type: Object as PropType<FileDiffOptions<unknown>> },
+  lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },
+  options: { type: pierrePropTypes.fileDiffOptions },
   selectedLines: {
     default: undefined,
-    type: Object as PropType<SelectedLineRange | null | undefined>,
+    type: pierrePropTypes.selectedLines,
   },
 };
 
@@ -45,8 +33,8 @@ export const AgentMultiFileDiff = defineComponent({
   inheritAttrs: false,
   props: {
     ...diffProps,
-    newFile: { required: true, type: [Object, null] as PropType<FileContents | null> },
-    oldFile: { required: true, type: [Object, null] as PropType<FileContents | null> },
+    newFile: { required: true, type: pierrePropTypes.nullableFileContents },
+    oldFile: { required: true, type: pierrePropTypes.nullableFileContents },
   },
   setup(props, { attrs }) {
     return () => h(PierreDiff, { ...attrs, ...props, class: ["vh-diff", attrs.class] });
@@ -58,7 +46,7 @@ export const AgentFileDiff = defineComponent({
   inheritAttrs: false,
   props: {
     ...diffProps,
-    fileDiff: { required: true, type: Object as PropType<FileDiffMetadata> },
+    fileDiff: { required: true, type: pierrePropTypes.fileDiff },
   },
   setup(props, { attrs }) {
     return () => h(PierreDiff, { ...attrs, ...props, class: ["vh-diff", attrs.class] });
@@ -69,12 +57,12 @@ export const AgentFile = defineComponent({
   name: "AgentFile",
   inheritAttrs: false,
   props: {
-    file: { required: true, type: Object as PropType<FileContents> },
-    lineAnnotations: { type: Array as PropType<LineAnnotation<unknown>[]> },
-    options: { type: Object as PropType<FileOptions<unknown>> },
+    file: { required: true, type: pierrePropTypes.fileContents },
+    lineAnnotations: { type: pierrePropTypes.lineAnnotations },
+    options: { type: pierrePropTypes.fileOptions },
     selectedLines: {
       default: undefined,
-      type: Object as PropType<SelectedLineRange | null | undefined>,
+      type: pierrePropTypes.selectedLines,
     },
   },
   setup(props, { attrs }) {
@@ -86,12 +74,12 @@ export const AgentUnresolvedFile = defineComponent({
   name: "AgentUnresolvedFile",
   inheritAttrs: false,
   props: {
-    file: { required: true, type: Object as PropType<FileContents> },
-    lineAnnotations: { type: Array as PropType<DiffLineAnnotation<unknown>[]> },
-    options: { type: Object as PropType<UnresolvedFileOptions<unknown>> },
+    file: { required: true, type: pierrePropTypes.fileContents },
+    lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },
+    options: { type: pierrePropTypes.unresolvedFileOptions },
     selectedLines: {
       default: undefined,
-      type: Object as PropType<SelectedLineRange | null | undefined>,
+      type: pierrePropTypes.selectedLines,
     },
   },
   setup(props, { attrs }) {
@@ -108,11 +96,11 @@ export const AgentCodeView = defineComponent({
   name: "AgentCodeView",
   inheritAttrs: false,
   props: {
-    items: { required: true, type: Array as PropType<readonly CodeViewItem<unknown>[]> },
-    options: { type: Object as PropType<CodeViewOptions<unknown>> },
+    items: { required: true, type: pierrePropTypes.codeViewItems },
+    options: { type: pierrePropTypes.codeViewOptions },
     selectedLines: {
       default: undefined,
-      type: Object as PropType<CodeViewLineSelection | null | undefined>,
+      type: pierrePropTypes.codeViewSelection,
     },
   },
   setup(props, { attrs }) {
