@@ -51,7 +51,7 @@ function stateAdapter(): StateAdapter {
   const values = new Map<string, unknown>()
   const lists = new Map<string, unknown[]>()
   const locks = new Set<string>()
-  return {
+  const adapter: unknown = {
     acquireLock: async (key: string) => {
       if (locks.has(key)) return null
       locks.add(key)
@@ -63,8 +63,8 @@ function stateAdapter(): StateAdapter {
     },
     connect: async () => undefined,
     extendLock: async (lock: Lock) => locks.has(lock.threadId),
-    get: async (key: string) => (values.get(key) as never) ?? null,
-    getList: async (key: string) => [...(lists.get(key) || [])] as never,
+    get: async (key: string) => values.get(key) ?? null,
+    getList: async (key: string) => [...(lists.get(key) || [])],
     delete: async (key: string) => void values.delete(key),
     releaseLock: async (lock: Lock) => void locks.delete(lock.threadId),
     set: async (key: string, value: unknown) => void values.set(key, value),
@@ -73,7 +73,9 @@ function stateAdapter(): StateAdapter {
       values.set(key, value)
       return true
     },
-  } as unknown as StateAdapter
+  }
+  // SAFETY: This in-memory test adapter implements the State methods exercised by the delivery journal fixtures.
+  return adapter as StateAdapter
 }
 
 describe("Agent Channel delivery journal", () => {
@@ -92,6 +94,7 @@ describe("Agent Channel delivery journal", () => {
     setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: () => state }))
 
     try {
+      // SAFETY: This fixture supplies the runtime fields read by the Workflow delivery resolver.
       const resumed = await resumeWorkflowAgentChannelDelivery({}, {
         request: new Request("https://example.com"),
         runtime: "unknown",

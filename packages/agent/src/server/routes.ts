@@ -2809,6 +2809,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       let pendingQueue: string | undefined
       let pendingPersisted = false
       let successorClaimId: string | undefined
+      let successorInput: AgentRunInput | undefined
       let successorStartAttempted = false
       let ownerReleased = false
       try {
@@ -2884,7 +2885,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
         }
         const queuedDelivery = queuedInput.context?.[agentChannelDeliveryWorkflowContextKey]
-        const successorInput: AgentRunInput = {
+        successorInput = {
           ...queuedInput,
           context: {
             ...queuedInput.context,
@@ -2931,7 +2932,34 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         )
       } catch (error) {
         if (ownerReleased) return
-        if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error)) return
+        if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error) && successorInput && queued?.message) {
+          let retryInput = successorInput
+          if (queued.message.resolvedInvoker) {
+            const retryInvoker = resolveInputAgentInvoker(successorInput.context)
+            if (retryInvoker) retryInput = withResolvedAgentInvokerInput(successorInput, retryInvoker)
+          }
+          const retryMessage = queued.message
+          context.waitUntil(
+            new Promise<void>((resolve) => setTimeout(resolve, 10))
+              .then(async () =>
+                await startAgentInvocation(
+                  // SAFETY: The route normalized this value for the internal startup boundary.
+                  agent as never,
+                  // SAFETY: The successor retains the persisted capabilities, request, and logical run context.
+                  {
+                    ...context,
+                    capabilities: retryMessage.capabilities,
+                    ...(retryMessage.requestUrl ? { request: new Request(retryMessage.requestUrl) } : {}),
+                    ...(retryMessage.run ? { run: retryMessage.run } : {}),
+                  } as never,
+                  // SAFETY: The successor input was cloned and JSON-validated before State persistence.
+                  retryInput as never,
+                ),
+              )
+              .catch(() => undefined),
+          )
+          return
+        }
         if (ownershipLost && queued?.message?.input) {
           stopHandoffHeartbeat()
           if (handoffLock) await resolved.state.releaseLock(handoffLock).catch(() => undefined)
@@ -4735,6 +4763,10 @@ async function handleChatSdkMessage(
         }),
       )
       try {
+        if (steerStartLocks.length && !(await Promise.all(steerStartLocks.map((lock) => state.state.extendLock(lock, steerTtlMs)))).every(Boolean)) {
+          steerStartOwnershipLost = true
+          throw new Error("[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started.")
+        }
         if (steerLock && steerQueue) {
           const workflowDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
           const workflowSteer = isRecord(workflowDelivery) && isRecord(workflowDelivery.steer) ? workflowDelivery.steer : undefined
@@ -4768,6 +4800,10 @@ async function handleChatSdkMessage(
           ) {
             throw new Error("[vitehub] Durable steered Channel delivery queue changed while ownership was being reclaimed.")
           }
+        }
+        if (steerStartLocks.length && !(await Promise.all(steerStartLocks.map((lock) => state.state.extendLock(lock, steerTtlMs)))).every(Boolean)) {
+          steerStartOwnershipLost = true
+          throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
         }
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         await runAgent(agent as never, workflowRunContext as never, workflowInput as never)

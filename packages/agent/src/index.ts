@@ -1192,6 +1192,7 @@ async function applyChannelDeliveryEffectIntents<
           owner: "channel",
           phase: "effect",
         }, async () => {
+          await verifyOwnership?.()
           await handler({
             ...context.runtimeContext,
             channel: active.channel,
