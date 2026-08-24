@@ -256,6 +256,7 @@ export interface AgentChannelChatRouteInputOptions {
 
 export interface AgentChannelChatRouteResumableRequestBody {
   id: string
+  messageId?: string
 }
 
 export interface AgentChannelChatRouteResumableContext<
@@ -271,6 +272,8 @@ export interface AgentChannelChatRouteResumableOptions<
   TAuth = unknown,
 > {
   owner: (context: AgentChannelChatRouteResumableContext<TBody, TAuth>) => MaybePromise<string>
+  /** Keeps claims and response bytes in the generated route process. It does not survive process replacement or cross-instance routing. */
+  scope: "process"
   ttlMs?: number
 }
 
@@ -6412,6 +6415,9 @@ async function resumableChatOwner(
   if (!config || typeof config !== "object" || typeof config.owner !== "function") {
     throw new TypeError("[vitehub] Resumable web chat requires route.resumable.owner().")
   }
+  if (config.scope !== "process") {
+    throw new TypeError('[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.')
+  }
   const owner = await config.owner(context)
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript owner callbacks can violate the declared return type at this public runtime boundary.
   if (typeof owner !== "string" || !owner.trim()) {
@@ -6471,9 +6477,14 @@ export function createChannelChatRouteHandler(
     let claimedRun: ResumableChatRun | undefined
     try {
       if (request.method !== "POST") {
-        const id = optionalBodyString(new URL(request.url).searchParams.get("id") || undefined, "id")
+        const searchParams = new URL(request.url).searchParams
+        const id = optionalBodyString(searchParams.get("id") || undefined, "id")
         if (!id) throw createRouteBodyError("Resumable agent chat requires an id query parameter.")
-        const body = { id }
+        const messageId = optionalBodyString(searchParams.get("messageId") || undefined, "messageId")
+        if (request.method === "DELETE" && !messageId) {
+          throw createRouteBodyError("Cancelling resumable agent chat requires a messageId query parameter.")
+        }
+        const body = { id, ...(messageId ? { messageId } : {}) }
         const agentIdentity = routeAgentIdentity(handlerOptions)
         const agentName = agentIdentity?.name || "agent"
         const auth = await routeOptions.admission?.authenticate?.({
@@ -6494,13 +6505,14 @@ export function createChannelChatRouteHandler(
           request,
         })
         const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", owner, id)
-        const run = latestResumableRuns.get(latestKey)
-          || (request.method === "GET" ? await waitForResumableChatRun(latestResumableRuns, latestKey) : undefined)
+        const run = request.method === "DELETE"
+          ? resumableRuns.get(resumableChatKey(latestKey, messageId!))
+          : latestResumableRuns.get(latestKey) || await waitForResumableChatRun(latestResumableRuns, latestKey)
         if (!run) return new Response(null, { status: 204 })
         await run.ready
         if (run.setupError) throw run.setupError
         if (request.method === "DELETE") {
-          latestResumableRuns.delete(run.latestKey)
+          if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
           resumableRuns.delete(run.invocationKey)
           closeResumableChatRun(run)
           await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
@@ -6537,6 +6549,7 @@ export function createChannelChatRouteHandler(
         routeOptions,
       )
       const trustedInput = mergeAgentChannelChatRouteInput(baseInput, trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined)
+      const resumableMessageId = trustedInput.run?.messageId
       const inputContext = {
         agentName,
         // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
@@ -6553,7 +6566,7 @@ export function createChannelChatRouteHandler(
       if (resumableOwner) {
         const chatId = optionalBodyString(body.id, "id") || "default"
         const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", resumableOwner, chatId)
-        const invocationKey = resumableChatKey(latestKey, triggerInput.run?.messageId || "default")
+        const invocationKey = resumableChatKey(latestKey, resumableMessageId || "default")
         const existingRun = resumableRuns.get(invocationKey)
         if (existingRun) {
           await existingRun.ready

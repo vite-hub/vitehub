@@ -226,6 +226,58 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("replaces a restored partial assistant message when replaying its stream", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ id: "answer", type: "text-start" })
+          writer.write({ delta: "Complete answer", id: "answer", type: "text-delta" })
+          writer.write({ id: "answer", type: "text-end" })
+        },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const messages: UIMessage[] = [
+      { id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" },
+      { id: "assistant-1", parts: [{ text: "Partial answer", type: "text" }], role: "assistant" },
+    ]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages,
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(chat.messages.value.at(-1)).toMatchObject({
+      parts: [{ text: "Complete answer", type: "text" }],
+      role: "assistant",
+    }))
+    expect(chat.messages.value).toHaveLength(2)
+    scope.stop()
+  })
+
+  it("keeps a restored assistant message when no replay stream exists", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const messages: UIMessage[] = [
+      { id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" },
+      { id: "assistant-1", parts: [{ text: "Complete answer", type: "text" }], role: "assistant" },
+    ]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages,
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(chat.messages.value).toEqual(messages)
+    scope.stop()
+  })
+
   it("keeps resumable reconnect and stop ownership with an explicit transport", async () => {
     vi.stubGlobal("window", {})
     const fetch = vi.fn<typeof globalThis.fetch>()
@@ -258,6 +310,7 @@ describe("Agent Vue clients", () => {
     const chat = scope.run(() => useChat(useAgent("support"), {
       api: "/chat/support",
       id: "chat-1",
+      messages: [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }],
       resume: true,
     }))!
 
@@ -265,7 +318,7 @@ describe("Agent Vue clients", () => {
     expect(fetch).not.toHaveBeenCalled()
 
     await chat.stop()
-    expect(fetch).toHaveBeenCalledWith("/chat/support?id=chat-1", {
+    expect(fetch).toHaveBeenCalledWith("/chat/support?id=chat-1&messageId=user-1", {
       credentials: "same-origin",
       method: "DELETE",
     })

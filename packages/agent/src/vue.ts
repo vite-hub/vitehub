@@ -67,6 +67,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
+  let chat!: UseChatHelpers<UI_MESSAGE>
   const resolveTransport = () => {
     if (latestOptions.value.transport) return latestOptions.value.transport
     const route = latestOptions.value.api ?? agentChatRoute(agent.name)
@@ -82,14 +83,19 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     })
   }
   const transport = {
-    reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
-      resolveTransport().reconnectToStream(...args)
-    ),
+    async reconnectToStream(...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) {
+      const ownsReplay = !latestOptions.value.transport
+      const stream = await resolveTransport().reconnectToStream(...args)
+      if (stream && ownsReplay && chat.messages.value.at(-1)?.role === "assistant") {
+        chat.messages.value = chat.messages.value.slice(0, -1)
+      }
+      return stream
+    },
     sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => (
       resolveTransport().sendMessages(...args)
     ),
   }
-  const chat = useAiChat<UI_MESSAGE>(() => {
+  chat = useAiChat<UI_MESSAGE>(() => {
     const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
     return {
       ...init,
@@ -132,10 +138,12 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }, true)
 
   async function stop(): Promise<void> {
+    const messageId = chat.messages.value.findLast(message => message.role === "user")?.id
     await chat.stop()
     if (!latestOptions.value.resume || latestOptions.value.transport || !isBrowserRuntime()) return
+    if (!messageId) return
     const route = latestOptions.value.api ?? agentChatRoute(agent.name)
-    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
+    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}&messageId=${encodeURIComponent(messageId)}`, {
       credentials: "same-origin",
       method: "DELETE",
     }).then(() => undefined, () => undefined)
@@ -143,7 +151,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
 
   async function reconnect(): Promise<void> {
     const messages = latestOptions.value.messages ?? chat.messages.value
-    if (messages.at(-1)?.role !== "user") return
+    if (!messages.length) return
     reconnecting.value = true
     try {
       await chat.resumeStream()

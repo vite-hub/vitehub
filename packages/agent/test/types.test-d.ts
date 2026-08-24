@@ -770,6 +770,17 @@ describe("agent public types", () => {
             },
           },
         }),
+        resumableWeb: webChat({
+          route: {
+            admission: {
+              authenticate: () => ({ subject: "customer:acme" }),
+            },
+            resumable: {
+              owner: ({ auth }) => auth.subject,
+              scope: "process",
+            },
+          },
+        }),
         web: webChat({
           route: {
             admission: {
@@ -823,6 +834,13 @@ describe("agent public types", () => {
         }),
       },
       driver: { run: () => "ok" },
+    })
+
+    webChat({
+      route: {
+        // @ts-expect-error Resumable web chat must acknowledge its process-local boundary.
+        resumable: { owner: () => "customer:acme" },
+      },
     })
 
     defineAgent({
