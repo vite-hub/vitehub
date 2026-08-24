@@ -31,7 +31,6 @@ afterEach(async () => {
     path,
     `${path}.vitehub-lock`,
     `${path}.vitehub-locks`,
-    `${path}.vitehub-tmp`,
     `${path}.meta.json`,
   ]).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -159,8 +158,10 @@ describe("local workspace store", () => {
 
     await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
     const tempPath = String(vi.mocked(writeFile).mock.calls[0]?.[0])
-    expect(tempPath.startsWith(`${root}.vitehub-tmp/`)).toBe(true)
-    await expect(store.list("", { recursive: true })).resolves.toEqual([])
+    expect(tempPath.startsWith(`${root}/.vitehub/tmp/`)).toBe(true)
+    await expect(store.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "file" }),
+    ]))
     release()
     await writing
   })
@@ -209,6 +210,42 @@ describe("local workspace store", () => {
     await expect(first.writeFileConditional?.("docs/page.md", { path: "docs/page.md", content: "stale" }, baseline?.digest || null))
       .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
     await expect(readFile(join(root, "docs/page.md"), "utf8")).resolves.toBe("second")
+  })
+
+  it("serializes parent removal with a conditional child write", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    const second = createLocalWorkspaceStore(root)
+    await first.writeFile("docs/page.md", { path: "docs/page.md", content: "first" })
+    const baseline = await first.stat("docs/page.md")
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const conditional = first.writeFileConditional?.(
+      "docs/page.md",
+      { path: "docs/page.md", content: "second" },
+      baseline?.digest || null,
+    )
+    await writingStarted
+    const removing = second.rm("docs", { recursive: true })
+    let removed = false
+    void removing.then(() => { removed = true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(removed).toBe(false)
+
+    release()
+    await conditional
+    await removing
+    await expect(first.stat("docs/page.md")).resolves.toBeUndefined()
   })
 
   it("replaces metadata atomically through a temporary file", async () => {
@@ -276,7 +313,9 @@ describe("local workspace store", () => {
     await waiting
 
     await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
-    await expect(store.list("", { recursive: true })).resolves.toEqual([])
+    await expect(store.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "file" }),
+    ]))
     release()
     await writing
   })

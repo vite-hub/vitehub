@@ -63,14 +63,23 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
   }
 }
 
-async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
-  return await withFilesystemLock(`${root}.vitehub-lock`, `root: ${root}.`, operation)
-}
-
 async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>): Promise<T> {
   const normalized = normalizeWorkspacePath(path)
-  const key = createHash("sha256").update(normalized).digest("hex")
-  return await withFilesystemLock(`${root}.vitehub-locks/${key}`, `path: ${normalized}.`, operation)
+  const parts = normalized.split("/").filter(Boolean)
+  const paths = parts.map((_, index) => parts.slice(0, index + 1).join("/"))
+
+  const lock = async (index: number): Promise<T> => {
+    if (index === paths.length) return await operation()
+    const lockedPath = paths[index]!
+    const key = createHash("sha256").update(lockedPath).digest("hex")
+    return await withFilesystemLock(
+      `${root}.vitehub-locks/${key}`,
+      `path: ${lockedPath}.`,
+      () => lock(index + 1),
+    )
+  }
+
+  return await lock(0)
 }
 
 async function walk(
@@ -91,6 +100,7 @@ async function walk(
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
+    if (path === ".vitehub" || path.startsWith(".vitehub/")) continue
     if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -173,7 +183,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
-    const tempRoot = `${this.root}.vitehub-tmp`
+    const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
@@ -213,7 +223,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
-    const tempRoot = `${this.root}.vitehub-tmp`
+    const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
     const hash = createHash("sha256")
     let size = 0
@@ -328,7 +338,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    await withWorkspaceLock(this.root, () => this.#rm(path, options))
+    await withWorkspacePathLock(this.root, path, () => this.#rm(path, options))
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
