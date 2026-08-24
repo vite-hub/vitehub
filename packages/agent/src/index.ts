@@ -190,7 +190,6 @@ import type {
   AgentInvocationSnapshot,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
-import type { AgentChannelContext } from "./chat-trigger.ts"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
@@ -4875,30 +4874,34 @@ async function executeAgentInvocationWithCapacityLease<
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
                 let source: ReturnType<typeof cancellableAsyncIterableSource>
                 try {
-                  const renderedStream = toUIMessageStream.apply(rendered, args)
-                  source = cancellableAsyncIterableSource(renderedStream)
+                  source = cancellableAsyncIterableSource(toUIMessageStream.apply(rendered, args))
+                  const normalizedStream = normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))
+                  const enrichedStream = withEagerStreamUsageExtensions(
+                    toReadableAsyncIterableStream(normalizedStream),
+                    invocation,
+                    rendered,
+                  )
+                  const renderedStream = invocation.runtimeContext.traceLog
+                    ? traceUiMessageStream(toReadableAsyncIterableStream(enrichedStream), invocation)
+                    : enrichedStream
+                  return withReadableStreamCleanup(
+                    toReadableAsyncIterableStream(renderedStream),
+                    finishPreserved,
+                    {
+                      abortSignal: invocation.input.abortSignal,
+                      cancelOnAbort: source.cancel,
+                      onChunk(chunk) {
+                        collectToolResult(chunk)
+                        streamedText += uiMessageTextDelta(chunk) || ""
+                        streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+                      },
+                    },
+                  )
                 }
                 catch (error) {
                   void finishPreserved({ error, failed: true }).catch(() => {})
                   throw error
                 }
-                return withReadableStreamCleanup(
-                  toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
-                    toReadableAsyncIterableStream(normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))),
-                    invocation,
-                    rendered,
-                  )),
-                  finishPreserved,
-                  {
-                    abortSignal: invocation.input.abortSignal,
-                    cancelOnAbort: source.cancel,
-                    onChunk(chunk) {
-                      collectToolResult(chunk)
-                      streamedText += uiMessageTextDelta(chunk) || ""
-                      streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
-                    },
-                  },
-                )
               },
             },
           })
@@ -5090,21 +5093,58 @@ async function executeAgentInvocationWithCapacityLease<
                   uiMessageStreamResolved = true
                   unresolvedLazyStreamSurfaces--
                 }
-                const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
-                preservedSources.set(renderedStream, source)
-                return withReadableStreamCleanup(
-                  normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
+                const existingSource = preservedSources.get(renderedStream)
+                const existingStream = preservedStreams.get(renderedStream)
+                const normalizedStream = normalizeUiMessageStream(
+                  toReadableAsyncIterableStream(existingStream ?? existingSource?.stream ?? renderedStream),
+                )
+                const enrichedStream = existingStream
+                  ? normalizedStream
+                  : withEagerStreamUsageExtensions(normalizedStream, invocation, rendered)
+                const streamed = existingStream
+                  ? undefined
+                  : withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+                const tracedStream = existingStream
+                  ? enrichedStream
+                  : invocation.runtimeContext.traceLog
+                  ? traceUiMessageStream(toReadableAsyncIterableStream(streamed!.stream), invocation)
+                  : streamed!.stream
+                const source = existingSource
+                  ? { cancel: existingSource.cancel, stream: tracedStream }
+                  : cancellableAsyncIterableSource(tracedStream)
+                if (!existingSource) preservedSources.set(renderedStream, source)
+                const stream = withReadableStreamCleanup(
+                  toReadableAsyncIterableStream(source.stream),
                   async (outcome) => {
                     finishing = true
                     const finalOutcome = await cancelPreservedSources(outcome)
                     if (finishTask) return await finishTask
+                    let finishResult = streamed?.finishResult(preserved) ?? preserved
+                    if (finishResult !== preserved && Object.isExtensible(preserved)) {
+                      const collectedDescriptors: PropertyDescriptorMap = {}
+                      for (const key of ["text", "usage", "usageRecord"]) {
+                        const descriptor = Object.getOwnPropertyDescriptor(finishResult, key)
+                        if (descriptor) collectedDescriptors[key] = descriptor
+                      }
+                      Object.defineProperties(preserved, collectedDescriptors)
+                      finishResult = preserved
+                    }
                     finishTask = !finalOutcome.failed && !finalOutcome.completed
-                      ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
-                      : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
+                      ? lifecycle.finish({
+                          result: finishResult,
+                          status: "success",
+                          ...(streamed?.finishUsage()
+                            ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+                            : {}),
+                          usageResolved: true,
+                        })
+                      : finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
                     return await finishTask
                   },
                   { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
                 )
+                if (!existingStream) preservedStreams.set(renderedStream, stream)
+                return stream
               }
               catch (error) {
                 finishing = true
