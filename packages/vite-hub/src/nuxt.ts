@@ -228,6 +228,17 @@ async function installConsole(
     projectRoot,
     discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
   )
+  if (nuxt.options.dev) {
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
+    const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: () => Promise<void>) => void) | undefined
+    hookBuilderWatch?.("builder:watch", async () => {
+      await writeConsoleNitroPlugin(
+        plugin,
+        projectRoot,
+        discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
+      )
+    })
+  }
   if (!plugins.includes(plugin)) plugins.push(plugin)
 }
 

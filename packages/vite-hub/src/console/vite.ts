@@ -57,10 +57,22 @@ function generatedRegistration(value: string, path: string): boolean {
 export function consoleVitePlugin(): Plugin {
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
+  let root: string | undefined
+  let serverDirs: string[] | undefined
+
+  async function refreshAgentDefinitions(): Promise<void> {
+    if (!generatedPlugin || !projectRoot || !root) return
+    await writeConsoleNitroPlugin(
+      generatedPlugin,
+      projectRoot,
+      discoverAgentDefinitionEntries(root, serverDirs),
+    )
+  }
+
   return {
     name: "vite-hub/console",
     async config(config) {
-      const root = resolve(config.root || process.cwd())
+      root = resolve(config.root || process.cwd())
       projectRoot = resolveViteHubProjectRoot(root)
       generatedPlugin = resolve(root, generatedConsolePlugin)
       await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root))
@@ -97,15 +109,18 @@ export function consoleVitePlugin(): Plugin {
       viteConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
     },
     async configResolved(config) {
+      root = config.root
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
-      const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      await writeConsoleNitroPlugin(
-        generatedPlugin,
-        projectRoot,
-        discoverAgentDefinitionEntries(config.root, serverDirs),
-      )
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      await refreshAgentDefinitions()
+    },
+    configureServer(server) {
+      const refresh = async () => await refreshAgentDefinitions()
+      server.watcher.on("add", refresh)
+      server.watcher.on("change", refresh)
+      server.watcher.on("unlink", refresh)
     },
   }
 }

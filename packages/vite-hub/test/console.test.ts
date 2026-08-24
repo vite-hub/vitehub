@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -142,6 +142,59 @@ describe("Agent invocation console", () => {
     ], invocations)
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"] })
+  })
+
+  it("rejects Agent names beyond the persisted identity limit", () => {
+    expect(() => defineAgent({ driver: { run: () => "ok" }, name: "a".repeat(513) }))
+      .toThrow("Agent names cannot exceed 512 characters")
+  })
+
+  it("keeps colliding discovered route names until definitions resolve", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-collision-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "review.agent.ts"), "export default {}\n")
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
+      const plugin = consoleVitePlugin()
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config = { root }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated.match(/fallbackName: "review"/g)).toHaveLength(2)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("regenerates discovered Agents when definitions change in development", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-watch-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "review.agent.ts"), "export default {}\n")
+      const plugin = consoleVitePlugin()
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      await Reflect.apply(configHandler, {}, [{ root }, { command: "serve", mode: "development" }])
+
+      const listeners = new Map<string, () => Promise<void>>()
+      const configureServer = plugin.configureServer
+      if (!configureServer) throw new TypeError("Expected a console development-server hook.")
+      const configureServerHandler = "handler" in configureServer ? configureServer.handler : configureServer
+      Reflect.apply(configureServerHandler, {}, [{ watcher: { on: (event: string, listener: () => Promise<void>) => listeners.set(event, listener) } }])
+
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
+      await listeners.get("add")?.()
+      await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8"))
+        .resolves.toContain(`fallbackName: "support"`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("finds Agent names beyond the first persisted invocation page", async () => {

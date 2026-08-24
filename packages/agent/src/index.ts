@@ -1867,6 +1867,9 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   const agentOptions = options as AgentSettings
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
+  if (name && name.length > 512) {
+    throw new TypeError("[vitehub] Agent names cannot exceed 512 characters.")
+  }
   let normalizedOptions = channels === agentOptions.channels
     ? agentOptions
     : { ...agentOptions, channels }

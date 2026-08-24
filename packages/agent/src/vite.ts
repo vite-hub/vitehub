@@ -2905,10 +2905,10 @@ export function discoverAgentDefinitionEntries(
     ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: root }),
     ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: resolvedServerDirs }),
   ]
-  return [...new Map(entries.map(definition => [definition.name, {
+  return [...new Map(entries.map(definition => [definition.handler, {
     handler: definition.handler,
     name: definition.name,
-  }])).values()].sort((left, right) => left.name.localeCompare(right.name))
+  }])).values()].sort((left, right) => left.name.localeCompare(right.name) || left.handler.localeCompare(right.handler))
 }
 
 declare module "vite" {
