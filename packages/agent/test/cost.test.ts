@@ -550,6 +550,60 @@ describe("cost Capability", () => {
     }))
   })
 
+  it("prices distinct preserved UI stream usage before tracing it", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [cost({
+        pricing: () => ({
+          usd: "0.02",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({
+                  type: "usage",
+                  usageRecord: {
+                    usage: {
+                      inputTokens: 10,
+                      outputTokens: 2,
+                      totalTokens: 12,
+                    },
+                  },
+                })
+                controller.close()
+              },
+            })
+          },
+        }),
+      },
+    })
+
+    const result = await runAgent(agent, {
+      ...runtime(),
+      traceLog,
+    }, { prompt: "hello" }) as { toUIMessageStream: () => ReadableStream<unknown> }
+    for await (const _chunk of result.toUIMessageStream()) {}
+
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "usage.hasCost": true,
+        "usage.totalTokens": 12,
+      }),
+      name: "agent.usage.recorded",
+    }))
+  })
+
   it("prices serialized UI message response usage before returning it", async () => {
     const { readUIMessageStream } = await import("ai")
     const { cost } = await import("../src/capabilities.ts")

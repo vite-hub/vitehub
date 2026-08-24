@@ -5093,11 +5093,14 @@ async function executeAgentInvocationWithCapacityLease<
                 const normalizedStream = normalizeUiMessageStream(
                   toReadableAsyncIterableStream(existingStream ?? existingSource?.stream ?? renderedStream),
                 )
-                const tracedStream = existingStream
+                const enrichedStream = existingStream
                   ? normalizedStream
+                  : withEagerStreamUsageExtensions(normalizedStream, invocation, rendered)
+                const tracedStream = existingStream
+                  ? enrichedStream
                   : invocation.runtimeContext.traceLog
-                  ? traceUiMessageStream(normalizedStream, invocation)
-                  : normalizedStream
+                  ? traceUiMessageStream(toReadableAsyncIterableStream(enrichedStream), invocation)
+                  : enrichedStream
                 const source = existingSource
                   ? { cancel: existingSource.cancel, stream: tracedStream }
                   : cancellableAsyncIterableSource(tracedStream)
