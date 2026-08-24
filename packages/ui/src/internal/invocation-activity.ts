@@ -5,12 +5,15 @@ type InvocationActivityKind =
   | "action"
   | "approval"
   | "change"
+  | "delivery"
   | "error"
   | "message"
   | "model"
   | "plan"
+  | "preparation"
   | "reasoning"
   | "run"
+  | "system"
   | "tool"
   | "activity";
 
@@ -226,11 +229,12 @@ function activityKind(
   const explicit = attributes["vitehub.activity.kind"];
   if (
     typeof explicit === "string"
-    && ["action", "approval", "change", "error", "message", "model", "plan", "reasoning", "run", "tool", "activity"].includes(explicit)
+    && ["action", "approval", "change", "delivery", "error", "message", "model", "plan", "preparation", "reasoning", "run", "system", "tool", "activity"].includes(explicit)
   ) {
     return explicit as InvocationActivityKind;
   }
-  if (attributes["channel.effect.kind"] || attributes["channel.effect.intent"] || observation.name.includes(".channel.delivery")) return "action";
+  if (attributes["channel.effect.kind"] || attributes["channel.effect.intent"] || observation.name.includes(".channel.delivery")) return "delivery";
+  if (observation.name === "vitehub.agent.configured") return "system";
   if (attributes["tool.name"] || attributes["tool.id"] || observation.name.includes(".tool.")) return "tool";
   if (attributes["approval.id"] || observation.name.includes(".approval.")) return "approval";
   if (observation.type === "error" || observation.name.endsWith(".error")) return "error";
@@ -257,13 +261,15 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   let anonymousMessageKey: string | undefined;
   let anonymousMessagePhase: string | undefined;
   let assistantDeltaText = "";
+  const hasAgentMessages = (invocation.observations ?? []).some(observation => observation.name.startsWith("agent.message"));
   for (const observation of invocation.observations ?? []) {
-    if (observation.name === "agent.title.recorded" || observation.name === "vitehub.agent.configured") continue;
+    if (observation.name === "agent.title.recorded") continue;
     const originalAttributes = observation.attributes ?? {};
     const delta = messageText({ parts: [{ text: originalAttributes["message.content"] }] });
     const role = messageRole(originalAttributes["message.role"]);
     const resultText = messageText({ parts: [{ text: originalAttributes["result.text"] }] });
     if (resultText && assistantDeltaText.endsWith(resultText)) continue;
+    if (hasAgentMessages && !resultText && (observation.name === "agent.stream.finish" || observation.name === "agent.invocation.finish")) continue;
     if (delta && (role === undefined || role === "assistant")) assistantDeltaText += delta;
     const inputMessages = Array.isArray(originalAttributes["input.messages"])
       ? originalAttributes["input.messages"]
@@ -382,7 +388,13 @@ export function latestInvocationTokens(activities: readonly InvocationActivity[]
 }
 
 export function invocationActivityTitle(activity: InvocationActivity): string {
+  const explicit = activity.attributes["vitehub.activity.title"];
+  if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
+  if (activity.name === "vitehub.agent.configured") return "Agent configured";
+  if (activity.kind === "preparation") return "Prepared session";
+  if (activity.kind === "system") return "System configuration";
+  if (activity.kind === "delivery") return String(activity.attributes["channel.effect.kind"] ?? "Channel delivery");
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
@@ -396,6 +408,22 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "model") return "Thinking";
   if (activity.kind === "run") return activity.name.endsWith(".finish") ? "Finished session" : "Started session";
   return normalizedTitle(activity.name.replace(/\.(start|finish|error|decision|recorded)$/, "").replaceAll(".", " "));
+}
+
+export function agentConfigurationSummary(activity: InvocationActivity): string | undefined {
+  if (activity.name !== "vitehub.agent.configured") return;
+  const configuration = record(activity.attributes["vitehub.agent.configuration"]);
+  if (!configuration) return;
+  const driver = record(configuration.driver);
+  const model = record(driver?.model);
+  const modelName = stringAttribute(model ?? {}, "id") ?? stringAttribute(driver ?? {}, "provider");
+  const capabilities = Array.isArray(configuration.capabilities) ? configuration.capabilities.length : 0;
+  const tools = Array.isArray(configuration.tools) ? configuration.tools.length : 0;
+  return [
+    modelName,
+    capabilities ? `${capabilities} ${capabilities === 1 ? "capability" : "capabilities"}` : undefined,
+    tools ? `${tools} ${tools === 1 ? "tool" : "tools"}` : undefined,
+  ].filter(Boolean).join(" · ") || undefined;
 }
 
 export function terminalText(value: string | undefined): string {
