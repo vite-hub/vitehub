@@ -3749,6 +3749,7 @@ async function finishStreamAgentInvocation<
   failureMessage: string,
   outputExtensions = new Map<string, unknown>(),
   allowMaterializedOutput = false,
+  retainedUsageRecord?: AgentUsageRecord,
 ): Promise<void> {
   if (outcome.status === "error") {
     await lifecycle.finish(outcome)
@@ -3757,7 +3758,7 @@ async function finishStreamAgentInvocation<
   let finishResult: unknown
   let finishUsage: AgentUsageRecord | undefined
   try {
-    const usageRecord = await resolveFinishUsageRecord(context, result)
+    const usageRecord = retainedUsageRecord ?? await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
     if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
@@ -5347,7 +5348,7 @@ async function executeAgentInvocationWithCapacityLease<
           })
         }
         else {
-          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions, Boolean(structuredOutput), finishUsageRecord)
         }
       }, {
         abortSignal: invocation.input.abortSignal,
@@ -5448,7 +5449,7 @@ async function executeAgentInvocationWithCapacityLease<
             })
           }
           else {
-            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions, Boolean(structuredOutput))
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions, Boolean(structuredOutput), finishUsageRecord)
           }
         }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
       : tracedStream
