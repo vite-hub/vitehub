@@ -11,20 +11,20 @@ describe("docs color mode", () => {
     expect(header).toContain("<UColorModeButton />");
   });
 
-  it("defines ViteHub-owned light and dark browser palettes", async () => {
+  it("defines browser schemes and a ViteHub-owned dark palette", async () => {
     const styles = await readFile(
       new URL("../app/assets/main.css", import.meta.url),
       "utf8",
     );
+    const lightRule = styles.match(/:root\.light \{(?<body>[^}]+)\}/)?.groups?.body;
+    const darkRule = styles.match(/:root\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
 
-    expect(styles).toContain(":root.light");
-    expect(styles).toContain("color-scheme: light");
-    expect(styles).toContain(":root.dark");
-    expect(styles).toContain("color-scheme: dark");
-    expect(styles).toContain("--ui-bg: var(--vh-ink)");
-    expect(styles).toContain("--ui-bg-elevated: #18181b");
-    expect(styles).toContain("--ui-border: #27272a");
-    expect(styles).toContain("--ui-text: #e4e4e7");
-    expect(styles).toContain("--ui-text-highlighted: var(--vh-paper)");
+    expect(lightRule).toContain("color-scheme: light");
+    expect(darkRule).toContain("color-scheme: dark");
+    expect(darkRule).toContain("--ui-bg: var(--vh-ink)");
+    expect(darkRule).toContain("--ui-bg-elevated: #18181b");
+    expect(darkRule).toContain("--ui-border: #27272a");
+    expect(darkRule).toContain("--ui-text: #e4e4e7");
+    expect(darkRule).toContain("--ui-text-highlighted: var(--vh-paper)");
   });
 });

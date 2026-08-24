@@ -6,9 +6,6 @@
   --vh-content-width: 796px;
   --vh-ink: #09090b;
   --vh-paper: #fafafa;
-  --vh-mist: #f4f4f5;
-  --vh-line: #d4d4d8;
-  --vh-muted: #71717a;
 }
 
 :root.light {

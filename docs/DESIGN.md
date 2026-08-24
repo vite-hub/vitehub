@@ -31,7 +31,7 @@ Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, decorative lo
 
 The public docs use a monochrome system with equal light and dark modes.
 
-| Token | Light | Dark | Use |
+| Role | Light | Dark | Use |
 | --- | --- | --- | --- |
 | Canvas | `#ffffff` | `#09090b` | Page background |
 | Raised | `#fafafa` | `#18181b` | Cards, code, and raised controls |
