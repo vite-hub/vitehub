@@ -674,6 +674,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       providerImportAliases,
       runtimeCapabilityImports: {
         blob: blobEnabled ? `${generatedImportBase}/blob` : false,
+        db: options.database ? "vite-hub/database/drizzle" : false,
         email: "vite-hub/email/server",
         kv: `${generatedImportBase}/kv`,
       },
