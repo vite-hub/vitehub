@@ -1248,6 +1248,48 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().filter(event => event.attributes?.["vitehub.action.name"] === "progress-summary.update")).toHaveLength(1)
   })
 
+  it("reuses a Capability UI message stream when its lazy primary alias resolves afterward", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const sharedStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ id: "tool-1", toolName: "airtable", type: "tool-input-start" })
+        controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
+        controller.enqueue({ finishReason: "stop", type: "finish" })
+        controller.close()
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute: () => "Checking Airtable for assigned tasks.", intervalMs: 0 })],
+      driver: {
+        run: () => {
+          const result = { toUIMessageStream: () => sharedStream }
+          Object.defineProperty(result, "fullStream", {
+            configurable: true,
+            enumerable: true,
+            get: () => sharedStream,
+          })
+          return result
+        },
+      },
+    })
+
+    const traceLog = createTraceEventLog({ content: "content" })
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, { prompt: "Check tasks." }) as {
+      fullStream: ReadableStream<unknown>
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const uiStream = result.toUIMessageStream()
+    expect(result.fullStream).toBe(uiStream)
+    const events: unknown[] = []
+    for await (const event of result.fullStream) events.push(event)
+
+    expect(events).toContainEqual({
+      data: { error: "temporary failure", recoverable: true, type: "error" },
+      type: "data-error",
+    })
+    expect(traceLog.entries().filter(event => event.attributes?.["vitehub.action.name"] === "progress-summary.update")).toHaveLength(1)
+  })
+
   it("exports product actions from AI SDK telemetry integrations", async () => {
     const { aiSdkTelemetryIntegration } = await import("../src/trace.ts")
     const traceLog = createTraceEventLog()

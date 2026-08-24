@@ -5105,7 +5105,7 @@ async function executeAgentInvocationWithCapacityLease<
                   ? { cancel: existingSource.cancel, stream: tracedStream }
                   : cancellableAsyncIterableSource(tracedStream)
                 if (!existingSource) preservedSources.set(renderedStream, source)
-                return withReadableStreamCleanup(
+                const stream = withReadableStreamCleanup(
                   toReadableAsyncIterableStream(source.stream),
                   async (outcome) => {
                     finishing = true
@@ -5118,6 +5118,8 @@ async function executeAgentInvocationWithCapacityLease<
                   },
                   { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
                 )
+                if (!existingStream) preservedStreams.set(renderedStream, stream)
+                return stream
               }
               catch (error) {
                 finishing = true
