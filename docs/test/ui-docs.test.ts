@@ -61,4 +61,17 @@ describe("UI documentation", () => {
     expect(styles).toContain(".docs-ui-page-shell");
     expect(styles).toContain("max-width: 68rem");
   });
+
+  it("gives invocation previews fixed-height containing blocks", () => {
+    const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
+    const inspector = readFileSync(
+      resolve(examplesRoot, "InvocationInspectorExample.vue"),
+      "utf8",
+    );
+
+    expect(invocation).toContain('<div class="h-[34rem]');
+    expect(invocation).toContain('class="h-full"');
+    expect(inspector).toContain('<div class="mx-auto h-[36rem]');
+    expect(inspector).toContain('class="h-full border-x border-default"');
+  });
 });

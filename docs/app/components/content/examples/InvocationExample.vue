@@ -68,5 +68,7 @@ const invocation: AgentInvocationView = {
 </script>
 
 <template>
-  <AgentInvocation :invocation="invocation" class="h-[34rem] min-w-0 bg-default" />
+  <div class="h-[34rem] min-w-0 bg-default">
+    <AgentInvocation :invocation="invocation" class="h-full" />
+  </div>
 </template>

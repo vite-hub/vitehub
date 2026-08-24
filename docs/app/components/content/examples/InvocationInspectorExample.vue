@@ -49,8 +49,10 @@ const invocation: AgentInvocationView = {
 </script>
 
 <template>
-  <AgentInvocationInspector
-    :invocation="invocation"
-    class="mx-auto h-[36rem] max-w-md border-x border-default bg-default"
-  />
+  <div class="mx-auto h-[36rem] max-w-md bg-default">
+    <AgentInvocationInspector
+      :invocation="invocation"
+      class="h-full border-x border-default"
+    />
+  </div>
 </template>
