@@ -59,8 +59,30 @@ function textContent(item: ContentSourceItem): string {
   throw new TypeError(`[vitehub] contentSource() cannot read ${JSON.stringify(item.key)} as content.`)
 }
 
+function isRuntimeFunction(value: unknown): value is Function {
+  if (value === null || Object(value) !== value) return false
+  try {
+    Function.prototype.toString.call(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isRuntimeObject(value: unknown): value is object {
+  return value !== null && Object(value) === value && !isRuntimeFunction(value)
+}
+
 function isComarkContentSource(input: ContentSourceInput): input is ComarkContentSource {
-  return input instanceof Object && "getItem" in input && "keys" in input
+  return (
+    isRuntimeObject(input)
+    && "getItem" in input
+    && isRuntimeFunction(input.getItem)
+    && "getItemRaw" in input
+    && isRuntimeFunction(input.getItemRaw)
+    && "keys" in input
+    && isRuntimeFunction(input.keys)
+  )
 }
 
 function isSourceReaderFactory(input: SourceName | SourceReader | (() => SourceReader)): input is () => SourceReader {
@@ -71,10 +93,22 @@ function isSourceName(input: SourceName | SourceReader | (() => SourceReader)): 
   return !(input instanceof Object)
 }
 
+function configuredContentSource(input: ComarkContentSource, options: ContentSourceOptions): ComarkContentSource {
+  const source: ComarkContentSource = {
+    getItem: input.getItem.bind(input),
+    getItemRaw: input.getItemRaw.bind(input),
+    keys: input.keys.bind(input),
+    prefix: options.prefix ?? input.prefix,
+    schema: options.schema ?? input.schema,
+  }
+  if (input.watch) source.watch = input.watch.bind(input)
+  return source
+}
+
 /** Adapt a registered ViteHub Source or Source Reader to the interface consumed by Comark Content. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
   if (isComarkContentSource(input)) {
-    return options.prefix === undefined && options.schema === undefined ? input : { ...input, ...options }
+    return options.prefix === undefined && options.schema === undefined ? input : configuredContentSource(input, options)
   }
   // SAFETY: The native Comark Source branch returned above, leaving only ViteHub Source inputs.
   const sourceInput = input as SourceName | SourceReader | (() => SourceReader)

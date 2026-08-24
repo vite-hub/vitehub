@@ -70,6 +70,10 @@ function searchableRecord(record: Omit<AgentInvocationRecord, "cursor">): string
   return JSON.stringify(summary).toLowerCase()
 }
 
+function agentNameRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
+  return record.agentName || ""
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, match => `\\${match}`)
 }
@@ -112,6 +116,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
         search TEXT,
         record TEXT NOT NULL
       )`)
@@ -123,6 +128,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
           if (!currentColumns.rows.some(row => row.name === "search")) throw error
+        }
+      }
+      if (!columns.rows.some(row => row.name === "agent_name")) {
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN agent_name TEXT`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
+          if (!currentColumns.rows.some(row => row.name === "agent_name")) throw error
         }
       }
       let backfillSequence = 0
@@ -144,7 +158,28 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         if (searchBackfill.length) await client.batch(searchBackfill, "write")
       }
+      backfillSequence = 0
+      while (true) {
+        const missingAgentNames = await client.execute({
+          args: [backfillSequence, searchBackfillPageSize],
+          sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
+        })
+        if (!missingAgentNames.rows.length) break
+        const agentNameBackfill = missingAgentNames.rows.map((row) => {
+          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
+          const record = deserialize(row.record, row.sequence)
+          return {
+            args: [record ? agentNameRecord(storedRecord(record)) : "", numberValue(row.sequence)],
+            sql: `UPDATE ${table} SET agent_name = ? WHERE sequence = ? AND agent_name IS NULL`,
+          }
+        })
+        await client.batch(agentNameBackfill, "write")
+      }
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
+        ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
+        WHERE agent_name IS NULL OR agent_name = ''`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
@@ -184,8 +219,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         const result = await client.execute({
-          args: [input.id, input.status, searchableRecord(input), serialize(input)],
-          sql: `INSERT OR IGNORE INTO ${table} (id, status, search, record) VALUES (?, ?, ?, ?)`,
+          args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), serialize(input)],
+          sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, record) VALUES (?, ?, ?, ?, ?)`,
         })
         const record = await read(input.id)
         if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
@@ -213,6 +248,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       if (statuses.length) {
         filters.push(`status IN (${statuses.map(() => "?").join(", ")})`)
         args.push(...statuses)
+      }
+      const agentName = listOptions.agentName?.trim()
+      if (agentName) {
+        filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))")
+        args.push(agentName, agentName)
       }
       const search = searchValue(listOptions.search)
       if (search) {
@@ -265,8 +305,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const updated = applyAgentInvocationStoreUpdate(record, input)
           const stored = storedRecord(updated)
           await transaction.execute({
-            args: [updated.status, searchableRecord(stored), serialize(stored), id],
-            sql: `UPDATE ${table} SET status = ?, search = ?, record = ? WHERE id = ?`,
+            args: [updated.status, agentNameRecord(stored), searchableRecord(stored), serialize(stored), id],
+            sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, record = ? WHERE id = ?`,
           })
           await transaction.commit()
           return updated

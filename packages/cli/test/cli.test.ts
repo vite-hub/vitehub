@@ -65,7 +65,7 @@ describe("ViteHub CLI", () => {
           },
         }],
         root: "/repo",
-      }) as never,
+      }),
       stderr,
       stdout,
     })
@@ -85,20 +85,21 @@ describe("ViteHub CLI", () => {
             cli: {
               namespaces: [{
                 description: "Agent development workflows.",
-                features: [{ description: "Run ViteHub Agent Evals.", name: "eval", run: () => undefined }],
+                features: [{ description: "Run ViteHub Agent Evals.", name: "eval", run: () => undefined, usage: "vitehub agent eval [path] [--watch]" }],
                 name: "agent",
               }],
             },
           },
         }],
         root: "/repo",
-      }) as never,
+      }),
       stdout,
     })
 
     expect(exitCode).toBe(0)
     expect(stdout.output()).toContain("Usage: vitehub agent <feature>")
     expect(stdout.output()).toContain("eval")
+    expect(stdout.output()).toContain("Usage: vitehub agent eval [path] [--watch]")
   })
 
   it("routes feature help to the package feature", async () => {
@@ -117,7 +118,7 @@ describe("ViteHub CLI", () => {
           },
         }],
         root: "/repo",
-      }) as never,
+      }),
     })
 
     expect(exitCode).toBe(0)
@@ -128,7 +129,7 @@ describe("ViteHub CLI", () => {
     const stderr = stream()
     const exitCode = await runViteHubCli({
       args: ["kv", "list"],
-      loadConfig: async () => ({ plugins: [], root: "/repo" }) as never,
+      loadConfig: async () => ({ plugins: [], root: "/repo" }),
       stderr,
     })
 
@@ -137,15 +138,36 @@ describe("ViteHub CLI", () => {
   })
 
   it("requires a provider for provision", async () => {
+    const stdout = stream()
     const stderr = stream()
     const exitCode = await runViteHubCli({
       args: ["provision", "run"],
-      loadConfig: async () => ({ plugins: [], root: "/repo" }) as never,
+      loadConfig: async () => ({ plugins: [], root: "/repo" }),
       stderr,
+      stdout,
     })
 
     expect(exitCode).toBe(1)
     expect(stderr.output()).toContain("--provider cloudflare|vercel")
+    expect(stderr.output()).toContain("Usage: vitehub provision run")
+    expect(stdout.output()).toBe("")
+  })
+
+  it.each([
+    [["--provider"], "Option --provider requires a value."],
+    [["--provider="], "Option --provider requires a value."],
+    [["--provider", "cloudflare", "unexpected"], "Unknown provision argument: unexpected"],
+  ])("rejects invalid provision arguments", async (args, message) => {
+    const stderr = stream()
+    const exitCode = await runViteHubCli({
+      args: ["provision", "run", ...args],
+      loadConfig: async () => ({ plugins: [], root: "/repo" }),
+      stderr,
+      stdout: stream(),
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain(message)
   })
 
   it("dry-run prints the create-if-absent plan without applying", async () => {
@@ -156,7 +178,7 @@ describe("ViteHub CLI", () => {
     const exitCode = await runViteHubCli({
       args: ["provision", "run", "--provider", "cloudflare", "--dry-run"],
       cwd: rootDir,
-      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }) as never,
+      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }),
       stdout,
     })
 
@@ -195,7 +217,7 @@ describe("ViteHub CLI", () => {
 
     await runViteHubCli({
       args: ["--help"],
-      loadConfig: async () => ({ plugins: [resolvedPlugin], root: "/repo", vitehubConfigResolved: true }) as never,
+      loadConfig: async () => ({ plugins: [resolvedPlugin], root: "/repo", vitehubConfigResolved: true }),
       loadNuxtViteConfig,
       stdout: stream(),
     })
@@ -228,7 +250,7 @@ describe("ViteHub CLI", () => {
       args: ["provision", "run", "--provider", "cloudflare"],
       cwd: rootDir,
       env: {},
-      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }) as never,
+      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }),
       stderr,
       stdout: stream(),
     })
@@ -246,7 +268,7 @@ describe("ViteHub CLI", () => {
       args: ["provision", "run", "--provider", "cloudflare"],
       cwd: rootDir,
       env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
-      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }) as never,
+      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }),
       stdout: stream(),
     })
 

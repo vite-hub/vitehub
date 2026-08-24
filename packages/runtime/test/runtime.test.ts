@@ -571,6 +571,7 @@ describe("@vite-hub/runtime", () => {
         "agent.run.id": "run-1",
         prompt: "secret prompt",
         "runtime.name": "vercel",
+        "vitehub.activity.progress": "secret progress",
         "vitehub.session.title": "secret title",
       },
       name: "agent.invocation.start",
@@ -602,6 +603,7 @@ describe("@vite-hub/runtime", () => {
       status: { code: "ERROR", message: "provider failed" },
     })
     expect(JSON.stringify(span)).not.toContain("secret prompt")
+    expect(JSON.stringify(span)).not.toContain("secret progress")
     expect(JSON.stringify(span)).not.toContain("secret result")
     expect(JSON.stringify(span)).not.toContain("secret title")
   })

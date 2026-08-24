@@ -1157,6 +1157,157 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("records Capability progress summaries from preserved mixed run results with distinct action identities", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      capabilities: [
+        progressSummary({ execute: () => "Checking Airtable for assigned tasks.", id: "airtable-progress", intervalMs: 0 }),
+        progressSummary({ execute: () => "Syncing assigned tasks.", id: "sync-progress", intervalMs: 0 }),
+      ],
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          toUIMessageStream: () => new ReadableStream({
+            async start(controller) {
+              controller.enqueue({ id: "tool-1", toolName: "airtable", type: "tool-input-start" })
+              await new Promise(resolve => setTimeout(resolve, 20))
+              controller.enqueue({ finishReason: "stop", type: "finish" })
+              controller.close()
+            },
+          }),
+        }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, { prompt: "Check tasks." }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of result.toUIMessageStream()) {}
+
+    const summaries = traceLog.entries()
+      .filter(event => event.attributes?.["vitehub.action.name"] === "progress-summary.update")
+      .map(event => event.attributes)
+    expect(summaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        "step.id": "airtable-progress:1",
+        "tool.output": "Checking Airtable for assigned tasks.",
+        "vitehub.activity.progress": "Checking Airtable for assigned tasks.",
+      }),
+      expect.objectContaining({
+        "step.id": "sync-progress:1",
+        "tool.output": "Syncing assigned tasks.",
+        "vitehub.activity.progress": "Syncing assigned tasks.",
+      }),
+    ]))
+    expect(summaries).toHaveLength(2)
+  })
+
+  it("preserves and traces a Capability UI message stream reused as a primary stream", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const sharedStream = new ReadableStream({
+      async start(controller) {
+        controller.enqueue({ id: "tool-1", toolName: "airtable", type: "tool-input-start" })
+        await new Promise(resolve => setTimeout(resolve, 20))
+        controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
+        controller.enqueue({ finishReason: "stop", type: "finish" })
+        controller.close()
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute: () => "Checking Airtable for assigned tasks.", intervalMs: 0 })],
+      driver: {
+        run: () => {
+          const result = {
+            toUIMessageStream: () => sharedStream,
+          }
+          Object.defineProperty(result, "fullStream", {
+            configurable: true,
+            enumerable: true,
+            get: () => sharedStream,
+          })
+          return result
+        },
+      },
+    })
+
+    const traceLog = createTraceEventLog({ content: "content" })
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, { prompt: "Check tasks." }) as {
+      fullStream: ReadableStream<unknown>
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    expect(result.fullStream).toBeInstanceOf(ReadableStream)
+    const events: unknown[] = []
+    for await (const event of result.toUIMessageStream()) events.push(event)
+
+    expect(events).toContainEqual({
+      data: { error: "temporary failure", recoverable: true, type: "error" },
+      type: "data-error",
+    })
+    expect(traceLog.entries().filter(event => event.attributes?.["vitehub.action.name"] === "progress-summary.update")).toHaveLength(1)
+  })
+
+  it("reuses a Capability UI message stream when its lazy primary alias resolves afterward", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const sharedStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ id: "tool-1", toolName: "airtable", type: "tool-input-start" })
+        controller.enqueue({ id: "text-1", type: "text-start" })
+        controller.enqueue({ delta: "Done", id: "text-1", type: "text-delta" })
+        controller.enqueue({ id: "text-1", type: "text-end" })
+        controller.enqueue({ output: { records: 2 }, toolCallId: "tool-1", toolName: "airtable", type: "tool-output-available" })
+        controller.enqueue({ type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } })
+        controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
+        controller.enqueue({ finishReason: "stop", type: "finish" })
+        controller.close()
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute: () => "Checking Airtable for assigned tasks.", intervalMs: 0 })],
+      hooks: { "agent:finish": finish },
+      driver: {
+        run: () => {
+          const result = { toUIMessageStream: () => sharedStream }
+          Object.defineProperty(result, "fullStream", {
+            configurable: true,
+            enumerable: true,
+            get: () => sharedStream,
+          })
+          return result
+        },
+      },
+    })
+
+    const traceLog = createTraceEventLog({ content: "content" })
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, { prompt: "Check tasks." }) as {
+      fullStream: ReadableStream<unknown>
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const uiStream = result.toUIMessageStream()
+    expect(result.fullStream).toBe(uiStream)
+    const events: unknown[] = []
+    for await (const event of result.fullStream) events.push(event)
+
+    expect(events).toContainEqual({
+      data: { error: "temporary failure", recoverable: true, type: "error" },
+      type: "data-error",
+    })
+    expect(traceLog.entries().filter(event => event.attributes?.["vitehub.action.name"] === "progress-summary.update")).toHaveLength(1)
+    expect(result).toMatchObject({
+      text: "Done",
+      usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } },
+    })
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({ usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } }),
+      }),
+      result: expect.objectContaining({ text: "Done" }),
+      toolResults: [expect.objectContaining({ output: { records: 2 }, toolCallId: "tool-1", toolName: "airtable" })],
+    }))
+  })
+
   it("exports product actions from AI SDK telemetry integrations", async () => {
     const { aiSdkTelemetryIntegration } = await import("../src/trace.ts")
     const traceLog = createTraceEventLog()
@@ -8363,6 +8514,40 @@ describe("agent message protocol", () => {
     expect(result.metadata).toBe(nativeResult.metadata)
     expect(result.stream).toBeUndefined()
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("preserves null results when progress summaries are enabled", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Preparing your request.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
+      driver: { run: () => null },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "Check inventory.",
+    })).resolves.toBeNull()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("ignores nullish progress summary callback results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => null)
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute: execute as never, intervalMs: 0 })],
+      driver: { run: () => (async function* () {
+          yield { id: "tool-1", name: "inventory", type: "tool-call" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Check inventory." })
+    const events = []
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ id: "tool-1", name: "inventory", type: "tool-call" })
+    expect(execute).toHaveBeenCalled()
   })
 
   it("emits title data for UI message streams", async () => {

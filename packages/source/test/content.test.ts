@@ -182,6 +182,31 @@ describe("contentSource", () => {
     await expect(content.get("/")).resolves.toEqual(expect.objectContaining({ path: "/" }))
   })
 
+  it("preserves prototype-backed native Sources when applying options", async () => {
+    class PrototypeSource {
+      #content = "# Native"
+      prefix = "original"
+
+      async keys() {
+        return ["index.md"]
+      }
+
+      async getItem() {
+        return this.#content
+      }
+
+      async getItemRaw() {
+        return this.#content
+      }
+    }
+
+    const source = contentSource(new PrototypeSource(), { prefix: "configured" })
+
+    expect(source.prefix).toBe("configured")
+    await expect(source.keys()).resolves.toEqual(["index.md"])
+    await expect(source.getItem("index.md")).resolves.toBe("# Native")
+  })
+
   it("rejects duplicate public paths", async () => {
     registerSources({
       duplicate: {

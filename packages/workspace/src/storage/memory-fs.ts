@@ -1,6 +1,18 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+
 type Entry =
   | { kind: "dir", children: Set<string>, mtimeMs: number }
   | { kind: "file", data: Uint8Array, mtimeMs: number }
+
+function copyBinaryData(data: unknown): Uint8Array | undefined {
+  if (ArrayBuffer.isView(data)) {
+    return Uint8Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))
+  }
+  if (Object.prototype.toString.call(data) === "[object ArrayBuffer]") {
+    // SAFETY: The runtime tag establishes an ArrayBuffer, including values from another realm.
+    return Uint8Array.from(new Uint8Array(data as ArrayBuffer))
+  }
+}
 
 class MemoryStats {
   constructor(private entry: Entry) {}
@@ -78,35 +90,43 @@ export class MemoryFS {
 
   async mkdir(path: string, options?: { recursive?: boolean } | number) {
     const target = this.normalize(path)
-    if (target === "/") return
-    const recursive = typeof options === "object" && Boolean(options?.recursive)
+    const recursive = isPlainObject(options) && options.recursive === true
+    if (target === "/") {
+      if (recursive) return
+      throw memoryFsError("EEXIST", path)
+    }
     const parent = this.parent(target)
     if (!this.entries.has(parent)) {
-      if (!recursive) throw new Error(`ENOENT: ${parent}`)
+      if (!recursive) throw memoryFsError("ENOENT", parent)
       await this.mkdir(parent, { recursive: true })
     }
-    if (this.entries.has(target)) return
+    const existing = this.entries.get(target)
+    if (existing) {
+      if (existing.kind === "dir" && recursive) return
+      throw memoryFsError("EEXIST", path)
+    }
+    const parentEntry = this.#requireDir(parent)
     this.entries.set(target, { kind: "dir", children: new Set(), mtimeMs: Date.now() })
-    this.#requireDir(parent).children.add(this.basename(target))
+    parentEntry.children.add(this.basename(target))
   }
 
   async writeFile(path: string, data: string | Uint8Array | ArrayBuffer) {
     const target = this.normalize(path)
-    await this.mkdir(this.parent(target), { recursive: true })
-    const bytes = typeof data === "string"
-      ? this.#encoder.encode(data)
-      : data instanceof Uint8Array
-        ? data
-        : new Uint8Array(data)
+    const existing = this.entries.get(target)
+    if (existing?.kind === "dir") throw memoryFsError("EISDIR", path)
+    const parentPath = this.parent(target)
+    if (!this.entries.has(parentPath)) await this.mkdir(parentPath, { recursive: true })
+    const parent = this.#requireDir(parentPath)
+    const bytes = copyBinaryData(data) ?? this.#encoder.encode(String(data))
     this.entries.set(target, { kind: "file", data: bytes, mtimeMs: Date.now() })
-    this.#requireDir(this.parent(target)).children.add(this.basename(target))
+    parent.children.add(this.basename(target))
   }
 
   async readFile(path: string, options?: string | { encoding?: string }) {
     const entry = this.#requireEntry(path)
-    if (entry.kind !== "file") throw new Error(`EISDIR: ${path}`)
-    const encoding = typeof options === "string" ? options : options?.encoding
-    return encoding ? this.#decoder.decode(entry.data) : entry.data
+    if (entry.kind !== "file") throw memoryFsError("EISDIR", path)
+    const encoding = isPlainObject(options) ? options.encoding : options
+    return encoding ? this.#decoder.decode(entry.data) : Uint8Array.from(entry.data)
   }
 
   async readdir(path: string) {
@@ -116,15 +136,16 @@ export class MemoryFS {
   async unlink(path: string) {
     const target = this.normalize(path)
     const entry = this.#requireEntry(target)
-    if (entry.kind !== "file") throw new Error(`EISDIR: ${path}`)
+    if (entry.kind !== "file") throw memoryFsError("EISDIR", path)
     this.entries.delete(target)
     this.#requireDir(this.parent(target)).children.delete(this.basename(target))
   }
 
   async rmdir(path: string) {
     const target = this.normalize(path)
+    if (target === "/") throw memoryFsError("EBUSY", path)
     const entry = this.#requireDir(target)
-    if (entry.children.size) throw new Error(`ENOTEMPTY: ${path}`)
+    if (entry.children.size) throw memoryFsError("ENOTEMPTY", path)
     this.entries.delete(target)
     this.#requireDir(this.parent(target)).children.delete(this.basename(target))
   }
@@ -167,7 +188,7 @@ export class MemoryFS {
 
   #requireDir(path: string) {
     const entry = this.#requireEntry(path)
-    if (entry.kind !== "dir") throw new Error(`ENOTDIR: ${path}`)
+    if (entry.kind !== "dir") throw memoryFsError("ENOTDIR", path)
     return entry
   }
 }

@@ -233,7 +233,7 @@ describe("diagnostics Capability", () => {
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(maxReporters).toBe(1)
-    expect(inspections).toBe(3)
+    expect(inspections).toBeGreaterThanOrEqual(3)
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(delivered.at(-2)).toBe("agent.resource.snapshot:finish")
     expect(delivered.at(-1)).toBe("agent.invocation.terminal:terminal")

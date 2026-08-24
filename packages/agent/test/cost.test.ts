@@ -154,6 +154,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: This fixture's Driver returns the runAgent object shape inspected below.
     const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
       usageRecord?: { cost?: unknown }
     }
@@ -434,6 +435,7 @@ describe("cost Capability", () => {
 
     const stream = await streamAgent(agent, runtime(), { prompt: "hello" })
     const events = []
+    // SAFETY: streamAgent returns an async iterable for its default output mode.
     for await (const event of stream as AsyncIterable<unknown>) events.push(event)
 
     expect(events).toEqual([{
@@ -484,6 +486,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: The selected UI message output mode returns a readable stream.
     const stream = await streamAgent(agent, {
       ...runtime(),
       traceLog,
@@ -535,11 +538,67 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: The selected UI message output mode returns a readable stream.
     const stream = await streamAgent(agent, {
       ...runtime(),
       traceLog,
     }, { prompt: "hello" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     for await (const _chunk of stream) {}
+
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "usage.hasCost": true,
+        "usage.totalTokens": 12,
+      }),
+      name: "agent.usage.recorded",
+    }))
+  })
+
+  it("prices distinct preserved UI stream usage before tracing it", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [cost({
+        pricing: () => ({
+          usd: "0.02",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({
+                  type: "usage",
+                  usageRecord: {
+                    usage: {
+                      inputTokens: 10,
+                      outputTokens: 2,
+                      totalTokens: 12,
+                    },
+                  },
+                })
+                controller.close()
+              },
+            })
+          },
+        }),
+      },
+    })
+
+    // SAFETY: This fixture's Driver exposes the UI message stream method inspected below.
+    const result = await runAgent(agent, {
+      ...runtime(),
+      traceLog,
+    }, { prompt: "hello" }) as { toUIMessageStream: () => ReadableStream<unknown> }
+    for await (const _chunk of result.toUIMessageStream()) {}
 
     expect(traceLog.entries()).toContainEqual(expect.objectContaining({
       attributes: expect.objectContaining({
@@ -580,9 +639,11 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: The selected UI message output mode returns a Response.
     const response = await streamAgent(agent, runtime(), { prompt: "hello" }, {
       output: "ui-message-stream",
     }) as Response
+    // SAFETY: The synthetic streaming response has a byte body, which the AI SDK reader accepts after conversion.
     for await (const _message of readUIMessageStream({ stream: uiMessageStreamFromResponse(response as Response & { body: ReadableStream<Uint8Array> }) as ReadableStream<never> })) {}
     expect(pricing).toHaveBeenCalledOnce()
   })
@@ -610,6 +671,7 @@ describe("cost Capability", () => {
           id: "iterable-response-renderer",
           output(context) {
             context.output.render((result) => {
+              // SAFETY: The fixture Driver result exposes the UI message stream method rendered here.
               const stream = (result as { toUIMessageStream: () => ReadableStream<unknown> }).toUIMessageStream()
               if (hybrid) {
                 return {
@@ -652,11 +714,13 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: The selected UI message output mode returns a Response.
     const response = await streamAgent(agent, runtime(), { prompt: "hello" }, {
       output: "ui-message-stream",
     }) as Response
 
     const messages = []
+    // SAFETY: The synthetic streaming response has a byte body, which the AI SDK reader accepts after conversion.
     for await (const message of readUIMessageStream({ stream: uiMessageStreamFromResponse(response as Response & { body: ReadableStream<Uint8Array> }) as ReadableStream<never> })) {
       messages.push(message)
     }
@@ -697,6 +761,7 @@ describe("cost Capability", () => {
 
     expect(outcome).toBe("returned")
     const stream = await pending
+    // SAFETY: streamAgent returns an async iterable for its default output mode.
     for await (const _chunk of stream as AsyncIterable<unknown>) {}
   })
 
@@ -727,6 +792,7 @@ describe("cost Capability", () => {
     resolveUsage({ totalTokens: 1 })
 
     expect(outcome).toBe("returned")
+    // SAFETY: This fixture's pending runAgent value exposes its Driver stream result.
     const result = await pending as { stream: AsyncIterable<unknown> }
     for await (const _chunk of result.stream) {}
   })
@@ -752,6 +818,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: This fixture's runAgent result exposes its Driver stream.
     const result = await runAgent(agent, runtime(), { prompt: "hello" }) as { stream: AsyncIterable<unknown> }
     const consume = (async () => {
       for await (const _chunk of result.stream) break
@@ -791,6 +858,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: This fixture's runAgent result exposes its Driver stream and deferred usage record.
     const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
       stream: AsyncIterable<unknown>
       usageRecord?: { cost?: { usd: string } }
@@ -831,6 +899,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: This fixture's runAgent result exposes its UI stream and deferred usage record.
     const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
       usageRecord?: { cost?: { usd: string } }
@@ -863,6 +932,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: The selected UI message output mode is consumed through its async iterable interface.
     const stream = await streamAgent(agent, runtime(), { prompt: "hello" }, { output: "ui-message-stream" }) as AsyncIterable<unknown>
     const consume = (async () => {
       for await (const _chunk of stream) break
@@ -896,6 +966,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: streamAgent returns an async iterable for its default output mode.
     const stream = await streamAgent(agent, runtime(), { prompt: "hello" }) as AsyncIterable<unknown>
     const consume = (async () => {
       for await (const _chunk of stream) break
@@ -938,11 +1009,13 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: streamAgent returns an async iterable for its default output mode.
     const stream = await streamAgent(agent, {
       ...runtime(),
       run: { runId: "run-1" },
     }, { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const chunk of stream) {
+      // SAFETY: streamAgent output events expose an optional string discriminator.
       if ((chunk as { type?: string }).type === "usage") break
     }
 
@@ -985,6 +1058,7 @@ describe("cost Capability", () => {
     resolveUsage({ totalTokens: 1 })
 
     expect(outcome).toBe("returned")
+    // SAFETY: This fixture's pending runAgent value exposes its UI message stream method.
     const result = await pending as { toUIMessageStream: () => ReadableStream<unknown> }
     for await (const _chunk of result.toUIMessageStream()) {}
   })
@@ -1021,6 +1095,7 @@ describe("cost Capability", () => {
     resolveUsage({ totalTokens: 1 })
 
     expect(outcome).toBe("returned")
+    // SAFETY: This fixture's pending streamAgent value uses the selected readable-stream output mode.
     const stream = await pending as ReadableStream<unknown>
     for await (const _chunk of stream) {}
   })
@@ -1047,6 +1122,7 @@ describe("cost Capability", () => {
     })
 
     const stream = await streamAgent(agent, runtime(), { prompt: "hello" })
+    // SAFETY: streamAgent returns an async iterable for its default output mode.
     for await (const _chunk of stream as AsyncIterable<unknown>) {}
 
     expect(finish).toHaveBeenCalledOnce()
@@ -1089,6 +1165,7 @@ describe("cost Capability", () => {
 
     const stream = await runAgent(agent, runtime(), { prompt: "hello" })
     const events = []
+    // SAFETY: This fixture's runAgent result is the Driver's async iterable stream.
     for await (const event of stream as AsyncIterable<unknown>) events.push(event)
 
     expect(events).toEqual([{
@@ -1143,6 +1220,7 @@ describe("cost Capability", () => {
 
     const stream = await runAgent(agent, runtime(), { prompt: "hello" })
     const chunks = []
+    // SAFETY: This fixture's runAgent result is the Driver's async iterable stream.
     for await (const chunk of stream as AsyncIterable<unknown>) chunks.push(chunk)
 
     expect(chunks).toEqual([{
@@ -1200,6 +1278,7 @@ describe("cost Capability", () => {
     })
 
     const result = await runAgent(agent, runtime(), { prompt: "hello" })
+    // SAFETY: This fixture's Driver result retains the usage promise supplied above.
     expect((result as { usage?: unknown }).usage).toBe(usage)
     expect(result).toMatchObject({
       usageRecord: {
@@ -1410,6 +1489,7 @@ describe("cost Capability", () => {
       },
     })
 
+    // SAFETY: This fixture's Driver returns the DriverStreamResult instance created above.
     const enriched = await runAgent(agent, runtime(), { prompt: "hello" }) as DriverStreamResult
     expect(enriched).toBe(result)
     expect(enriched.value()).toBe("preserved")

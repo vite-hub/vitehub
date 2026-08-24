@@ -40,6 +40,7 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
       class: "vh-attachment",
       download: part.filename,
       href: part.url,
+      rel: isSafeExternalUrl(part.url) ? "noreferrer" : undefined,
       target: isSafeExternalUrl(part.url) ? "_blank" : undefined,
       rel: isSafeExternalUrl(part.url) ? "noreferrer" : undefined,
     },

@@ -39,6 +39,25 @@ describe("Agent Invocations", () => {
     expect(store.list({ search: "1" })).toEqual({ invocations: [] })
   })
 
+  it("filters memory-store records by exact Agent name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const agentName of ["review", "review-assistant"]) {
+      await store.create({
+        agentName,
+        createdAt: "2026-02-02T02:02:02.000Z",
+        id: agentName,
+        observations: [],
+        status: "completed",
+        traceId: `${agentName}-trace`,
+        updatedAt: "2026-02-02T02:02:02.000Z",
+      })
+    }
+
+    expect(store.list({ agentName: "review" })).toMatchObject({
+      invocations: [{ agentName: "review" }],
+    })
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
@@ -1553,6 +1572,16 @@ describe("Agent Invocations", () => {
       })
       await runAgent(agent, runtime("durable-run", { "github.repository": "vite-hub/vitehub" }), {})
       await runAgent(agent, runtime("unicode-search", { "github.repository": "Éclair" }), {})
+      await runAgent(
+        defineAgent({
+          driver: { run: () => "reviewed" },
+          invocations,
+          name: "review",
+          runtime: false,
+        }),
+        runtime("named-review"),
+        {},
+      )
 
       const restored = defineAgentInvocations({
         store: createLibsqlAgentInvocationStore({ client: readerClient }),
@@ -1574,6 +1603,32 @@ describe("Agent Invocations", () => {
       await expect(restored.list({ search: "éclair" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
+      await expect(restored.list({ agentName: "review" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ agentName: "review" })],
+      })
+      await expect(restored.list({ agentName: "review-assistant" })).resolves.toEqual({
+        invocations: [],
+      })
+      const agentQueryPlan = await readerClient.execute({
+        args: ["review"],
+        sql: "EXPLAIN QUERY PLAN SELECT sequence, record FROM vitehub_agent_invocations WHERE agent_name = ? ORDER BY sequence DESC LIMIT 51",
+      })
+      expect(agentQueryPlan.rows.map(row => String(row.detail))).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_agent_name_sequence"),
+      )
+      const compatibleAgentQueryPlan = await readerClient.execute({
+        args: ["review", "review"],
+        sql: `EXPLAIN QUERY PLAN SELECT sequence, record FROM vitehub_agent_invocations
+          WHERE agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?)
+          ORDER BY sequence DESC LIMIT 51`,
+      })
+      const compatibleAgentPlanDetails = compatibleAgentQueryPlan.rows.map(row => String(row.detail))
+      expect(compatibleAgentPlanDetails).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_agent_name_sequence"),
+      )
+      expect(compatibleAgentPlanDetails).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_legacy_agent_name_sequence"),
+      )
       const localeLowercase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
         return String(this).replaceAll("I", "ı").toLowerCase()
       })
@@ -1639,6 +1694,7 @@ describe("Agent Invocations", () => {
       )`)
       await setupClient.execute({
         args: [JSON.stringify({
+          agentName: "review",
           annotations: { repository: "Éclair" },
           createdAt: "2026-01-01T00:00:00.000Z",
           id: "legacy",
@@ -1681,13 +1737,64 @@ describe("Agent Invocations", () => {
         { invocations: [expect.objectContaining({ id: "legacy" })] },
         { invocations: [expect.objectContaining({ id: "legacy" })] },
       ])
+      const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
+      expect(migratedAgent.rows[0]?.agent_name).toBe("review")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toEqual({ invocations: [] })
+      await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
+        .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
+
+      const initializedStore = createLibsqlAgentInvocationStore({ client: firstClient })
+      await initializedStore.list()
+      await setupClient.execute({
+        args: [JSON.stringify({
+          agentName: "review",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "overlapping-legacy-writer",
+          observations: [],
+          status: "completed",
+          traceId: "overlapping-legacy-trace",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })],
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('overlapping-legacy-writer', 'completed', ?)",
+      })
+      await expect(initializedStore.list({ agentName: "review" })).resolves.toMatchObject({
+        invocations: expect.arrayContaining([expect.objectContaining({ id: "overlapping-legacy-writer" })]),
+      })
     }
     finally {
       setupClient.close()
       firstClient.close()
       secondClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("filters old-shape writes in fresh libSQL journals", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-fresh-overlap-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    try {
+      const store = createLibsqlAgentInvocationStore({ client })
+      await store.list()
+      await client.execute({
+        args: [JSON.stringify({
+          agentName: "review",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "fresh-overlapping-legacy-writer",
+          observations: [],
+          status: "completed",
+          traceId: "fresh-overlapping-legacy-trace",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })],
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('fresh-overlapping-legacy-writer', 'completed', ?)",
+      })
+
+      await expect(store.list({ agentName: "review" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
+      })
+    }
+    finally {
+      client.close()
       await rm(directory, { force: true, recursive: true })
     }
   })
