@@ -12734,6 +12734,9 @@ describe("server helpers", () => {
       }
       expect(sideEffect).not.toHaveBeenCalled()
       expect(createBatch).toHaveBeenCalledTimes(5)
+      const handedOffDeliveries = await handler.deliveries(chatWebhookRequest(91_165), "telegram", runtime)
+      const handedOffDelivery = handedOffDeliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91165"))
+      expect(handedOffDelivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "completed" })]))
 
       if (persistentOutage) {
         expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)

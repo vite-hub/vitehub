@@ -80,6 +80,7 @@ type AgentChannelDeliveryWorkflowOwnershipResolver = (
 export interface AgentChannelDeliveryWorkflowOwnership {
   abortSignal?: AbortSignal
   checkpoint?(status: "completed" | "failed"): Promise<void>
+  handedOff?: boolean
   retrySettlementFailures?: boolean
   settlementStatus?: "completed" | "failed"
   verify?(): Promise<void>
@@ -248,7 +249,7 @@ async function appendEvent(
   input: AgentChannelDeliveryEventInput,
 ): Promise<AgentChannelDeliveryEvent> {
   const terminal = input.type === "completed" || input.type === "failed" || input.type === "rejected"
-  const event: AgentChannelDeliveryEvent = {
+  let event: AgentChannelDeliveryEvent = {
     ...input,
     ...(input.error ? { error: input.error.slice(0, 2_000) } : {}),
     at: new Date().toISOString(),
@@ -282,6 +283,9 @@ async function appendEvent(
         events,
         current.journalStatus ? { retrySignaled: current.journalRetrySignaled || false, status: current.journalStatus } : undefined,
       )
+      const persistedTerminal =
+        terminal && !reduced.retrySignaled && reduced.status === input.type ? events.findLast((entry) => entry.type === input.type) : undefined
+      if (persistedTerminal) event = persistedTerminal
       const next = advanceDeliveryStatus(reduced.status, reduced.retrySignaled, event)
       const stored = {
         ...current,
@@ -289,10 +293,12 @@ async function appendEvent(
         journalStatus: next.status,
       }
       await renew()
-      await state.appendToList(deliveryEventsKey(delivery.id), event, {
-        maxLength: maximumEvents,
-        ttlMs: retentionMs,
-      })
+      if (!persistedTerminal) {
+        await state.appendToList(deliveryEventsKey(delivery.id), event, {
+          maxLength: maximumEvents,
+          ttlMs: retentionMs,
+        })
+      }
       await renew()
       await state.set(sourceKey(stored), stored, retentionMs)
       await renew()

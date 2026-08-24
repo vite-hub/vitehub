@@ -477,6 +477,36 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   })
 
+  it("does not duplicate terminal evidence when a committed write reports failure", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      provider: "github",
+      scope: "webhook:support",
+      sourceId: "ambiguous-terminal-write",
+    })
+    const appendToList = state.appendToList.bind(state)
+    let reportFailure = true
+    state.appendToList = async (key, value, options) => {
+      await appendToList(key, value, options)
+      if (reportFailure && key.endsWith(":events")) {
+        reportFailure = false
+        throw new Error("response unavailable")
+      }
+    }
+
+    await expect(delivery.event({ runId: "run-1", type: "completed" })).rejects.toThrow("response unavailable")
+    await expect(delivery.event({ runId: "run-1", type: "completed" })).resolves.toMatchObject({ runId: "run-1", type: "completed" })
+
+    const deliveries = await readAgentChannelDeliveries(state)
+    expect(deliveries).toEqual([expect.objectContaining({ status: "completed" })])
+    expect(deliveries[0]?.events.filter((event) => event.runId === "run-1" && event.type === "completed")).toHaveLength(1)
+    error.mockRestore()
+    info.mockRestore()
+  })
+
   it("detaches process-local custody after durable handoff", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const delivery = await openAgentChannelDelivery(stateAdapter(), {

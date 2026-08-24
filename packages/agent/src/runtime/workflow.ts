@@ -354,6 +354,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   let channelDeliveryStatus: "completed" | "failed" = "failed"
   let channelDeliveryJournaled = !channelDelivery
   try {
+    if (channelOwnership?.handedOff) return
     if (channelOwnership?.settlementStatus) {
       channelDeliveryStatus = channelOwnership.settlementStatus
       if (channelDelivery) {

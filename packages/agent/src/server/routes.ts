@@ -2730,7 +2730,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               stopRecoveredHeartbeat()
               stopExecutionHeartbeat()
               await resolved.state.releaseLock(executionLock).catch(() => undefined)
-              return { settlementStatus: "completed", verify: async () => undefined, settle: async () => undefined }
+              return { handedOff: true, verify: async () => undefined, settle: async () => undefined }
             }
           }
         } finally {
