@@ -3852,6 +3852,55 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("does not reserve or generate a title after durable Channel ownership is lost", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { withAgentChannelDeliveryOwnershipVerifier } = await import("../src/internal/channel-delivery.ts")
+    const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
+    const acquireLock = vi.fn()
+    const execute = vi.fn(() => "Stale title")
+    const delivered = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "channel-state",
+          output(context) {
+            context.context.set(messageChannelStateContextKey, {
+              keyPrefix: "chat:test:",
+              state: { acquireLock, get: vi.fn() },
+            })
+          },
+        }),
+        title({ execute }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { title: delivered },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(
+      // SAFETY: This fixture intentionally constructs the exact asserted runtime contract.
+      { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() } as never,
+      vi.fn().mockRejectedValue(new Error("Channel ownership was reclaimed")),
+    )
+
+    await expect(runAgentTrigger(agent, runtime, "portal.message", {})).rejects.toThrow("Channel ownership was reclaimed")
+    expect(acquireLock).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+    expect(delivered).not.toHaveBeenCalled()
+  })
+
   it("runs delivery effects when outbound custody evidence cannot be written", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
