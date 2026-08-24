@@ -689,11 +689,26 @@ function workspaceFallbackTextEvents(text: string): unknown[] {
   return [{ id: "workspace-fallback", text, type: "text-delta" }]
 }
 
-function cloneStreamTextResult<T extends object>(result: T, streams: { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> }): T {
-  return cloneWithPropertyDescriptors(result, Object.fromEntries(Object.entries(streams).map(([key, stream]) => [
-    key,
-    teeingAsyncIterableStreamDescriptor(stream),
-  ])))
+function cloneStreamTextResult<T extends object>(
+  result: T,
+  streams: {
+    fullStream?: AsyncIterable<unknown>
+    stream?: AsyncIterable<unknown>
+    toUIMessageStream?: (...args: unknown[]) => ReadableStream<unknown>
+  },
+): T {
+  const overrides: PropertyDescriptorMap = {}
+  if (streams.stream) overrides.stream = teeingAsyncIterableStreamDescriptor(streams.stream)
+  if (streams.fullStream) overrides.fullStream = teeingAsyncIterableStreamDescriptor(streams.fullStream)
+  if (streams.toUIMessageStream) {
+    overrides.toUIMessageStream = {
+      configurable: true,
+      enumerable: true,
+      value: streams.toUIMessageStream,
+      writable: true,
+    }
+  }
+  return cloneWithPropertyDescriptors(result, overrides)
 }
 
 function withWorkspaceFallbackFullStream(
@@ -1031,6 +1046,7 @@ function withCapturedStreamUsage<T extends {
     ...(toUIMessageStream
       ? {
           toUIMessageStream: (...args: unknown[]) => {
+            // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
             const reader = toUIMessageStream.apply(result, args as never[]).getReader()
             return new ReadableStream({
               async pull(controller) {
@@ -1046,6 +1062,7 @@ function withCapturedStreamUsage<T extends {
                     const usageRecord = usage === undefined
                       ? undefined
                       : await combinedUsageRecord(captureList.map(capture => ({ capture })), usage)
+                    // SAFETY: AI SDK UI-message finish chunks are records after the object guard above.
                     controller.enqueue({ ...(value as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), ...(usage === undefined ? {} : { usage }) })
                     return
                   }

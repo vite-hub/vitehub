@@ -286,6 +286,7 @@ describe("AI SDK recovery", () => {
     const agent = toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, finish)
 
     const stream = await streamAgentInline(agent, runtime, { prompt: "Search" }, { output: "ui-message-stream" })
+    // SAFETY: UI-message stream output implements the documented async iterable result contract.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
