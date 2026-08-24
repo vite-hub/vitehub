@@ -321,6 +321,37 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("preserves progress summaries in the console journal", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-progress-"))
+    try {
+      installConsoleInvocations(projectRoot)
+      const agent = defineAgent({
+        driver: { run: () => (async function* () {
+            yield {
+              data: { revision: 2, summary: "Checking Airtable for assigned tasks.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { type: "finish" }
+          })() },
+        runtime: false,
+      })
+      await runAgent(agent, runtime("console-progress-summary"), {})
+
+      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-progress-summary")
+      expect(invocation?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.output": "Checking Airtable for assigned tasks.",
+          "vitehub.activity.body": "Checking Airtable for assigned tasks.",
+        }),
+        name: "agent.tool.finish",
+      }))
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("accepts public read-only requests", () => {
     expect(() => assertConsoleRequest(event("203.0.113.2"))).not.toThrow()
     expect(() => assertConsoleRequest(event(undefined))).not.toThrow()
