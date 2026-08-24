@@ -20,6 +20,7 @@ export interface AgentClient {
 
 export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE> & {
   api?: string
+  resume?: boolean
 }
 
 export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
@@ -41,8 +42,13 @@ export function useAgent(name: string): AgentClient {
 
 function agentChatRoute(name: string): string {
   const path = resolveAgentRoutePath(defaultAgentChatRoute, { agent: name })
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite replaces this build-time constant, while direct source imports leave it undeclared.
   const baseURL = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
   return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
+}
+
+function isBrowserRuntime(): boolean {
+  return "window" in globalThis
 }
 
 export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
@@ -61,19 +67,53 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
-  const resolveTransport = () => latestOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
-    api: latestOptions.value.api ?? agentChatRoute(agent.name),
-  })
-  const transport = {
-    reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
-      resolveTransport().reconnectToStream(...args)
-    ),
-    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => (
-      resolveTransport().sendMessages(...args)
-    ),
+  const reconnecting = shallowRef(false)
+  let resumableMessageId = initialOptions.messages?.at(-1)?.id
+  let reconnectGeneration = 0
+  let reconnectStatusGeneration = 0
+  let chat!: UseChatHelpers<UI_MESSAGE>
+  const resolveTransport = (generation?: number) => {
+    if (latestOptions.value.transport) return latestOptions.value.transport
+    const route = latestOptions.value.api ?? agentChatRoute(agent.name)
+    return new DefaultChatTransport<UI_MESSAGE>({
+      api: route,
+      async fetch(input, init) {
+        const response = await globalThis.fetch(input, init)
+        if (init?.method === "GET" && generation === reconnectGeneration) {
+          resumableMessageId = response.headers.get("x-vitehub-message-id") || undefined
+        }
+        return response
+      },
+      prepareReconnectToStreamRequest({ credentials, headers, id }) {
+        return {
+          api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
+          credentials,
+          headers,
+        }
+      },
+    })
   }
-  const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
+  const transport = {
+    async reconnectToStream(...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) {
+      const ownsReplay = !latestOptions.value.transport
+      const generation = ++reconnectGeneration
+      const stream = await resolveTransport(generation).reconnectToStream(...args)
+      if (ownsReplay && generation !== reconnectGeneration) return null
+      if (stream && ownsReplay && chat.messages.value.at(-1)?.role === "assistant") {
+        chat.messages.value = chat.messages.value.slice(0, -1)
+      }
+      return stream
+    },
+    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => {
+      reconnectGeneration++
+      reconnectStatusGeneration++
+      reconnecting.value = false
+      resumableMessageId = args[0].messageId ?? args[0].messages.at(-1)?.id
+      return resolveTransport().sendMessages(...args)
+    },
+  }
+  chat = useAiChat<UI_MESSAGE>(() => {
+    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
     return {
       ...init,
       onData(part) {
@@ -91,8 +131,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     const prior = latestOptions.value
     latestOptions.value = next
     if (next.id !== previous.id) {
+      reconnectGeneration++
+      reconnectStatusGeneration++
       constructorOptions.value = next
       streamedParts.value = []
+      resumableMessageId = undefined
+      const shouldReconnect = Boolean(next.resume && isBrowserRuntime() && next.messages?.length)
+      reconnecting.value = shouldReconnect
+      if (shouldReconnect) queueMicrotask(reconnect)
       return
     }
 
@@ -107,9 +153,38 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       }
     }
   })
-  onScopeDispose(chat.stop, true)
+  if (initialOptions.resume && isBrowserRuntime()) queueMicrotask(reconnect)
+  onScopeDispose(() => {
+    void chat.stop()
+  }, true)
+
+  async function stop(): Promise<void> {
+    await chat.stop()
+    if (!latestOptions.value.resume || latestOptions.value.transport || !isBrowserRuntime()) return
+    if (!resumableMessageId) return
+    const route = latestOptions.value.api ?? agentChatRoute(agent.name)
+    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}&messageId=${encodeURIComponent(resumableMessageId)}`, {
+      credentials: "same-origin",
+      method: "DELETE",
+    }).then(() => undefined, () => undefined)
+  }
+
+  async function reconnect(): Promise<void> {
+    const messages = latestOptions.value.messages ?? chat.messages.value
+    if (!messages.length) return
+    const generation = ++reconnectStatusGeneration
+    reconnecting.value = true
+    try {
+      await chat.resumeStream()
+    } finally {
+      if (generation === reconnectStatusGeneration) reconnecting.value = false
+    }
+  }
+
   return {
     ...chat,
+    status: computed(() => reconnecting.value && chat.status.value === "ready" ? "submitted" : chat.status.value),
+    stop,
     data: computed(() => createAgentChatData([
       ...chat.messages.value.flatMap(message => message.parts),
       ...streamedParts.value,

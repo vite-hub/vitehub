@@ -83,6 +83,35 @@ export default defineAgent({
 
 Use an application-owned route and [`streamAgentTrigger()`](/docs/agents/triggers#consume-a-capability-trigger) when the shared dispatcher is not the right authentication or request boundary.
 
+### Resume a web chat in one process
+
+Set `resume: true` in `useChat()` and opt the generated route into process-scoped replay when a browser should follow an active response after reconnecting.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { webChat } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    portal: webChat({
+      route: {
+        admission: {
+          authenticate: ({ request }) => requireSession(request),
+        },
+        resumable: {
+          owner: ({ auth }) => auth.user.id,
+          scope: 'process',
+          ttlMs: 10 * 60 * 1000,
+        },
+      },
+    }),
+  },
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+The route de-duplicates one owner's repeated submission, replays buffered UI-message stream bytes, follows the live response, and retains a completed response for `ttlMs`. `scope: 'process'` is literal: active streams do not survive process replacement and cannot be discovered by another instance. Use this only where deployment keeps a chat on one process, or put durable execution, stream storage, and coordination behind an application-owned route.
+
 ## Connect an adapter platform
 
 Adapter-backed Channels deliver the completed response by default. Set Agent-level `messages.stream: true` to publish draft and edit updates everywhere, or set `messages.stream` on one Channel.
