@@ -118,7 +118,9 @@ vi.mock("@pierre/diffs", () => ({
 }));
 
 import {
+  type CodeViewItem,
   type DiffLineAnnotation,
+  type FileDiffOptions,
   type LineAnnotation,
   parseDiffFromFile,
 } from "@pierre/diffs";
@@ -341,5 +343,28 @@ describe("Pierre lifecycle adapters", () => {
 
     wrapper.unmount();
     expect(instance.cleanUp).toHaveBeenCalledOnce();
+  });
+
+  it("forwards in-place option and CodeView item updates", async () => {
+    const options = reactive<FileDiffOptions<unknown>>({ diffStyle: "split" });
+    const codeViewFile = reactive({ contents: "before", name: "status.ts" });
+    const items = reactive<CodeViewItem<unknown>[]>([
+      { file: codeViewFile, id: "status", type: "file" },
+    ]);
+    const diffWrapper = mount(PierreDiff, { props: { options, patch: "change.ts" } });
+    const codeViewWrapper = mount(PierreCodeView, { props: { items } });
+    await flushRender();
+
+    options.diffStyle = "unified";
+    codeViewFile.contents = "after";
+    await flushRender();
+
+    expect(diffState.diffs[0]!.setOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ diffStyle: "unified" }),
+    );
+    expect(codeViewState.instances[0]!.setItems).toHaveBeenCalledTimes(2);
+
+    diffWrapper.unmount();
+    codeViewWrapper.unmount();
   });
 });

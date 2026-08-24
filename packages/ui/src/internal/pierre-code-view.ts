@@ -65,8 +65,15 @@ function controlledOptions<T extends { controlledSelection?: boolean }>(
   options: T | undefined,
   selectedLines: unknown,
 ) {
-  const rawOptions = toRaw(options);
+  const rawOptions = trackDeep(options);
   return selectedLines === undefined ? rawOptions : { ...rawOptions, controlledSelection: true };
+}
+
+function trackDeep<T>(value: T, seen = new WeakSet<object>()): T {
+  if (typeof value !== "object" || value === null || seen.has(value)) return toRaw(value);
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) trackDeep(Reflect.get(value, key), seen);
+  return toRaw(value);
 }
 
 function copyFile(file: FileContents | null): FileContents | null {
@@ -97,7 +104,7 @@ export const PierreDiff = defineComponent({
     let host: HTMLElement | null = null;
     let instance: PierreFileDiffModel<unknown> | undefined;
     const fileDiff = computed<FileDiffMetadata | undefined>(() => {
-      if (props.fileDiff) return toRaw(props.fileDiff);
+      if (props.fileDiff) return trackDeep(props.fileDiff);
       if (props.patch !== undefined) return getSingularPatch(props.patch);
       if (props.oldFile !== undefined && props.newFile !== undefined) {
         return parseDiffFromFile(
@@ -122,9 +129,9 @@ export const PierreDiff = defineComponent({
         fileContainer: host,
         fileDiff: fileDiff.value,
         forceRender: true,
-        lineAnnotations: toRaw(props.lineAnnotations) ?? [],
+        lineAnnotations: trackDeep(props.lineAnnotations) ?? [],
       });
-      if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
+      if (props.selectedLines !== undefined) instance.setSelectedLines(trackDeep(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -163,9 +170,9 @@ export const PierreFile = defineComponent({
         file: file.value,
         fileContainer: host,
         forceRender: true,
-        lineAnnotations: toRaw(props.lineAnnotations) ?? [],
+        lineAnnotations: trackDeep(props.lineAnnotations) ?? [],
       });
-      if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
+      if (props.selectedLines !== undefined) instance.setSelectedLines(trackDeep(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -210,10 +217,10 @@ export const PierreUnresolvedFile = defineComponent({
         file: file.value,
         fileContainer: host,
         forceRender: true,
-        lineAnnotations: toRaw(props.lineAnnotations) ?? [],
+        lineAnnotations: trackDeep(props.lineAnnotations) ?? [],
       });
       renderedFile = file.value;
-      if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
+      if (props.selectedLines !== undefined) instance.setSelectedLines(trackDeep(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -247,9 +254,9 @@ export const PierreCodeView = defineComponent({
         instance.setup(host);
       }
       instance.setOptions(options);
-      instance.setItems(toRaw(props.items));
+      instance.setItems(trackDeep(props.items));
       if (props.selectedLines !== undefined) {
-        instance.setSelectedLines(toRaw(props.selectedLines), { notify: false });
+        instance.setSelectedLines(trackDeep(props.selectedLines), { notify: false });
       }
       instance.render(true);
     };
