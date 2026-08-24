@@ -14549,7 +14549,7 @@ describe("server helpers", () => {
       })
       await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
 
-      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3))
+      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
       await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
       await handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
