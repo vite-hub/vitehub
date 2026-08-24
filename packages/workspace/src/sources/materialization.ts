@@ -61,9 +61,11 @@ async function sourceConfigHash(source: ResolvedWorkspaceSource) {
 
 function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
   if (!meta || meta.status !== "ready" || meta.configHash !== configHash) return false
-  if (!source.cache || !Number.isFinite(source.cache.maxAge)) return false
+  if (!source.cache) return false
+  const maxAge = source.cache.maxAge ?? Number.NaN
+  if (!Number.isFinite(maxAge)) return false
   if (!meta.materializedAt) return false
-  return Date.now() - Date.parse(meta.materializedAt) <= source.cache.maxAge * 1000
+  return Date.now() - Date.parse(meta.materializedAt) <= maxAge * 1000
 }
 
 async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: string) {
