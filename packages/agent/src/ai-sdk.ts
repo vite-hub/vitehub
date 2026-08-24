@@ -1839,7 +1839,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const usageCapture = createUsageCapture()
       const execution = options.execution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
-      const fallbackCapture = fallback.enabled
+      const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
       const { agent, model, repairOutput, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture)

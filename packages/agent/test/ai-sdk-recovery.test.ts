@@ -90,7 +90,7 @@ function streamingRepairModel() {
   let cancelCount = 0
   let pullCount = 0
   let streamCall = 0
-  const doGenerate = vi.fn(async () => ({
+  const doGenerate = vi.fn(async (_options?: ModelCall) => ({
     content: [{ text: "{\"query\":\"fixed\"}", type: "text" }],
     finishReason: { raw: "stop", unified: "stop" },
     providerMetadata: { test: { usage: { cost: 0.2 } } },
@@ -248,6 +248,80 @@ describe("AI SDK recovery", () => {
 
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
     expect(fakeModel.calls).toHaveLength(1)
+  })
+
+  it("includes completed tool evidence when repairing streamed structured output", async () => {
+    const fakeModel = streamingRepairModel()
+    fakeModel.doGenerate.mockImplementationOnce(async (options?: ModelCall) => {
+      expect(JSON.stringify(options?.prompt)).toContain("found")
+      return {
+        content: [{ text: '{"text":"repaired"}', type: "text" }],
+        finishReason: { raw: "stop", unified: "stop" },
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+          outputTokens: { reasoning: 0, text: 1, total: 1 },
+        },
+        warnings: [],
+      }
+    })
+    fakeModel.doStream.mockImplementationOnce(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ input: '{"query":"users"}', toolCallId: "call-1", toolName: "search", type: "tool-call" })
+          controller.enqueue({
+            finishReason: { raw: "tool-calls", unified: "tool-calls" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    })).mockImplementationOnce(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: '{"text":1}', id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "search-test",
+        tools: {
+          search: {
+            execute: () => "found",
+            inputSchema: toolInputSchema,
+            name: "search",
+          },
+        },
+      })],
+      driver: {
+        model: fakeModel as never,
+        output: { schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+    for await (const _event of result as AsyncIterable<unknown>) {}
+
+    expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
   })
 
   it("emits arbitrary structured output from streamed invocations", async () => {
