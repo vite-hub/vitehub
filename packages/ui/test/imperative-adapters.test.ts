@@ -98,6 +98,18 @@ describe("Pierre lifecycle adapters", () => {
       .toHaveBeenCalledWith(expect.objectContaining({ enableLineSelection: false, expandUnchanged: true }));
   });
 
+  it("keeps normalized diff options stable across unrelated updates", async () => {
+    const options = { theme: "light" } as never;
+    const wrapper = mount(AgentDiff, { props: { options, patch: "first.patch" } });
+    await flushRender();
+    const normalized = wrapper.getComponent(PierreDiff).props("options");
+
+    wrapper.vm.$forceUpdate();
+    await flushRender();
+
+    expect(wrapper.getComponent(PierreDiff).props("options")).toBe(normalized);
+  });
+
   it("unmounts external FileTree models and cleans up component-owned replacements", async () => {
     new FileTree({ paths: ["first.ts"] });
     const first = treeState.instances[0]!;

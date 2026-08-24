@@ -826,18 +826,19 @@ export const AgentInvocation = defineComponent({
                   h("span", props.invocation.error.message),
                 ])
               : null,
+            h("div", {
+              "aria-label": "Session thread",
+              "aria-relevant": "additions text",
+              role: "log",
+            }, [h("ol", { class: "vh-invocation-activities" }, renderInvocationActivities(
+              activities.value,
+              props.invocation,
+              expandedMessages.value,
+              toggleExpanded,
+              target => emit("inspect", target),
+            ))]),
             activities.value.length
-              ? h("div", {
-                  "aria-label": "Session thread",
-                  "aria-relevant": "additions text",
-                  role: "log",
-                }, [h("ol", { class: "vh-invocation-activities" }, renderInvocationActivities(
-                  activities.value,
-                  props.invocation,
-                  expandedMessages.value,
-                  toggleExpanded,
-                  target => emit("inspect", target),
-                ))])
+              ? null
               : h("div", { class: "vh-invocation-empty", role: "status" }, [h("span", { "aria-hidden": "true" }, "○"), h("p", "Waiting for the first update…")]),
             slots.footer?.({ invocation: props.invocation }),
           ]),

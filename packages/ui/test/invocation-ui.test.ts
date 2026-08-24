@@ -13,6 +13,38 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("mounts the session log before the first activity", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "waiting",
+      observations: [],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const log = wrapper.get('[role="log"]').element;
+
+    expect(wrapper.get('[role="status"]').text()).toContain("Waiting for the first update");
+    await wrapper.setProps({
+      invocation: {
+        ...invocation,
+        observations: [{
+          attributes: { "message.content": "Started", "message.id": "assistant", "message.role": "assistant" },
+          name: "agent.message",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle" as const,
+        }],
+      },
+    });
+
+    expect(wrapper.get('[role="log"]').element).toBe(log);
+    expect(wrapper.find('[role="status"]').exists()).toBe(false);
+    expect(wrapper.get('[role="log"] li').text()).toContain("Started");
+  });
+
   it("discloses traces truncated by the invocation journal", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

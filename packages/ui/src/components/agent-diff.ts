@@ -1,5 +1,5 @@
 import type { FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
-import { defineComponent, h, type PropType } from "vue";
+import { computed, defineComponent, h, type PropType } from "vue";
 import { PierreDiff } from "../internal/pierre-diff.ts";
 
 export const AgentDiff = defineComponent({
@@ -15,12 +15,18 @@ export const AgentDiff = defineComponent({
     },
   },
   setup(props, { attrs }) {
+    const options = computed(() => ({
+      ...props.options,
+      enableLineSelection: false,
+      expandUnchanged: true,
+    }));
+
     return () =>
       h(PierreDiff, {
         ...attrs,
         class: ["vh-diff", attrs.class],
         fileDiff: props.fileDiff,
-        options: { ...props.options, enableLineSelection: false, expandUnchanged: true },
+        options: options.value,
         patch: props.patch,
         selectedLines: props.selectedLines,
       });
