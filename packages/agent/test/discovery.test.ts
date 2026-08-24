@@ -171,6 +171,17 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("rejects file-derived Agent identities beyond the persisted identity limit", async () => {
+    const root = await createTempRoot("vitehub-agent-long-name-")
+    const segments = Array.from({ length: 6 }, (_, index) => `${index}-${"a".repeat(90)}`)
+    const directory = join(root, "server", "agents", ...segments)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "index.ts"), "export default {}", "utf8")
+
+    expect(() => discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] }))
+      .toThrow("[vitehub] Agent names cannot exceed 512 characters.")
+  })
+
   it("discovers server agent files and colocated workspace configs", async () => {
     const root = await createTempRoot("vitehub-agent-server-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

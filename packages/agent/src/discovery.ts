@@ -16,6 +16,7 @@ const folderAgentPattern = /^agent\.(?:c|m)?[jt]s$/i
 const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
 const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
 const colocatedAgentResourceDirectories = new Set(["skills"])
+const maxAgentNameLength = 512
 
 export const agentEvalFileConvention = {
   include: [
@@ -50,9 +51,17 @@ export function discoverAgentEvalFiles(rootDirs: string[]): string[] {
   ))].sort()
 }
 
+function normalizeDiscoveredAgentName(name: string): string {
+  const normalized = name.trim()
+  if (normalized.length > maxAgentNameLength) {
+    throw new TypeError("[vitehub] Agent names cannot exceed 512 characters.")
+  }
+  return normalized
+}
+
 function normalizeSuffixAgentName(rootDir: string, file: string) {
   const name = normalizeSuffixDefinitionName(rootDir, file, agentSuffixPattern, { stripPrefix: "src/" })
-  return name.startsWith("server/") ? undefined : name.trim()
+  return name.startsWith("server/") ? undefined : normalizeDiscoveredAgentName(name)
 }
 
 function stripComments(source: string) {
@@ -170,7 +179,7 @@ export function discoverAgentDefinitions(options:
             if (isColocatedAgentResourcePath(path)) return
           }
           if (isInsideFolderAgent(file, folderAgentDirs)) return
-          return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "").trim()
+          return normalizeDiscoveredAgentName(relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, ""))
         },
         createDefinition({ file, name }) {
           return {

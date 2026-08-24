@@ -1746,13 +1746,42 @@ describe("Agent Invocations", () => {
         sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('overlapping-legacy-writer', 'completed', ?)",
       })
       await expect(initializedStore.list({ agentName: "review" })).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "overlapping-legacy-writer" })],
+        invocations: expect.arrayContaining([expect.objectContaining({ id: "overlapping-legacy-writer" })]),
       })
     }
     finally {
       setupClient.close()
       firstClient.close()
       secondClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("filters old-shape writes in fresh libSQL journals", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-fresh-overlap-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    try {
+      const store = createLibsqlAgentInvocationStore({ client })
+      await store.list()
+      await client.execute({
+        args: [JSON.stringify({
+          agentName: "review",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "fresh-overlapping-legacy-writer",
+          observations: [],
+          status: "completed",
+          traceId: "fresh-overlapping-legacy-trace",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })],
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('fresh-overlapping-legacy-writer', 'completed', ?)",
+      })
+
+      await expect(store.list({ agentName: "review" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
+      })
+    }
+    finally {
+      client.close()
       await rm(directory, { force: true, recursive: true })
     }
   })

@@ -248,7 +248,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const agentName = listOptions.agentName?.trim()
       if (agentName) {
-        filters.push("(agent_name = ? OR (agent_name IS NULL AND json_extract(record, '$.agentName') = ?))")
+        filters.push("(agent_name = ? OR (agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?)")
         args.push(agentName, agentName)
       }
       const search = searchValue(listOptions.search)
