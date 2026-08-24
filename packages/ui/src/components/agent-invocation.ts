@@ -73,7 +73,7 @@ function formatDuration(startedAt: string | undefined, completedAt: string | und
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-function configurationLabel(configuration: AgentInvocationConfiguration): string | undefined {
+function driverLabel(configuration: AgentInvocationConfiguration): string | undefined {
   const driver = configuration.driver;
   const model = driver?.model;
   return [
@@ -492,17 +492,13 @@ function renderActivityGroup(
   ]);
 }
 
-function inspectorSection(title: string, body: ReturnType<typeof h> | null) {
-  return body ? h("section", [h("h4", title), body]) : null;
+function inspectorSection(title: string, body: ReturnType<typeof h>) {
+  return h("section", [h("h4", title), body]);
 }
 
-function inspectorRow(label: string, value: string | number | undefined, icon?: InspectorIcon) {
+function inspectorRow(label: string, value: string | number | undefined) {
   if (value === undefined || value === "") return null;
-  return h("div", [
-    icon ? h("span", { class: "vh-invocation-inspector__row-icon" }, [inspectorIcon(icon)]) : null,
-    h("dt", label),
-    h("dd", String(value)),
-  ]);
+  return h("div", [h("dt", label), h("dd", String(value))]);
 }
 
 function copyIcon(copied: boolean) {
@@ -519,57 +515,6 @@ function copyIcon(copied: boolean) {
             "stroke-linejoin": "round",
           }),
         ],
-  );
-}
-
-type InspectorIcon =
-  | "agent"
-  | "capability"
-  | "driver"
-  | "runtime"
-  | "source"
-  | "tool"
-  | "workspace";
-
-const inspectorIconPaths: Record<InspectorIcon, readonly string[]> = {
-  agent: ["M12 8V4H8", "M4 8h16v10H4z", "M8 12h.01", "M16 12h.01"],
-  capability: ["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10", "m9 12 2 2 4-4"],
-  driver: [
-    "M9 2v3",
-    "M15 2v3",
-    "M9 19v3",
-    "M15 19v3",
-    "M2 9h3",
-    "M2 15h3",
-    "M19 9h3",
-    "M19 15h3",
-    "M5 5h14v14H5z",
-    "M9 9h6v6H9z",
-  ],
-  runtime: ["m16 18 6-6-6-6", "m8 6-6 6 6 6"],
-  source: [
-    "M6 3v12",
-    "M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
-    "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
-    "M18 9a9 9 0 0 1-9 9",
-  ],
-  tool: [
-    "M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-2.4 2.4-2.1-2.1a4 4 0 0 0 5 5L3 18l3 3 9.3-9.3a4 4 0 0 0 5-5l-2.1 2.1-2.4-2.4z",
-  ],
-  workspace: ["M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
-};
-
-function inspectorIcon(icon: InspectorIcon) {
-  return h(
-    "svg",
-    { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" },
-    inspectorIconPaths[icon].map((path) =>
-      h("path", {
-        d: path,
-        "stroke-linecap": "round",
-        "stroke-linejoin": "round",
-      }),
-    ),
   );
 }
 
@@ -594,10 +539,9 @@ function statusIcon(status: AgentInvocationView["status"]) {
   );
 }
 
-function inspectorCollection(title: string, icon: InspectorIcon, items: readonly string[]) {
+function inspectorCollection(title: string, items: readonly string[]) {
   return h("div", { class: "vh-invocation-inspector__group" }, [
     h("div", { class: "vh-invocation-inspector__group-heading" }, [
-      h("span", { class: "vh-invocation-inspector__group-icon" }, [inspectorIcon(icon)]),
       h("strong", title),
       h("small", items.length),
     ]),
@@ -611,7 +555,6 @@ function inspectorCollection(title: string, icon: InspectorIcon, items: readonly
 
 function inspectorDisclosure(
   title: string,
-  icon: InspectorIcon,
   summary: string,
   body: ReturnType<typeof h>,
 ) {
@@ -620,7 +563,6 @@ function inspectorDisclosure(
     { class: "vh-invocation-inspector__group vh-invocation-inspector__disclosure" },
     [
       h("summary", { class: "vh-invocation-inspector__group-heading" }, [
-        h("span", { class: "vh-invocation-inspector__group-icon" }, [inspectorIcon(icon)]),
         h("strong", title),
         h("small", summary),
         renderChevronDown("vh-invocation-inspector__chevron"),
@@ -631,32 +573,28 @@ function inspectorDisclosure(
 }
 
 function renderConfiguration(configuration: AgentInvocationConfiguration) {
-  const driver = configurationLabel(configuration);
+  const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
-    inspectorRow("Driver", driver, "driver"),
-    inspectorRow("Runtime", configuration.runtime?.name, "runtime"),
-    inspectorRow("Workspace", workspace, "workspace"),
+    inspectorRow("Driver", driver),
+    inspectorRow("Runtime", configuration.runtime?.name),
+    inspectorRow("Workspace", workspace),
   ].filter((item) => item !== null);
   const groups = [
     setup.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
           h("div", { class: "vh-invocation-inspector__group-heading" }, [
-            h("span", { class: "vh-invocation-inspector__group-icon" }, [inspectorIcon("driver")]),
             h("strong", "Execution"),
           ]),
           h("dl", { class: "vh-invocation-inspector__list" }, setup),
         ])
       : null,
     configuration.workspace?.sources?.length
-      ? inspectorCollection("Sources", "source", configuration.workspace.sources)
+      ? inspectorCollection("Sources", configuration.workspace.sources)
       : null,
     configuration.capabilities?.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
           h("div", { class: "vh-invocation-inspector__group-heading" }, [
-            h("span", { class: "vh-invocation-inspector__group-icon" }, [
-              inspectorIcon("capability"),
-            ]),
             h("strong", "Capabilities"),
             h("small", configuration.capabilities.length),
           ]),
@@ -687,14 +625,12 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
     configuration.tools?.length
       ? inspectorCollection(
           "Tools",
-          "tool",
           configuration.tools.map((tool) => tool.name),
         )
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
           "Instructions",
-          "agent",
           `${configuration.instructions.length} block${configuration.instructions.length === 1 ? "" : "s"}`,
           h(
             "pre",
@@ -1005,9 +941,6 @@ export const AgentInvocationInspector = defineComponent({
                 : null,
               agentName
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [
-                    h("span", { class: "vh-invocation-inspector__agent-icon" }, [
-                      inspectorIcon("agent"),
-                    ]),
                     h("span", "Agent"),
                     h("code", agentName),
                   ])
