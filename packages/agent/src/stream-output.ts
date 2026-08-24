@@ -1,4 +1,5 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
@@ -26,9 +27,8 @@ const uiMessageStreamHeaders = {
 } as const
 
 export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: () => ReadableStream<unknown> } {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
+  return hasRuntimeType(value, "object") && value !== null
+    && hasRuntimeType(Reflect.get(value, "toUIMessageStream"), "function")
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
@@ -134,8 +134,13 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
   cancel: (reason?: unknown) => Promise<void>
   stream: AsyncIterable<unknown>
 } {
-  const readableReader = typeof (stream as ReadableStream<unknown>).getReader === "function"
-    ? (stream as ReadableStream<unknown>).getReader()
+  const directCancel = hasRuntimeType(stream, "object")
+    ? Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
+    : undefined
+  const getReader = Reflect.get(stream, "getReader")
+  const readableReader = hasRuntimeType(getReader, "function")
+    // SAFETY: A callable getReader member establishes the ReadableStream-like boundary used here.
+    ? (getReader as (this: AsyncIterable<unknown>) => ReadableStreamDefaultReader<unknown>).call(stream)
     : undefined
   const iterator: AsyncIterator<unknown> = readableReader
     ? {
@@ -155,7 +160,10 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
   let completed = false
   const cancel = async (reason?: unknown) => {
     if (completed) return
-    cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
+    cancelTask ||= (async () => {
+      if (hasRuntimeType(directCancel, "function")) directCancel(reason)
+      await iterator.return?.(reason)
+    })()
     await cancelTask
   }
   return {
@@ -270,48 +278,50 @@ export function withReadableStreamCleanup<T>(
 }
 
 function textFromRenderedOutput(rendered: unknown): string | undefined {
-  if (typeof rendered === "string") return rendered
-  if (typeof rendered !== "object" || rendered === null) return undefined
-  const record = rendered as { text?: unknown }
-  return typeof record.text === "string" ? record.text : undefined
+  if (hasRuntimeType(rendered, "string")) return rendered
+  if (!hasRuntimeType(rendered, "object") || rendered === null) return undefined
+  const text = Reflect.get(rendered, "text")
+  return hasRuntimeType(text, "string") ? text : undefined
 }
 
 function streamEventType(event: unknown): string | undefined {
-  return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
-    ? (event as { type: string }).type
-    : undefined
+  if (!hasRuntimeType(event, "object") || event === null) return
+  const type = Reflect.get(event, "type")
+  return hasRuntimeType(type, "string") ? type : undefined
 }
 
 export function uiMessageTextDelta(event: unknown): string | undefined {
   const type = streamEventType(event)
   if (type !== "text" && type !== "text-delta") return
-  const text = (event as { delta?: unknown, text?: unknown, textDelta?: unknown }).text
-    ?? (event as { delta?: unknown, textDelta?: unknown }).textDelta
-    ?? (event as { delta?: unknown }).delta
-  return typeof text === "string" ? text : undefined
+  if (!hasRuntimeType(event, "object") || event === null) return
+  const text = Reflect.get(event, "text") ?? Reflect.get(event, "textDelta") ?? Reflect.get(event, "delta")
+  return hasRuntimeType(text, "string") ? text : undefined
 }
 
 function uiMessageStreamError(event: unknown): Error | undefined {
-  if (streamEventType(event) !== "error" || typeof event !== "object" || event === null) return
+  if (streamEventType(event) !== "error" || !hasRuntimeType(event, "object")) return
+  // SAFETY: The error event tag establishes the provider error wire representation read below.
   const error = event as { error?: unknown, errorText?: unknown, message?: unknown, recoverable?: unknown }
   if (error.recoverable === true) return
   if (error.error instanceof Error) return error.error
   const message = error.errorText ?? error.message ?? error.error
-  return new Error(typeof message === "string" && message ? message : "Agent stream failed.")
+  return new Error(hasRuntimeType(message, "string") && message ? message : "Agent stream failed.")
 }
 
 function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) return false
+  if (!hasRuntimeType(input, "object") || Array.isArray(input)) return false
+  // SAFETY: The object boundary above permits inspecting the candidate CLI record.
   const record = input as Record<string, unknown>
   const argv = record.argv
   return Object.keys(record).every(key => key === "argv" || key === "input" || key === "json")
     && Array.isArray(argv)
-    && argv.every(arg => typeof arg === "string")
-    && (record.json === undefined || typeof record.json === "boolean")
+    && argv.every(arg => hasRuntimeType(arg, "string"))
+    && (record.json === undefined || hasRuntimeType(record.json, "boolean"))
 }
 
 export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
-  if (typeof chunk !== "object" || chunk === null) return chunk
+  if (!hasRuntimeType(chunk, "object")) return chunk
+  // SAFETY: The object boundary above permits inspecting the provider chunk record.
   const record = chunk as Record<string, unknown>
   if (record.type === "error" && record.recoverable === true) {
     const error = record.errorText ?? record.message ?? record.error
@@ -325,7 +335,8 @@ export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
     }
   }
   if (record.type !== "tool-input-error") return chunk
-  const metadata = typeof record.toolMetadata === "object" && record.toolMetadata !== null
+  const metadata = hasRuntimeType(record.toolMetadata, "object")
+    // SAFETY: The runtime object check establishes the metadata record representation.
     ? record.toolMetadata as Record<string, unknown>
     : undefined
   if (metadata?.vitehubCapabilityCli !== true || !isCapabilityCliInput(record.input)) return chunk
@@ -369,8 +380,9 @@ function projectUiMessageStream(
       const type = streamEventType(chunk)
       if (projection.reasoning === "hidden") {
         if (type?.startsWith("reasoning-")) return
+        // SAFETY: streamEventType established that this provider chunk uses a tagged stream representation.
         const text = chunk as { id?: unknown, phase?: unknown }
-        const id = typeof text.id === "string" ? text.id : undefined
+        const id = hasRuntimeType(text.id, "string") ? text.id : undefined
         if (type === "text-start" && id) {
           reasoningTextIds.delete(id)
           pendingTextStarts.delete(id)
@@ -400,9 +412,8 @@ function projectUiMessageStream(
 }
 
 function uiDataType(data: unknown): `data-${string}` {
-  const rawType = typeof data === "object" && data !== null && typeof (data as { type?: unknown }).type === "string"
-    ? (data as { type: string }).type
-    : "event"
+  const candidate = hasRuntimeType(data, "object") && data !== null ? Reflect.get(data, "type") : undefined
+  const rawType = hasRuntimeType(candidate, "string") ? candidate : "event"
   const type = rawType.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
   return `data-${type || "event"}`
 }
@@ -427,8 +438,9 @@ async function writeEventsToUiMessageStream(
     if (!type) continue
     if (type === "usage" && usageRecord) continue
     if (options.projection?.reasoning === "hidden") {
+      // SAFETY: streamEventType established that this provider event uses a tagged stream representation.
       const text = event as { id?: unknown, phase?: unknown }
-      const id = typeof text.id === "string" ? text.id : undefined
+      const id = hasRuntimeType(text.id, "string") ? text.id : undefined
       if (type === "text-start" && id) {
         reasoningTextIds.delete(id)
       }
@@ -440,8 +452,8 @@ async function writeEventsToUiMessageStream(
       if (reasoning) continue
     }
     if (type === "text-delta") {
-      const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
-      if (typeof text !== "string" || !text) continue
+      const text = uiMessageTextDelta(event)
+      if (!text) continue
       if (!textStarted) {
         writer.write({ type: "text-start", id: messageId })
         textStarted = true
@@ -450,13 +462,15 @@ async function writeEventsToUiMessageStream(
       continue
     }
     if (type === "tool-call") {
+      // SAFETY: The tool-call event tag establishes the provider tool-call wire representation.
       const tool = event as { id?: unknown, input?: unknown, name?: unknown }
       writer.write({ type: "tool-input-available", toolCallId: tool.id, toolName: tool.name, input: tool.input })
       continue
     }
     if (type === "tool-result") {
+      // SAFETY: The tool-result event tag establishes the provider tool-result wire representation.
       const tool = event as { error?: unknown, id?: unknown, name?: unknown, output?: unknown }
-      if (typeof tool.error === "string") {
+      if (hasRuntimeType(tool.error, "string")) {
         writer.write({ type: "tool-output-error", toolCallId: tool.id, toolName: tool.name, errorText: tool.error })
         continue
       }
@@ -464,8 +478,9 @@ async function writeEventsToUiMessageStream(
       continue
     }
     if (type === "data" || type.startsWith("data-")) {
+      // SAFETY: The data event tag establishes the provider data-event wire representation.
       const dataEvent = event as { data?: unknown, id?: unknown, transient?: unknown }
-      writer.write({ type: type === "data" ? uiDataType(dataEvent.data) : type, data: dataEvent.data, id: dataEvent.id, ...(typeof dataEvent.transient === "boolean" ? { transient: dataEvent.transient } : {}) })
+      writer.write({ type: type === "data" ? uiDataType(dataEvent.data) : type, data: dataEvent.data, id: dataEvent.id, ...(hasRuntimeType(dataEvent.transient, "boolean") ? { transient: dataEvent.transient } : {}) })
       continue
     }
     if (type === "finish") {
@@ -473,6 +488,7 @@ async function writeEventsToUiMessageStream(
       break
     }
     if (type === "error") {
+      // SAFETY: The error event tag establishes the provider error wire representation.
       const error = event as { error?: unknown, message?: unknown, recoverable?: unknown }
       if (error.recoverable === true) {
         writer.write(normalizeUiMessageStreamChunk(event))
@@ -480,7 +496,7 @@ async function writeEventsToUiMessageStream(
       }
       throw error.error instanceof Error
         ? error.error
-        : new Error(typeof error.error === "string" ? error.error : typeof error.message === "string" ? error.message : "Agent stream failed.")
+        : new Error(hasRuntimeType(error.error, "string") ? error.error : hasRuntimeType(error.message, "string") ? error.message : "Agent stream failed.")
     }
   }
   if (textStarted) writer.write({ type: "text-end", id: messageId })
@@ -514,7 +530,7 @@ export async function finalizeUiMessageStreamOutput(
             const iterator = rendered[Symbol.asyncIterator]()
             const directCancel = Reflect.get(rendered, Symbol.for("vitehub.agent.stream.cancel"))
             const cancel = () => {
-              if (typeof directCancel === "function") directCancel(abortSignal.reason)
+              if (hasRuntimeType(directCancel, "function")) directCancel(abortSignal.reason)
               void Promise.resolve(iterator.return?.(abortSignal.reason)).catch(() => {})
             }
             abortSignal.addEventListener("abort", cancel, { once: true })

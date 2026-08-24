@@ -5401,18 +5401,22 @@ async function executeAgentInvocationWithCapacityLease<
           : capacityRendered
       let uiMessageFinishResult = rendered
       let uiMessageStructuredUsageRecord: AgentUsageRecord | undefined
-      const uiMessageRendered = structuredOutput
+      const uiMessageMaterialization = structuredOutput
+        ? materializeAgentStructuredOutputWithEvents(
+            enrichedRendered,
+            invocation.input.abortSignal,
+            invocation.context.get(agentOutputEventObserverContextKey),
+            structuredOutput,
+          )
+        : undefined
+      const uiMessageRendered = uiMessageMaterialization
         ? (async function* () {
-            const materialization = materializeAgentStructuredOutputWithEvents(
-              enrichedRendered,
-              invocation.input.abortSignal,
-              invocation.context.get(agentOutputEventObserverContextKey),
-              structuredOutput,
-            )
+            const materialization = uiMessageMaterialization
             for await (const event of materialization.events) yield event
             const materialized = await materialization.result
             uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
-            uiMessageFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
+            // SAFETY: uiMessageMaterialization is created only when structuredOutput is defined.
+            uiMessageFinishResult = await validateAgentOutput(structuredOutput!, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
             const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
               // SAFETY: The runtime type check above proves this property is a string.
               ? Reflect.get(uiMessageFinishResult, "text") as string
@@ -5422,6 +5426,11 @@ async function executeAgentInvocationWithCapacityLease<
             yield { type: "finish" }
           })()
         : enrichedRendered
+      if (uiMessageMaterialization && hasRuntimeType(uiMessageRendered, "object")) {
+        Object.defineProperty(uiMessageRendered, Symbol.for("vitehub.agent.stream.cancel"), {
+          value: uiMessageMaterialization.cancel,
+        })
+      }
       const shouldWrapOutput = shouldHoldInvocationOutput()
       const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(uiMessageRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
@@ -5507,16 +5516,17 @@ async function executeAgentInvocationWithCapacityLease<
     const structuredOutput = invocation.output
     let structuredFinishResult = rendered
     let structuredUsageRecord: AgentUsageRecord | undefined
-    let cancelStructuredMaterialization: ((reason?: unknown) => void) | undefined
-    const stream = structuredOutput
+    const structuredMaterialization = structuredOutput
+      ? materializeAgentStructuredOutputWithEvents(
+          streamResult,
+          invocation.input.abortSignal,
+          invocation.context.get(agentOutputEventObserverContextKey),
+          structuredOutput,
+        )
+      : undefined
+    const stream = structuredMaterialization
       ? (async function* () {
-          const materialization = materializeAgentStructuredOutputWithEvents(
-            streamResult,
-            invocation.input.abortSignal,
-            invocation.context.get(agentOutputEventObserverContextKey),
-            structuredOutput,
-          )
-          cancelStructuredMaterialization = materialization.cancel
+          const materialization = structuredMaterialization
           try {
             for await (const event of materialization.events) yield event
           }
@@ -5526,7 +5536,8 @@ async function executeAgentInvocationWithCapacityLease<
           const materialized = await materialization.result
           structuredUsageRecord = usageRecordFromStreamChunk(materialized)
             ?? await resolveAgentUsageRecord(streamResult, invocation.run)
-          structuredFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
+          // SAFETY: structuredMaterialization is created only when structuredOutput is defined.
+          structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized, { allowMaterializedObject: materialized !== streamResult })
           yield { data: structuredFinishResult, type: "data" }
           yield { type: "finish" }
         })()
@@ -5534,9 +5545,9 @@ async function executeAgentInvocationWithCapacityLease<
         ? streamAgentOutputToEvents(streamResult)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
-    if (structuredOutput) {
+    if (structuredMaterialization) {
       Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), {
-        value: (reason?: unknown) => cancelStructuredMaterialization?.(reason),
+        value: structuredMaterialization.cancel,
       })
     }
     const shouldWrapOutput = shouldHoldInvocationOutput()

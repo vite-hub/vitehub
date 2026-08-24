@@ -274,12 +274,14 @@ describe("AI SDK recovery", () => {
       "~standard": {
         jsonSchema: { input: () => ({ type: "string" }), output: () => ({ type: "string" }) },
         validate(value: unknown) {
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The test schema deliberately validates an unknown scalar at its Standard Schema boundary.
           return typeof value === "string" ? { value } : { issues: [{ message: "Expected string" }] }
         },
         vendor: "vitehub-test",
         version: 1 as const,
       },
     }
+    // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
     const agent = defineAgent({ driver: { model: { ...fakeModel, doStream } as never, output: { schema: scalarSchema } }, runtime: false })
     const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
     const events = []
@@ -606,7 +608,7 @@ describe("AI SDK recovery", () => {
   it("cancels an unconsumed model stream and settles early usage", async () => {
     const controller = new AbortController()
     const fakeModel = streamingRepairModel()
-    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, {
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, {
       abortSignal: controller.signal,
       prompt: "Search",
     })
