@@ -19,8 +19,7 @@ const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(
   typeof initialAgentQuery === "string" && initialAgentQuery.trim() ? initialAgentQuery : undefined,
 );
-const discoveredAgentNames = ref<string[]>([]);
-const observedAgentNames = ref<string[]>([]);
+const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
 const paginationRetryRevision = ref(0);
 const lastSuccessfulPollAt = ref<Date>();
@@ -70,15 +69,12 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
   })),
 );
-const availableAgentNames = computed(() =>
-  [...new Set([...discoveredAgentNames.value, ...observedAgentNames.value])].sort(),
-);
-const hasMultipleAgents = computed(() => availableAgentNames.value.length > 1);
+const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentLabel = computed(() =>
   selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
 );
 const agentMenuItems = computed<DropdownMenuItem[]>(() =>
-  availableAgentNames.value.map((name) => ({
+  agentNames.value.map((name) => ({
     icon: "i-lucide-bot",
     label: name,
     onSelect: () => selectAgent(name),
@@ -99,6 +95,7 @@ const selectedSummary = computed(() =>
 const invocationView = computed<AgentInvocationView | undefined>(() => {
   const invocation = detail.invocation.value;
   if (!invocation || invocation.id !== selectedInvocationId.value) return;
+  if (selectedAgentName.value && invocation.agentName !== selectedAgentName.value) return;
   const persistedConfiguration = invocationConfiguration(record(invocation)?.configuration);
   const configuration = persistedConfiguration ?? observedConfiguration(detail.observations.value);
   const view: AgentInvocationView = {
@@ -220,7 +217,7 @@ async function loadAgents(): Promise<void> {
     const names = Array.isArray(value?.agents)
       ? value.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
       : [];
-    if (agentsRequest === controller) discoveredAgentNames.value = [...new Set(names)];
+    if (agentsRequest === controller) agentNames.value = [...new Set(names)];
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return;
   } finally {
@@ -263,17 +260,7 @@ watch(
 );
 
 watch(
-  () => list.invocations.value
-    .map(invocation => invocation.agentName)
-    .filter((name): name is string => Boolean(name)),
-  (names) => {
-    observedAgentNames.value = [...new Set([...observedAgentNames.value, ...names])].sort();
-  },
-  { immediate: true },
-);
-
-watch(
-  [routeAgent, availableAgentNames],
+  [routeAgent, agentNames],
   ([requestedAgent, names]) => {
     if (!names.length) return;
     selectedAgentName.value = requestedAgent && names.includes(requestedAgent)
@@ -281,6 +268,20 @@ watch(
       : names[0];
   },
   { immediate: true },
+);
+
+watch(
+  [selectedAgentName, () => detail.invocation.value],
+  async ([agentName, invocation]) => {
+    if (
+      !agentName ||
+      !invocation ||
+      invocation.id !== selectedInvocationId.value ||
+      invocation.agentName === agentName
+    ) return;
+    selectedInvocationId.value = undefined;
+    await router.replace({ name: "vitehub-console-agents", query: { agent: agentName } });
+  },
 );
 
 onMounted(() => {

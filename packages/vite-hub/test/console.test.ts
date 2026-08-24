@@ -11,7 +11,7 @@ import { createServer } from "vite"
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
-import { consoleAgentsKey, consoleAgentsRegistryKey, installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
+import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -54,9 +54,6 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
-  Reflect.deleteProperty(globalThis, consoleAgentsKey)
-  Reflect.deleteProperty(process, consoleAgentsKey)
-  Reflect.deleteProperty(process, consoleAgentsRegistryKey)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -95,7 +92,7 @@ describe("Agent invocation console", () => {
       ])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
-        `installConsoleInvocations(${JSON.stringify(root)})`,
+        `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `fallbackName: "review"`,
@@ -106,20 +103,52 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("serves discovered Agent names in stable order", () => {
-    installConsoleAgents(["support", "review", "support"], process.cwd())
+  it("serves discovered Agent names in stable order for the active project", async () => {
+    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    installConsoleInvocationFallback(first, "/first")
+    installConsoleAgents(["support", "review", "support"], first)
+    installConsoleInvocationFallback(second, "/second")
+    installConsoleAgents(["billing"], second)
 
-    expect(agentsHandler(event("127.0.0.1"))).toEqual({
-      agents: ["review", "support"],
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["billing"],
     })
+
+    scope[consoleInvocationsRootKey] = "/first"
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["review", "support"] })
   })
 
-  it("uses explicit Agent Definition names instead of discovered route names", () => {
+  it("uses explicit Agent Definition names instead of discovered route names", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgentDefinitions([
       { definition: { default: defineAgent({ driver: { run: () => "ok" }, name: "support" }) }, fallbackName: "help" },
-    ], process.cwd())
+    ], invocations)
 
-    expect(agentsHandler(event("127.0.0.1"))).toEqual({ agents: ["support"] })
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+  })
+
+  it("finds Agent names beyond the first persisted invocation page", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, agentName] of ["archived", ...Array.from({ length: 100 }, () => "current")].entries()) {
+      store.create({
+        agentName,
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `inv-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const invocations = defineAgentInvocations({ store })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgents([], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["archived", "current"],
+    })
   })
 
   it("filters console sessions by exact Agent name", async () => {

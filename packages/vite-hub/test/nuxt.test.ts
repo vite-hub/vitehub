@@ -326,10 +326,10 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleInvocations("/tmp/vitehub-nuxt")`,
+      `const vitehubConsoleInvocations = installConsoleInvocations("/tmp/vitehub-nuxt")`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleAgentDefinitions([], "/tmp/vitehub-nuxt")`,
+      `installConsoleAgentDefinitions([], vitehubConsoleInvocations)`,
     )
 
     mocks.uiModule.mockClear()
