@@ -254,7 +254,14 @@ describe("framework generated types", () => {
         ``,
       ].join("\n"),
     )
-    await expect(import(pathToFileURL(handlers[0]!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
+    const generatedModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
+    const generatedHandler = Reflect.get(Object(generatedModule), "default")
+    if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
+    const response: unknown = await generatedHandler({
+      req: new Request("https://example.test/api/content/custom", { method: "POST" }),
+    })
+    expect(response).toBeInstanceOf(Response)
+    await expect((response as Response).text()).resolves.toBe("https://example.test/api/content/custom")
   })
 
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {
