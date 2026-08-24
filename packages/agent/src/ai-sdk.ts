@@ -1478,8 +1478,8 @@ async function createAgent(
   const configuredOnChunk = (commonSettings as { onChunk?: (event: unknown) => unknown }).onChunk
   const onChunk = streamUsageCapture
     ? async (event: unknown) => {
-        await configuredOnChunk?.(event)
         if (event && hasRuntimeType(event, "object")) streamUsageCapture.capture(Reflect.get(event, "chunk"))
+        await configuredOnChunk?.(event)
       }
     : configuredOnChunk
   const repairSettings = withoutToolCallSettings(commonSettings)
