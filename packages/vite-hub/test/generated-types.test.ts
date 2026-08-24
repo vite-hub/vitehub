@@ -6,7 +6,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createEvent } from "h3"
+import { createEvent } from "h3-v1"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -44,7 +44,15 @@ function collectionModule(name: string): string {
 function contentModule(): string {
   return [
     `export const content = {`,
-    `  async handler(request: Request) { return new Response(request.url) },`,
+    `  async handler(request: Request) {`,
+    `    return Response.json({`,
+    `      aborted: request.signal.aborted,`,
+    `      body: await request.text(),`,
+    `      header: request.headers.get("x-content-test"),`,
+    `      method: request.method,`,
+    `      url: request.url,`,
+    `    })`,
+    `  },`,
     `}`,
     ``,
   ].join("\n")
@@ -263,11 +271,33 @@ describe("framework generated types", () => {
     const nodeRequest = new IncomingMessage(new Socket())
     nodeRequest.url = "/api/content/custom"
     nodeRequest.method = "POST"
-    nodeRequest.headers = { host: "example.test", "x-forwarded-proto": "https" }
+    nodeRequest.headers = {
+      host: "internal.test",
+      "x-content-test": "preserved",
+      "x-forwarded-host": "example.test",
+      "x-forwarded-proto": "https",
+    }
+    nodeRequest.push("content body")
     nodeRequest.push(null)
     const response: unknown = await generatedHandler(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
     if (!(response instanceof Response)) throw new TypeError("Expected the Content handler to return a response.")
-    await expect(response.text()).resolves.toBe("https://example.test/api/content/custom")
+    await expect(response.json()).resolves.toEqual({
+      aborted: false,
+      body: "content body",
+      header: "preserved",
+      method: "POST",
+      url: "https://example.test/api/content/custom",
+    })
+
+    const abortedRequest = new IncomingMessage(new Socket())
+    abortedRequest.url = "/api/content/aborted"
+    abortedRequest.headers = { host: "example.test" }
+    Object.defineProperty(abortedRequest, "aborted", { value: true })
+    const abortedResponse: unknown = await generatedHandler(
+      createEvent(abortedRequest, new ServerResponse(abortedRequest)),
+    )
+    if (!(abortedResponse instanceof Response)) throw new TypeError("Expected an aborted Content response.")
+    await expect(abortedResponse.json()).resolves.toMatchObject({ aborted: true })
   })
 
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {

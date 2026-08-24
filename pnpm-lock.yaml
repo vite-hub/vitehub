@@ -1803,6 +1803,9 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^6.0.8
         version: 6.0.8(@voidzero-dev/vite-plus-core@0.1.24)(vue@3.5.40(typescript@6.0.3))
+      h3-v1:
+        specifier: npm:h3@^1.15.11
+        version: h3@1.15.11
       publint:
         specifier: catalog:tooling
         version: 0.3.21

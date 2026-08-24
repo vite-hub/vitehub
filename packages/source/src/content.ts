@@ -1,5 +1,5 @@
 import { comarkContent } from "comark-content"
-import { defineEventHandler, getRequestHeaders, getRequestURL, readRawBody } from "h3"
+import { defineEventHandler } from "h3"
 
 import { normalizeSafeSourcePath } from "./core/path.ts"
 import { useSource } from "./core/registry.ts"
@@ -22,7 +22,10 @@ export interface ContentSourceOptions {
 type ContentSourceItem = SourceItem<string, unknown, object>
 type NodeContentRequest = {
   aborted: boolean
+  headers: Record<string, string | string[] | undefined>
   method?: string
+  url?: string
+  [Symbol.asyncIterator](): AsyncIterator<Uint8Array>
   once(event: "aborted", listener: () => void): unknown
 }
 export type ContentSourceInput = SourceName | SourceReader | (() => SourceReader) | ComarkContentSource
@@ -165,14 +168,40 @@ export function defineContentHandler(
     // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
     const nodeRequest = event.node.req as NodeContentRequest
     const method = event.method || nodeRequest.method || "GET"
-    const body = method === "GET" || method === "HEAD" ? undefined : await readRawBody(event, false)
+    const headers = new Headers()
+    for (const [name, value] of Object.entries(nodeRequest.headers)) {
+      if (value === undefined) continue
+      if (value instanceof Array) {
+        for (const entry of value) headers.append(name, entry)
+      }
+      else headers.set(name, value)
+    }
+    const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
+    const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
+      || headers.get("host")
+      || "localhost"
+    const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
+    let body: Uint8Array | undefined
+    if (method !== "GET" && method !== "HEAD") {
+      const chunks: Uint8Array[] = []
+      for await (const chunk of nodeRequest) {
+        chunks.push(chunk)
+      }
+      const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+      body = new Uint8Array(length)
+      let offset = 0
+      for (const chunk of chunks) {
+        body.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+    }
     const abort = new AbortController()
     if (nodeRequest.aborted) abort.abort()
     else nodeRequest.once("aborted", () => abort.abort())
 
-    return await content.handler(new Request(getRequestURL(event), {
+    return await content.handler(new Request(url, {
       body,
-      headers: getRequestHeaders(event),
+      headers,
       method,
       signal: abort.signal,
     }))
