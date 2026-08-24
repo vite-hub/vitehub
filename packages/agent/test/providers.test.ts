@@ -14564,7 +14564,7 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      await vi.waitFor(() => expect(acquireLock).toHaveBeenCalledWith(binding!.steer!.lock.threadId, expect.any(Number)))
+      await vi.waitFor(() => expect(acquireLock).toHaveBeenCalledWith(`${binding!.steer!.lock.threadId}:handoff`, expect.any(Number)))
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)
