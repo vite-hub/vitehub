@@ -916,7 +916,11 @@ function createUsageCapture() {
   let capturedUsage: unknown
   let metadataSource: unknown
   let start!: () => void
+  let complete!: () => void
+  let publish!: () => void
   const started = new Promise<void>((resolve) => { start = resolve })
+  const completed = new Promise<void>((resolve) => { complete = resolve })
+  const published = new Promise<void>((resolve) => { publish = resolve })
 
   const capture = (event: unknown) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -926,6 +930,7 @@ function createUsageCapture() {
     capturedUsage = usage
     metadataSource = event
     captured = true
+    publish()
   }
 
   return {
@@ -941,6 +946,9 @@ function createUsageCapture() {
     get captured() {
       return captured
     },
+    complete,
+    completed,
+    published,
     start,
     started,
     get usage() {
@@ -1006,9 +1014,10 @@ function withCapturedUsage(
       if (hasRuntimeType(captures, "function")) {
         const [primaryCapture] = captures()
         await primaryCapture?.started
+        await Promise.race([primaryCapture?.published, primaryCapture?.completed])
       }
-      const resolvedFallback = await fallback()
-      return await capturedUsage() ?? resolvedFallback
+      const usage = await capturedUsage()
+      return usage ?? await fallback()
     }
     Object.defineProperty(record, "usage", {
       configurable: true,
@@ -1048,22 +1057,28 @@ function withCapturedStreamUsage<T extends {
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
   const wrap = (stream: AsyncIterable<unknown>) => (async function* () {
-    captures()[0]?.start()
-    for await (const event of stream) {
-      if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
-        const captureList = captures()
-        const usage = await combinedCapturedUsage(captureList)
-        if (usage !== undefined) {
-          const usageRecord = await combinedUsageRecord(
-            captureList.map(capture => ({ capture })),
-            usage,
-          )
-          // SAFETY: AI SDK stream events are records after the object guard above.
-          yield { ...(event as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), usage }
-          continue
+    const primaryCapture = captures()[0]
+    primaryCapture?.start()
+    try {
+      for await (const event of stream) {
+        if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
+          const captureList = captures()
+          const usage = await combinedCapturedUsage(captureList)
+          if (usage !== undefined) {
+            const usageRecord = await combinedUsageRecord(
+              captureList.map(capture => ({ capture })),
+              usage,
+            )
+            // SAFETY: AI SDK stream events are records after the object guard above.
+            yield { ...(event as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), usage }
+            continue
+          }
         }
+        yield event
       }
-      yield event
+    }
+    finally {
+      primaryCapture?.complete()
     }
   })()
   const stream = result.stream
@@ -1084,10 +1099,12 @@ function withCapturedStreamUsage<T extends {
             const reader = toUIMessageStream.apply(this, args as never[]).getReader()
             return new ReadableStream({
               async pull(controller) {
-                captures()[0]?.start()
+                const primaryCapture = captures()[0]
+                primaryCapture?.start()
                 try {
                   const { done, value } = await reader.read()
                   if (done) {
+                    primaryCapture?.complete()
                     controller.close()
                     return
                   }
@@ -1104,11 +1121,17 @@ function withCapturedStreamUsage<T extends {
                   controller.enqueue(value)
                 }
                 catch (error) {
+                  primaryCapture?.complete()
                   controller.error(error)
                 }
               },
               async cancel(reason) {
-                await reader.cancel(reason)
+                try {
+                  await reader.cancel(reason)
+                }
+                finally {
+                  captures()[0]?.complete()
+                }
               },
             }, { highWaterMark: 0 })
           },
