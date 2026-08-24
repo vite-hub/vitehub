@@ -111,9 +111,7 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
     return (await loadItems()).get(path)
   }
 
-  return {
-    ...(options.prefix === undefined ? {} : { prefix: options.prefix }),
-    ...(options.schema === undefined ? {} : { schema: options.schema }),
+  const source: ComarkContentSource = {
     async keys() {
       const items = await loadItems()
       latestItems = items
@@ -137,6 +135,9 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
       return item.data ?? item.content
     },
   }
+  if (options.prefix !== undefined) source.prefix = options.prefix
+  if (options.schema !== undefined) source.schema = options.schema
+  return source
 }
 
 /** Define the Comark Content runtime served by ViteHub from `server/content.ts`. */
