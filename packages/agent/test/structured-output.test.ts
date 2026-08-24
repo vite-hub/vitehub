@@ -11,18 +11,27 @@ interface SummaryOutput {
   title: string
 }
 
+function isRuntimeRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value
+}
+
+function isSummaryOutput(value: unknown): value is SummaryOutput {
+  return isRuntimeRecord(value) && String(value.summary) === value.summary && String(value.title) === value.title
+}
+
+function isTextOutput(value: unknown): value is { text: string } {
+  return isRuntimeRecord(value) && String(value.text) === value.text
+}
+
+function viteHubError(error: unknown): ViteHubError | undefined {
+  return error instanceof ViteHubError ? error : undefined
+}
+
 function summarySchema(): StandardSchemaV1<unknown, SummaryOutput> {
   return {
     "~standard": {
       validate(value) {
-        if (
-          value
-          && typeof value === "object"
-          && typeof (value as { summary?: unknown }).summary === "string"
-          && typeof (value as { title?: unknown }).title === "string"
-        ) {
-          return { value: value as SummaryOutput }
-        }
+        if (isSummaryOutput(value)) return { value }
         return { issues: [{ message: "Expected summary and title strings", path: ["title"] }] }
       },
       vendor: "vitehub-test",
@@ -47,7 +56,7 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as ViteHubError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, viteHubError)
     expect(error).toMatchObject({
       code: "AGENT_OUTPUT_INVALID_JSON",
       message: "[vitehub] Agent output is not valid JSON.",
@@ -90,7 +99,7 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as ViteHubError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, viteHubError)
     expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_INVALID_JSON" })
     expect(JSON.stringify(error)).not.toContain("private model getter")
   })
@@ -103,6 +112,7 @@ describe("Agent structured output", () => {
         output: {
           schema: {
             "~standard": {
+              // SAFETY: The deliberately hostile fixture only needs to satisfy the Standard Schema issue input shape.
               validate: () => ({ issues: [issue as never] }),
               vendor: "vitehub-test",
               version: 1,
@@ -114,7 +124,7 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as ViteHubError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, viteHubError)
     expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_SCHEMA_INVALID" })
     expect(JSON.stringify(error)).not.toContain("private issue getter")
   })
@@ -123,8 +133,8 @@ describe("Agent structured output", () => {
     const schema: StandardSchemaV1<unknown, { text: string }> = {
       "~standard": {
         validate(value) {
-          return value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string"
-            ? { value: value as { text: string } }
+          return isTextOutput(value)
+            ? { value }
             : { issues: [{ message: "Expected text" }] }
         },
         vendor: "vitehub-test",
@@ -143,8 +153,8 @@ describe("Agent structured output", () => {
     const schema: StandardSchemaV1<unknown, { text: string }> = {
       "~standard": {
         validate(value) {
-          return value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string"
-            ? { value: value as { text: string } }
+          return isTextOutput(value)
+            ? { value }
             : { issues: [{ message: "Expected text" }] }
         },
         vendor: "vitehub-test",
@@ -260,6 +270,7 @@ describe("Agent structured output", () => {
 
     const result = await runAgentInline(agent, runtime(), {}, { output: "raw" })
     const events: unknown[] = []
+    // SAFETY: Raw streamed Agent output preserves the driver's async iterable contract.
     for await (const event of result as AsyncIterable<unknown>) events.push(event)
     expect(events).toEqual([
       { text: "not json", type: "text-delta" },
@@ -318,7 +329,8 @@ describe("Agent structured output", () => {
     })
 
     const result = await streamAgentInline(agent, runtime(), {})
-    expect(typeof (result as AsyncIterable<unknown>)[Symbol.asyncIterator]).toBe("function")
+    expect(isRuntimeRecord(result) && Symbol.asyncIterator in result).toBe(true)
+    // SAFETY: Streamed Agent output is an async iterable after the contract assertion above.
     for await (const _event of result as AsyncIterable<unknown>) {}
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({ usage: { usage: { totalTokens: 3 } } }),
@@ -341,6 +353,7 @@ describe("Agent structured output", () => {
     })
 
     const result = await streamAgentInline(agent, runtime(), {}, { output: "ui-message-stream" })
+    // SAFETY: UI-message streamed Agent output exposes an async iterable to callers.
     for await (const _event of result as AsyncIterable<unknown>) {}
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({ usage: { usage: { totalTokens: 3 } } }),
@@ -354,7 +367,7 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as ViteHubError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, viteHubError)
     expect(error).toMatchObject({
       code: "AGENT_OUTPUT_SCHEMA_INVALID",
       message: "[vitehub] Agent output failed schema validation.",

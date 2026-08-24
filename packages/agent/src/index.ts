@@ -5312,6 +5312,7 @@ async function executeAgentInvocationWithCapacityLease<
           ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
           : capacityRendered
       let uiMessageFinishResult = rendered
+      let uiMessageStructuredUsageRecord: AgentUsageRecord | undefined
       const uiMessageRendered = structuredOutput
         ? (async function* () {
             const materialized = await materializeAgentStructuredOutput(
@@ -5320,9 +5321,8 @@ async function executeAgentInvocationWithCapacityLease<
               invocation.context.get(agentOutputEventObserverContextKey),
               structuredOutput,
             )
-            const materializedUsageRecord = usageRecordFromStreamChunk(materialized)
+            uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
             uiMessageFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
-            if (materializedUsageRecord) yield { type: "usage", usageRecord: materializedUsageRecord }
             yield* streamAgentOutputToEvents(uiMessageFinishResult)
           })()
         : enrichedRendered
@@ -5332,15 +5332,16 @@ async function executeAgentInvocationWithCapacityLease<
         const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
+        const finishUsageRecord = uiMessageStructuredUsageRecord ?? streamedUsageRecord ?? driverUsageRecord
         const finishResult = structuredOutput
-          ? resultWithUsageRecord(uiMessageFinishResult, streamedUsageRecord ?? driverUsageRecord)
+          ? uiMessageFinishResult
           : resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
         if (!outcome.failed && !outcome.completed) {
           await lifecycle.finish({
             result: finishResult,
             status: "success",
-            ...(streamedUsageRecord
-              ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+            ...(finishUsageRecord
+              ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run) }
               : {}),
             usageResolved: true,
           })
@@ -5406,6 +5407,7 @@ async function executeAgentInvocationWithCapacityLease<
     }
     const structuredOutput = invocation.output
     let structuredFinishResult = rendered
+    let structuredUsageRecord: AgentUsageRecord | undefined
     const stream = structuredOutput
       ? (async function* () {
           const materialized = await materializeAgentStructuredOutput(
@@ -5414,9 +5416,8 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.context.get(agentOutputEventObserverContextKey),
             structuredOutput,
           )
-          const materializedUsageRecord = usageRecordFromStreamChunk(materialized)
+          structuredUsageRecord = usageRecordFromStreamChunk(materialized)
           structuredFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
-          if (materializedUsageRecord) yield { type: "usage", usageRecord: materializedUsageRecord }
           yield* streamAgentOutputToEvents(structuredFinishResult)
         })()
       : isStreamResult
@@ -5434,13 +5435,14 @@ async function executeAgentInvocationWithCapacityLease<
           const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
-          const finishResult = streamed.finishResult(structuredOutput ? structuredFinishResult : rendered)
+          const finishResult = structuredOutput ? structuredFinishResult : streamed.finishResult(rendered)
+          const finishUsageRecord = structuredUsageRecord ?? streamed.finishUsage()
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,
               status: "success",
-              ...(streamed.finishUsage()
-                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+              ...(finishUsageRecord
+                ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run) }
                 : {}),
               usageResolved: true,
             })
