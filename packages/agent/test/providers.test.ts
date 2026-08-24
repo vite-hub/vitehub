@@ -14559,10 +14559,12 @@ describe("server helpers", () => {
 
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
       await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
+      const acquireLock = vi.spyOn(state, "acquireLock")
       const overlappingDelivery = handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
+      await vi.waitFor(() => expect(acquireLock).toHaveBeenCalledWith(binding!.steer!.lock.threadId, expect.any(Number)))
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)
