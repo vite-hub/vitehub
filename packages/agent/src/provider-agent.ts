@@ -817,6 +817,27 @@ function providerToolName(event: Extract<ProviderRuntimeEvent, { type: "item.com
       : undefined
 }
 
+function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>) {
+  const data = record(event.payload.data)
+  const item = record(data?.item)
+  const error = record(item?.error)
+  const isMcpTool = event.payload.itemType === "mcp_tool_call"
+  const isCodexMcpTool = isMcpTool && item?.type === "mcpToolCall"
+  const failed = event.payload.status === "failed"
+    || event.payload.status === "declined"
+    || item?.status === "failed"
+    || item?.status === "declined"
+  return {
+    durationMs: hasRuntimeType(item?.durationMs, "number") ? item.durationMs : undefined,
+    error: failed
+      ? hasRuntimeType(error?.message, "string") ? error.message : event.payload.detail || "Provider tool failed."
+      : undefined,
+    input: isCodexMcpTool ? item.arguments : isMcpTool && data?.input !== undefined ? data.input : event.payload.data,
+    output: isCodexMcpTool ? item.result : isMcpTool && data?.result !== undefined ? data.result : event.payload.data ?? event.payload.detail,
+    title: isMcpTool && event.payload.title !== "MCP tool call" ? event.payload.title : undefined,
+  }
+}
+
 function providerToolActivity(
   event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>,
   tools: AgentToolSet | undefined,
@@ -832,18 +853,19 @@ function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): Strea
       if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
       return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
-    case "item.started":
+    case "item.started": {
+      const details = providerToolDetails(event)
       return isProviderToolItem(event.itemId, event.payload.itemType)
-        ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: event.payload.data, name: providerToolName(event) || event.payload.title || event.payload.itemType, type: "tool-call" }]
+        ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: details.input, name: providerToolName(event) || event.payload.title || event.payload.itemType, title: details.title, type: "tool-call" }]
         : [providerDataEvent(event)]
+    }
     case "item.completed":
       return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{
             activity: providerToolActivity(event, tools),
-            error: event.payload.status === "failed" ? event.payload.detail || "Provider tool failed." : undefined,
+            ...providerToolDetails(event),
             id: event.itemId,
             name: providerToolName(event) || event.payload.title || event.payload.itemType,
-            output: event.payload.data ?? event.payload.detail,
             type: "tool-result",
           }]
         : event.payload.itemType === "error" && event.payload.detail
