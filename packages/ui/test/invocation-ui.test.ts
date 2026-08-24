@@ -605,7 +605,7 @@ describe("Agent Invocation UI", () => {
       id: "invocation",
       observations: [
         { attributes: { "tool.id": "tool", "tool.input": { query: "agent UI" }, "tool.name": "search", "tool.title": "airtable · search" }, name: "agent.tool.start", sequence: 1, timestamp, type: "lifecycle" as const },
-        { attributes: { "tool.durationMs": 42, "tool.error": "Search unavailable", "tool.id": "tool", "tool.title": "airtable · search" }, name: "agent.tool.error", sequence: 2, timestamp, type: "error" as const },
+        { attributes: { "tool.durationMs": 42, "tool.error": "Search unavailable", "tool.id": "tool" }, name: "agent.tool.error", sequence: 2, timestamp, type: "error" as const },
         { attributes: { "error.message": "Recoverable stream error" }, name: "agent.stream.error", sequence: 3, timestamp, type: "error" as const },
         { attributes: { "approval.id": "approval", "approval.name": "Run command" }, name: "agent.approval.request", sequence: 4, timestamp, type: "approval" as const },
         { attributes: { "approval.approved": false, "approval.id": "approval", "approval.reason": "Command is destructive" }, name: "agent.approval.decision", sequence: 5, timestamp, type: "approval" as const },
