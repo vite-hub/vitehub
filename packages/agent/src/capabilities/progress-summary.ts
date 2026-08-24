@@ -365,7 +365,6 @@ function createProgressSummaryState(
   let reasoningActive = false
   let previous: string | undefined
   let revision = 0
-  let completedRevision = 0
   let dirty = true
   let running = false
   let closed = false
@@ -408,11 +407,9 @@ function createProgressSummaryState(
   }
 
   const startGeneration = () => {
-    if (closed || (intervalMs === 0 && running)) return
-    if (intervalMs === 0) {
-      dirty = false
-      running = true
-    }
+    if (closed || running) return
+    dirty = false
+    running = true
     const currentRevision = ++revision
     const inputValue = context.input.get()
     const generationAbort = new AbortController()
@@ -434,8 +431,7 @@ function createProgressSummaryState(
     }
     void generateProgressSummary(context, options, input)
       .then((summary) => {
-        if (closed || !summary || currentRevision <= completedRevision) return
-        completedRevision = currentRevision
+        if (closed || !summary) return
         if (summary === previous) return
         previous = summary
         latest = progressData(options.id, summary, currentRevision)
@@ -448,9 +444,8 @@ function createProgressSummaryState(
       })
       .finally(() => {
         generations.delete(generationAbort)
-        if (intervalMs !== 0) return
         running = false
-        scheduleEventDriven()
+        if (intervalMs === 0) scheduleEventDriven()
       })
   }
 

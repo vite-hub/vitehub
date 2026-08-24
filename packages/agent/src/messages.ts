@@ -21,7 +21,7 @@ export interface DataPart {
 
 declare global {
   interface ViteHubAgentChatDataTypes {
-    "progress-summary": { revision: number, summary: string, type: "progress-summary" }
+    "progress-summary": { id?: string, revision: number, summary: string, type: "progress-summary" }
     title: { title: string, type: "title" }
   }
 }

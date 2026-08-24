@@ -9,8 +9,11 @@ const invocation: AgentInvocationView = {
   },
   configuration: {
     agent: { name: "reviewer", version: "1.0.0" },
-    capabilities: [{ id: "workspace-shell" }, { id: "pull-request" }],
-    driver: { kind: "provider", provider: "codex" },
+    capabilities: [
+      { id: "workspace-shell", metadata: { access: "write", sandbox: "workspace" } },
+      { id: "pull-request" },
+    ],
+    driver: { kind: "provider", model: { id: "gpt-5.6", provider: "codex" } },
     instructions: ["Fix the reported issue, verify it, and update the pull request."],
     runtime: { name: "node" },
     tools: [{ name: "exec_command" }, { name: "apply_patch" }],
@@ -50,9 +53,6 @@ const invocation: AgentInvocationView = {
 
 <template>
   <div class="mx-auto h-[36rem] max-w-md bg-default">
-    <AgentInvocationInspector
-      :invocation="invocation"
-      class="h-full border-x border-default"
-    />
+    <AgentInvocationInspector :invocation="invocation" class="h-full border-x border-default" />
   </div>
 </template>

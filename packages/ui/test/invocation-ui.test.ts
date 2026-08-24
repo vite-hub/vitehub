@@ -733,8 +733,53 @@ describe("Agent Invocation UI", () => {
     await Promise.resolve();
 
     expect(writeText).toHaveBeenCalledWith(invocation.traceId);
-    expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copied");
+    expect(wrapper.get('button[aria-label="Copied Trace ID"]').text()).toContain("Copied");
     wrapper.unmount();
+  });
+
+  it("keeps clipboard failures recoverable", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error("Denied");
+        }),
+      },
+    });
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "invocation",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:01.000Z",
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
+    await Promise.resolve();
+
+    expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy");
+  });
+
+  it("surfaces the terminal error beside the exact status", () => {
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z",
+      error: { message: "The provider stopped before returning a result.", name: "Provider error" },
+      failedAt: "2026-08-22T00:00:05.000Z",
+      id: "failed",
+      observations: [],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "failed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    expect(wrapper.get('[role="status"]').text()).toContain("Failed");
+    expect(wrapper.get(".vh-invocation-inspector__error").text()).toBe(
+      "Provider errorThe provider stopped before returning a result.",
+    );
   });
 
   it("uses the cancellation timestamp for terminal duration", () => {
@@ -1283,7 +1328,7 @@ describe("Agent Invocation UI", () => {
     expect(groups[1]!.get(".vh-invocation-lifecycle__label").attributes("data-operation")).toBe("remove");
   });
 
-  it("shows recorded Agent Definition details in one inspector section", () => {
+  it("groups recorded Agent Definition details as captured setup", () => {
     const invocation: AgentInvocationView = {
       configuration: {
         agent: { name: "babysitter" },
@@ -1306,7 +1351,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("gpt-5.6-sol");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("openai");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
-    expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Agent definition");
-    expect(wrapper.get(".vh-invocation-inspector__configuration").text()).toContain("System instructions");
+    expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Captured setup");
+    expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
   });
 });

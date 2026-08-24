@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import highlighter from "#mdc-highlighter";
 import { computed, defineAsyncComponent, ref } from "vue";
 
 const props = withDefaults(
@@ -32,6 +33,20 @@ if (!loader) {
 // SAFETY: Vue files loaded through Vite expose their component as the module default export.
 const example = defineAsyncComponent(loader as () => Promise<{ default: object }>);
 const source = (exampleSources[examplePath] || "").trim();
+const sourceFence = "`".repeat(
+  Math.max(3, ...Array.from(source.matchAll(/`+/g), ([match]) => match.length + 1)),
+);
+const sourceBlock = `${sourceFence}vue [${props.name}.vue]\n${source}\n${sourceFence}`;
+const sourceParserOptions = {
+  highlight: {
+    highlighter,
+    theme: {
+      light: "material-theme-lighter",
+      default: "material-theme",
+      dark: "material-theme-palenight",
+    },
+  },
+};
 const sourceOpen = ref(false);
 const sourceLabel = computed(() => (sourceOpen.value ? "Hide code" : "View code"));
 </script>
@@ -67,19 +82,8 @@ const sourceLabel = computed(() => (sourceOpen.value ? "Hide code" : "View code"
       </Suspense>
     </div>
 
-    <div v-if="sourceOpen" class="border-t border-default">
-      <ProsePre
-        :code="source"
-        :filename="`${name}.vue`"
-        language="vue"
-        :ui="{
-          root: '!my-0 !rounded-none',
-          header: '!rounded-none !border-0 !border-b',
-          base: '!rounded-none !border-0',
-        }"
-      >
-        <code>{{ source }}</code>
-      </ProsePre>
+    <div v-show="sourceOpen" class="component-preview-source border-t border-default">
+      <MDC :value="sourceBlock" :parser-options="sourceParserOptions" :tag="false" />
     </div>
   </div>
 </template>
