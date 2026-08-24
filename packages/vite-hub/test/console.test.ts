@@ -10,6 +10,7 @@ import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
@@ -59,6 +60,24 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
+  it("serializes generated Agent registry refreshes", async () => {
+    const releases: Array<() => void> = []
+    const started: number[] = []
+    const refresh = serializeConsoleRefresh(async () => {
+      started.push(started.length)
+      await new Promise<void>(resolve => releases.push(resolve))
+    })
+
+    const first = refresh()
+    const second = refresh()
+    await vi.waitFor(() => expect(started).toEqual([0]))
+    releases.shift()?.()
+    await vi.waitFor(() => expect(started).toEqual([0, 1]))
+    releases.shift()?.()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined])
+  })
+
   it("registers the standalone console UI and invocation API with Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {

@@ -13,6 +13,7 @@ import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
+import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { consoleInvocationRootPlugin } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
@@ -222,22 +223,19 @@ async function installConsole(
   }
   const plugins = (nitro.plugins ??= [])
   const plugin = join(projectRoot, ".vitehub/nitro/console/plugin.mjs")
+  const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
+    await writeConsoleNitroPlugin(
+      plugin,
+      projectRoot,
+      discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
+    )
+  })
   // Nitro runs in another runtime realm, so install a second journal instance over the same project SQLite file.
-  await writeConsoleNitroPlugin(
-    plugin,
-    projectRoot,
-    discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
-  )
+  await refreshAgentDefinitions()
   if (nuxt.options.dev) {
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
     const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: () => Promise<void>) => void) | undefined
-    hookBuilderWatch?.("builder:watch", async () => {
-      await writeConsoleNitroPlugin(
-        plugin,
-        projectRoot,
-        discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
-      )
-    })
+    hookBuilderWatch?.("builder:watch", refreshAgentDefinitions)
   }
   if (!plugins.includes(plugin)) plugins.push(plugin)
 }

@@ -7,6 +7,8 @@ import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/intern
 
 import type { Plugin } from "vite"
 
+import { serializeConsoleRefresh } from "./refresh.ts"
+
 const frameworkAgentSpecifier = "vite-hub/agent"
 const consoleRuntimeRoot = fileURLToPath(new URL("./runtime", import.meta.url))
 const consolePublicRoot = join(consoleRuntimeRoot, "public/console")
@@ -60,14 +62,14 @@ export function consoleVitePlugin(): Plugin {
   let root: string | undefined
   let serverDirs: string[] | undefined
 
-  async function refreshAgentDefinitions(): Promise<void> {
+  const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     await writeConsoleNitroPlugin(
       generatedPlugin,
       projectRoot,
       discoverAgentDefinitionEntries(root, serverDirs),
     )
-  }
+  })
 
   return {
     name: "vite-hub/console",
