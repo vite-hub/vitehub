@@ -68,15 +68,16 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
   let resumableMessageId = initialOptions.messages?.at(-1)?.id
+  let reconnectGeneration = 0
   let chat!: UseChatHelpers<UI_MESSAGE>
-  const resolveTransport = () => {
+  const resolveTransport = (generation?: number) => {
     if (latestOptions.value.transport) return latestOptions.value.transport
     const route = latestOptions.value.api ?? agentChatRoute(agent.name)
     return new DefaultChatTransport<UI_MESSAGE>({
       api: route,
       async fetch(input, init) {
         const response = await globalThis.fetch(input, init)
-        if (init?.method === "GET") {
+        if (init?.method === "GET" && generation === reconnectGeneration) {
           resumableMessageId = response.headers.get("x-vitehub-message-id") || undefined
         }
         return response
@@ -93,7 +94,8 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const transport = {
     async reconnectToStream(...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) {
       const ownsReplay = !latestOptions.value.transport
-      const stream = await resolveTransport().reconnectToStream(...args)
+      const generation = ++reconnectGeneration
+      const stream = await resolveTransport(generation).reconnectToStream(...args)
       if (stream && ownsReplay && chat.messages.value.at(-1)?.role === "assistant") {
         chat.messages.value = chat.messages.value.slice(0, -1)
       }
@@ -124,6 +126,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     const prior = latestOptions.value
     latestOptions.value = next
     if (next.id !== previous.id) {
+      reconnectGeneration++
       constructorOptions.value = next
       streamedParts.value = []
       resumableMessageId = undefined
