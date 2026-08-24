@@ -150,10 +150,11 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
   if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
   if (event.type === "data-progress-summary") {
     const data = record(event.data)
+    const producerId = hasRuntimeType(data?.id, "string") && data.id.trim() ? data.id.trim() : "progress-summary"
     const revision = hasRuntimeType(data?.revision, "number") ? data.revision : undefined
     const summary = hasRuntimeType(data?.summary, "string") ? data.summary.trim() : ""
     if (revision === undefined || !summary) return
-    const id = `progress-summary:${revision}`
+    const id = `${producerId}:${revision}`
     return {
       attributes: {
         "gen_ai.operation.name": "execute_tool",
@@ -167,6 +168,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
         "vitehub.action.name": "progress-summary.update",
         "vitehub.activity.body": summary,
         "vitehub.activity.kind": "action",
+        "vitehub.activity.progress": summary,
         "vitehub.activity.title": "Updated loading message",
       },
       name: "agent.tool.finish",

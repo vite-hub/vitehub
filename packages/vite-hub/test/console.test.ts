@@ -336,13 +336,14 @@ describe("Agent invocation console", () => {
           })() },
         runtime: false,
       })
-      await runAgent(agent, runtime("console-progress-summary"), {})
+      const result = await runAgent(agent, runtime("console-progress-summary"), {})
+      for await (const _event of result as AsyncIterable<unknown>) {}
 
       const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-progress-summary")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
-          "tool.output": "Checking Airtable for assigned tasks.",
-          "vitehub.activity.body": "Checking Airtable for assigned tasks.",
+          "content.omitted": expect.arrayContaining(["tool.output", "vitehub.activity.body"]),
+          "vitehub.activity.progress": "Checking Airtable for assigned tasks.",
         }),
         name: "agent.tool.finish",
       }))

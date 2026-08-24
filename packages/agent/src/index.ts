@@ -4870,7 +4870,10 @@ async function executeAgentInvocationWithCapacityLease<
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
                 let source: ReturnType<typeof cancellableAsyncIterableSource>
                 try {
-                  const renderedStream = toUIMessageStream.apply(rendered, args)
+                  const normalizedStream = normalizeUiMessageStream(toUIMessageStream.apply(rendered, args))
+                  const renderedStream = invocation.runtimeContext.traceLog
+                    ? traceUiMessageStream(normalizedStream, invocation)
+                    : normalizedStream
                   source = cancellableAsyncIterableSource(renderedStream)
                 }
                 catch (error) {
@@ -4879,7 +4882,7 @@ async function executeAgentInvocationWithCapacityLease<
                 }
                 return withReadableStreamCleanup(
                   toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
-                    toReadableAsyncIterableStream(normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))),
+                    toReadableAsyncIterableStream(source.stream),
                     invocation,
                     rendered,
                   )),

@@ -323,9 +323,10 @@ function progressSummaryStreamOverrides(
   }
 }
 
-function progressData(summary: string, revision: number) {
+function progressData(id: string | undefined, summary: string, revision: number) {
   return {
     data: {
+      ...(id ? { id } : {}),
       revision,
       summary,
       type: "progress-summary",
@@ -429,7 +430,7 @@ function createProgressSummaryState(
         completedRevision = currentRevision
         if (summary === previous) return
         previous = summary
-        latest = progressData(summary, currentRevision)
+        latest = progressData(options.id, summary, currentRevision)
         if (intervalMs === 0 || streamStarted) {
           for (const controller of controllers) controller.enqueue(latest)
         }
