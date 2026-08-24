@@ -801,6 +801,22 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it.each([
+    `defineAgent(settings("installation-token"))`,
+    `defineAgent({ ...settings("installation-token"), workspace: {} })`,
+  ])("rejects an Eve extension hidden behind dynamic Agent Definition options: %s", async definition => {
+    await expect(transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        const settings = token => ({ capabilities: [github({ token })] })
+        export default ${definition}
+      `,
+      parseAst,
+      async specifier => specifier === "@github-tools/eve-extension",
+    )).rejects.toThrow("must be mounted in a top-level static capabilities array")
+  })
+
   it("keeps static block bindings scoped to the block", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `
