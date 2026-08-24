@@ -1204,6 +1204,34 @@ describe("agent message protocol", () => {
     expect(summaries).toHaveLength(2)
   })
 
+  it("normalizes a UI message stream reused as a primary stream", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const sharedStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
+        controller.enqueue({ finishReason: "stop", type: "finish" })
+        controller.close()
+      },
+    })
+    const agent = defineAgent({
+      driver: { run: () => ({
+          fullStream: sharedStream,
+          toUIMessageStream: () => sharedStream,
+        }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const events: unknown[] = []
+    for await (const event of result.toUIMessageStream()) events.push(event)
+
+    expect(events).toContainEqual({
+      data: { error: "temporary failure", recoverable: true, type: "error" },
+      type: "data-error",
+    })
+  })
+
   it("exports product actions from AI SDK telemetry integrations", async () => {
     const { aiSdkTelemetryIntegration } = await import("../src/trace.ts")
     const traceLog = createTraceEventLog()
