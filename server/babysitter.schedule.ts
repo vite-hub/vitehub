@@ -1,5 +1,3 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { createMessage, runScheduledAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/kv'
 import { defineSchedule } from 'vite-hub/schedule'
@@ -8,6 +6,7 @@ import { createBabysitterAgent } from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import { withPullRequestCheckout } from './babysitter.checkout.ts'
+import { githubToken, runGitHub } from './github.ts'
 import {
   logOperationalError,
   logOperationalEvent,
@@ -21,7 +20,6 @@ import {
   successfulPassFingerprint,
 } from './babysitter.queue.ts'
 
-const exec = promisify(execFile)
 const pullRequestFields = 'body,comments,headRefName,headRefOid,headRepository,isDraft,mergeStateStatus,number,reviewDecision,reviews,state,statusCheckRollup,title,updatedAt,url'
 export default defineSchedule({
   cron: '*/5 * * * *',
@@ -54,7 +52,8 @@ export default defineSchedule({
           ...owner,
         })
         try {
-          await withPullRequestCheckout(repository, pullRequest, async checkout => {
+          const token = await githubToken({ refresh: true })
+          await withPullRequestCheckout(repository, pullRequest, token, async checkout => {
             const context = {
               pullRequestHead: pullRequest.headRefOid,
               pullRequestNumber: pullRequest.number,
@@ -64,7 +63,7 @@ export default defineSchedule({
               pullRequestTitle: pullRequest.title,
               pullRequestUrl: pullRequest.url,
             }
-            await runScheduledAgent(createBabysitterAgent(checkout), {
+            await runScheduledAgent(createBabysitterAgent(checkout, token), {
               ...schedule,
               runId,
             }, {
@@ -79,7 +78,7 @@ export default defineSchedule({
                 runId,
               },
             }, {
-              abortSignal: AbortSignal.timeout(60 * 60 * 1000),
+              abortSignal: AbortSignal.timeout(55 * 60 * 1000),
               context,
               messages: [createMessage({ role: 'user', text: await renderPrompt({ blocker, context }) })],
             })
@@ -125,11 +124,11 @@ async function readCompletion(key: string) {
 }
 
 async function listPullRequests(repository: string) {
-  const result = await exec('gh', ['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields])
+  const result = await runGitHub(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields])
   return JSON.parse(result.stdout) as PullRequest[]
 }
 
 async function readPullRequest(repository: string, number: number) {
-  const result = await exec('gh', ['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields])
+  const result = await runGitHub(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields])
   return JSON.parse(result.stdout) as PullRequest
 }

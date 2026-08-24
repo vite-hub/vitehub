@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { PullRequest } from './babysitter.queue.ts'
 
-type RunCommand = (file: string, args: string[], options?: { cwd?: string }) => Promise<{ stdout: string }>
+type RunCommand = (file: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv }) => Promise<{ stdout: string }>
 
 type CheckoutOperations = {
   makeTemporaryDirectory: (prefix: string) => Promise<string>
@@ -22,13 +22,15 @@ const operations: CheckoutOperations = {
 export async function withPullRequestCheckout<T>(
   repository: string,
   pullRequest: PullRequest,
+  githubToken: string,
   runOwner: (checkout: string) => Promise<T>,
   checkoutOperations: CheckoutOperations = operations,
 ) {
   const checkout = await checkoutOperations.makeTemporaryDirectory(join(tmpdir(), `babysitter-${repository.replace('/', '-')}-pr-${pullRequest.number}-`))
   try {
-    await checkoutOperations.runCommand('gh', ['repo', 'clone', repository, checkout, '--', '--filter=blob:none', '--no-checkout'])
-    await checkoutOperations.runCommand('gh', ['pr', 'checkout', String(pullRequest.number), '--repo', repository, '--detach'], { cwd: checkout })
+    const env = { ...process.env, GH_TOKEN: githubToken }
+    await checkoutOperations.runCommand('gh', ['repo', 'clone', repository, checkout, '--', '--filter=blob:none', '--no-checkout'], { env })
+    await checkoutOperations.runCommand('gh', ['pr', 'checkout', String(pullRequest.number), '--repo', repository, '--detach'], { cwd: checkout, env })
     await checkoutOperations.runCommand('git', ['-C', checkout, 'remote', 'set-url', 'origin', `https://github.com/${repository}.git`])
     const pushUrl = pullRequest.headRepository
       ? `https://github.com/${pullRequest.headRepository.nameWithOwner}.git`

@@ -15,6 +15,12 @@ export default defineConfig({
         repositories: env({ default: '', source: env.source('BABYSITTER_REPOS') }),
         repository: env({ default: 'vite-hub/vitehub', source: env.source('BABYSITTER_REPO') }),
       },
+      github: {
+        appId: env({ default: '', source: env.source('GITHUB_APP_ID') }),
+        installationId: env({ default: '', source: env.source('GITHUB_APP_INSTALLATION_ID') }),
+        privateKey: env({ optional: true, secret: true, source: env.source('GITHUB_APP_PRIVATE_KEY') }),
+        token: env({ optional: true, secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
       console: {
         url: env({ optional: true, source: env.source('VITEHUB_CONSOLE_URL') }),
         token: env({ optional: true, secret: true, source: env.source('VITEHUB_CONSOLE_TOKEN') }),

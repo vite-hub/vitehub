@@ -39,7 +39,7 @@ flowchart TD
 - Node.js 24 or newer
 - Corepack, which activates Babysitter's pinned pnpm version
 - `git` and a GitHub repository you want Babysitter to watch. Babysitter launches the owner in an exact-head checkout without installing the watched project's dependencies; adapt the [agent prompt](server/agents/babysitter/prompt.template.md) if the owner needs package-manager-specific setup.
-- An authenticated [`gh`](https://cli.github.com/) CLI with permission to update that repository. This implementation uses `gh` directly to discover and inspect pull requests, so it is currently required.
+- [`gh`](https://cli.github.com/) CLI. For production, configure a GitHub App with Contents, Issues, and Pull requests read/write access plus Actions, Checks, Commit statuses, and Metadata read access. Install it on every repository Babysitter watches. Local development can fall back to `GITHUB_TOKEN` or an authenticated `gh` CLI.
 - An authenticated coding-agent CLI. ViteHub [Agent Drivers](https://vitehub.dev/docs/agents/agent-drivers) support both Codex and Claude Code. [Codex](https://github.com/openai/codex) is recommended because its non-interactive `codex exec` command is designed for programmatic use; this repository uses Codex by default.
 
 ## Start Babysitter
@@ -52,6 +52,15 @@ flowchart TD
    corepack enable
    pnpm install
    BABYSITTER_REPOS=OWNER/REPOSITORY,OWNER/ANOTHER_REPOSITORY \
+   pnpm dev
+   ```
+
+   A long-running Babysitter should use GitHub App credentials. The server mints renewable installation tokens and projects only the active token plus the `vitehub-bot[bot]` commit identity into each agent process:
+
+   ```sh
+   GITHUB_APP_ID=4698907 \
+   GITHUB_APP_INSTALLATION_ID=156121915 \
+   GITHUB_APP_PRIVATE_KEY='-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----' \
    pnpm dev
    ```
 

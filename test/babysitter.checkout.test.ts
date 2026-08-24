@@ -26,7 +26,7 @@ test('launches the owner without installing consumer dependencies', async () => 
     url: 'https://github.com/example/repo/pull/1',
   }
 
-  await withPullRequestCheckout('example/repo', pullRequest, async preparedCheckout => {
+  await withPullRequestCheckout('example/repo', pullRequest, 'github-token', async preparedCheckout => {
     launched = true
     assert.equal(preparedCheckout, checkout)
   }, {
@@ -37,8 +37,9 @@ test('launches the owner without installing consumer dependencies', async () => 
       assert.equal(path, checkout)
       removed = true
     },
-    async runCommand(file, args) {
+    async runCommand(file, args, options) {
       commands.push([file, ...args].join(' '))
+      if (file === 'gh') assert.equal(options?.env?.GH_TOKEN, 'github-token')
       if (file === 'corepack') throw new Error('ERR_PNPM_LOCKFILE_CONFIG_MISMATCH')
       return { stdout: args.at(-1) === 'HEAD' ? 'expected-head\n' : '' }
     },

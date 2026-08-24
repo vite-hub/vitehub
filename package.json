@@ -18,6 +18,7 @@
     "@ai-sdk/harness-codex": "1.0.41",
     "@github-tools/eve-extension": "0.3.0",
     "@nuxt/ui": "4.11.0",
+    "@octokit/auth-app": "8.3.0",
     "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@5cbf712",
     "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5cbf7129916e12a6798cb936b5d9faa3654ca0a2",
     "@vite-hub/ui": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@d50dee5d784bf827ec6d006f2bc7d1d1569d6290",
