@@ -1109,6 +1109,9 @@ export async function transformEveExtensionCapabilities(
   const staticArrays = new Map<string, PositionedNode>()
   const staticObjects = new Map<string, PositionedNode>()
   const exportedStaticArrays = new Set<PositionedNode>()
+  const optionFactories = new Map<string, PositionedNode>()
+  const optionValues = new Map<string, PositionedNode>()
+  const dynamicOptionFactoryRanges = new Set<PositionedNode>()
   const references = new Map<string, number>()
   const functionRanges: Array<{ end: number, start: number }> = []
   const nestedClassRanges: Array<{ end: number, start: number }> = []
@@ -1118,6 +1121,13 @@ export async function transformEveExtensionCapabilities(
     const declarationStatement = statement.type === "ExportNamedDeclaration" && isPositionedNode(statement.declaration)
       ? statement.declaration
       : statement
+    if (declarationStatement.type === "FunctionDeclaration") {
+      const identifier = declarationStatement.id
+      if (isPositionedNode(identifier) && identifier.type === "Identifier" && typeof identifier.name === "string") {
+        optionFactories.set(identifier.name, declarationStatement)
+      }
+      continue
+    }
     if (declarationStatement.type !== "VariableDeclaration" || declarationStatement.kind !== "const") continue
     for (const declaration of Array.isArray(declarationStatement.declarations) ? declarationStatement.declarations : []) {
       if (!isPositionedNode(declaration) || declaration.type !== "VariableDeclarator") continue
@@ -1125,6 +1135,8 @@ export async function transformEveExtensionCapabilities(
       const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
       if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
       if (!isPositionedNode(initializer)) continue
+      optionValues.set(identifier.name, initializer)
+      if (initializer.type.includes("Function")) optionFactories.set(identifier.name, initializer)
       if (initializer.type === "ArrayExpression") {
         staticArrays.set(identifier.name, initializer)
         if (statement.type === "ExportNamedDeclaration" && identifier.name === "capabilities") exportedStaticArrays.add(initializer)
@@ -1205,6 +1217,8 @@ export async function transformEveExtensionCapabilities(
     ...defineAgentNamespaces,
     ...staticArrays.keys(),
     ...staticObjects.keys(),
+    ...optionFactories.keys(),
+    ...optionValues.keys(),
   ])
   const bindingNames = (value: unknown): string[] => {
     if (!isPositionedNode(value)) return []
@@ -1302,6 +1316,31 @@ export async function transformEveExtensionCapabilities(
       calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
     }
   }
+  function collectDynamicOptionFactories(value: PositionedNode, seen = new Set<PositionedNode>()): void {
+    const expression = unwrapTypeScriptExpression(value)
+    if (seen.has(expression)) return
+    seen.add(expression)
+    if (expression.type === "Identifier" && typeof expression.name === "string") {
+      if (shadowRanges.get(expression.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
+      const initializer = optionValues.get(expression.name)
+      if (initializer) collectDynamicOptionFactories(initializer, seen)
+      return
+    }
+    if (expression.type === "CallExpression") {
+      const callee = expression.callee
+      if (isPositionedNode(callee) && callee.type === "Identifier" && typeof callee.name === "string") {
+        if (shadowRanges.get(callee.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
+        const factory = optionFactories.get(callee.name)
+        if (factory) dynamicOptionFactoryRanges.add(factory)
+      }
+      return
+    }
+    if (expression.type !== "ObjectExpression") return
+    for (const property of Array.isArray(expression.properties) ? expression.properties : []) {
+      if (!isPositionedNode(property) || property.type !== "SpreadElement" || !isPositionedNode(property.argument)) continue
+      collectDynamicOptionFactories(property.argument, seen)
+    }
+  }
   visitNodes(program, (node) => {
     if (node.type !== "CallExpression") return
     const callee = node.callee
@@ -1325,6 +1364,7 @@ export async function transformEveExtensionCapabilities(
     if (!isDefineAgentCall) return
     const rawOptions = Array.isArray(node.arguments) ? node.arguments[0] : undefined
     if (!isPositionedNode(rawOptions)) return
+    collectDynamicOptionFactories(rawOptions)
     const unwrappedOptions = unwrapTypeScriptExpression(rawOptions)
     const options = unwrappedOptions.type === "ObjectExpression"
       ? unwrappedOptions
@@ -1348,6 +1388,23 @@ export async function transformEveExtensionCapabilities(
     collectExtensionCalls(array)
   })
   for (const array of exportedStaticArrays) collectExtensionCalls(array)
+  const staticallyMountedImports = new Set(calls.map(call => call.local))
+  for (const [local, imported] of imports) {
+    if (staticallyMountedImports.has(local) || !dynamicOptionFactoryRanges.size) continue
+    let hasDynamicOptionReference = false
+    visitNodes(program, (node, parent) => {
+      if (hasDynamicOptionReference || node.type !== "Identifier" || node.name !== local) return
+      if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
+      if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
+      if (node.start >= imported.declaration.start && node.end <= imported.declaration.end) return
+      if (shadowRanges.get(local)?.some(range => node.start > range.start && node.end < range.end)) return
+      if (![...dynamicOptionFactoryRanges].some(range => node.start > range.start && node.end < range.end)) return
+      hasDynamicOptionReference = true
+    })
+    if (hasDynamicOptionReference && await resolveExtension(imported.source)) {
+      throw new Error(`[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.`)
+    }
+  }
   if (!calls.length) return
 
   const extensions: EveExtensionImport[] = []

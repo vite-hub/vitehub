@@ -1520,9 +1520,14 @@ describe("workspace host sessions", () => {
     const host = memoryHost()
     const abort = new AbortController()
     const remove = host.files.remove.bind(host.files)
+    const write = host.files.write.bind(host.files)
     host.files.remove = async (path, options) => {
       await remove(path, options)
       if (path === "/workspace/escape") abort.abort(new Error("cleanup expired"))
+    }
+    host.files.write = async (path, content, options) => {
+      options?.signal?.throwIfAborted()
+      await write(path, content, options)
     }
     const session = await docs.startSession({ host })
 
