@@ -9,7 +9,7 @@ import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
-import { agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
+import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
 import {
   createBackedAgentInvocationController,
   startLiveAgentInvocation,
@@ -1117,6 +1117,7 @@ async function applyChannelDeliveryEffectIntents<
   if (!intents.length) return
   const active = activeAgentChannel(context.channels, context.context, context.run)
   const delivery = agentChannelDeliveryTracker(context.runtimeContext)
+  const verifyOwnership = agentChannelDeliveryOwnershipVerifier(context.runtimeContext)
 
   for (const intent of intents) {
     const handlers = active ? channelDeliveryEffectHandlers(active.channel, intent) : []
@@ -1166,6 +1167,7 @@ async function applyChannelDeliveryEffectIntents<
     for (const handler of handlers) {
       let handlerCompleted = false
       try {
+        await verifyOwnership?.()
         try {
           await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
         }

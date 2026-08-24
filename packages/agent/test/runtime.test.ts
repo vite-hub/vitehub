@@ -3804,6 +3804,54 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("does not run delivery effects after durable Channel ownership is lost", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { withAgentChannelDeliveryOwnershipVerifier } = await import("../src/internal/channel-delivery.ts")
+    const delivered = vi.fn()
+    const verifyOwnership = vi.fn().mockRejectedValue(new Error("Channel ownership was reclaimed"))
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reaction: delivered },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(
+      // SAFETY: This fixture intentionally constructs the exact asserted runtime contract.
+      { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() } as never,
+      verifyOwnership,
+    )
+
+    try {
+      await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+      expect(verifyOwnership).toHaveBeenCalledOnce()
+      expect(delivered).not.toHaveBeenCalled()
+    }
+    finally {
+      error.mockRestore()
+    }
+  })
+
   it("runs delivery effects when outbound custody evidence cannot be written", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
