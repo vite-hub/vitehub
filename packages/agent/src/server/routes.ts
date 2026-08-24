@@ -6408,10 +6408,12 @@ async function resumableChatOwner(
   config: AgentChannelChatRouteResumableOptions | undefined,
   context: AgentChannelChatRouteResumableContext,
 ): Promise<string> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route options can arrive from untyped JavaScript, so validate the public runtime boundary before invocation.
   if (!config || typeof config !== "object" || typeof config.owner !== "function") {
     throw new TypeError("[vitehub] Resumable web chat requires route.resumable.owner().")
   }
   const owner = await config.owner(context)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript owner callbacks can violate the declared return type at this public runtime boundary.
   if (typeof owner !== "string" || !owner.trim()) {
     throw new TypeError("[vitehub] Resumable web chat owner must be a non-empty string.")
   }
@@ -6435,6 +6437,7 @@ function scheduleResumableChatRunCleanup(
   resumableRuns: Map<string, ResumableChatRun>,
   latestResumableRuns: Map<string, ResumableChatRun>,
 ): void {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript route options can violate the declared numeric type at this public runtime boundary.
   const ttlMs = typeof resumable.ttlMs === "number" && resumable.ttlMs > 0 ? resumable.ttlMs : resumableChatDefaultTtlMs
   const cleanup = setTimeout(() => {
     resumableRuns.delete(run.invocationKey)

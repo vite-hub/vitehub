@@ -11,13 +11,13 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe("Agent Vue clients", () => {
   it("bounds retained transient chat data by part type", () => {
-    const retained = Array.from({ length: 100 }, (_, revision) => revision + 1).reduce(
+    const retained = Array.from({ length: 100 }, (_, revision) => revision + 1).reduce<ReturnType<typeof updateAgentChatStreamedParts>>(
       (parts, revision) => updateAgentChatStreamedParts(parts, {
         data: { revision },
         transient: true,
         type: "data-progress-summary",
       }),
-      [] as ReturnType<typeof updateAgentChatStreamedParts>,
+      [],
     )
 
     expect(retained).toEqual([{
