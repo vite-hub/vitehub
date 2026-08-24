@@ -226,7 +226,7 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
-  it("ignores stale reconnect ownership after a reactive chat change", async () => {
+  it("discards a stale replay stream after a reactive chat change", async () => {
     vi.stubGlobal("window", {})
     const responses = new Map<string, (response: Response) => void>()
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
@@ -253,14 +253,81 @@ describe("Agent Vue clients", () => {
       headers: { "x-vitehub-message-id": "message-b" },
       status: 204,
     }))
-    responses.get("/api/_vitehub/agents/support/chat?id=chat-a")!(new Response(null, {
+    responses.get("/api/_vitehub/agents/support/chat?id=chat-a")!(createUIMessageStreamResponse({
       headers: { "x-vitehub-message-id": "message-a" },
-      status: 204,
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ id: "answer", type: "text-start" })
+          writer.write({ delta: "Stale answer", id: "answer", type: "text-delta" })
+          writer.write({ id: "answer", type: "text-end" })
+        },
+      }),
     }))
     await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(chat.messages.value).toEqual(messages)
     await chat.stop()
 
     expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-b&messageId=message-b", {
+      credentials: "same-origin",
+      method: "DELETE",
+    })
+    scope.stop()
+  })
+
+  it("discards a pending replay after a fresh send to the same chat", async () => {
+    vi.stubGlobal("window", {})
+    let finishReconnect!: (response: Response) => void
+    const reconnectResponse = new Promise<Response>((resolve) => {
+      finishReconnect = resolve
+    })
+    let submittedMessageId: string | undefined
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === "GET") return await reconnectResponse
+      if (init?.method === "DELETE") return new Response(null, { status: 204 })
+      const body = JSON.parse(String(init?.body)) as { messages: UIMessage[] }
+      submittedMessageId = body.messages.at(-1)?.id
+      return createUIMessageStreamResponse({
+        stream: createUIMessageStream({
+          execute({ writer }) {
+            writer.write({ id: "fresh", type: "text-start" })
+            writer.write({ delta: "Fresh answer", id: "fresh", type: "text-delta" })
+            writer.write({ id: "fresh", type: "text-end" })
+          },
+        }),
+      })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "user-1", parts: [{ text: "Old question", type: "text" }], role: "user" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      "/api/_vitehub/agents/support/chat?id=chat-1",
+      expect.objectContaining({ method: "GET" }),
+    ))
+    await chat.sendMessage({ text: "New question" })
+    finishReconnect(createUIMessageStreamResponse({
+      headers: { "x-vitehub-message-id": "user-1" },
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ id: "stale", type: "text-start" })
+          writer.write({ delta: "Stale answer", id: "stale", type: "text-delta" })
+          writer.write({ id: "stale", type: "text-end" })
+        },
+      }),
+    }))
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+
+    expect(chat.messages.value.at(-1)).toMatchObject({
+      parts: [{ text: "Fresh answer", type: "text" }],
+      role: "assistant",
+    })
+    expect(chat.messages.value).not.toContainEqual(expect.objectContaining({ id: "stale" }))
+    await chat.stop()
+    expect(fetch).toHaveBeenLastCalledWith(`/api/_vitehub/agents/support/chat?id=chat-1&messageId=${submittedMessageId}`, {
       credentials: "same-origin",
       method: "DELETE",
     })

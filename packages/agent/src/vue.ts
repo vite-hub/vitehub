@@ -96,12 +96,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       const ownsReplay = !latestOptions.value.transport
       const generation = ++reconnectGeneration
       const stream = await resolveTransport(generation).reconnectToStream(...args)
+      if (ownsReplay && generation !== reconnectGeneration) return null
       if (stream && ownsReplay && chat.messages.value.at(-1)?.role === "assistant") {
         chat.messages.value = chat.messages.value.slice(0, -1)
       }
       return stream
     },
     sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => {
+      reconnectGeneration++
       resumableMessageId = args[0].messageId ?? args[0].messages.at(-1)?.id
       return resolveTransport().sendMessages(...args)
     },
