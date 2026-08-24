@@ -35,6 +35,8 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
+      { from: ".vitehub/console", to: "dist/console/runtime/public" },
+      { from: "src/console/runtime/components/console-app.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "../ui/styles.css", to: "dist/ui" },
@@ -58,6 +60,7 @@ export default defineConfig({
       ...distributionEntries,
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
+      "src/console/runtime/server/page.get.ts",
     ],
     exports: {
       exclude: ["bin"],
@@ -65,6 +68,7 @@ export default defineConfig({
       customExports(exports) {
         delete exports["./console/runtime/server/invocation.get"]
         delete exports["./console/runtime/server/invocations.get"]
+        delete exports["./console/runtime/server/page.get"]
         return {
           ...exports,
           "./ui/styles.css": "./dist/ui/styles.css",

@@ -172,6 +172,13 @@ function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
 }
 
 describe("vitehub", () => {
+  it("installs the complete console from one option", () => {
+    expect(pluginNames(vitehub({ console: true, preset: "node" }))).toEqual(expect.arrayContaining([
+      "vite-hub/console",
+      "vite-hub/console-invocation-root",
+    ]))
+  })
+
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/deployment-preset",

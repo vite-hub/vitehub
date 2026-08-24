@@ -1,11 +1,11 @@
 import { getConsoleInvocations } from "./invocations.ts"
-import { assertLocalConsoleRequest, consoleRequestURL } from "./local-request.ts"
+import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 
-import type { ConsoleRequestEvent } from "./local-request.ts"
+import type { ConsoleRequestEvent } from "./request.ts"
 import type { AgentInvocationListResult } from "@vite-hub/agent"
 
 const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocationListResult> = async (event) => {
-  assertLocalConsoleRequest(event)
+  assertConsoleRequest(event)
   const query = consoleRequestURL(event).searchParams
   const ids = query.getAll("id")
   if (ids.length > 100) {

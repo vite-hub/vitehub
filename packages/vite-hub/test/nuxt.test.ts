@@ -90,7 +90,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       buildDir: "/tmp/vitehub-nuxt/.nuxt",
       dev,
       devServerHandlers: undefined as Array<{
-        handler: (event: import("../src/console/runtime/server/local-request.ts").ConsoleRequestEvent) => void
+        handler: (event: import("../src/console/runtime/server/request.ts").ConsoleRequestEvent) => void
         route?: string
       }> | undefined,
       modules: undefined as unknown[] | undefined,
@@ -298,7 +298,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(nestedResolve).toHaveBeenCalledWith("./name.md", "/app/server/api/reply.template.md")
   })
 
-  it("installs the read-only console only during Nuxt development", async () => {
+  it("installs the read-only console in Nuxt development and production", async () => {
     const development = createNuxt(true)
     const existingConsoleHandler = vi.fn()
     development.nuxt.options.devServerHandlers = [{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }]
@@ -320,20 +320,10 @@ describe("ViteHub Nuxt integration", () => {
     })
     expect(development.nuxt.options.devServerHandlers).toEqual([
       { handler: existingConsoleHandler, route: "/api/_vitehub/console" },
-      expect.objectContaining({ route: "/_vitehub" }),
-      expect.objectContaining({ route: "/api/_vitehub/console" }),
     ])
     expect(development.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
-    const apiGuard = development.nuxt.options.devServerHandlers?.find(handler =>
-      handler.route === "/api/_vitehub/console" && handler.handler !== existingConsoleHandler,
-    )
-    expect(() => apiGuard?.handler({
-      context: { clientAddress: "127.0.0.1" },
-      headers: new Headers({ host: "localhost", "x-forwarded-for": "127.0.0.1" }),
-      node: { req: { socket: { remoteAddress: "203.0.113.2" } } },
-    })).toThrow(expect.objectContaining({ statusCode: 404 }))
     await expect(readFile("/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleInvocations("/tmp/vitehub-nuxt")`,
     )
@@ -341,12 +331,22 @@ describe("ViteHub Nuxt integration", () => {
     mocks.uiModule.mockClear()
     const production = createNuxt(false)
     await viteHubNuxtModule({ console: true, preset: "node" }, production.nuxt)
-    expect(mocks.uiModule).not.toHaveBeenCalled()
-    expect(production.pageHooks).toHaveLength(0)
-    expect(production.nuxt.options.nitro).not.toHaveProperty("handlers")
-    expect(production.nuxt.options.nitro).not.toHaveProperty("plugins")
+    expect(mocks.uiModule).toHaveBeenCalledOnce()
+    const productionPages: Array<{ file: string, name: string, path: string }> = []
+    production.runPagesHook(productionPages)
+    expect(productionPages).toEqual([
+      expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents/:invocation?" }),
+    ])
+    expect(production.nuxt.options.nitro).toMatchObject({
+      handlers: [
+        { route: "/api/_vitehub/console/invocations" },
+        { route: "/api/_vitehub/console/invocations/:id" },
+      ],
+      plugins: ["/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs"],
+    })
     expect(production.nuxt.options.devServerHandlers).toBeUndefined()
-    expect(production.nuxt.options.vite.plugins).not.toContainEqual(
+    expect(production.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
   })

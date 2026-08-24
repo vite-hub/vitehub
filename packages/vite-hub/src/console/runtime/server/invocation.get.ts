@@ -1,7 +1,7 @@
 import { getConsoleInvocations } from "./invocations.ts"
-import { assertLocalConsoleRequest, consoleRequestURL } from "./local-request.ts"
+import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 
-import type { ConsoleRequestEvent } from "./local-request.ts"
+import type { ConsoleRequestEvent } from "./request.ts"
 import type { AgentInvocationSummary } from "@vite-hub/agent"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
@@ -11,7 +11,7 @@ interface ConsoleInvocationDetail {
 }
 
 const invocationHandler: (event: ConsoleRequestEvent) => Promise<ConsoleInvocationDetail> = async (event) => {
-  assertLocalConsoleRequest(event)
+  assertConsoleRequest(event)
   const pathId = consoleRequestURL(event).pathname.split("/").at(-1)
   const id = event.context?.params?.id ?? (pathId ? decodeURIComponent(pathId) : "")
   const invocation = await getConsoleInvocations().get(id)

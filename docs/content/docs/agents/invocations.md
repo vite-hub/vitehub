@@ -208,9 +208,23 @@ Cloudflare and OpenWorkflow create the journal after durable recovery dispatch a
 
 Vercel Agent Definitions currently run through the inline Workflow adapter because arbitrary Agent handlers cannot be embedded in Vercel's deterministic native Workflow bundle. An accepted run starts its journal in that Agent worker, and ViteHub keeps bounded journal recovery work inside the active execution. Vercel does not expose a lifecycle hook that can guarantee arbitrary Agent recovery after that execution settles, so treat its journal as best-effort and use Workflow inspection as the authority for accepted runs. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation. The run inspection metadata reports `mode: "inline"` for this path.
 
-## Inspect local invocations
+## Inspect invocations in the console
 
-Enable the read-only invocation console in a Nuxt project:
+Enable the read-only invocation console in a Vite application:
+
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    console: true,
+    preset: 'node',
+  })],
+})
+```
+
+Nuxt applications also install the console from the same option. Add Nuxt UI first:
 
 ```bash
 pnpm add @nuxt/ui
@@ -226,9 +240,9 @@ export default defineNuxtConfig({
 })
 ```
 
-During `nuxt dev`, open `/_vitehub` to inspect local Agent sessions and trace observations. ViteHub stores the console journal in `.vitehub/data/console.sqlite`. The console is not installed in production builds, even when the option remains enabled in shared configuration.
+Open `/_vitehub` to inspect Agent sessions and trace observations. ViteHub includes the console in development and production builds and stores its fallback journal in `.vitehub/data/console.sqlite`.
 
-The console accepts direct loopback requests only. It rejects forwarded requests, so do not place it behind a reverse proxy or tunnel.
+The console does not add authorization. `console: true` exposes its read-only page and API through the application host, including production ingress. Protect `/_vitehub` and `/api/_vitehub/console/**` at the host boundary when invocation metadata must remain private.
 
 The fallback applies to Agent Definitions imported from `vite-hub/agent`. An explicit `defineAgent({ invocations })` store, including one assigned later by an integration, remains authoritative. Imports directly from `@vite-hub/agent` do not receive the framework console fallback.
 
