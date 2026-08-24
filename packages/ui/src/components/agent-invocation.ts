@@ -2,6 +2,7 @@ import { computed, defineComponent, h, onBeforeUnmount, ref, type PropType, Susp
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
   agentConfigurationSummary,
+  channelDeliverySummary,
   invocationActivities,
   invocationActivityTitle,
   latestInvocationTokens,
@@ -70,16 +71,6 @@ function formatDuration(startedAt: string | undefined, completedAt: string | und
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-function configurationLabel(configuration: AgentInvocationConfiguration): string | undefined {
-  const driver = configuration.driver;
-  const model = driver?.model;
-  return [
-    driver?.kind,
-    model?.provider ?? driver?.provider,
-    model?.id,
-  ].filter(Boolean).join(" · ") || undefined;
-}
-
 function workspaceLabel(configuration: AgentInvocationConfiguration): string | undefined {
   const workspace = configuration.workspace;
   return workspace ? [workspace.name, workspace.mode].filter(Boolean).join(" · ") : undefined;
@@ -99,7 +90,13 @@ function renderFolderIcon() {
   ]);
 }
 
-function renderMessage(activity: InvocationActivity, expanded: ReadonlySet<string>, toggleExpanded: (id: string) => void) {
+type InspectTarget = "agent" | "workspace";
+
+function renderMessage(
+  activity: InvocationActivity,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (id: string) => void,
+) {
   const body = activity.body ?? "";
   const collapsible = activity.role === "user" && (body.length > 720 || body.split(/\r?\n/).length > 12);
   const isExpanded = expanded.has(activity.id);
@@ -130,7 +127,22 @@ function renderMessage(activity: InvocationActivity, expanded: ReadonlySet<strin
   );
 }
 
-type ActivityIcon = "action" | "approval" | "bot" | "change" | "command" | "error" | "eye" | "folder" | "search" | "tool";
+type ActivityIcon =
+  | "action"
+  | "approval"
+  | "bot"
+  | "change"
+  | "check"
+  | "command"
+  | "error"
+  | "eye"
+  | "folder"
+  | "github"
+  | "label"
+  | "message"
+  | "pull-request"
+  | "search"
+  | "tool";
 
 function activityIcon(activity: InvocationActivity): ActivityIcon {
   if (activity.status === "failed" || activity.kind === "error") return "error";
@@ -141,8 +153,22 @@ function activityIcon(activity: InvocationActivity): ActivityIcon {
   if (name.includes("search") || name.includes("find")) return "search";
   if (activity.kind === "reasoning" || activity.kind === "model") return "bot";
   if (activity.kind === "approval") return "approval";
-  if (activity.kind === "action" || activity.kind === "delivery") return "action";
-  if (activity.kind === "preparation") return "folder";
+  if (activity.kind === "delivery") {
+    const delivery = String(activity.attributes["channel.effect.kind"] ?? "").toLocaleLowerCase();
+    if (delivery === "reaction") return "eye";
+    if (["reply", "status", "update"].includes(delivery)) return "message";
+    return "action";
+  }
+  if (activity.kind === "action") return "check";
+  if (activity.kind === "preparation") {
+    const title = invocationActivityTitle(activity).toLocaleLowerCase();
+    if (title.includes("pull request")) return "pull-request";
+    if (title.includes("github")) return "github";
+    if (title.includes("workspace")) return "folder";
+    if (title.includes("agent")) return "bot";
+    if (title.includes("prompt")) return "message";
+    return "check";
+  }
   if (activity.kind === "system") return "bot";
   return "tool";
 }
@@ -152,16 +178,29 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
   approval: ["M12 3v12", "m8 11 4 4 4-4", "M5 21h14"],
   bot: ["M12 8V4H8", "M4 8h16v10H4z", "M8 12h.01", "M16 12h.01"],
   change: ["M12 20h9", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"],
+  check: ["m5 12 4 4L19 6"],
   command: ["m4 17 6-6-6-6", "M12 19h8"],
   error: ["M18 6 6 18", "m6 6 12 12"],
   eye: ["M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6"],
   folder: ["M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+  github: ["M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.28-.36 6.72-1.61 6.72-7A5.4 5.4 0 0 0 19.22 3.77 5.07 5.07 0 0 0 19.13.32S17.95-.04 15 1.8a13.38 13.38 0 0 0-6 0C6.05-.04 4.87.32 4.87.32A5.07 5.07 0 0 0 4.78 3.77a5.4 5.4 0 0 0-1.5 3.78c0 5.42 3.44 6.61 6.72 7A4.8 4.8 0 0 0 9 18v4", "M9 18c-4.51 2-5-2-7-2"],
+  label: ["M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l4.58-4.58a2.426 2.426 0 0 0 0-3.42z", "M7.5 7.5h.01"],
+  message: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"],
+  "pull-request": [
+    "M6 9v12",
+    "M18 15V8a2 2 0 0 0-2-2h-3",
+    "M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
+    "M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
+  ],
   search: ["m21 21-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16"],
   tool: ["M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-2.4 2.4-2.1-2.1a4 4 0 0 0 5 5L3 18l3 3 9.3-9.3a4 4 0 0 0 5-5l-2.1 2.1-2.4-2.4z"],
 };
 
 function renderActivityIcon(activity: InvocationActivity) {
-  const icon = activityIcon(activity);
+  return renderNamedActivityIcon(activityIcon(activity));
+}
+
+function renderNamedActivityIcon(icon: ActivityIcon) {
   return h("span", { class: "vh-invocation-event__icon", "data-icon": icon, "aria-hidden": "true" }, [
     h("svg", { fill: "none", viewBox: "0 0 24 24" }, activityIconPaths[icon].map(path => h("path", {
       d: path,
@@ -171,12 +210,14 @@ function renderActivityIcon(activity: InvocationActivity) {
   ]);
 }
 
-function renderEvent(activity: InvocationActivity, inspect: (target: "agent" | "workspace") => void) {
+function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
   const command = activity.command;
   const tokenLabel = activity.kind === "reasoning" || activity.kind === "model"
     ? formatTokens(activity.reasoningTokens)
     : undefined;
-  const suffix = agentConfigurationSummary(activity) ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
+  const suffix = agentConfigurationSummary(activity)
+    ?? channelDeliverySummary(activity)
+    ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
   const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated);
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
@@ -205,8 +246,9 @@ function renderEvent(activity: InvocationActivity, inspect: (target: "agent" | "
   ]);
   return h("li", {
     class: "vh-invocation-activity",
-    "data-kind": activity.kind,
+    "data-activity-id": activity.id,
     "data-inspectable": inspectable ? "true" : undefined,
+    "data-kind": activity.kind,
     "data-status": activity.status,
     key: activity.id,
   }, [
@@ -239,6 +281,186 @@ function renderEvent(activity: InvocationActivity, inspect: (target: "agent" | "
   ]);
 }
 
+function activityDetail(activity: InvocationActivity): string | undefined {
+  const value = activity.attributes["vitehub.activity.detail"];
+  return activity.preview ?? (typeof value === "string" && value.trim() ? value.trim() : undefined);
+}
+
+function githubUrl(invocation: AgentInvocationView): string | undefined {
+  const value = invocation.annotations?.["github.url"];
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
+  const target = activity.attributes["vitehub.inspect.target"];
+  if (target !== "workspace" && target !== "agent") return;
+  return h("button", {
+    "aria-label": target === "workspace" ? "Open Workspace" : "Open Invocation details",
+    class: "vh-invocation-preparation__action",
+    onClick: () => inspect(target),
+    type: "button",
+  }, [renderNamedActivityIcon(target === "workspace" ? "folder" : "bot")]);
+}
+
+function renderPreparationContext(invocation: AgentInvocationView, url: string | undefined) {
+  const repository = invocation.annotations?.["github.repository"];
+  const pullRequest = invocation.annotations?.["github.pullRequest"];
+  if (typeof repository !== "string" || (typeof pullRequest !== "number" && typeof pullRequest !== "string")) {
+    return h("code", invocationContext(invocation));
+  }
+  return h("span", { class: "vh-invocation-preparation__context" }, [
+    h("code", repository),
+    h("span", { "aria-hidden": "true" }, "·"),
+    url
+      ? h("a", {
+          href: url,
+          onClick: (event: MouseEvent) => event.stopPropagation(),
+          rel: "noreferrer",
+          target: "_blank",
+        }, `PR #${pullRequest}`)
+      : h("code", `PR #${pullRequest}`),
+  ]);
+}
+
+function renderPreparationDetail(activity: InvocationActivity, url: string | undefined) {
+  const detail = activityDetail(activity);
+  if (!detail) return;
+  const compact = compactCommand(detail);
+  if (!url || !invocationActivityTitle(activity).toLocaleLowerCase().includes("pull request")) {
+    return h("code", compact);
+  }
+  const match = compact.match(/^(.*?)\s*·\s*(PR #\d+)$/);
+  if (!match) return h("code", compact);
+  return h("span", { class: "vh-invocation-preparation__context" }, [
+    h("code", match[1]),
+    h("span", { "aria-hidden": "true" }, "·"),
+    h("a", { href: url, rel: "noreferrer", target: "_blank" }, match[2]),
+  ]);
+}
+
+function renderChevronDown(className: string) {
+  return h("svg", { "aria-hidden": "true", class: className, fill: "none", viewBox: "0 0 24 24" }, [
+    h("path", { d: "m6 9 6 6 6-6", "stroke-linecap": "round", "stroke-linejoin": "round" }),
+  ]);
+}
+
+function renderPreparationGroup(
+  activities: readonly InvocationActivity[],
+  invocation: AgentInvocationView,
+  inspect: (target: InspectTarget) => void,
+) {
+  const url = githubUrl(invocation);
+  return h("li", {
+    class: "vh-invocation-preparation",
+    key: `preparation:${activities[0]?.id}`,
+  }, [
+    h("details", { class: "vh-invocation-preparation__details" }, [
+      h("summary", { class: "vh-invocation-preparation__summary" }, [
+        renderNamedActivityIcon("check"),
+        h("strong", "Session prepared"),
+        renderPreparationContext(invocation, url),
+        h("small", `${activities.length} steps`),
+        renderChevronDown("vh-invocation-preparation__disclosure"),
+      ]),
+      h("ol", { class: "vh-invocation-preparation__steps" }, activities.map(activity => h("li", {
+        "data-activity-id": activity.id,
+        "data-kind": "preparation",
+        key: activity.id,
+      }, [
+        renderActivityIcon(activity),
+        h("strong", invocationActivityTitle(activity)),
+        renderPreparationDetail(activity, url),
+        renderPreparationAction(activity, inspect),
+      ]))),
+    ]),
+  ]);
+}
+
+function nonEmptyAttribute(activity: InvocationActivity, key: string): string | undefined {
+  const value = activity.attributes[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function activityGroup(activity: InvocationActivity | undefined): string | undefined {
+  return activity ? nonEmptyAttribute(activity, "vitehub.activity.group") : undefined;
+}
+
+function labelStyle(color: string | undefined): Record<string, string> {
+  const normalized = color?.replace(/^#/, "");
+  if (!normalized || !/^[\da-f]{6}$/i.test(normalized)) return {};
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  const luminance = (red * 299 + green * 587 + blue * 114) / 1_000;
+  return {
+    "--vh-invocation-label-bg": `#${normalized}`,
+    "--vh-invocation-label-fg": luminance > 150 ? "#1f2328" : "#ffffff",
+  };
+}
+
+function renderLabelChip(activity: InvocationActivity) {
+  const name = nonEmptyAttribute(activity, "github.label.name");
+  if (!name) return;
+  return h("span", {
+    class: "vh-invocation-lifecycle__label",
+    "data-operation": nonEmptyAttribute(activity, "github.label.operation"),
+    style: labelStyle(nonEmptyAttribute(activity, "github.label.color")),
+  }, name);
+}
+
+function groupedActivityTitle(activity: InvocationActivity): string {
+  if (!nonEmptyAttribute(activity, "github.label.name")) return invocationActivityTitle(activity);
+  const operation = nonEmptyAttribute(activity, "github.label.operation")?.toLocaleLowerCase();
+  if (operation === "add" || operation === "added") return "Added label";
+  if (operation === "remove" || operation === "removed") return "Removed label";
+  return "Updated label";
+}
+
+function renderGroupedActivityIcon(activity: InvocationActivity) {
+  if (nonEmptyAttribute(activity, "github.label.name")) return renderNamedActivityIcon("label");
+  const delivery = nonEmptyAttribute(activity, "channel.effect.kind")?.toLocaleLowerCase();
+  if (delivery === "reaction") {
+    return h("span", { "aria-label": "eyes", class: "vh-invocation-lifecycle__emoji", role: "img" }, "👀");
+  }
+  if (["reply", "status", "update"].includes(delivery ?? "")) return renderNamedActivityIcon("message");
+  return renderActivityIcon(activity);
+}
+
+function renderActivityGroup(
+  group: string,
+  activities: readonly InvocationActivity[],
+  inspect: (target: InspectTarget) => void,
+) {
+  return h("li", {
+    class: "vh-invocation-lifecycle",
+    "data-activity-group": group,
+    key: `activity-group:${group}:${activities[0]?.id}`,
+  }, [
+    h("ol", { "aria-label": group, class: "vh-invocation-lifecycle__rows" }, activities.map(activity => {
+      const target = activity.attributes["vitehub.inspect.target"];
+      const inspectable = target === "agent" || target === "workspace";
+      return h("li", {
+        "data-activity-id": activity.id,
+        "data-kind": activity.kind,
+        "data-status": activity.status,
+        key: activity.id,
+      }, [
+        h(inspectable ? "button" : "div", {
+          class: "vh-invocation-lifecycle__row",
+          ...(inspectable ? { onClick: () => inspect(target), type: "button" } : {}),
+        }, [
+          renderGroupedActivityIcon(activity),
+          h("span", { class: "vh-invocation-lifecycle__title" }, groupedActivityTitle(activity)),
+          renderLabelChip(activity),
+          !nonEmptyAttribute(activity, "github.label.name") && channelDeliverySummary(activity)
+            ? h("code", { class: "vh-invocation-lifecycle__detail" }, channelDeliverySummary(activity))
+            : null,
+        ]),
+      ]);
+    })),
+  ]);
+}
+
 function inspectorSection(title: string, body: ReturnType<typeof h> | null) {
   return body ? h("section", [h("h4", title), body]) : null;
 }
@@ -258,35 +480,50 @@ function copyIcon(copied: boolean) {
 }
 
 function renderConfiguration(configuration: AgentInvocationConfiguration) {
-  const driver = configurationLabel(configuration);
   const workspace = workspaceLabel(configuration);
+  const disclosures = [
+    configuration.instructions?.length
+      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
+          h("summary", [h("span", "System instructions"), h("small", `${configuration.instructions.length} block${configuration.instructions.length === 1 ? "" : "s"}`)]),
+          h("pre", { class: "vh-invocation-inspector__instructions" }, configuration.instructions.join("\n\n")),
+        ])
+      : null,
+    configuration.workspace?.sources?.length
+      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
+          h("summary", [h("span", "Workspace sources"), h("small", `${configuration.workspace.sources.length}`)]),
+          h("ul", { class: "vh-invocation-inspector__items" }, configuration.workspace.sources.map(source =>
+            h("li", [h("span", { "aria-hidden": "true" }, "↳"), h("code", source)]),
+          )),
+        ])
+      : null,
+    configuration.capabilities?.length
+      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
+          h("summary", [h("span", "Capabilities"), h("small", `${configuration.capabilities.length}`)]),
+          h("div", { class: "vh-invocation-inspector__stack" }, configuration.capabilities.map(capability =>
+            h("details", { class: "vh-invocation-inspector__disclosure" }, [
+              h("summary", [h("span", capability.id), capability.metadata ? h("small", "Metadata") : null]),
+              capability.metadata ? h("pre", JSON.stringify(capability.metadata, null, 2)) : h("p", "No additional metadata."),
+            ]),
+          )),
+        ])
+      : null,
+    configuration.tools?.length
+      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
+          h("summary", [h("span", "Tools"), h("small", `${configuration.tools.length}`)]),
+          h("ul", { class: "vh-invocation-inspector__items" }, configuration.tools.map(tool =>
+            h("li", [h("span", { "aria-hidden": "true" }, "⌁"), h("code", tool.name)]),
+          )),
+        ])
+      : null,
+  ].filter(item => item !== null);
   return [
     configuration.truncated
       ? inspectorSection("Configuration notice", h("p", "Some configuration values were truncated by the invocation journal."))
       : null,
-    inspectorSection("Environment", h("dl", { class: "vh-invocation-inspector__list" }, [
-      inspectorRow("Driver", driver),
-      inspectorRow("Runtime", configuration.runtime?.name),
-      inspectorRow("Workspace", workspace),
+    inspectorSection("Agent definition", h("div", { class: "vh-invocation-inspector__configuration" }, [
+      workspace ? h("dl", { class: "vh-invocation-inspector__list" }, [inspectorRow("Workspace", workspace)]) : null,
+      ...disclosures,
     ])),
-    configuration.workspace?.sources?.length
-      ? inspectorSection("Sources", h("ul", { class: "vh-invocation-inspector__items" }, configuration.workspace.sources.map(source => h("li", [h("span", { "aria-hidden": "true" }, "↳"), h("code", source)]))))
-      : null,
-    configuration.capabilities?.length
-      ? inspectorSection("Capabilities", h("div", { class: "vh-invocation-inspector__stack" }, configuration.capabilities.map(capability => h("details", { class: "vh-invocation-inspector__disclosure" }, [
-          h("summary", [h("span", capability.id), capability.metadata ? h("small", "Metadata") : null]),
-          capability.metadata ? h("pre", JSON.stringify(capability.metadata, null, 2)) : h("p", "No additional metadata."),
-        ]))))
-      : null,
-    configuration.tools?.length
-      ? inspectorSection("Tools", h("ul", { class: "vh-invocation-inspector__items" }, configuration.tools.map(tool => h("li", [h("span", { "aria-hidden": "true" }, "⌁"), h("code", tool.name)]))))
-      : null,
-    configuration.instructions?.length
-      ? inspectorSection("Instructions", h("details", { class: "vh-invocation-inspector__disclosure" }, [
-          h("summary", [h("span", "Invocation instructions"), h("small", `${configuration.instructions.length} block${configuration.instructions.length === 1 ? "" : "s"}`)]),
-          h("pre", { class: "vh-invocation-inspector__instructions" }, configuration.instructions.join("\n\n")),
-        ]))
-      : null,
   ];
 }
 
@@ -294,21 +531,51 @@ function renderInvocationActivity(
   activity: InvocationActivity,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
-  inspect: (target: "agent" | "workspace") => void,
+  inspect: (target: InspectTarget) => void,
 ) {
   return activity.kind === "message"
     ? renderMessage(activity, expanded, toggleExpanded)
     : renderEvent(activity, inspect);
 }
 
-function isExternalActivity(activity: InvocationActivity): boolean {
-  return activity.kind === "preparation" || activity.kind === "delivery" || activity.kind === "action";
+function renderActivitySequence(
+  activities: readonly InvocationActivity[],
+  invocation: AgentInvocationView,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (id: string) => void,
+  inspect: (target: InspectTarget) => void,
+) {
+  const rendered = [];
+  for (let index = 0; index < activities.length;) {
+    const group = activityGroup(activities[index]!);
+    if (group) {
+      let end = index + 1;
+      while (
+        activityGroup(activities[end]) === group
+        && activities[end]!.sequence === activities[end - 1]!.sequence + 1
+      ) end += 1;
+      rendered.push(renderActivityGroup(group, activities.slice(index, end), inspect));
+      index = end;
+      continue;
+    }
+    if (activities[index]!.kind !== "preparation") {
+      rendered.push(renderInvocationActivity(activities[index]!, expanded, toggleExpanded, inspect));
+      index += 1;
+      continue;
+    }
+    let end = index + 1;
+    while (activities[end]?.kind === "preparation") end += 1;
+    rendered.push(renderPreparationGroup(activities.slice(index, end), invocation, inspect));
+    index = end;
+  }
+  return rendered;
 }
 
-function renderChevronDown(className: string) {
-  return h("svg", { "aria-hidden": "true", class: className, fill: "none", viewBox: "0 0 24 24" }, [
-    h("path", { d: "m6 9 6 6 6-6", "stroke-linecap": "round", "stroke-linejoin": "round" }),
-  ]);
+function isExternalActivity(activity: InvocationActivity): boolean {
+  return activity.kind === "preparation"
+    || activity.kind === "delivery"
+    || activity.kind === "action"
+    || activity.kind === "system";
 }
 
 function renderWorkSummary(
@@ -316,7 +583,7 @@ function renderWorkSummary(
   invocation: AgentInvocationView,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
-  inspect: (target: "agent" | "workspace") => void,
+  inspect: (target: InspectTarget) => void,
 ) {
   if (!activities.length) return null;
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
@@ -328,7 +595,7 @@ function renderWorkSummary(
         renderChevronDown("vh-invocation-work__disclosure"),
       ]),
       h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
-      h("ol", { class: "vh-invocation-work__activities" }, activities.map(activity => renderInvocationActivity(activity, expanded, toggleExpanded, inspect))),
+      h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect)),
     ]),
   ]);
 }
@@ -338,40 +605,47 @@ function renderInvocationActivities(
   invocation: AgentInvocationView,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
-  inspect: (target: "agent" | "workspace") => void,
+  inspect: (target: InspectTarget) => void,
 ) {
-  const render = (activity: InvocationActivity) => renderInvocationActivity(activity, expanded, toggleExpanded, inspect);
-  if (invocation.status === "pending" || invocation.status === "running") return activities.map(render);
-
+  if (invocation.status === "pending" || invocation.status === "running") {
+    return renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect);
+  }
   const firstUser = activities.findIndex(activity => activity.kind === "message" && activity.role === "user");
-  if (firstUser < 0) return activities.map(render);
-
-  let finalAssistant = -1;
-  for (let index = activities.length - 1; index > firstUser; index -= 1) {
+  let lastAssistant = -1;
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
     if (activities[index]!.kind === "message" && activities[index]!.role === "assistant") {
-      finalAssistant = index;
+      lastAssistant = index;
       break;
     }
   }
+  if (firstUser < 0) return renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect);
 
-  const workEnd = finalAssistant < 0 ? activities.length : finalAssistant;
-  const between = activities.slice(firstUser + 1, workEnd);
-  const external = between.filter(isExternalActivity);
-  const work = between.filter(activity => !isExternalActivity(activity));
-  const suffix = finalAssistant < 0 ? [] : activities.slice(finalAssistant);
+  const prefix = activities.slice(0, firstUser + 1);
+  const tail = activities.slice(firstUser + 1);
+  const externalBeforeFinal = tail.filter((activity, offset) =>
+    isExternalActivity(activity) && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
+  );
+  const externalAfterFinal = tail.filter((activity, offset) =>
+    isExternalActivity(activity) && lastAssistant >= 0 && firstUser + 1 + offset > lastAssistant,
+  );
+  const work = tail.filter((activity, offset) => {
+    const index = firstUser + 1 + offset;
+    return index !== lastAssistant && !isExternalActivity(activity);
+  });
 
   return [
-    ...activities.slice(0, firstUser + 1).map(render),
-    ...external.map(render),
+    ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
+    ...renderActivitySequence(externalBeforeFinal, invocation, expanded, toggleExpanded, inspect),
     renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect),
-    ...suffix.map(render),
+    ...(lastAssistant >= 0 ? [renderInvocationActivity(activities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
+    ...renderActivitySequence(externalAfterFinal, invocation, expanded, toggleExpanded, inspect),
   ].filter(item => item !== null);
 }
 
 export const AgentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
-    inspect: (target: "agent" | "workspace") => target === "agent" || target === "workspace",
+    inspect: (target: InspectTarget) => target === "agent" || target === "workspace",
   },
   props: {
     header: { default: true, type: Boolean },
@@ -497,6 +771,9 @@ export const AgentInvocationInspector = defineComponent({
             ]),
             inspectorSection("Run", h("dl", { class: "vh-invocation-inspector__list" }, [
               inspectorRow("Agent", configuration?.agent?.name ?? props.invocation.agentName),
+              inspectorRow("Model", configuration?.driver?.model?.id),
+              inspectorRow("Provider", configuration?.driver?.model?.provider ?? configuration?.driver?.provider),
+              inspectorRow("Runtime", configuration?.runtime?.name ?? configuration?.driver?.kind),
               inspectorRow("Messages", metrics.value.messages),
               inspectorRow("Steps", metrics.value.steps),
               metrics.value.changes ? inspectorRow("Changes", metrics.value.changes) : null,
