@@ -109,8 +109,13 @@ describe("@vite-hub/source GitHub source", () => {
       }]
     })
     const docs = github({ include: ["docs/**"], ref: "main", repo: "acme/app" })
+    const alreadyCanceled = new AbortController()
     const canceled = new AbortController()
     const active = new AbortController()
+
+    alreadyCanceled.abort()
+    await expect(docs.getKeys({ abortSignal: alreadyCanceled.signal, rootDir: process.cwd() })).rejects.toMatchObject({ name: "AbortError" })
+    expect(loadGitArchiveFiles).not.toHaveBeenCalled()
 
     const canceledKeys = docs.getKeys({ abortSignal: canceled.signal, rootDir: process.cwd() })
     const activeKeys = docs.getKeys({ abortSignal: active.signal, rootDir: process.cwd() })

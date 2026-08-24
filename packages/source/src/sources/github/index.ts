@@ -30,9 +30,10 @@ function dedupeProviderPromise<TResult>(
   return nextPromise
 }
 
-async function waitForCachedGitHubResult<TResult>(result: Promise<TResult>, signal?: AbortSignal): Promise<TResult> {
+async function waitForCachedGitHubResult<TResult>(load: () => Promise<TResult>, signal?: AbortSignal): Promise<TResult> {
+  signal?.throwIfAborted()
+  const result = load()
   if (!signal) return await result
-  signal.throwIfAborted()
   return await new Promise<TResult>((resolve, reject) => {
     const abort = () => reject(signal.reason)
     signal.addEventListener("abort", abort, { once: true })
@@ -155,7 +156,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
       )
 
   async function getRef(token = refreshAuth(), signal?: AbortSignal) {
-    return await waitForCachedGitHubResult(cachedResolveRef(token), signal)
+    return await waitForCachedGitHubResult(() => cachedResolveRef(token), signal)
   }
 
   async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
@@ -225,7 +226,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
       )
 
   function getFiles(token = refreshAuth(), signal?: AbortSignal, resolvedRef?: string) {
-    return waitForCachedGitHubResult(cachedLoadFiles(resolvedRef, token), signal)
+    return waitForCachedGitHubResult(() => cachedLoadFiles(resolvedRef, token), signal)
   }
 
   async function loadFileMetadata(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string> | undefined> {
@@ -372,7 +373,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
     },
     async getMeta(key, ctx) {
       const token = contextAuth(ctx)
-      const file = await waitForCachedGitHubResult(cachedLoadFileMetadata(key, ctx.revision?.id, token), ctx?.abortSignal)
+      const file = await waitForCachedGitHubResult(() => cachedLoadFileMetadata(key, ctx.revision?.id, token), ctx?.abortSignal)
       if (!file) return
       return {
         ref: file.ref,
