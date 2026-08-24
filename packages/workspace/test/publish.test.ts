@@ -78,7 +78,7 @@ describe("workspace publication", () => {
       await workspace.writeFile("notes/todo.md", "ship it")
       await workspace.publish()
 
-      expect(publish.mock.calls[0]![0].snapshot.entries["notes/todo.md"]).toMatchObject({
+      expect(publish.mock.calls[0]?.[0]?.snapshot?.entries["notes/todo.md"]).toMatchObject({
         digest: expect.any(String),
         size: 7,
         type: "file",
