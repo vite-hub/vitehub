@@ -345,6 +345,10 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("drops blank tool titles during stream normalization", () => {
+    expect(toAgentStreamEvent({ title: " ", toolCallId: "call-1", toolName: "search", type: "tool-call" })).not.toHaveProperty("title")
+  })
+
   it("restores configured activities on normalized tool events", () => {
     const toolNames = new Map<string, string>()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
