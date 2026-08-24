@@ -99,6 +99,7 @@ describe("Pierre lifecycle adapters", () => {
   });
 
   it("keeps normalized diff options stable across unrelated updates", async () => {
+    // SAFETY: The Pierre test double accepts the public theme option but intentionally omits its full upstream type.
     const options = { theme: "light" } as never;
     const wrapper = mount(AgentDiff, { props: { options, patch: "first.patch" } });
     await flushRender();
