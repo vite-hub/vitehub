@@ -829,7 +829,7 @@ export const AgentInvocation = defineComponent({
             activities.value.length
               ? h("div", {
                   "aria-label": "Session thread",
-                  "aria-relevant": "additions",
+                  "aria-relevant": "additions text",
                   role: "log",
                 }, [h("ol", { class: "vh-invocation-activities" }, renderInvocationActivities(
                   activities.value,

@@ -235,6 +235,7 @@ describe("Agent Invocation UI", () => {
     } satisfies AgentInvocationView;
 
     const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.get('[role="log"]').attributes("aria-relevant")).toBe("additions text");
     expect(wrapper.get('[role="log"] > ol').attributes("role")).toBeUndefined();
     expect(wrapper.get('[role="log"] > ol').attributes("aria-label")).toBeUndefined();
     const rows = wrapper.findAll(".vh-invocation-activities > li");
