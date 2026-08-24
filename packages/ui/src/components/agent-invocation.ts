@@ -860,7 +860,12 @@ export const AgentInvocationInspector = defineComponent({
     }));
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
-      if (!value || !("navigator" in globalThis) || !navigator.clipboard) return;
+      if (!value) return;
+      if (!("navigator" in globalThis) || !navigator.clipboard) {
+        copied.value = undefined;
+        copyError.value = kind;
+        return;
+      }
       try {
         await navigator.clipboard.writeText(value);
         copied.value = kind;

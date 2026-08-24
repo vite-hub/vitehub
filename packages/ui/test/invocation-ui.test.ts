@@ -747,6 +747,26 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy Trace ID");
   });
 
+  it("announces when the Clipboard API is unavailable", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "invocation",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:01.000Z",
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
+
+    expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
+  });
+
   it("surfaces the terminal error beside the exact status", () => {
     const invocation: AgentInvocationView = {
       createdAt: "2026-08-22T00:00:00.000Z",
@@ -765,8 +785,6 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__error").text()).toBe(
       "Provider errorThe provider stopped before returning a result.",
     );
-  });
-
   it("uses the cancellation timestamp for terminal duration", () => {
     const invocation: AgentInvocationView = {
       cancelledAt: "2026-08-22T00:01:05.000Z",
