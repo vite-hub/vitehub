@@ -4781,7 +4781,9 @@ async function handleChatSdkMessage(
                       }
                       if (recoveredLock) break
                       const remainingMs = recoveryDeadline - Date.now()
-                      if (remainingMs <= 0) return
+                      if (remainingMs <= 0) {
+                        throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
+                      }
                       await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                     }
                     if (!recoveryInput || !recoveryPending) {
@@ -4840,7 +4842,7 @@ async function handleChatSdkMessage(
                         const remainingMs = recoveryDeadline - Date.now()
                         if (remainingMs <= 0) {
                           await state.state.releaseLock(recoveredLock).catch(() => undefined)
-                          return
+                          throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
                         }
                         await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                         continue
@@ -4848,8 +4850,8 @@ async function handleChatSdkMessage(
                     }
                     const stopRecoveryHeartbeat = startWebhookLockHeartbeat(state.state, recoveredLock, steerTtlMs, () => undefined)
                     try {
-                      // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
                       recoveryStartAttempts++
+                      // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
                       await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
                       return
                     } catch (recoveryError) {
@@ -4862,13 +4864,17 @@ async function handleChatSdkMessage(
                     recoveredLock = null
                     recoveryInput = null
                     recoveryPending = null
-                    if (recoveryStartAttempts >= durableSteerRecoveryStartMaximumAttempts) return
+                    if (recoveryStartAttempts >= durableSteerRecoveryStartMaximumAttempts) {
+                      throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
+                    }
                     const remainingMs = recoveryDeadline - Date.now()
-                    if (remainingMs <= 0) return
+                    if (remainingMs <= 0) {
+                      throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
+                    }
                     const retryDelayMs = 250 * 2 ** (recoveryStartAttempts - 1)
                     await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryDelayMs, remainingMs)))
                   }
-                })().catch(() => undefined),
+                })(),
               )
               await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
               detachAgentChannelDelivery(delivery)

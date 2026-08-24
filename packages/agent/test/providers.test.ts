@@ -12726,20 +12726,29 @@ describe("server helpers", () => {
       ).toBe(true)
 
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
-      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
+      const recoveredAttempt = expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect))
+      if (persistentOutage) {
+        await recoveredAttempt.rejects.toThrow("Workflow provider operation failed")
+      } else {
+        await recoveredAttempt.resolves.toBeUndefined()
+      }
       expect(sideEffect).not.toHaveBeenCalled()
       expect(createBatch).toHaveBeenCalledTimes(5)
 
       if (persistentOutage) {
         expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
-        return
+        // The failed durable Workflow attempt is retried by its provider. The
+        // persisted pending claim must let that retry resume without a webhook.
+        // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
+        await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
+        expect(createBatch).toHaveBeenCalledTimes(6)
       }
 
       await expect(
         runAgentWorkflowDefinition(
           // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
           agent as never,
-          { id: "recovered-steer", name: "calories", payload: workflowPayloads[4], provider: "cloudflare" },
+          { id: "recovered-steer", name: "calories", payload: workflowPayloads.at(-1), provider: "cloudflare" },
           sideEffect,
         ),
       ).resolves.toBe("completed")
