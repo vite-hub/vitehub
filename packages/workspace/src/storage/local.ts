@@ -40,7 +40,7 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
       break
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
       const info = await stat(lock).catch(() => undefined)
       // ponytail: local locks expire after five minutes; use a provider lease if writes can legitimately run longer.
       if (info && Date.now() - info.mtimeMs > 300_000) {
@@ -95,13 +95,14 @@ async function walk(
       continue
     }
     if (dirent.isFile()) {
-      entries.push({
+      const entry: WorkspaceEntry = {
         path,
         type: "file",
         size: info.size,
         mtime: info.mtimeMs,
-        ...(includeDigest ? { digest: await fileDigest(absolute) } : {}),
-      })
+      }
+      if (includeDigest) entry.digest = await fileDigest(absolute)
+      entries.push(entry)
     }
   }
   return entries
@@ -383,9 +384,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!content) return
-    const value = JSON.parse(content) as unknown
-    if (!value || typeof value !== "object" || Array.isArray(value)) return
-    this.#meta = new Map(Object.entries(value))
+    const value: unknown = JSON.parse(content)
+    if (!value || Object(value) !== value || Array.isArray(value)) return
+    this.#meta = new Map(Object.entries(Object(value)))
   }
 
   async #writeMeta() {

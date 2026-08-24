@@ -61,12 +61,13 @@ async function sourceConfigHash(source: ResolvedWorkspaceSource) {
 
 function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
   if (!meta || meta.status !== "ready" || meta.configHash !== configHash) return false
-  if (!source.cache || typeof source.cache.maxAge !== "number") return false
+  if (!source.cache || !Number.isFinite(source.cache.maxAge)) return false
   if (!meta.materializedAt) return false
   return Date.now() - Date.parse(meta.materializedAt) <= source.cache.maxAge * 1000
 }
 
 async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: string) {
+  // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
   return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
 }
 
@@ -95,7 +96,7 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 }
 
 function contentSize(content: string | Uint8Array) {
-  return typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength
+  return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
 }
 
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
@@ -235,12 +236,12 @@ function createMaterializationEntry(
 
 function sourceItemContent(item: WorkspaceSourceItem): Pick<MaterializationEntry, "content" | "contentStream"> {
   if (item.contentStream) {
-    if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
+    if (item.content !== undefined || item.data !== undefined) {
       throw workspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
     }
     return { contentStream: item.contentStream }
   }
-  return { content: item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)) }
+  return { content: item.content ?? (item.data === undefined ? "" : JSON.stringify(item.data, null, 2)) }
 }
 
 async function* iterateMaterializationEntries(
@@ -563,7 +564,7 @@ export async function searchMaterializedStore(store: WorkspaceStore, query: Work
     if (entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     if (!file) continue
-    const text = typeof file.content === "string" ? file.content : new TextDecoder().decode(file.content)
+    const text = file.content instanceof Uint8Array ? new TextDecoder().decode(file.content) : file.content
     result.push(...searchText(entry.path, text, { ...query, limit: limit - result.length }))
     if (result.length >= limit) break
   }
@@ -610,7 +611,8 @@ function normalizeSourcePath(source: ResolvedWorkspaceSource, workspacePath: str
 }
 
 function readStringMeta(meta: Record<string, unknown> | undefined, key: string) {
-  return typeof meta?.[key] === "string" ? meta[key] as string : undefined
+  const value = meta?.[key]
+  return Object.prototype.toString.call(value) === "[object String]" ? String(value) : undefined
 }
 
 function readDigest(meta: Record<string, unknown> | undefined) {

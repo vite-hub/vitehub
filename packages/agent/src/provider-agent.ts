@@ -608,13 +608,14 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   const paths = selectedWorkspacePaths(context)
   await materializeWorkspaceSources(context, paths)
-  const session = await workspaceSessionStarter(context.workspace)({
+  const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
     paths,
     target: root,
-    ...(context.workspaceMode === "write" ? {} : { writeBack: false }),
-  })
+  }
+  if (context.workspaceMode !== "write") sessionOptions.writeBack = false
+  const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
   return session
 }

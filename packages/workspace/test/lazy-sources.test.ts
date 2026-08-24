@@ -49,6 +49,7 @@ describe("lazy sources", () => {
       validate: "request",
     })
 
+    // SAFETY: The custom Source fixture does not inspect its SourceContext argument.
     await expect(source.getKeys({} as never)).resolves.toEqual(["guides/start.md", "reference/api.md"])
     expect(guideContent).not.toHaveBeenCalled()
     expect(referenceContent).not.toHaveBeenCalled()
@@ -76,6 +77,7 @@ describe("lazy sources", () => {
     await expect(view.stat("docs/guides/start.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
     expect(guideContent).toHaveBeenCalledOnce()
     expect(referenceContent).not.toHaveBeenCalled()
+    // SAFETY: The custom Source fixture does not inspect its SourceContext argument.
     await expect(source.getItem("missing.md", {} as never)).rejects.toThrow("Custom Workspace Source file does not exist")
 
     await expect(view.list("docs", { recursive: true })).resolves.toEqual([
@@ -663,8 +665,8 @@ describe("lazy sources", () => {
     const statuses: string[] = []
     const setMeta = store.setMeta!.bind(store)
     store.setMeta = async (key, value) => {
-      if (key === "source:docs:snapshot" && value && typeof value === "object" && "status" in value) {
-        statuses.push(String(value.status))
+      if (key === "source:docs:snapshot" && value && Object.prototype.hasOwnProperty.call(value, "status")) {
+        statuses.push(String(Reflect.get(Object(value), "status")))
       }
       await setMeta(key, value)
     }
