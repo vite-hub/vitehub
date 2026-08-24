@@ -51,7 +51,7 @@ export function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterableRe
   return stream as AsyncIterableReadableStream<T>
 }
 
-export function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterableReadableStream<T> {
+export function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>, strategy?: QueuingStrategy<T>): AsyncIterableReadableStream<T> {
   if (isReadableStream(iterable)) {
     return withAsyncIterator(iterable)
   }
@@ -75,7 +75,7 @@ export function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): As
         controller.error(error)
       }
     },
-  }))
+  }, strategy))
 }
 
 export function teeingAsyncIterableStreamDescriptor<T>(iterable: AsyncIterable<T>): PropertyDescriptor {

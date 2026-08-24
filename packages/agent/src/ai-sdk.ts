@@ -4,6 +4,7 @@ import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
   teeingAsyncIterableStreamDescriptor,
+  toReadableAsyncIterableStream,
 } from "./internal/stream-result.ts"
 import { loadAiSdk } from "./internal/ai-sdk-runtime.ts"
 import { markMessageChannelInstructionConsumer, resolveMessageChannelInstructions } from "./internal/channels.ts"
@@ -696,10 +697,19 @@ function cloneStreamTextResult<T extends object>(
     stream?: AsyncIterable<unknown>
     toUIMessageStream?: (...args: unknown[]) => ReadableStream<unknown>
   },
+  teeStreams = true,
 ): T {
   const overrides: PropertyDescriptorMap = {}
-  if (streams.stream) overrides.stream = teeingAsyncIterableStreamDescriptor(streams.stream)
-  if (streams.fullStream) overrides.fullStream = teeingAsyncIterableStreamDescriptor(streams.fullStream)
+  if (streams.stream) {
+    overrides.stream = teeStreams
+      ? teeingAsyncIterableStreamDescriptor(streams.stream)
+      : { configurable: true, enumerable: true, value: toReadableAsyncIterableStream(streams.stream, { highWaterMark: 0 }), writable: true }
+  }
+  if (streams.fullStream) {
+    overrides.fullStream = teeStreams
+      ? teeingAsyncIterableStreamDescriptor(streams.fullStream)
+      : { configurable: true, enumerable: true, value: toReadableAsyncIterableStream(streams.fullStream, { highWaterMark: 0 }), writable: true }
+  }
   if (streams.toUIMessageStream) {
     overrides.toUIMessageStream = {
       configurable: true,
@@ -1079,7 +1089,7 @@ function withCapturedStreamUsage<T extends {
           },
         }
       : {}),
-  })
+  }, false)
 }
 
 async function combinedUsageRecord(
