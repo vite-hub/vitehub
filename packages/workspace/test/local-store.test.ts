@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -27,7 +27,12 @@ async function createStore() {
 
 afterEach(async () => {
   vi.clearAllMocks()
-  await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
+  await Promise.all(tempDirs.splice(0).flatMap(path => [
+    path,
+    `${path}.vitehub-lock`,
+    `${path}.vitehub-locks`,
+    `${path}.meta.json`,
+  ]).map(path => rm(path, { recursive: true, force: true })))
 })
 
 describe("local workspace store", () => {
@@ -133,6 +138,91 @@ describe("local workspace store", () => {
     })
   })
 
+  it("does not serialize unconditional writes behind the Workspace root lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createLocalWorkspaceStore(root)
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const writing = store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+    await writingStarted
+
+    await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
+    const tempPath = String(vi.mocked(writeFile).mock.calls[0]?.[0])
+    expect(tempPath.startsWith(`${root}/.vitehub/tmp/`)).toBe(true)
+    await expect(store.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "file" }),
+    ]))
+    release()
+    await writing
+  })
+
+  it("allows unconditional sibling writes to overlap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    const second = createLocalWorkspaceStore(root)
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const writing = first.writeFile("docs/first.md", { path: "docs/first.md", content: "first" })
+    await writingStarted
+    await second.writeFile("docs/second.md", { path: "docs/second.md", content: "second" })
+    await expect(second.readFile("docs/second.md")).resolves.toMatchObject({ path: "docs/second.md" })
+
+    release()
+    await writing
+  })
+
+  it("preserves conditional-write isolation from concurrent unconditional writes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    const second = createLocalWorkspaceStore(root)
+    await first.writeFile("docs/page.md", { path: "docs/page.md", content: "first" })
+    const baseline = await first.stat("docs/page.md")
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const writing = second.writeFile("docs/page.md", { path: "docs/page.md", content: "second" })
+    await writingStarted
+    const conditional = first.writeFileConditional?.(
+      "docs/page.md",
+      { path: "docs/page.md", content: "stale" },
+      baseline?.digest || null,
+    )
+    release()
+    await writing
+
+    await expect(conditional).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    await expect(readFile(join(root, "docs/page.md"), "utf8")).resolves.toBe("second")
+  })
+
   it("rejects a conditional write from a stale local store", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)
@@ -145,6 +235,42 @@ describe("local workspace store", () => {
     await expect(first.writeFileConditional?.("docs/page.md", { path: "docs/page.md", content: "stale" }, baseline?.digest || null))
       .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
     await expect(readFile(join(root, "docs/page.md"), "utf8")).resolves.toBe("second")
+  })
+
+  it("serializes parent removal with a conditional child write", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    const second = createLocalWorkspaceStore(root)
+    await first.writeFile("docs/page.md", { path: "docs/page.md", content: "first" })
+    const baseline = await first.stat("docs/page.md")
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const conditional = first.writeFileConditional?.(
+      "docs/page.md",
+      { path: "docs/page.md", content: "second" },
+      baseline?.digest || null,
+    )
+    await writingStarted
+    const removing = second.rm("docs", { recursive: true })
+    let removed = false
+    void removing.then(() => { removed = true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(removed).toBe(false)
+
+    release()
+    await conditional
+    await removing
+    await expect(first.stat("docs/page.md")).resolves.toBeUndefined()
   })
 
   it("replaces metadata atomically through a temporary file", async () => {
@@ -188,6 +314,35 @@ describe("local workspace store", () => {
       mediaType: "application/octet-stream",
       metadata: { source: "stream" },
     })
+  })
+
+  it("does not serialize unconditional streamed writes behind the Workspace root lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createLocalWorkspaceStore(root)
+    let release!: () => void
+    let signalWaiting!: () => void
+    const waiting = new Promise<void>((resolve) => { signalWaiting = resolve })
+    const content = (async function* () {
+      yield new Uint8Array([0, 1, 2, 3])
+      await new Promise<void>((resolve) => {
+        release = resolve
+        signalWaiting()
+      })
+    })()
+
+    const writing = store.writeFileStream?.("assets/blob.bin", {
+      path: "assets/blob.bin",
+      content,
+    })
+    await waiting
+
+    await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(store.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "file" }),
+    ]))
+    release()
+    await writing
   })
 
   it("supports brace, character class, and extglob patterns", async () => {
