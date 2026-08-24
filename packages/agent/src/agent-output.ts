@@ -412,7 +412,7 @@ function optionalDurationMs(durationMs: number | undefined): { durationMs?: numb
 }
 
 function optionalTitle(title: unknown): { title?: string } {
-  return hasRuntimeType(title, "string") ? { title } : {}
+  return hasRuntimeType(title, "string") && title.trim() ? { title } : {}
 }
 
 function agentActivity(value: unknown): AgentActivity | undefined {
