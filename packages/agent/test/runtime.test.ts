@@ -1250,9 +1250,15 @@ describe("agent message protocol", () => {
 
   it("reuses a Capability UI message stream when its lazy primary alias resolves afterward", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
     const sharedStream = new ReadableStream({
       start(controller) {
         controller.enqueue({ id: "tool-1", toolName: "airtable", type: "tool-input-start" })
+        controller.enqueue({ id: "text-1", type: "text-start" })
+        controller.enqueue({ delta: "Done", id: "text-1", type: "text-delta" })
+        controller.enqueue({ id: "text-1", type: "text-end" })
+        controller.enqueue({ output: { records: 2 }, toolCallId: "tool-1", toolName: "airtable", type: "tool-output-available" })
+        controller.enqueue({ type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } })
         controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
         controller.enqueue({ finishReason: "stop", type: "finish" })
         controller.close()
@@ -1260,6 +1266,7 @@ describe("agent message protocol", () => {
     })
     const agent = defineAgent({
       capabilities: [progressSummary({ execute: () => "Checking Airtable for assigned tasks.", intervalMs: 0 })],
+      hooks: { "agent:finish": finish },
       driver: {
         run: () => {
           const result = { toUIMessageStream: () => sharedStream }
@@ -1288,6 +1295,17 @@ describe("agent message protocol", () => {
       type: "data-error",
     })
     expect(traceLog.entries().filter(event => event.attributes?.["vitehub.action.name"] === "progress-summary.update")).toHaveLength(1)
+    expect(result).toMatchObject({
+      text: "Done",
+      usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } },
+    })
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        toolResults: [expect.objectContaining({ output: { records: 2 }, toolCallId: "tool-1", toolName: "airtable" })],
+        usage: expect.objectContaining({ usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } }),
+      }),
+      result: expect.objectContaining({ text: "Done" }),
+    }))
   })
 
   it("exports product actions from AI SDK telemetry integrations", async () => {
@@ -8510,6 +8528,26 @@ describe("agent message protocol", () => {
       prompt: "Check inventory.",
     })).resolves.toBeNull()
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("ignores nullish progress summary callback results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => null)
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute: execute as never, intervalMs: 0 })],
+      driver: { run: () => (async function* () {
+          yield { id: "tool-1", name: "inventory", type: "tool-call" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Check inventory." })
+    const events = []
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ id: "tool-1", name: "inventory", type: "tool-call" })
+    expect(execute).toHaveBeenCalled()
   })
 
   it("emits title data for UI message streams", async () => {

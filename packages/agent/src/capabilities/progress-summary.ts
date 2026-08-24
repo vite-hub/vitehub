@@ -267,7 +267,14 @@ async function generateProgressSummary(
   const maxLength = options.maxLength ?? 180
   if (options.execute) {
     const result = await options.execute(input)
-    return cleanSummary(hasRuntimeType(result, "string") ? result : result.summary, maxLength)
+    return cleanSummary(
+      hasRuntimeType(result, "string")
+        ? result
+        : result && hasRuntimeType(result, "object")
+          ? result.summary
+          : undefined,
+      maxLength,
+    )
   }
 
   const prompt = await renderProgressSummaryTemplate(options, {

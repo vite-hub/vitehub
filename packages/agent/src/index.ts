@@ -5096,11 +5096,14 @@ async function executeAgentInvocationWithCapacityLease<
                 const enrichedStream = existingStream
                   ? normalizedStream
                   : withEagerStreamUsageExtensions(normalizedStream, invocation, rendered)
+                const streamed = existingStream
+                  ? undefined
+                  : withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
                 const tracedStream = existingStream
                   ? enrichedStream
                   : invocation.runtimeContext.traceLog
-                  ? traceUiMessageStream(toReadableAsyncIterableStream(enrichedStream), invocation)
-                  : enrichedStream
+                  ? traceUiMessageStream(toReadableAsyncIterableStream(streamed!.stream), invocation)
+                  : streamed!.stream
                 const source = existingSource
                   ? { cancel: existingSource.cancel, stream: tracedStream }
                   : cancellableAsyncIterableSource(tracedStream)
@@ -5111,9 +5114,26 @@ async function executeAgentInvocationWithCapacityLease<
                     finishing = true
                     const finalOutcome = await cancelPreservedSources(outcome)
                     if (finishTask) return await finishTask
+                    let finishResult = streamed?.finishResult(preserved) ?? preserved
+                    if (finishResult !== preserved && Object.isExtensible(preserved)) {
+                      const collectedDescriptors: PropertyDescriptorMap = {}
+                      for (const key of ["text", "usage", "usageRecord"]) {
+                        const descriptor = Object.getOwnPropertyDescriptor(finishResult, key)
+                        if (descriptor) collectedDescriptors[key] = descriptor
+                      }
+                      Object.defineProperties(preserved, collectedDescriptors)
+                      finishResult = preserved
+                    }
                     finishTask = !finalOutcome.failed && !finalOutcome.completed
-                      ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
-                      : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
+                      ? lifecycle.finish({
+                          result: finishResult,
+                          status: "success",
+                          ...(streamed?.finishUsage()
+                            ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+                            : {}),
+                          usageResolved: true,
+                        })
+                      : finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
                     return await finishTask
                   },
                   { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
