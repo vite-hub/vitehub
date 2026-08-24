@@ -43,6 +43,18 @@ describe("UI documentation", () => {
     }
   });
 
+  it("sends component preview source through the Markdown syntax highlighter", () => {
+    const preview = readFileSync(
+      resolve(docsRoot, "app/components/content/ComponentPreview.vue"),
+      "utf8",
+    );
+
+    expect(preview).toContain('import highlighter from "#mdc-highlighter"');
+    expect(preview).toContain('<MDC :value="sourceBlock"');
+    expect(preview).toContain(':parser-options="sourceParserOptions"');
+    expect(preview).not.toContain("<code>{{ source }}</code>");
+  });
+
   it("loads previews through the public Nuxt module", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const manifest = readFileSync(resolve(docsRoot, "package.json"), "utf8");
