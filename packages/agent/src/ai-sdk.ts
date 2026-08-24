@@ -915,6 +915,8 @@ function createUsageCapture() {
   let captured = false
   let capturedUsage: unknown
   let metadataSource: unknown
+  let complete!: () => void
+  const completed = new Promise<void>((resolve) => { complete = resolve })
 
   const capture = (event: unknown) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -929,6 +931,7 @@ function createUsageCapture() {
   return {
     async onEnd(event: unknown) {
       capture(event)
+      complete()
     },
     async onStepEnd(event: unknown) {
       capture(event)
@@ -939,6 +942,7 @@ function createUsageCapture() {
     get captured() {
       return captured
     },
+    completed,
     get usage() {
       return captured ? Promise.resolve(capturedUsage) : undefined
     },
@@ -984,6 +988,10 @@ function withCapturedUsage(
     const resultUsage = record.usage
     const totalUsage = record.totalUsage
     const resolvedCapturedUsage = async (fallback: unknown) => {
+      if (hasRuntimeType(captures, "function")) {
+        const [primaryCapture] = captures()
+        await primaryCapture?.completed
+      }
       const resolvedFallback = await fallback
       return await capturedUsage() ?? resolvedFallback
     }
@@ -1085,7 +1093,7 @@ function withCapturedStreamUsage<T extends {
               async cancel(reason) {
                 await reader.cancel(reason)
               },
-            })
+            }, { highWaterMark: 0 })
           },
         }
       : {}),
