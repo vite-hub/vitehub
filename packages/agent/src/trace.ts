@@ -71,7 +71,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "step.id": event.id,
       "tool.id": event.id,
       "tool.name": event.name,
-      "tool.title": event.title,
+      ...(event.title !== undefined ? { "tool.title": event.title } : {}),
       "tool.hasInput": event.input !== undefined,
       ...(event.input !== undefined ? { "tool.input": event.input } : {}),
       "vitehub.activity.kind": event.activity?.kind || "tool",
