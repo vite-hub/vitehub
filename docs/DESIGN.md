@@ -29,16 +29,16 @@ Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, decorative lo
 
 ## Color
 
-The public docs use a monochrome system.
+The public docs use a monochrome system with equal light and dark modes.
 
-| Token | Value | Use |
-| --- | --- | --- |
-| Ink | `#09090b` | Logo, headings, high-contrast surfaces |
-| Paper | `#fafafa` | Light backgrounds and mark containers |
-| Graphite | `#18181b` | Dark surfaces |
-| Mist | `#f4f4f5` | Quiet surfaces |
-| Line | `#d4d4d8` | Borders and route rails |
-| Muted | `#71717a` | Secondary text and endpoint dots |
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| Canvas | `#ffffff` | `#09090b` | Page background |
+| Raised | `#fafafa` | `#18181b` | Cards, code, and raised controls |
+| Line | `#e4e4e7` | `#27272a` | Borders and route rails |
+| Text | `#3f3f46` | `#e4e4e7` | Body text |
+| Highlighted | `#18181b` | `#fafafa` | Logo, headings, and selected states |
+| Muted | `#71717a` | `#a1a1aa` | Secondary text and endpoint dots |
 
 Keep the system black, white, and zinc. Active states can use stronger ink, heavier borders, or route-line placement instead of hue.
 
