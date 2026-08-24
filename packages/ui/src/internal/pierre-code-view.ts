@@ -69,6 +69,26 @@ function controlledOptions<T extends { controlledSelection?: boolean }>(
   return selectedLines === undefined ? rawOptions : { ...rawOptions, controlledSelection: true };
 }
 
+function accessibleOptions<T extends { controlledSelection?: boolean; enableLineSelection?: boolean }>(
+  options: T | undefined,
+  selectedLines: unknown,
+) {
+  return {
+    ...controlledOptions(options, selectedLines),
+    enableLineSelection: false,
+  };
+}
+
+function accessibleDiffOptions(
+  options: FileDiffOptions<unknown> | undefined,
+  selectedLines: unknown,
+): FileDiffOptions<unknown> {
+  return {
+    ...accessibleOptions(options, selectedLines),
+    expandUnchanged: true,
+  };
+}
+
 function trackShallow<T>(value: T): T {
   const objectValue = Object(value);
   if (!Object.is(objectValue, value)) return toRaw(value);
@@ -128,7 +148,7 @@ export const PierreDiff = defineComponent({
         instance = undefined;
         return;
       }
-      const options = controlledOptions(props.options, props.selectedLines);
+      const options = accessibleDiffOptions(props.options, props.selectedLines);
       if (!instance) instance = new PierreFileDiffModel(options, undefined, true);
       instance.setOptions(options);
       instance.render({
@@ -169,7 +189,7 @@ export const PierreFile = defineComponent({
         instance = undefined;
         return;
       }
-      const options = controlledOptions(props.options, props.selectedLines);
+      const options = accessibleOptions(props.options, props.selectedLines);
       if (!instance) instance = new PierreFileModel(options, undefined, true);
       instance.setOptions(options);
       instance.render({
@@ -216,7 +236,7 @@ export const PierreUnresolvedFile = defineComponent({
         instance.cleanUp();
         instance = undefined;
       }
-      const options = controlledOptions(props.options, props.selectedLines);
+      const options = accessibleOptions(props.options, props.selectedLines);
       if (!instance) instance = new PierreUnresolvedFileModel(options, undefined, true);
       instance.setOptions(options);
       instance.render({
@@ -254,7 +274,7 @@ export const PierreCodeView = defineComponent({
     let instance: PierreCodeViewModel<unknown> | undefined;
     const render = () => {
       if (!host) return;
-      const options = controlledOptions(props.options, props.selectedLines);
+      const options = accessibleOptions(props.options, props.selectedLines);
       if (!instance) {
         instance = new PierreCodeViewModel(options, undefined, true);
         instance.setup(host);

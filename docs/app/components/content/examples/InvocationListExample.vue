@@ -40,7 +40,6 @@ const items: AgentInvocationListItem[] = [
     :items="items"
     :now="Date.parse('2026-08-23T09:20:00.000Z')"
     :selected-id="selectedId"
-    :virtual="false"
     aria-label="Example Agent sessions"
     class="max-h-80"
     @select="selectedId = $event.id"

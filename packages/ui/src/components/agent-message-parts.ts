@@ -46,7 +46,7 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
     [
       image
         ? h("img", {
-            alt: part.filename ?? "Attachment",
+            alt: "",
             class: "vh-attachment__preview",
             src: part.url,
           })

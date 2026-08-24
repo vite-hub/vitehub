@@ -53,6 +53,7 @@ export const AgentTrace = defineComponent({
                   h(
                     "article",
                     {
+                      "aria-label": step.name,
                       class: "vh-trace__step",
                       "data-status": step.status,
                       key: step.id,

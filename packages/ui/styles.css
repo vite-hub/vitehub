@@ -1,15 +1,16 @@
 :root {
   --vh-ui-radius: var(--ui-radius, 0.5rem);
   --vh-ui-border: var(--ui-border, color-mix(in oklab, currentColor 14%, transparent));
-  --vh-ui-muted: var(--ui-text-muted, color-mix(in oklab, currentColor 62%, transparent));
-  --vh-ui-dimmed: var(--ui-text-dimmed, color-mix(in oklab, currentColor 48%, transparent));
+  --vh-ui-muted: var(--ui-text-muted, color-mix(in oklab, currentColor 68%, transparent));
+  --vh-ui-dimmed: var(--ui-text-muted, color-mix(in oklab, currentColor 68%, transparent));
   --vh-ui-text: var(--ui-text, currentColor);
   --vh-ui-bg: var(--ui-bg, Canvas);
   --vh-ui-bg-muted: var(--ui-bg-muted, color-mix(in oklab, Canvas 94%, currentColor));
   --vh-ui-bg-elevated: var(--ui-bg-elevated, color-mix(in oklab, Canvas 96%, currentColor));
-  --vh-ui-error: var(--ui-error, #dc2626);
+  --vh-ui-error: var(--ui-error, #df3030);
   --vh-ui-info: var(--ui-info, #2563eb);
   --vh-ui-success: var(--ui-success, #16a34a);
+  --vh-ui-warning: var(--ui-warning, #ad6500);
 }
 
 .vh-chat {
@@ -966,6 +967,16 @@ button.vh-invocation-lifecycle__row:focus-visible {
   min-height: 1.5rem;
   padding: 0.125rem;
   transition: background-color 140ms ease, color 140ms ease;
+}
+
+button.vh-invocation-event__summary {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  width: 100%;
 }
 
 .vh-invocation-event__summary::-webkit-details-marker {
