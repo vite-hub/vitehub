@@ -12055,7 +12055,7 @@ describe("server helpers", () => {
       } else {
         await vi.waitFor(() => expect(interruptRecoveryReplacement).toBe(false))
         expect(interruptRecoveryPeek).toBe(false)
-        expect(ownerVerificationAttempts).toBe(4)
+        expect(ownerVerificationAttempts).toBe(5)
         expect(createBatch).toHaveBeenCalledTimes(2)
         expect(recoveryWorkflowClaimIds).toHaveLength(1)
       }
@@ -14451,6 +14451,10 @@ describe("server helpers", () => {
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
+    let acceptRecoveredRetry!: () => void
+    const recoveredRetryBlocked = new Promise<void>((resolve) => {
+      acceptRecoveredRetry = resolve
+    })
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {
       release = resolve
@@ -14463,6 +14467,10 @@ describe("server helpers", () => {
     })
     const createBatch = vi.fn(async ([{ params }]: Array<{ params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
+      if (createBatch.mock.calls.length === 3) {
+        await recoveredRetryBlocked
+        return [{ id: "recovered-retry", status: async () => ({ status: "queued" }) }]
+      }
       throw new Error("provider response was lost")
     })
     const agent = defineAgent({
@@ -14504,7 +14512,7 @@ describe("server helpers", () => {
           }
         | undefined
       expect(binding?.steer).toBeDefined()
-      binding!.steer!.ttlMs = 400
+      binding!.steer!.ttlMs = 40
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
@@ -14534,8 +14542,22 @@ describe("server helpers", () => {
       )
       await new Promise((resolve) => setTimeout(resolve, 10))
       expect(runs).toHaveBeenCalledOnce()
-      const extendLock = vi.spyOn(state, "extendLock").mockResolvedValue(false)
+      const originalExtendLock = state.extendLock.bind(state)
+      const extendLock = vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
+        if (lock.threadId.includes(":execution:")) return false
+        return await originalExtendLock(lock, ttlMs)
+      })
       await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
+
+      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3))
+      await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
+      await handler(chatWebhookRequest(91_145), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env },
+      })
+      expect(createBatch).toHaveBeenCalledTimes(3)
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
+      acceptRecoveredRetry()
 
       const replayOutcome = await replay
       expect(replayOutcome).toEqual({ value: undefined })
@@ -14547,14 +14569,9 @@ describe("server helpers", () => {
       expect(runs).toHaveBeenCalledOnce()
       expect(adapter.postMessage).not.toHaveBeenCalled()
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
-      expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
+      expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
       extendLock.mockRestore()
 
-      await handler(chatWebhookRequest(91_145), "telegram", {
-        agentIdentity: { name: "calories" },
-        cloudflare: { env },
-      })
-      expect(createBatch.mock.calls.length).toBeGreaterThanOrEqual(2)
       expect(workflowPayloads.at(-1)?.input?.messages?.map((message) => message.id)).toEqual(["91142"])
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
 
@@ -14563,6 +14580,7 @@ describe("server helpers", () => {
       expect(delivery).not.toMatchObject({ status: "failed" })
       expect(delivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "failed" })]))
     } finally {
+      acceptRecoveredRetry()
       release()
       setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()

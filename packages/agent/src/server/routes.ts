@@ -2686,6 +2686,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredInput, recoveredInvoker)
               }
               let recoveredWorkflowAccepted = false
+              let recoveredWorkflowRetryRegistered = false
               try {
                 if (recoveryOwnershipLost || recoveredOwnershipLost) {
                   throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
@@ -2712,9 +2713,13 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 }
               } catch (error) {
                 if (!recoveredWorkflowAccepted && isAmbiguousAgentWorkflowStartFailure(error)) {
+                  recoveredWorkflowRetryRegistered = true
                   registerAgentWorkflowRetry(
                     context,
                     new Promise<void>((resolve) => setTimeout(resolve, 10)).then(async () => {
+                      if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                        throw new Error("[vitehub] Durable steered Channel delivery lost recovered retry ownership.")
+                      }
                       await startAgentInvocation(
                         // SAFETY: The route resolver receives the internal Agent representation expected by startup.
                         agent as never,
@@ -2728,7 +2733,13 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                         // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                         recoveredWorkflowInput as never,
                       )
-                    }),
+                      if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) {
+                        recoveredOwnershipLost = true
+                      }
+                      if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                        throw new Error("[vitehub] Durable steered Channel delivery lost recovered retry ownership.")
+                      }
+                    }).finally(stopRecoveredHeartbeat),
                   )
                 }
                 if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
@@ -2754,7 +2765,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   throw error
                 }
               }
-              stopRecoveredHeartbeat()
+              if (!recoveredWorkflowRetryRegistered) stopRecoveredHeartbeat()
               stopExecutionHeartbeat()
               await resolved.state.releaseLock(executionLock).catch(() => undefined)
               return { handedOff: true, verify: async () => undefined, settle: async () => undefined }
