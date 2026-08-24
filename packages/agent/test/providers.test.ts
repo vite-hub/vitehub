@@ -12006,6 +12006,7 @@ describe("server helpers", () => {
       const callNumber = ++workflowStartCalls
       await workflowRejected
       if (callNumber === 1) throw Object.assign(new Error("Workflow unavailable"), { status: 503 })
+      // SAFETY: the test controls the Workflow input and only reads the optional steer claim ID it supplied.
       const delivery = params?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as { steer?: { claimId?: string } } | undefined
       if (delivery?.steer?.claimId) recoveryWorkflowClaimIds.push(delivery.steer.claimId)
       return [{ id, status: async () => ({ status: "queued" }) }]
