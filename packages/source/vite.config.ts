@@ -17,6 +17,7 @@ export default defineConfig({
     entry: [
       "src/client.ts",
       "src/content.ts",
+      "src/content/client.ts",
       "src/index.ts",
       "src/file.ts",
       "src/github.ts",
@@ -24,7 +25,6 @@ export default defineConfig({
       "src/markdown.ts",
       "src/mcp.ts",
       "src/server.ts",
-      "src/unstorage.ts",
     ],
     exports: {
       customExports(exports) {

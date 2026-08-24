@@ -476,7 +476,6 @@ export interface WorkspaceSource {
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
   getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
-  watch?: unknown[]
 }
 
 export interface WorkspaceSourceSyncPolicy {

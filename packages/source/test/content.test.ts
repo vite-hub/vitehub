@@ -1,9 +1,8 @@
-import { comarkContent } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { contentSource } from "../src/content.ts"
+import { contentSource, defineContent } from "../src/content.ts"
 import { clearSources, registerSources, useSource } from "../src/index.ts"
 
 afterEach(clearSources)
@@ -26,10 +25,9 @@ describe("contentSource", () => {
       },
     })
 
-    const content = comarkContent({
-      basePath: "/api/content",
+    const content = defineContent({
       plugins: [sqliteFullTextSearch({ database: sqlite() })],
-      sources: { docs: contentSource("docs") },
+      sources: { docs: "docs" },
     })
 
     await expect(content.list("docs")).resolves.toEqual([
@@ -79,7 +77,7 @@ describe("contentSource", () => {
       },
     })
 
-    const content = comarkContent({ sources: { live: contentSource("live" as any) } })
+    const content = defineContent({ sources: { live: "live" as any } })
     await expect(content.get("/", { fresh: true })).resolves.toEqual(
       expect.objectContaining({ nodes: expect.arrayContaining([expect.any(Array)]) }),
     )
@@ -135,6 +133,24 @@ describe("contentSource", () => {
     await expect(source.keys()).resolves.toEqual(["settings.json"])
     await expect(source.getItem("settings.json")).resolves.toBe('{"theme":"dark"}')
     await expect(source.getItemRaw("settings.json")).resolves.toEqual({ theme: "dark" })
+  })
+
+  it("preserves native Comark Content Sources", async () => {
+    const source = {
+      async keys() {
+        return ["index.md"]
+      },
+      async getItem() {
+        return "# Native"
+      },
+      async getItemRaw() {
+        return "# Native"
+      },
+    }
+
+    const content = defineContent({ sources: { native: source } })
+    expect(content.getSource("native")).toBe(source)
+    await expect(content.get("/")).resolves.toEqual(expect.objectContaining({ path: "/" }))
   })
 
   it("rejects duplicate public paths", async () => {

@@ -53,7 +53,6 @@ export interface Source<
   getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>>
   getItems?(ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>[]>
   getMeta?(key: TKey, ctx: SourceContext): Promise<TMetadata | undefined>
-  watch?: unknown[]
 }
 
 export interface SourceListEntry<TKey extends string = string> {

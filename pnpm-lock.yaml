@@ -95,6 +95,9 @@ catalogs:
       specifier: ^1.15.11
       version: 1.15.11
   markdown:
+    '@comark/html':
+      specifier: 0.6.2
+      version: 0.6.2
     comark:
       specifier: 0.6.2
       version: 0.6.2
@@ -994,6 +997,9 @@ importers:
 
   packages/email:
     dependencies:
+      '@comark/html':
+        specifier: catalog:markdown
+        version: 0.6.2(shiki@4.3.1)
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -1003,9 +1009,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      comark:
-        specifier: catalog:markdown
-        version: 0.6.2(shiki@4.3.1)
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1
@@ -1515,9 +1518,6 @@ importers:
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
-      unstorage:
-        specifier: catalog:storage
-        version: 2.0.0-alpha.7(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.0)(@vercel/blob@2.6.1)(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.3))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(lru-cache@11.5.2)(ofetch@1.5.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.3))
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
@@ -2824,6 +2824,20 @@ packages:
 
   '@colordx/core@5.5.0':
     resolution: {integrity: sha512-3PxTH8itZzltK0U9jTwVVnjLXvnDYuq3m+QXsHkENxWiPRh4WaoLcs1SQjqgZ55kS+QyirpH5BVwzP2gMVG6EQ==}
+
+  '@comark/html@0.6.2':
+    resolution: {integrity: sha512-ke1/rxpgsrRdfx/4LFURFQCqc2Bv/eVZd+Eenk8x/8IX4346HOGReiWuWWs11mpzHibkKFaPq56zWsnn7Eu8lw==}
+    peerDependencies:
+      beautiful-mermaid: '>=1.0'
+      katex: '>=0.16'
+      shiki: ^4.3.1
+    peerDependenciesMeta:
+      beautiful-mermaid:
+        optional: true
+      katex:
+        optional: true
+      shiki:
+        optional: true
 
   '@comark/vue@0.5.1':
     resolution: {integrity: sha512-uz5Oirzg7ruuJJItceWRswAftuMoY17Omge9bsUampmAL/XdI77YrBOozA5DlId+OCX0VXnt1tCCe4c1IrcJ7w==}
@@ -16424,6 +16438,14 @@ snapshots:
   '@cloudflare/workers-types@4.20260509.1': {}
 
   '@colordx/core@5.5.0': {}
+
+  '@comark/html@0.6.2(shiki@4.3.1)':
+    dependencies:
+      comark: 0.6.2(shiki@4.3.1)
+    optionalDependencies:
+      shiki: 4.3.1
+    transitivePeerDependencies:
+      - rangi
 
   '@comark/vue@0.5.1(shiki@4.3.1)(vue@3.5.40(typescript@6.0.3))':
     dependencies:

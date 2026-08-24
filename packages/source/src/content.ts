@@ -1,7 +1,17 @@
+import { comarkContent } from "comark-content"
+import { defineEventHandler } from "h3"
+
 import { normalizeSafeSourcePath } from "./core/path.ts"
 import { useSource } from "./core/registry.ts"
 
-import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
+import type {
+  ComarkContent,
+  ContentOptions,
+  ContentPlugin,
+  JsonSchema,
+  Source as ComarkContentSource,
+} from "comark-content"
+import type { H3Event } from "h3"
 import type { SourceItem, SourceName, SourceReader } from "./core/types.ts"
 
 export interface ContentSourceOptions {
@@ -10,7 +20,22 @@ export interface ContentSourceOptions {
 }
 
 type ContentSourceItem = SourceItem<string, unknown, object>
-export type ContentSourceInput = SourceName | SourceReader | (() => SourceReader)
+export type ContentSourceInput = SourceName | SourceReader | (() => SourceReader) | ComarkContentSource
+
+type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
+type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
+  ? TIntersection
+  : never
+type ContentMethods<TPlugins extends ReadonlyArray<ContentPlugin<any, any>>> =
+  TPlugins["length"] extends 0 ? unknown : UnionToIntersection<PluginMethods<TPlugins[number]>>
+
+export type DefineContentOptions<
+  TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
+> = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
+  plugins?: TPlugins
+  source?: ContentSourceInput
+  sources?: Record<string, ContentSourceInput>
+}
 
 function contentPath(item: ContentSourceItem): string {
   return normalizeSafeSourcePath(item.path || item.key)
@@ -28,15 +53,19 @@ function textContent(item: ContentSourceItem): string {
 
 /** Adapt a registered ViteHub Source or Source Reader to the interface consumed by Comark Content. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
+  if (typeof input === "object" && "getItem" in input && "keys" in input) {
+    return options.prefix === undefined && options.schema === undefined ? input : { ...input, ...options }
+  }
+  const sourceInput = input as SourceName | SourceReader | (() => SourceReader)
   const pendingLoads: Map<string, ContentSourceItem>[] = []
 
   async function loadItems() {
     const nextItems = new Map<string, ContentSourceItem>()
-    const currentReader = typeof input === "string"
-      ? useSource(input)
-      : typeof input === "function"
-        ? input()
-        : input
+    const currentReader = typeof sourceInput === "string"
+      ? useSource(sourceInput)
+      : typeof sourceInput === "function"
+        ? sourceInput()
+        : sourceInput
     for (const item of await currentReader.items()) {
       const path = contentPath(item)
       if (nextItems.has(path)) {
@@ -79,4 +108,28 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
       return item.data ?? item.content
     },
   }
+}
+
+/** Define the Comark Content runtime served by ViteHub from `server/content.ts`. */
+export function defineContent<
+  const TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = [],
+>(options: DefineContentOptions<TPlugins> = {}): ComarkContent & ContentMethods<TPlugins> {
+  const source = options.source ? contentSource(options.source) : undefined
+  const sources = options.sources
+    ? Object.fromEntries(Object.entries(options.sources).map(([name, input]) => [name, contentSource(input)]))
+    : undefined
+
+  return comarkContent({
+    ...options,
+    basePath: "/api/content",
+    source,
+    sources,
+  }) as ComarkContent & ContentMethods<TPlugins>
+}
+
+/** Adapt a Comark Content Web handler to an H3/Nitro route. */
+export function defineContentHandler(
+  content: Pick<ComarkContent, "handler">,
+): ReturnType<typeof defineEventHandler> {
+  return defineEventHandler((event: H3Event) => content.handler(event.req))
 }

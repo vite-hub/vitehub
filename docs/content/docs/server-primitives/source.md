@@ -53,8 +53,9 @@ export default defineEventHandler(() => {
 | `defineCollection`, `table` from `vite-hub/source`, `useCollection` from `vite-hub/source/client` | Turn a table or custom loader into a typed, paginated HTTP read model and consume it from Vue. |
 | `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `unstorage` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
-| `contentSource` from `vite-hub/source/content` | Let Comark Content parse, index, cache, query, search, and serve a ViteHub Source. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
+| `defineContent`, `contentSource` from `vite-hub/source/content` | Define the Comark Content runtime from registered ViteHub Sources or adapt one reader explicitly. |
+| `createContentClient` from `vite-hub/source/content/client` | Use Comark Content's typed runtime client. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
 Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Loader option types live beside their implementation subpath. Libraries that install the package directly can use the matching `@vite-hub/source` paths.
@@ -119,8 +120,6 @@ A custom `Source` implements the retrieval behavior directly.
 | `getItem(key, ctx)` | `function` | Returns a `SourceItem` for one key. |
 | `getItems(ctx)` | `function` | Optional bulk item reader. |
 | `getMeta(key, ctx)` | `function` | Optional metadata reader. |
-| `watch` | `unknown[]` | Optional watch descriptors for the consuming integration. Source does not start a watcher by itself. |
-
 `getKeys()` and `getItem()` are required. `resolveRevision()` and `prepare()` each run at most once for every `useSource()` reader before its first operation. The resolved revision is added to the shared context, so preparation, keys, items, and metadata observe the same origin snapshot. `getItems()` lets a consumer load all items in one call; `getMeta()` can return origin metadata without loading content.
 
 ### Source context
@@ -189,16 +188,14 @@ pnpm add vite-hub comark-content
 ```
 
 ```ts [server/content.ts]
-import { comarkContent } from 'comark-content'
 import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
-import { contentSource } from 'vite-hub/source/content'
+import { defineContent } from 'vite-hub/source/content'
 
-export const content = comarkContent({
-  basePath: '/api/content',
+export const content = defineContent({
   plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
-    docs: contentSource('docs'),
+    docs: 'docs',
   },
 })
 
@@ -206,18 +203,33 @@ await content.get('/guide')
 await content.navigation(['docs'])
 await content.search(['docs'], 'runtime')
 
-export function fetch(request: Request) {
-  return content.handler(request)
-}
 ```
 
-The adapter gives each Comark cache refresh a new Source Reader. That lets a
-runtime discover a newer origin revision without mixing revisions within one load.
+ViteHub discovers `server/content.ts` and serves its exported `content` instance
+at `/api/content/**` in Vite and Nuxt. `defineContent()` delegates the runtime
+contract to Comark and preserves methods contributed by its server plugins. No
+manual framework route or `fetch()` wrapper is required.
+
+Registered Source names, explicit Source Readers, and native Comark Content
+Sources can coexist in one definition. The ViteHub adapter gives each Comark
+cache refresh a new Source Reader, so a runtime can discover a newer origin
+revision without mixing revisions within one load.
 
 Use `sqlite-wasm` where Node SQLite is unavailable. Comark Content owns parsed
 document cache entries and exposes `refresh(source)`, `invalidate(key)`, and
 `expire(key)`. ViteHub therefore does not duplicate content parsing or ranked
 search inside Source.
+
+```ts [app/utils/content.ts]
+import { createContentClient } from 'vite-hub/source/content/client'
+import searchClient from 'comark-content/plugins/sqlite-full-text-search/client'
+
+export const content = createContentClient({
+  plugins: [searchClient()],
+})
+
+await content.search(['docs'], 'runtime')
+```
 
 Workspace keeps its filesystem search because it searches every visible file,
 including generated and non-content files. Collections also remain distinct:

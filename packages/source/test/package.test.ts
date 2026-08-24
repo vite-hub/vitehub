@@ -7,12 +7,12 @@ describe("@vite-hub/source package contract", () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/source", [
       ".",
       "./content",
+      "./content/client",
       "./file",
       "./github",
       "./glob",
       "./markdown",
       "./mcp",
-      "./unstorage",
     ])
   })
 })

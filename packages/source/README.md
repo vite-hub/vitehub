@@ -51,16 +51,14 @@ pnpm add @vite-hub/source comark-content
 ```
 
 ```ts
-import { comarkContent } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
-import { contentSource } from "@vite-hub/source/content"
+import { defineContent } from "@vite-hub/source/content"
 
-export const content = comarkContent({
-  basePath: "/api/content",
+export const content = defineContent({
   plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
-    docs: contentSource("docs"),
+    docs: "docs",
   },
 })
 
@@ -68,31 +66,36 @@ await content.get("/guide")
 await content.navigation(["docs"])
 await content.search(["docs"], "runtime")
 
-export function fetch(request: Request) {
-  return content.handler(request)
-}
 ```
 
-Each Comark cache refresh gets a new ViteHub Source Reader and origin revision,
-while every individual load remains pinned to one revision.
+With ViteHub's Vite or Nuxt integration, `server/content.ts` is discovered and
+served at `/api/content/**`; no framework route is required. `defineContent()`
+returns the Comark Content instance, including methods contributed by its query,
+search, references, and custom plugins. Each Comark cache refresh gets a new
+ViteHub Source Reader and origin revision, while every individual load remains
+pinned to one revision.
 
 Use `sqlite-wasm` instead of `sqlite-node` on runtimes without Node's SQLite
 module. Comark's cache accepts an unstorage driver and exposes
 `refresh(source)`, `invalidate(key)`, and `expire(key)`, so applications do not
 need a second parsed-content cache in ViteHub.
 
-If an unstorage driver is the origin rather than the derived cache, expose it as
-a ViteHub Source:
+Use Comark's native Sources directly when ViteHub retrieval is unnecessary:
 
 ```ts
-import fsDriver from "unstorage/drivers/fs"
-import { unstorage } from "@vite-hub/source/unstorage"
+import fs from "comark-content/sources/fs"
+import { defineContent } from "@vite-hub/source/content"
 
-const assets = unstorage({
-  driver: fsDriver({ base: ".data/assets" }),
-  prefix: "public",
+export const content = defineContent({
+  sources: {
+    assets: fs(".data/assets", { prefix: "public" }),
+  },
 })
 ```
+
+On the client, use `createContentClient` from
+`@vite-hub/source/content/client`. Add Comark's SQL-query or full-text-search
+client plugin to call the same plugin methods over the generated endpoint.
 
 Workspace search remains filesystem search over the visible Workspace tree.
 Comark search is semantic content search over parsed documents. They deliberately

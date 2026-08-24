@@ -48,7 +48,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "comark": "catalog:markdown",
+    "@comark/html": "catalog:markdown",
     "esbuild": "catalog:tooling",
     "unemail": "catalog:email"
   },

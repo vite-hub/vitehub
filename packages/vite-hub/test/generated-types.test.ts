@@ -38,6 +38,15 @@ function collectionModule(name: string): string {
   ].join("\n")
 }
 
+function contentModule(): string {
+  return [
+    `export const content = {`,
+    `  async handler(request: Request) { return new Response(request.url) },`,
+    `}`,
+    ``,
+  ].join("\n")
+}
+
 function configResolved(plugin: Plugin) {
   // SAFETY: This fixture invokes the documented Vite configResolved hook signature.
   return plugin.configResolved as (config: { root: string; [VITEHUB_SERVER_DIRS]?: string[] }) => Promise<void>
@@ -222,6 +231,66 @@ describe("framework generated types", () => {
     )
   })
 
+  it("serves server/content.ts through the Comark Content runtime", async () => {
+    const { root } = await createNestedProject()
+    await Promise.all([
+      mkdir(join(root, "server"), { recursive: true }),
+      symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir"),
+    ])
+    await writeFile(join(root, "server/content.ts"), contentModule())
+
+    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
+
+    expect(handlers).toEqual([{
+      handler: join(root, ".vitehub/content/route.mjs"),
+      route: "/api/content/**",
+    }])
+    await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineContentHandler } from "vite-hub/source/content"`,
+        `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
+        ``,
+        `export default defineContentHandler(content)`,
+        ``,
+      ].join("\n"),
+    )
+    await expect(import(pathToFileURL(handlers[0]!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
+  })
+
+  it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {
+    const { root } = await createNestedProject()
+    const firstServerDir = join(root, "api")
+    const secondServerDir = join(root, "admin")
+    await Promise.all([mkdir(firstServerDir), mkdir(secondServerDir)])
+    await Promise.all([
+      writeFile(join(firstServerDir, "content.ts"), contentModule()),
+      writeFile(join(secondServerDir, "content.ts"), contentModule()),
+    ])
+
+    await expect(viteHubTypesPlugin().api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [firstServerDir, secondServerDir],
+    })).rejects.toThrow("Content is defined in more than one server directory")
+
+    await rm(join(secondServerDir, "content.ts"))
+    await writeFile(join(firstServerDir, "content.ts"), "export const other = {}\n")
+    await expect(viteHubTypesPlugin().api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [firstServerDir],
+    })).rejects.toThrow('must export a Comark Content instance named "content"')
+  })
+
+  it("rejects a manual route that bypasses generated Content serving", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server/content.ts"), contentModule())
+
+    await expect(config(viteHubTypesPlugin())({
+      nitro: { handlers: [{ handler: "server/api/content.post.ts", method: "post", route: "/api/content/**" }] },
+      root,
+    })).rejects.toThrow('Generated Content route "/api/content/**" conflicts with an existing handler')
+  })
+
   it.each([
     ["meals.mjs", "meals.d.mts"],
     ["meals.cjs", "meals.d.cts"],
@@ -282,7 +351,7 @@ describe("framework generated types", () => {
       },
     ])
     expect(userConfig.nitro.modules).toContainEqual(
-      expect.objectContaining({ name: "vite-hub/collection-route-guard" }),
+      expect.objectContaining({ name: "vite-hub/generated-route-guard" }),
     )
   })
 

@@ -15,14 +15,15 @@ import type { Plugin } from "vite"
 const viteHubTypesEntry = ".vitehub/types.d.ts"
 const collectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
+const contentRouteEntry = ".vitehub/content/route.mjs"
 
-export interface GeneratedCollectionHandler {
+export interface GeneratedServerHandler {
   handler: string
-  method: "get"
+  method?: "get"
   route: string
 }
 
-interface NitroCollectionConfig {
+interface NitroGeneratedConfig {
   handlers?: Array<{
     handler: string
     method?: string
@@ -41,20 +42,32 @@ interface NitroRouteGuard {
   }>
 }
 
-function collectionRouteGuard(collectionHandlers: GeneratedCollectionHandler[]) {
+function generatedRouteOwner(handler: GeneratedServerHandler): "Collection" | "Content" {
+  return handler.route === "/api/content/**" ? "Content" : "Collection"
+}
+
+function methodsOverlap(left: string | undefined, right: string | undefined): boolean {
+  return !left || !right || left.toLowerCase() === right.toLowerCase()
+}
+
+function generatedRouteDescription(handler: GeneratedServerHandler): string {
+  return handler.method ? `${handler.method.toUpperCase()} handler` : "handler"
+}
+
+function generatedRouteGuard(generatedHandlers: GeneratedServerHandler[]) {
   return {
-    name: "vite-hub/collection-route-guard",
+    name: "vite-hub/generated-route-guard",
     setup(nitro: NitroRouteGuard) {
       nitro.hooks.hook("build:before", () => {
-        for (const collectionHandler of collectionHandlers) {
+        for (const generatedHandler of generatedHandlers) {
           const duplicate = nitro.scannedHandlers.some(
             candidate =>
-              candidate.route === collectionHandler.route &&
-              (!candidate.method || candidate.method.toLowerCase() === collectionHandler.method),
+              candidate.route === generatedHandler.route &&
+              methodsOverlap(candidate.method, generatedHandler.method),
           )
           if (duplicate) {
             throw new TypeError(
-              `[vitehub] Generated Collection route ${JSON.stringify(collectionHandler.route)} conflicts with an existing GET handler. Remove the matching server route.`,
+              `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.`,
             )
           }
         }
@@ -63,30 +76,30 @@ function collectionRouteGuard(collectionHandlers: GeneratedCollectionHandler[]) 
   }
 }
 
-export function mergeGeneratedCollectionNitroConfig(
+export function mergeGeneratedNitroConfig(
   value: unknown,
-  collectionHandlers: GeneratedCollectionHandler[],
-): NitroCollectionConfig {
-  const nitro: NitroCollectionConfig = {}
+  generatedHandlers: GeneratedServerHandler[],
+): NitroGeneratedConfig {
+  const nitro: NitroGeneratedConfig = {}
   if (Object(value) === value && !Array.isArray(value)) Object.assign(nitro, value)
-  if (collectionHandlers.length === 0) return nitro
+  if (generatedHandlers.length === 0) return nitro
   const handlers = Array.isArray(nitro.handlers) ? [...nitro.handlers] : []
 
-  for (const handler of collectionHandlers) {
+  for (const handler of generatedHandlers) {
     const exact = handlers.some(
       candidate =>
         candidate.handler === handler.handler &&
         candidate.route === handler.route &&
-        candidate.method?.toLowerCase() === handler.method,
+        candidate.method?.toLowerCase() === handler.method?.toLowerCase(),
     )
     if (exact) continue
     const duplicate = handlers.some(
       candidate =>
-        candidate.route === handler.route && (!candidate.method || candidate.method.toLowerCase() === handler.method),
+        candidate.route === handler.route && methodsOverlap(candidate.method, handler.method),
     )
     if (duplicate) {
       throw new TypeError(
-        `[vitehub] Generated Collection route ${JSON.stringify(handler.route)} conflicts with an existing GET handler. Remove the matching server route.`,
+        `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.`,
       )
     }
     handlers.push(handler)
@@ -95,10 +108,10 @@ export function mergeGeneratedCollectionNitroConfig(
   const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []
   if (
     !modules.some(
-      module => Object(module) === module && Reflect.get(Object(module), "name") === "vite-hub/collection-route-guard",
+      module => Object(module) === module && Reflect.get(Object(module), "name") === "vite-hub/generated-route-guard",
     )
   ) {
-    modules.push(collectionRouteGuard(collectionHandlers))
+    modules.push(generatedRouteGuard(generatedHandlers))
   }
   return { ...nitro, handlers, modules }
 }
@@ -208,7 +221,7 @@ async function discoverCollections(options: ViteHubTypesOptions): Promise<Discov
   return collections
 }
 
-async function writeCollectionArtifacts(options: ViteHubTypesOptions): Promise<GeneratedCollectionHandler[]> {
+async function writeCollectionArtifacts(options: ViteHubTypesOptions): Promise<GeneratedServerHandler[]> {
   const collections = await discoverCollections(options)
   const output = resolve(options.projectRoot, collectionTypesEntry)
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
@@ -258,6 +271,60 @@ async function writeCollectionArtifacts(options: ViteHubTypesOptions): Promise<G
   )
 }
 
+async function discoverContent(options: ViteHubTypesOptions): Promise<string | undefined> {
+  const serverDirs = options.serverDirs === undefined
+    ? [resolve(options.projectRoot, "server")]
+    : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
+  const candidates: string[] = []
+
+  for (const serverDir of serverDirs) {
+    let entries
+    try {
+      entries = await readdir(serverDir, { withFileTypes: true })
+    } catch (error) {
+      if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") continue
+      throw error
+    }
+    candidates.push(...entries
+      .filter(entry => entry.isFile() && /^content\.(?:[cm]?[jt]s)$/.test(entry.name) && !/\.d\.[cm]?ts$/.test(entry.name))
+      .map(entry => join(serverDir, entry.name)))
+  }
+
+  candidates.sort()
+  if (candidates.length > 1) {
+    throw new TypeError("[vitehub] Content is defined in more than one server directory.")
+  }
+  const file = candidates[0]
+  if (!file) return
+  if (!findExportNames(await readFile(file, "utf8")).includes("content")) {
+    throw new TypeError(
+      `[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".`,
+    )
+  }
+  return file
+}
+
+async function writeContentArtifact(options: ViteHubTypesOptions): Promise<GeneratedServerHandler[]> {
+  const output = resolve(options.projectRoot, contentRouteEntry)
+  const file = await discoverContent(options)
+  if (!file) {
+    await rm(output, { force: true })
+    return []
+  }
+
+  await writeFileIfChanged(
+    output,
+    [
+      `import { defineContentHandler } from "vite-hub/source/content"`,
+      `import { content } from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`,
+      ``,
+      `export default defineContentHandler(content)`,
+      ``,
+    ].join("\n"),
+  )
+  return [{ handler: output, route: "/api/content/**" }]
+}
+
 async function collectGeneratedTypeFiles(directory: string, root = directory): Promise<string[]> {
   let entries
   try {
@@ -300,9 +367,12 @@ function applicationBaseURL(base: string | undefined): string {
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
-async function writeViteHubTypes(input: string | ViteHubTypesOptions): Promise<GeneratedCollectionHandler[]> {
+async function writeViteHubTypes(input: string | ViteHubTypesOptions): Promise<GeneratedServerHandler[]> {
   const options = isString(input) ? { projectRoot: input } : input
-  const handlers = await writeCollectionArtifacts(options)
+  const handlers = [
+    ...await writeCollectionArtifacts(options),
+    ...await writeContentArtifact(options),
+  ].sort((left, right) => left.route.localeCompare(right.route))
   const directory = resolve(options.projectRoot, ".vitehub")
   const files = (await collectGeneratedTypeFiles(directory)).sort()
   const references = files.map(file => `/// <reference path="./${file}" />`).join("\n")
@@ -341,7 +411,7 @@ export function viteHubTypesPlugin(): Plugin &
         ...viteConfig.define,
         __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)),
       }
-      viteConfig.nitro = mergeGeneratedCollectionNitroConfig(viteConfig.nitro, handlers)
+      viteConfig.nitro = mergeGeneratedNitroConfig(viteConfig.nitro, handlers)
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
@@ -351,7 +421,7 @@ export function viteHubTypesPlugin(): Plugin &
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await writeViteHubTypes({ projectRoot, serverDirs })
       if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
-        viteConfig.nitro = mergeGeneratedCollectionNitroConfig(viteConfig.nitro, handlers)
+        viteConfig.nitro = mergeGeneratedNitroConfig(viteConfig.nitro, handlers)
       }
     },
     buildStart: refreshGeneratedTypes,
