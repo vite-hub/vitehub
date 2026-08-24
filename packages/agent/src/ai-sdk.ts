@@ -1322,6 +1322,7 @@ async function createAgent(
           const schema = await inputSchema({ toolName: toolCall.toolName })
           const usageCapture = createUsageCapture()
           toolRepairUsageCaptures.push(usageCapture)
+          // SAFETY: AI SDK adapter normalization establishes the asserted agent settings contract.
           const toolRepairAgent = new ToolLoopAgent({
             ...repairSettings,
             instructions,
@@ -1331,6 +1332,7 @@ async function createAgent(
             ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
             stopWhen: isStepCount(1),
           } as never)
+          // SAFETY: The one-step repair agent returns the asserted generated result contract.
           const result = await toolRepairAgent.generate({
             onEnd: usageCapture.onEnd,
             onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
@@ -1384,8 +1386,8 @@ async function createAgent(
           }
           catch (repairError) {
             const repairedFailure = await nativeAgentOutputValidationFailure(context.output, repairError)
-            const code = hasRuntimeType(repairError, "object")
-              ? (repairError as { code?: unknown }).code
+            const code = repairError !== null && hasRuntimeType(repairError, "object")
+              ? Reflect.get(repairError, "code")
               : undefined
             if (!repairedFailure && code !== "AGENT_OUTPUT_INVALID_JSON" && code !== "AGENT_OUTPUT_SCHEMA_INVALID") {
               return await normalizeNativeAgentOutputError(context.output, repairError)
@@ -1411,6 +1413,7 @@ async function createAgent(
       model: instrumentedModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
+      // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,

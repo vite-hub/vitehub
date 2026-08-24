@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
+import { is, object, string } from "valibot"
 
 import { defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
+
+vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+
+const stringSchema = string()
 
 const outputSchema = {
   "~standard": {
@@ -13,8 +18,8 @@ const outputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string"
-        ? { value: value as { text: string } }
+      return is(object({ text: stringSchema }), value)
+        ? { value }
         : { issues: [{ message: "Expected text to be a string" }] }
     },
     vendor: "vitehub-test",
@@ -33,7 +38,7 @@ function model(responses: Array<ModelContent | string>) {
       const response = responses[calls.length - 1]
       if (response === undefined) throw new Error("Unexpected model call")
       return {
-        content: typeof response === "string" ? [{ text: response, type: "text" }] : response,
+        content: is(stringSchema, response) ? [{ text: response, type: "text" }] : response,
         finishReason: { raw: "stop", unified: "stop" },
         usage: {
           inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -69,8 +74,8 @@ const toolInputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return value && typeof value === "object" && typeof (value as { query?: unknown }).query === "string"
-        ? { value: value as { query: string } }
+      return is(object({ query: stringSchema }), value)
+        ? { value }
         : { issues: [{ message: "Expected query to be a string" }] }
     },
     vendor: "vitehub-test",
@@ -92,6 +97,7 @@ function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: 
     })],
     driver: {
       execution: repairToolCall === undefined ? undefined : { repairToolCall },
+      // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
       model: fakeModel as never,
     },
     runtime: false,
@@ -102,7 +108,11 @@ describe("AI SDK recovery", () => {
   it("repairs structured output with three total attempts by default", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":\"repaired\"}"])
     const agent = defineAgent({
-      driver: { model: fakeModel as never, output: { schema: outputSchema } },
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+        output: { schema: outputSchema },
+      },
       runtime: false,
     })
 
@@ -113,7 +123,11 @@ describe("AI SDK recovery", () => {
   it("allows structured-output repair to be disabled", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":\"must not run\"}"])
     const agent = defineAgent({
-      driver: { model: fakeModel as never, output: { maxAttempts: 1, schema: outputSchema } },
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+        output: { maxAttempts: 1, schema: outputSchema },
+      },
       runtime: false,
     })
 
@@ -124,7 +138,11 @@ describe("AI SDK recovery", () => {
   it("rejects invalid structured-output attempt limits", async () => {
     const fakeModel = model(["{\"text\":\"unused\"}"])
     const agent = defineAgent({
-      driver: { model: fakeModel as never, output: { maxAttempts: 0, schema: outputSchema } },
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+        output: { maxAttempts: 0, schema: outputSchema },
+      },
       runtime: false,
     })
 
@@ -140,9 +158,9 @@ describe("AI SDK recovery", () => {
       "Finished",
     ])
 
-    const result = await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" }) as { text: string }
+    const result = await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" })
 
-    expect(result.text).toBe("Finished")
+    expect(result).toMatchObject({ text: "Finished" })
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.calls).toHaveLength(3)
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
@@ -155,9 +173,9 @@ describe("AI SDK recovery", () => {
       "Could not call the tool",
     ])
 
-    const result = await runAgentInline(toolCallingAgent(fakeModel, executions, false), runtime, { prompt: "Search" }) as { text: string }
+    const result = await runAgentInline(toolCallingAgent(fakeModel, executions, false), runtime, { prompt: "Search" })
 
-    expect(result.text).toBe("Could not call the tool")
+    expect(result).toMatchObject({ text: "Could not call the tool" })
     expect(executions).not.toHaveBeenCalled()
     expect(fakeModel.calls).toHaveLength(2)
   })
@@ -169,9 +187,9 @@ describe("AI SDK recovery", () => {
       "Unknown tool",
     ])
 
-    const result = await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" }) as { text: string }
+    const result = await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" })
 
-    expect(result.text).toBe("Unknown tool")
+    expect(result).toMatchObject({ text: "Unknown tool" })
     expect(executions).not.toHaveBeenCalled()
     expect(fakeModel.calls).toHaveLength(2)
     expect(fakeModel.calls.some(call => call.responseFormat)).toBe(false)
