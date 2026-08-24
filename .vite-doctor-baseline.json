@@ -2220,6 +2220,36 @@
       "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/ui/src/internal/invocation-activity.ts",
       "fingerprint": "55ab8e3706cb09fcec680f6046fe6dcf74b3649d2fa1d296bc7e198ed9adb474"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "df5ed41abd1bbf883080f02a66c73bc6aeebbea0b82d114188f7e1d2cef659c8"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "4c63b7c59a24914aa1532e22e71c7214e503d1df9f847b11298060081b63d9f8"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "e9306a7dc159778a4df3a22f33f4f495b98fde1a806d8600933b117caa5db5a0"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/eve-extension.test.ts",
+      "fingerprint": "1238818c25121c059fa01d343f966750d9e34cea3363c630a6eaa6baa72673d7"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "ce65b012f753f5ec528e3593da197e50b2a83a0cc8d1d7a344d7589fbc6d89f7"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "e440fef4835c185e3db3193b8be392b95d7ab1b2bb67236cf675e6e21bee857c"
     }
   ]
 }

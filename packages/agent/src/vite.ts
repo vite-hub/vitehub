@@ -1110,6 +1110,7 @@ export async function transformEveExtensionCapabilities(
   const staticObjects = new Map<string, PositionedNode>()
   const exportedStaticArrays = new Set<PositionedNode>()
   const optionFactories = new Map<string, PositionedNode>()
+  const optionValues = new Map<string, PositionedNode>()
   const dynamicOptionFactoryRanges = new Set<PositionedNode>()
   const references = new Map<string, number>()
   const functionRanges: Array<{ end: number, start: number }> = []
@@ -1134,6 +1135,7 @@ export async function transformEveExtensionCapabilities(
       const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
       if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
       if (!isPositionedNode(initializer)) continue
+      optionValues.set(identifier.name, initializer)
       if (initializer.type.includes("Function")) optionFactories.set(identifier.name, initializer)
       if (initializer.type === "ArrayExpression") {
         staticArrays.set(identifier.name, initializer)
@@ -1215,6 +1217,8 @@ export async function transformEveExtensionCapabilities(
     ...defineAgentNamespaces,
     ...staticArrays.keys(),
     ...staticObjects.keys(),
+    ...optionFactories.keys(),
+    ...optionValues.keys(),
   ])
   const bindingNames = (value: unknown): string[] => {
     if (!isPositionedNode(value)) return []
@@ -1312,11 +1316,20 @@ export async function transformEveExtensionCapabilities(
       calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
     }
   }
-  function collectDynamicOptionFactories(value: PositionedNode): void {
+  function collectDynamicOptionFactories(value: PositionedNode, seen = new Set<PositionedNode>()): void {
     const expression = unwrapTypeScriptExpression(value)
+    if (seen.has(expression)) return
+    seen.add(expression)
+    if (expression.type === "Identifier" && typeof expression.name === "string") {
+      if (shadowRanges.get(expression.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
+      const initializer = optionValues.get(expression.name)
+      if (initializer) collectDynamicOptionFactories(initializer, seen)
+      return
+    }
     if (expression.type === "CallExpression") {
       const callee = expression.callee
       if (isPositionedNode(callee) && callee.type === "Identifier" && typeof callee.name === "string") {
+        if (shadowRanges.get(callee.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
         const factory = optionFactories.get(callee.name)
         if (factory) dynamicOptionFactoryRanges.add(factory)
       }
@@ -1325,7 +1338,7 @@ export async function transformEveExtensionCapabilities(
     if (expression.type !== "ObjectExpression") return
     for (const property of Array.isArray(expression.properties) ? expression.properties : []) {
       if (!isPositionedNode(property) || property.type !== "SpreadElement" || !isPositionedNode(property.argument)) continue
-      collectDynamicOptionFactories(property.argument)
+      collectDynamicOptionFactories(property.argument, seen)
     }
   }
   visitNodes(program, (node) => {
