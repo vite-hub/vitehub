@@ -244,6 +244,8 @@ describe("AI SDK recovery", () => {
     })
 
     const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    // SAFETY: streamAgentInline exposes the AI SDK usage promise on its documented stream result.
+    const earlyUsage = (result as { usage: Promise<unknown> }).usage
     const events = []
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
     for await (const event of result as AsyncIterable<unknown>) events.push(event)
@@ -251,6 +253,39 @@ describe("AI SDK recovery", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }))
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
     expect(fakeModel.calls).toHaveLength(1)
+    await expect(earlyUsage).resolves.toMatchObject({ totalTokens: 4 })
+  })
+
+  it("repairs streamed output when native object output is unavailable", async () => {
+    const fakeModel = model(['"repaired"'])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: "1", id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({ finishReason: { raw: "stop", unified: "stop" }, type: "finish", usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } } })
+          controller.close()
+        },
+      }),
+    }))
+    const scalarSchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ type: "string" }), output: () => ({ type: "string" }) },
+        validate(value: unknown) {
+          return typeof value === "string" ? { value } : { issues: [{ message: "Expected string" }] }
+        },
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({ driver: { model: { ...fakeModel, doStream } as never, output: { schema: scalarSchema } }, runtime: false })
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    const events = []
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+    expect(events).toContainEqual({ data: "repaired", type: "data" })
   })
 
   it.each([true, false])("includes completed tool evidence when repairing streamed structured output with workspace fallback %s", async (workspaceFallback) => {
@@ -596,14 +631,30 @@ describe("AI SDK recovery", () => {
   })
 
   it("cancels structured materialization when the UI-message consumer returns", async () => {
-    const fakeModel = streamingRepairModel()
+    let cancelCount = 0
+    const fakeModel = {
+      ...model([]),
+      async doStream() {
+        return {
+          stream: new ReadableStream({
+            cancel() {
+              cancelCount += 1
+            },
+            pull() {
+              // Keep the first provider read pending until the caller cancels.
+            },
+          }, { highWaterMark: 0 }),
+        }
+      },
+    }
     const stream = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, { prompt: "Search" }, { output: "ui-message-stream" })
+    // SAFETY: UI-message output is a ReadableStream under the selected output contract.
     const reader = (stream as ReadableStream<unknown>).getReader()
 
     await reader.read()
     await reader.cancel()
 
-    await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
+    await vi.waitFor(() => expect(cancelCount).toBe(1))
   })
 
   it("includes tool-call repair usage in UI-message streamed invocations", async () => {

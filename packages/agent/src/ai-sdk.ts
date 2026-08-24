@@ -1020,7 +1020,10 @@ function withCapturedUsage(
         if (!primaryCapture) return undefined
         if (!primaryCapture.captured && !fallback.exists) return undefined
         await primaryCapture.started
-        await Promise.race([primaryCapture.published, primaryCapture.completed])
+        await primaryCapture.completed
+        // Output correction starts after the primary stream completes. Let the
+        // materializer register that capture before taking the aggregate snapshot.
+        await Promise.resolve()
         return await capturedUsage()
       }
       const fallbackUsage = fallback.exists ? await fallback.read() : undefined

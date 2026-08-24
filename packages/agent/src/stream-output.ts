@@ -512,7 +512,11 @@ export async function finalizeUiMessageStreamOutput(
       ? createAgentUIMessageStream({
           execute: async ({ abortSignal, writer }) => {
             const iterator = rendered[Symbol.asyncIterator]()
-            const cancel = () => { void Promise.resolve(iterator.return?.(abortSignal.reason)).catch(() => {}) }
+            const directCancel = Reflect.get(rendered, Symbol.for("vitehub.agent.stream.cancel"))
+            const cancel = () => {
+              if (typeof directCancel === "function") directCancel(abortSignal.reason)
+              void Promise.resolve(iterator.return?.(abortSignal.reason)).catch(() => {})
+            }
             abortSignal.addEventListener("abort", cancel, { once: true })
             try {
               await writeEventsToUiMessageStream(writer, { [Symbol.asyncIterator]: () => iterator }, {

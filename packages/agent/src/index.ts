@@ -4588,7 +4588,25 @@ async function materializeAgentStructuredOutput(
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
   }
-  return resultWithUsageRecord(text, usageRecord)
+  const materialized = resultWithUsageRecord(text, usageRecord)
+  if (output) {
+    try {
+      await validateAgentOutput(output, materialized)
+    }
+    catch (error) {
+      const repair = result && hasRuntimeType(result, "object")
+        ? Reflect.get(result, agentOutputRepairSymbol)
+        : undefined
+      if (hasRuntimeType(repair, "function")) {
+        return await repair({
+          error: error instanceof Error ? error : new Error(String(error)),
+          text,
+        })
+      }
+      throw error
+    }
+  }
+  return materialized
 }
 
 function materializeAgentStructuredOutputWithEvents(
@@ -4621,31 +4639,37 @@ function materializeAgentStructuredOutputWithEvents(
     void materialized.catch(() => {})
     return materialized
   }
-  return {
-    events: (async function* () {
-      try {
-        materialize()
-        while (!settled || retainedEvent) {
-          if (!retainedEvent) {
-            await new Promise<void>(resolve => { wake = resolve })
-            continue
-          }
-          const retained = retainedEvent
-          retainedEvent = undefined
-          try {
-            yield retained.event
-          }
-          finally {
-            retained.consumed()
-          }
+  const cancel = (reason?: unknown) => {
+    if (!settled) cancellation.abort(reason ?? new DOMException("[vitehub] Structured Agent output stream cancelled.", "AbortError"))
+  }
+  const events = (async function* () {
+    try {
+      materialize()
+      while (!settled || retainedEvent) {
+        if (!retainedEvent) {
+          await new Promise<void>(resolve => { wake = resolve })
+          continue
+        }
+        const retained = retainedEvent
+        retainedEvent = undefined
+        try {
+          yield retained.event
+        }
+        finally {
+          retained.consumed()
         }
       }
-      finally {
-        if (!settled) cancellation.abort(new DOMException("[vitehub] Structured Agent output stream cancelled.", "AbortError"))
-        retainedEvent?.consumed()
-        await materialized?.catch(() => {})
-      }
-    })(),
+    }
+    finally {
+      cancel()
+      retainedEvent?.consumed()
+      await materialized?.catch(() => {})
+    }
+  })()
+  Object.defineProperty(events, Symbol.for("vitehub.agent.stream.cancel"), { value: cancel })
+  return {
+    cancel,
+    events,
     get result() {
       return materialize()
     },
@@ -5483,6 +5507,7 @@ async function executeAgentInvocationWithCapacityLease<
     const structuredOutput = invocation.output
     let structuredFinishResult = rendered
     let structuredUsageRecord: AgentUsageRecord | undefined
+    let cancelStructuredMaterialization: ((reason?: unknown) => void) | undefined
     const stream = structuredOutput
       ? (async function* () {
           const materialization = materializeAgentStructuredOutputWithEvents(
@@ -5491,9 +5516,16 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.context.get(agentOutputEventObserverContextKey),
             structuredOutput,
           )
-          for await (const event of materialization.events) yield event
+          cancelStructuredMaterialization = materialization.cancel
+          try {
+            for await (const event of materialization.events) yield event
+          }
+          finally {
+            materialization.cancel()
+          }
           const materialized = await materialization.result
           structuredUsageRecord = usageRecordFromStreamChunk(materialized)
+            ?? await resolveAgentUsageRecord(streamResult, invocation.run)
           structuredFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
           yield { data: structuredFinishResult, type: "data" }
           yield { type: "finish" }
@@ -5502,6 +5534,11 @@ async function executeAgentInvocationWithCapacityLease<
         ? streamAgentOutputToEvents(streamResult)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
+    if (structuredOutput) {
+      Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), {
+        value: (reason?: unknown) => cancelStructuredMaterialization?.(reason),
+      })
+    }
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
     const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
