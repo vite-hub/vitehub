@@ -30,7 +30,7 @@ function dedupeProviderPromise<TResult>(
   return nextPromise
 }
 
-export function github<const TKey extends string = string>(options: GitHubSourceOptions): Source<TKey> {
+export function github(options: GitHubSourceOptions): Source<string> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)
@@ -57,9 +57,9 @@ export function github<const TKey extends string = string>(options: GitHubSource
 
   function keyForRepoPath(path: string) {
     const normalized = normalizeSourcePath(path)
-    if (!root) return normalized as TKey
+    if (!root) return normalized
     if (!normalized.startsWith(`${root}/`)) return undefined
-    return normalized.slice(root.length + 1) as TKey
+    return normalized.slice(root.length + 1)
   }
 
   function repoPathForKey(key: string) {

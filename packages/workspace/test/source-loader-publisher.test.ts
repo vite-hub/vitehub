@@ -1525,15 +1525,8 @@ describe("sources, loaders, and publishers", () => {
   })
 
   it("rejects unsafe workspace asset paths", async () => {
-    const workspace = {
-      name: "unsafe",
-      async glob() {
-        return [{ path: "../escape.txt", type: "file" }]
-      },
-      async readFile() {
-        return "escape"
-      },
-    } as unknown as WorkspaceStore
+    const workspace = createMemoryWorkspaceStore()
+    workspace.glob = async () => [{ path: "../escape.txt", type: "file" }]
 
     await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("escapes the workspace root")
   })

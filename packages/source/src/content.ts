@@ -58,6 +58,7 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
   }
   const sourceInput = input as SourceName | SourceReader | (() => SourceReader)
   const pendingLoads: Map<string, ContentSourceItem>[] = []
+  let latestItems: Map<string, ContentSourceItem> | undefined
 
   async function loadItems() {
     const nextItems = new Map<string, ContentSourceItem>()
@@ -94,7 +95,13 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
     ...(options.schema === undefined ? {} : { schema: options.schema }),
     async keys() {
       const items = await loadItems()
-      pendingLoads.push(new Map(items))
+      latestItems = items
+      const pendingItems = new Map(items)
+      pendingLoads.push(pendingItems)
+      setTimeout(() => {
+        const loadIndex = pendingLoads.indexOf(pendingItems)
+        if (loadIndex !== -1) pendingLoads.splice(loadIndex, 1)
+      }, 0)
       return [...items.keys()]
     },
     async getItem(key) {
@@ -103,7 +110,8 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
       return textContent(item)
     },
     async getItemRaw(key) {
-      const item = await findItem(key)
+      const path = normalizeSafeSourcePath(key)
+      const item = (latestItems ?? await loadItems()).get(path)
       if (!item) return
       return item.data ?? item.content
     },

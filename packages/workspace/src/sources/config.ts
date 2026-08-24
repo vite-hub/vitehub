@@ -384,7 +384,7 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
 
 function inferredFileSourceKey(input: WorkspaceSourceInput): string {
   if (typeof input === "string") return normalizeSafeWorkspacePath(input)
-  const options = input as unknown as Record<string, unknown>
+  const options = input as Record<string, unknown>
   if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
   if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
   throw new TypeError("[vitehub] file requires a path or workspacePath.")

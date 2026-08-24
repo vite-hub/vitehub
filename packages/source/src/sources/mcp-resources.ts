@@ -48,20 +48,7 @@ export type McpResourceContent =
   | { _meta?: Record<string, unknown>, blob: string, mimeType?: string, uri: string }
   | { _meta?: Record<string, unknown>, mimeType?: string, text: string, uri: string }
 
-type McpResourcesMessage =
-  | { id: number | string, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
-  | { id?: never, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
-  | { id: number | string, jsonrpc: "2.0", method?: never, result: { [key: string]: unknown, _meta?: Record<string, unknown> } }
-  | { error: { code: number, data?: unknown, message: string }, id: number | string, jsonrpc: "2.0", method?: never }
-
-export interface McpResourcesTransport {
-  close(): Promise<void>
-  onclose?: () => void
-  onerror?: (error: Error) => void
-  onmessage?: (message: McpResourcesMessage) => void
-  send(message: McpResourcesMessage): Promise<void>
-  start(): Promise<void>
-}
+export type McpResourcesTransport = Transport
 
 export interface McpResourcesClient {
   close?: () => void | Promise<void>
@@ -153,7 +140,7 @@ function isMcpTransport(value: unknown): value is McpResourcesTransport {
 }
 
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
-  if (isMcpTransport(config)) return config as unknown as Transport
+  if (isMcpTransport(config)) return config
   const { type = "http", url, ...options } = config
   if (type === "sse") {
     const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js")
@@ -209,7 +196,7 @@ async function withMcpClient<T>(
           signal => client.connect(transport, { signal }),
         ).pipe(
           Effect.andThen(mcpEffectBoundary.tryPromise(
-            signal => callback(client as unknown as McpResourcesClient, withRequestSignal(request, signal)),
+            signal => callback(client, withRequestSignal(request, signal)),
           )),
         ),
         ({ client }) => mcpEffectBoundary.tryPromise(() => client.close?.()),

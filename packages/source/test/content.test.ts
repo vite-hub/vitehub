@@ -1,4 +1,5 @@
 import sqlite from "comark-content/database/sqlite-node"
+import media from "comark-content/plugins/media"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -114,6 +115,34 @@ describe("contentSource", () => {
       [["index.md"], "revision 1"],
       [["index.md"], "revision 2"],
     ])
+  })
+
+  it("serves media from the latest refreshed reader", async () => {
+    let revision = 1
+    registerSources({
+      media: {
+        name: "media",
+        async getKeys() {
+          return ["logo.png"]
+        },
+        async getItem() {
+          return { content: Uint8Array.of(revision), key: "logo.png" }
+        },
+      },
+    })
+
+    const content = defineContent({
+      plugins: [media()],
+      sources: { media: "media" as any },
+    })
+    await content.init()
+
+    revision = 2
+    await content.cache.refresh("media")
+    revision = 3
+    await content.cache.refresh("media")
+
+    await expect(content.media.get("/logo.png")).resolves.toEqual(Uint8Array.of(3))
   })
 
   it("serializes structured Source data for Comark parsers", async () => {

@@ -338,7 +338,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     search: fs.search,
     startSession: fs.startSession,
     stat: fs.stat,
-  } as unknown as Workspace, sourceRequestExecution)
+  } as Workspace, sourceRequestExecution)
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,
@@ -354,7 +354,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     timeout: options?.timeout,
   })
   const tools = createTools() as WorkspaceReadToolSet
-  tools.inspect = createTools as unknown as WorkspaceReadToolSet["inspect"]
+  tools.inspect = createTools as WorkspaceReadToolSet["inspect"]
   tools.none = (() => ({})) as WorkspaceReadToolSet["none"]
 
   if (isWritableWorkspaceFacade(workspace)) {
@@ -480,7 +480,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
         await Promise.all(paths.map(path => materializeSources({ path })))
-        const startBoxSession = (workspace as unknown as Record<symbol, unknown>)[Symbol.for("vitehub.workspace.start-box-session")]
+        const startBoxSession = (workspace as Partial<Record<symbol, unknown>>)[Symbol.for("vitehub.workspace.start-box-session")]
         const session = options?.host
           ? await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
           : typeof startBoxSession === "function"
@@ -510,9 +510,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       timeout: options?.timeout,
     })
     const writeTools = createWriteTools() as WorkspaceWriteToolSet
-    writeTools.inspect = createTools as unknown as WorkspaceWriteToolSet["inspect"]
+    writeTools.inspect = createTools as WorkspaceWriteToolSet["inspect"]
     writeTools.none = (() => ({})) as WorkspaceWriteToolSet["none"]
-    writeTools.write = createWriteTools as unknown as WorkspaceWriteToolSet["write"]
+    writeTools.write = createWriteTools as WorkspaceWriteToolSet["write"]
     const writableWorkspace: WritableWorkspaceFacade<Name> = {
       ...workspace,
       diff: writeWorkspace.diff,
