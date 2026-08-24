@@ -14,10 +14,26 @@ interface TreeModelStub {
 interface DiffModelStub {
   cleanUp: ReturnType<typeof vi.fn>;
   render: ReturnType<typeof vi.fn>;
+  setOptions: ReturnType<typeof vi.fn>;
+  setSelectedLines: ReturnType<typeof vi.fn>;
+}
+
+interface CodeViewModelStub {
+  cleanUp: ReturnType<typeof vi.fn>;
+  render: ReturnType<typeof vi.fn>;
+  setItems: ReturnType<typeof vi.fn>;
+  setOptions: ReturnType<typeof vi.fn>;
+  setSelectedLines: ReturnType<typeof vi.fn>;
+  setup: ReturnType<typeof vi.fn>;
 }
 
 const treeState = vi.hoisted(() => ({ instances: [] as TreeModelStub[] }));
-const diffState = vi.hoisted(() => ({ instances: [] as DiffModelStub[] }));
+const codeViewState = vi.hoisted(() => ({ instances: [] as CodeViewModelStub[] }));
+const diffState = vi.hoisted(() => ({
+  files: [] as DiffModelStub[],
+  diffs: [] as DiffModelStub[],
+  unresolvedFiles: [] as DiffModelStub[],
+}));
 
 vi.mock("@pierre/trees", () => ({
   FILE_TREE_TAG_NAME: "div",
@@ -38,7 +54,33 @@ vi.mock("@pierre/trees", () => ({
 }));
 
 vi.mock("@pierre/diffs", () => ({
+  CodeView: class {
+    cleanUp = vi.fn();
+    render = vi.fn();
+    setItems = vi.fn();
+    setOptions = vi.fn();
+    setSelectedLines = vi.fn();
+    setup = vi.fn();
+
+    constructor() {
+      codeViewState.instances.push(this);
+    }
+  },
   DIFFS_TAG_NAME: "div",
+  File: class {
+    host?: HTMLElement;
+    cleanUp = vi.fn(() => this.host?.replaceChildren());
+    render = vi.fn(({ fileContainer, file }) => {
+      this.host = fileContainer;
+      fileContainer.textContent = file.name;
+    });
+    setOptions = vi.fn();
+    setSelectedLines = vi.fn();
+
+    constructor() {
+      diffState.files.push(this);
+    }
+  },
   FileDiff: class {
     host?: HTMLElement;
     cleanUp = vi.fn(() => this.host?.replaceChildren());
@@ -50,15 +92,37 @@ vi.mock("@pierre/diffs", () => ({
     setSelectedLines = vi.fn();
 
     constructor() {
-      diffState.instances.push(this);
+      diffState.diffs.push(this);
+    }
+  },
+  UnresolvedFile: class {
+    host?: HTMLElement;
+    cleanUp = vi.fn(() => this.host?.replaceChildren());
+    render = vi.fn(({ fileContainer, file }) => {
+      this.host = fileContainer;
+      fileContainer.textContent = file.name;
+    });
+    setOptions = vi.fn();
+    setSelectedLines = vi.fn();
+
+    constructor() {
+      diffState.unresolvedFiles.push(this);
     }
   },
   getSingularPatch: (patch: string) => ({ name: patch }),
+  parseDiffFromFile: (oldFile: { name?: string } | null, newFile: { name?: string } | null) => ({
+    name: `${oldFile?.name ?? "missing"}->${newFile?.name ?? "missing"}`,
+  }),
 }));
 
 import { FileTree } from "@pierre/trees";
 import { AgentFileTree } from "../src/components/agent-file-tree.ts";
-import { PierreDiff } from "../src/internal/pierre-diff.ts";
+import {
+  PierreCodeView,
+  PierreDiff,
+  PierreFile,
+  PierreUnresolvedFile,
+} from "../src/internal/pierre-code-view.ts";
 
 async function flushRender(): Promise<void> {
   await nextTick();
@@ -67,7 +131,10 @@ async function flushRender(): Promise<void> {
 
 beforeEach(() => {
   treeState.instances.length = 0;
-  diffState.instances.length = 0;
+  codeViewState.instances.length = 0;
+  diffState.files.length = 0;
+  diffState.diffs.length = 0;
+  diffState.unresolvedFiles.length = 0;
 });
 
 describe("Pierre lifecycle adapters", () => {
@@ -112,7 +179,7 @@ describe("Pierre lifecycle adapters", () => {
     const wrapper = mount(PierreDiff, { props: { patch: "first.patch" } });
     await flushRender();
 
-    const first = diffState.instances[0]!;
+    const first = diffState.diffs[0]!;
     expect(wrapper.text()).toBe("first.patch");
     await wrapper.setProps({ patch: undefined });
     await flushRender();
@@ -121,12 +188,62 @@ describe("Pierre lifecycle adapters", () => {
 
     await wrapper.setProps({ patch: "second.patch" });
     await flushRender();
-    const second = diffState.instances[1]!;
+    const second = diffState.diffs[1]!;
     expect(second).toBeDefined();
     expect(second.render).toHaveBeenCalled();
     expect(wrapper.text()).toBe("second.patch");
 
     wrapper.unmount();
     expect(second.cleanUp).toHaveBeenCalledOnce();
+  });
+
+  it("renders file-content comparisons and forwards controlled selection", async () => {
+    const selectedLines = { end: 2, start: 1 };
+    const wrapper = mount(PierreDiff, {
+      props: {
+        newFile: { contents: "new", name: "new.ts" },
+        oldFile: null,
+        selectedLines,
+      },
+    });
+    await flushRender();
+
+    const instance = diffState.diffs[0]!;
+    expect(wrapper.text()).toBe("missing->new.ts");
+    expect(instance.setSelectedLines).toHaveBeenLastCalledWith(selectedLines);
+
+    wrapper.unmount();
+    expect(instance.cleanUp).toHaveBeenCalledOnce();
+  });
+
+  it("owns File and UnresolvedFile lifecycles", async () => {
+    const fileWrapper = mount(PierreFile, {
+      props: { file: { contents: "const ready = true", name: "ready.ts" } },
+    });
+    const unresolvedWrapper = mount(PierreUnresolvedFile, {
+      props: { file: { contents: "<<<<<<< current", name: "conflict.ts" } },
+    });
+    await flushRender();
+
+    expect(fileWrapper.text()).toBe("ready.ts");
+    expect(unresolvedWrapper.text()).toBe("conflict.ts");
+    fileWrapper.unmount();
+    unresolvedWrapper.unmount();
+    expect(diffState.files[0]!.cleanUp).toHaveBeenCalledOnce();
+    expect(diffState.unresolvedFiles[0]!.cleanUp).toHaveBeenCalledOnce();
+  });
+
+  it("sets up and cleans the virtualized CodeView model", async () => {
+    const items = [{ file: { contents: "ok", name: "status.ts" }, id: "status", type: "file" }] as const;
+    const wrapper = mount(PierreCodeView, { props: { items } });
+    await flushRender();
+
+    const instance = codeViewState.instances[0]!;
+    expect(instance.setup).toHaveBeenCalledOnce();
+    expect(instance.setItems).toHaveBeenLastCalledWith(items);
+    expect(instance.render).toHaveBeenLastCalledWith(true);
+
+    wrapper.unmount();
+    expect(instance.cleanUp).toHaveBeenCalledOnce();
   });
 });

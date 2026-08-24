@@ -16,15 +16,20 @@ const componentNames = [
   "AgentChat",
   "AgentChatMessage",
   "AgentChatPrompt",
-  "AgentDiff",
+  "AgentCodeView",
+  "AgentFile",
+  "AgentFileDiff",
   "AgentFileTree",
   "AgentInvocation",
   "AgentInvocationInspector",
   "AgentInvocationList",
   "AgentMarkdown",
   "AgentMessageParts",
+  "AgentMultiFileDiff",
+  "AgentPatchDiff",
   "AgentSession",
   "AgentTrace",
+  "AgentUnresolvedFile",
 ] as const;
 
 const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUIOptions>({

@@ -1,10 +1,40 @@
 import type { UIMessage } from "ai";
+import {
+  AgentCodeView,
+  AgentFile,
+  AgentFileDiff,
+  AgentMultiFileDiff,
+  AgentPatchDiff,
+  AgentUnresolvedFile,
+  getSingularPatch,
+  type CodeViewItem,
+  type FileContents,
+} from "../src/index.ts";
 import type {
   AgentInvocationListItem,
   AgentInvocationView,
   ViteHubUIMessage,
   ViteHubUISession,
 } from "../src/index.ts";
+
+const file: FileContents = { contents: "export const ready = true\n", name: "ready.ts" };
+const fileDiff = getSingularPatch(`--- a/ready.ts
++++ b/ready.ts
+@@ -1 +1 @@
+-false
++true`);
+const codeViewItems: CodeViewItem[] = [
+  { file, id: "file", type: "file" },
+  { fileDiff, id: "diff", type: "diff" },
+];
+
+void AgentCodeView;
+void AgentFile;
+void AgentFileDiff;
+void AgentMultiFileDiff;
+void AgentPatchDiff;
+void AgentUnresolvedFile;
+void codeViewItems;
 
 const listItem: AgentInvocationListItem = {
   id: "invocation-1",
