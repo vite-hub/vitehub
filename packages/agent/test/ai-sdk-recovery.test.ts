@@ -67,6 +67,7 @@ function streamingRepairModel() {
     inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
     outputTokens: { reasoning: 0, text: 1, total: 1 },
   }
+  let pullCount = 0
   let streamCall = 0
   const doGenerate = vi.fn(async () => ({
     content: [{ text: "{\"query\":\"fixed\"}", type: "text" }],
@@ -77,28 +78,36 @@ function streamingRepairModel() {
   }))
   const doStream = vi.fn(async () => {
     streamCall += 1
+    const events = streamCall === 1
+      ? [
+          { type: "stream-start", warnings: [] },
+          { input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" },
+          { finishReason: { raw: "tool-calls", unified: "tool-calls" }, providerMetadata: { test: { usage: { cost: 0.1 } } }, type: "finish", usage },
+        ]
+      : [
+          { type: "stream-start", warnings: [] },
+          { id: "answer", type: "text-start" },
+          { delta: "Finished", id: "answer", type: "text-delta" },
+          { id: "answer", type: "text-end" },
+          { finishReason: { raw: "stop", unified: "stop" }, providerMetadata: { test: { usage: { cost: 0.1 } } }, type: "finish", usage },
+        ]
     return {
       stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue({ type: "stream-start", warnings: [] })
-          if (streamCall === 1) {
-            controller.enqueue({ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" })
-            controller.enqueue({ finishReason: { raw: "tool-calls", unified: "tool-calls" }, providerMetadata: { test: { usage: { cost: 0.1 } } }, type: "finish", usage })
-          }
-          else {
-            controller.enqueue({ id: "answer", type: "text-start" })
-            controller.enqueue({ delta: "Finished", id: "answer", type: "text-delta" })
-            controller.enqueue({ id: "answer", type: "text-end" })
-            controller.enqueue({ finishReason: { raw: "stop", unified: "stop" }, providerMetadata: { test: { usage: { cost: 0.1 } } }, type: "finish", usage })
-          }
-          controller.close()
+        pull(controller) {
+          pullCount += 1
+          const event = events.shift()
+          if (event) controller.enqueue(event)
+          if (events.length === 0) controller.close()
         },
-      }),
+      }, { highWaterMark: 0 }),
     }
   })
   return {
     doGenerate,
     doStream,
+    get pullCount() {
+      return pullCount
+    },
     modelId: "vitehub-stream-recovery-test",
     provider: "test",
     specificationVersion: "v3",
@@ -259,6 +268,8 @@ describe("AI SDK recovery", () => {
     const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
     const earlyUsage = (result as { usage: Promise<unknown> }).usage
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(fakeModel.pullCount).toBe(0)
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
     for await (const _event of result as AsyncIterable<unknown>) {}
 
@@ -286,6 +297,8 @@ describe("AI SDK recovery", () => {
     const agent = toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, finish)
 
     const stream = await streamAgentInline(agent, runtime, { prompt: "Search" }, { output: "ui-message-stream" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(fakeModel.pullCount).toBe(0)
     // SAFETY: UI-message stream output implements the documented async iterable result contract.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
