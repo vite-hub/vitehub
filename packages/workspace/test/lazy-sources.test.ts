@@ -49,6 +49,7 @@ describe("lazy sources", () => {
       validate: "request",
     })
 
+    // SAFETY: The custom Source fixture does not inspect its SourceContext argument.
     await expect(source.getKeys({} as never)).resolves.toEqual(["guides/start.md", "reference/api.md"])
     expect(guideContent).not.toHaveBeenCalled()
     expect(referenceContent).not.toHaveBeenCalled()
@@ -76,6 +77,7 @@ describe("lazy sources", () => {
     await expect(view.stat("docs/guides/start.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
     expect(guideContent).toHaveBeenCalledOnce()
     expect(referenceContent).not.toHaveBeenCalled()
+    // SAFETY: The custom Source fixture does not inspect its SourceContext argument.
     await expect(source.getItem("missing.md", {} as never)).rejects.toThrow("Custom Workspace Source file does not exist")
 
     await expect(view.list("docs", { recursive: true })).resolves.toEqual([
@@ -656,6 +658,113 @@ describe("lazy sources", () => {
     expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "b.md", "b.md"])
     await expect(view.readFile("docs/a.md")).resolves.toBe("# a.md\n")
     await expect(view.readFile("docs/b.md")).resolves.toBe("# b.md\n")
+  })
+
+  it("checkpoints completed source items when materialization is canceled", async () => {
+    const abort = new AbortController()
+    let cancel = true
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "b.md" && cancel) {
+        cancel = false
+        abort.abort(new DOMException("Canceled", "AbortError"))
+        abort.signal.throwIfAborted()
+      }
+      return { key, path: key, content: `# ${key}\n` }
+    })
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-cancel",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          getItem,
+          async getMeta(key) {
+            return { ref: key }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })).rejects.toThrow("Canceled")
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "ready" })],
+    })
+
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "b.md", "b.md"])
+  })
+
+  it("keeps a complete source ready when scoped materialization is canceled", async () => {
+    const abort = new AbortController()
+    let cancel = false
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-scoped-cancel",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          async getItem(key) {
+            if (key === "b.md" && cancel) {
+              abort.abort(new DOMException("Canceled", "AbortError"))
+              abort.signal.throwIfAborted()
+            }
+            return { key, path: key, content: `# ${key}\n` }
+          },
+          async getMeta(key) {
+            return { ref: key }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    cancel = true
+    await expect(view.materializeSources({ abortSignal: abort.signal, path: "docs/b.md" })).rejects.toThrow("Canceled")
+
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      status: "ready",
+      items: {
+        "docs/a.md": expect.any(Object),
+        "docs/b.md": expect.any(Object),
+      },
+    })
+  })
+
+  it("persists complete source metadata at lifecycle boundaries", async () => {
+    const store = createMemoryWorkspaceStore()
+    const statuses: string[] = []
+    const setMeta = store.setMeta!.bind(store)
+    store.setMeta = async (key, value) => {
+      if (key === "source:docs:snapshot" && value && Object.prototype.hasOwnProperty.call(value, "status")) {
+        statuses.push(String(Reflect.get(Object(value), "status")))
+      }
+      await setMeta(key, value)
+    }
+    const view = createWorkspaceSourceView({
+      name: "source-metadata-boundaries",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return Array.from({ length: 100 }, (_, index) => `${index}.md`)
+          },
+          async getItem(key) {
+            return { content: `# ${key}\n`, key, path: key }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      files: 100,
+      sources: [expect.objectContaining({ status: "ready" })],
+    })
+
+    expect(statuses).toEqual(["updating", "ready"])
   })
 
   it("checks stale root source files sequentially while refreshing", async () => {

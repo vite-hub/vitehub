@@ -40,7 +40,7 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
       break
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
       const info = await stat(lock).catch(() => undefined)
       // ponytail: local locks expire after five minutes; use a provider lease if writes can legitimately run longer.
       if (info && Date.now() - info.mtimeMs > 300_000) {
@@ -64,7 +64,13 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
   }
 }
 
-async function walk(root: string, current = root, excluded: readonly string[] = [], recursive = true): Promise<WorkspaceEntry[]> {
+async function walk(
+  root: string,
+  current = root,
+  excluded: readonly string[] = [],
+  recursive = true,
+  includeDigest = false,
+): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
   const entries: WorkspaceEntry[] = []
@@ -85,17 +91,18 @@ async function walk(root: string, current = root, excluded: readonly string[] = 
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      if (recursive) entries.push(...await walk(root, absolute, excluded))
+      if (recursive) entries.push(...await walk(root, absolute, excluded, true, includeDigest))
       continue
     }
     if (dirent.isFile()) {
-      entries.push({
+      const entry: WorkspaceEntry = {
         path,
         type: "file",
         size: info.size,
         mtime: info.mtimeMs,
-        digest: await fileDigest(absolute),
-      })
+      }
+      if (includeDigest) entry.digest = await fileDigest(absolute)
+      entries.push(entry)
     }
   }
   return entries
@@ -241,9 +248,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
+    return await this.#list(prefix, options, false)
+  }
+
+  async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const all = await walk(this.root, current, options.exclude, options.recursive === true)
+    const all = await walk(this.root, current, options.exclude, options.recursive === true, includeDigest)
     return all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
@@ -348,7 +359,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {
     const entries: WorkspaceSnapshot["entries"] = {}
-    for (const entry of await this.list("", { recursive: true })) {
+    for (const entry of await this.#list("", { recursive: true }, true)) {
       entries[entry.path] = {
         type: entry.type,
         digest: entry.digest,
@@ -373,9 +384,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!content) return
-    const value = JSON.parse(content) as unknown
-    if (!value || typeof value !== "object" || Array.isArray(value)) return
-    this.#meta = new Map(Object.entries(value))
+    const value: unknown = JSON.parse(content)
+    if (!value || Object(value) !== value || Array.isArray(value)) return
+    this.#meta = new Map(Object.entries(Object(value)))
   }
 
   async #writeMeta() {

@@ -154,6 +154,8 @@ GitHub-backed Workspaces pin the branch head before a hosted Session starts and 
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 
+Use `startSession({ host, writeBack: false })` for a private writable runtime that must never publish its changes. `diff()` and `commit()` are unavailable in this mode, and `close()` restores the authoritative Workspace without first scanning the runtime tree. Agent Definitions select this mode automatically for read-only Workspaces.
+
 ## MountX projection
 
 Use the `@vite-hub/workspace/mountx` integration when an Agent, editor, CLI, or VM needs a real filesystem instead of Workspace methods. The adapter keeps Workspace Session diff and commit semantics in ViteHub while MountX owns the host transport.
