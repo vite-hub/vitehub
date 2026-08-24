@@ -67,6 +67,7 @@ test('keeps the fallback identity for repositories outside the App owner', async
   })
 
   assert.equal(await provider({ repository: 'onmax/quiver-babysitter' }), 'cli-token')
+  assert.equal(await provider({ fallback: true }), 'cli-token')
 })
 
 test('projects the bot token and commit identity into the agent environment', () => {

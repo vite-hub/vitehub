@@ -38,7 +38,7 @@ export function createGitHubTokenProvider({
 }: GitHubTokenProviderOptions) {
   let cached: { appId: number, auth: GitHubAppAuth, installationId: number, privateKey: string } | undefined
 
-  return async ({ refresh = false, repository }: { refresh?: boolean, repository?: string } = {}) => {
+  return async ({ fallback = false, refresh = false, repository }: { fallback?: boolean, refresh?: boolean, repository?: string } = {}) => {
     const env = await readEnv()
     const appId = env.appId.trim()
     const installationId = env.installationId.trim()
@@ -53,7 +53,7 @@ export function createGitHubTokenProvider({
       if (!owner) throw new Error('GITHUB_APP_OWNER must be configured with GitHub App credentials.')
 
       const repositoryOwner = repository?.split('/', 1)[0]?.toLowerCase()
-      if (repositoryOwner && repositoryOwner !== owner) return await fallbackToken(env, readCliToken)
+      if (fallback || (repositoryOwner && repositoryOwner !== owner)) return await fallbackToken(env, readCliToken)
 
       const numericAppId = positiveInteger(appId, 'GITHUB_APP_ID')
       const numericInstallationId = positiveInteger(installationId, 'GITHUB_APP_INSTALLATION_ID')
