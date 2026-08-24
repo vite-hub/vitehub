@@ -924,7 +924,7 @@ function createUsageCapture() {
   }
 }
 
-async function combinedCapturedUsage(captures: ReturnType<typeof createUsageCapture>[]): Promise<unknown> {
+async function combinedCapturedUsage(captures: readonly ReturnType<typeof createUsageCapture>[]): Promise<unknown> {
   const usages = await Promise.all(captures.flatMap(capture => capture.usage ? [capture.usage] : []))
   if (usages.length < 2) return usages[0]
   const add = (left: unknown, right: unknown): unknown => {
@@ -943,9 +943,16 @@ async function combinedCapturedUsage(captures: ReturnType<typeof createUsageCapt
   return usages.reduce(add)
 }
 
-function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUsageCapture> | ReturnType<typeof createUsageCapture>[]): unknown {
-  const captureList = Array.isArray(captures) ? captures : [captures]
-  const usage = captureList.some(capture => capture.captured) ? combinedCapturedUsage(captureList) : undefined
+function withCapturedUsage(
+  result: unknown,
+  captures: ReturnType<typeof createUsageCapture> | readonly ReturnType<typeof createUsageCapture>[] | (() => readonly ReturnType<typeof createUsageCapture>[]),
+): unknown {
+  const capturedUsage = () => {
+    const captureList = hasRuntimeType(captures, "function")
+      ? captures()
+      : Array.isArray(captures) ? captures : [captures]
+    return captureList.some(capture => capture.captured) ? combinedCapturedUsage(captureList) : undefined
+  }
   if (result && hasRuntimeType(result, "object")) {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = result as Record<string, unknown>
@@ -955,7 +962,7 @@ function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUs
       configurable: true,
       enumerable: true,
       get() {
-        return usage ?? resultUsage
+        return capturedUsage() ?? resultUsage
       },
     })
     if (totalUsage !== undefined) {
@@ -963,13 +970,14 @@ function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUs
         configurable: true,
         enumerable: true,
         get() {
-          return usage ?? totalUsage
+          return capturedUsage() ?? totalUsage
         },
       })
     }
     return result
   }
 
+  const usage = capturedUsage()
   if (usage === undefined) return result
 
   return {
@@ -977,6 +985,35 @@ function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUs
     text: hasRuntimeType(result, "string") ? result : undefined,
     usage,
   }
+}
+
+function withCapturedStreamUsage<T extends { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> }>(
+  result: T,
+  captures: () => readonly ReturnType<typeof createUsageCapture>[],
+): T {
+  const wrap = (stream: AsyncIterable<unknown>) => (async function* () {
+    for await (const event of stream) {
+      if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
+        const usage = await combinedCapturedUsage(captures())
+        if (usage !== undefined) {
+          yield { ...event as Record<string, unknown>, usage }
+          continue
+        }
+      }
+      yield event
+    }
+  })()
+  const stream = result.stream
+  const fullStream = result.fullStream
+  if (!stream && !fullStream) return result
+  const wrappedStream = stream ? wrap(stream) : undefined
+  const wrappedFullStream = fullStream
+    ? fullStream === stream && wrappedStream ? wrappedStream : wrap(fullStream)
+    : undefined
+  return cloneStreamTextResult(result, {
+    ...(wrappedStream ? { stream: wrappedStream } : {}),
+    ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
+  })
 }
 
 async function combinedUsageRecord(
@@ -1318,8 +1355,11 @@ async function createAgent(
   const builtInRepairToolCall: ToolCallRepairFunction<ToolSet> | undefined = Object.keys(toolSet).length
     ? async ({ error, inputSchema, toolCall, tools }) => {
         if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
+        const abortSignal = context.input.abortSignal
         try {
+          abortSignal?.throwIfAborted()
           const schema = await inputSchema({ toolName: toolCall.toolName })
+          abortSignal?.throwIfAborted()
           const usageCapture = createUsageCapture()
           toolRepairUsageCaptures.push(usageCapture)
           // SAFETY: AI SDK adapter normalization establishes the asserted agent settings contract.
@@ -1334,6 +1374,7 @@ async function createAgent(
           } as never)
           // SAFETY: The one-step repair agent returns the asserted generated result contract.
           const result = await toolRepairAgent.generate({
+            ...(abortSignal ? { abortSignal } : {}),
             onEnd: usageCapture.onEnd,
             onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
             onStepEnd: usageCapture.onStepEnd,
@@ -1341,7 +1382,8 @@ async function createAgent(
           } as never)
           return { ...toolCall, input: JSON.stringify(result.output) }
         }
-        catch {
+        catch (error) {
+          if (abortSignal?.aborted) throw abortSignal.reason ?? error
           return null
         }
       }
@@ -1615,7 +1657,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
-      const { agent, model } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
@@ -1623,12 +1665,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
+      const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures]
+      const streamed = await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
-      } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
+      } as never) as StreamTextResult<ToolSet, never, never>
+      const result = withResolvedModelMetadata(withCapturedStreamUsage(
+        withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
+        usageCaptures,
+      ), model) as StreamTextResult<ToolSet, never, never>
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },

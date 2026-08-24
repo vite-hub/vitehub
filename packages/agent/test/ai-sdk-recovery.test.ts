@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import { is, object, string } from "valibot"
 
-import { defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
+
+import type { AgentFinishHookEvent } from "../src/index.ts"
 
 vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 
@@ -28,17 +30,20 @@ const outputSchema = {
 }
 
 type ModelContent = Array<Record<string, unknown>>
+type ModelCall = { abortSignal?: AbortSignal, prompt: unknown, responseFormat?: unknown }
+type ModelResponse = ModelContent | string | ((options: ModelCall) => Promise<ModelContent | string>)
 
-function model(responses: Array<ModelContent | string>) {
-  const calls: Array<{ prompt: unknown, responseFormat?: unknown }> = []
+function model(responses: ModelResponse[]) {
+  const calls: ModelCall[] = []
   return {
     calls,
-    async doGenerate(options: { prompt: unknown, responseFormat?: unknown }) {
+    async doGenerate(options: ModelCall) {
       calls.push(options)
       const response = responses[calls.length - 1]
       if (response === undefined) throw new Error("Unexpected model call")
+      const resolvedResponse = typeof response === "function" ? await response(options) : response
       return {
-        content: is(stringSchema, response) ? [{ text: response, type: "text" }] : response,
+        content: is(stringSchema, resolvedResponse) ? [{ text: resolvedResponse, type: "text" }] : resolvedResponse,
         finishReason: { raw: "stop", unified: "stop" },
         usage: {
           inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -51,6 +56,49 @@ function model(responses: Array<ModelContent | string>) {
       throw new Error("Unexpected streaming model call")
     },
     modelId: "vitehub-recovery-test",
+    provider: "test",
+    specificationVersion: "v3",
+    supportedUrls: {},
+  }
+}
+
+function streamingRepairModel() {
+  const usage = {
+    inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+    outputTokens: { reasoning: 0, text: 1, total: 1 },
+  }
+  let streamCall = 0
+  const doGenerate = vi.fn(async () => ({
+    content: [{ text: "{\"query\":\"fixed\"}", type: "text" }],
+    finishReason: { raw: "stop", unified: "stop" },
+    usage,
+    warnings: [],
+  }))
+  const doStream = vi.fn(async () => {
+    streamCall += 1
+    return {
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          if (streamCall === 1) {
+            controller.enqueue({ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" })
+            controller.enqueue({ finishReason: { raw: "tool-calls", unified: "tool-calls" }, type: "finish", usage })
+          }
+          else {
+            controller.enqueue({ id: "answer", type: "text-start" })
+            controller.enqueue({ delta: "Finished", id: "answer", type: "text-delta" })
+            controller.enqueue({ id: "answer", type: "text-end" })
+            controller.enqueue({ finishReason: { raw: "stop", unified: "stop" }, type: "finish", usage })
+          }
+          controller.close()
+        },
+      }),
+    }
+  })
+  return {
+    doGenerate,
+    doStream,
+    modelId: "vitehub-stream-recovery-test",
     provider: "test",
     specificationVersion: "v3",
     supportedUrls: {},
@@ -83,7 +131,12 @@ const toolInputSchema = {
   },
 }
 
-function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: unknown) => string, repairToolCall?: boolean) {
+function toolCallingAgent(
+  fakeModel: unknown,
+  execute: (input: unknown) => string,
+  repairToolCall?: boolean,
+  finish?: (event: AgentFinishHookEvent) => void,
+) {
   return defineAgent({
     capabilities: [defineCapability({
       id: "search-test",
@@ -100,6 +153,7 @@ function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: 
       // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
       model: fakeModel as never,
     },
+    ...(finish ? { hooks: { "agent:finish": finish } } : {}),
     runtime: false,
   })
 }
@@ -164,6 +218,54 @@ describe("AI SDK recovery", () => {
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.calls).toHaveLength(3)
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
+  })
+
+  it("aborts a pending tool-call repair with the invocation", async () => {
+    const controller = new AbortController()
+    const stopped = new Error("stopped")
+    let markRepairStarted!: () => void
+    const repairStarted = new Promise<void>((resolve) => {
+      markRepairStarted = resolve
+    })
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      async ({ abortSignal }) => {
+        markRepairStarted()
+        if (!abortSignal) throw new Error("Expected repair to inherit the invocation abort signal")
+        return await new Promise<ModelContent | string>((_resolve, reject) => {
+          if (abortSignal.aborted) reject(abortSignal.reason)
+          else abortSignal.addEventListener("abort", () => reject(abortSignal.reason), { once: true })
+        })
+      },
+    ])
+    const result = runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, {
+      abortSignal: controller.signal,
+      prompt: "Search",
+    })
+
+    await repairStarted
+    controller.abort(stopped)
+
+    await expect(result).rejects.toBe(stopped)
+  })
+
+  it("includes tool-call repair usage in streamed invocations", async () => {
+    const executions = vi.fn(() => "found")
+    const fakeModel = streamingRepairModel()
+    const finish = vi.fn()
+    const agent = toolCallingAgent(fakeModel, executions, undefined, finish)
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+    for await (const _event of result as AsyncIterable<unknown>) {}
+
+    expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
+    expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
+    expect(fakeModel.doStream).toHaveBeenCalledTimes(2)
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({ usage: expect.objectContaining({ totalTokens: 6 }) }),
+      }),
+    }))
   })
 
   it("allows tool-call repair to be disabled", async () => {
