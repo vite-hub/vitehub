@@ -1741,7 +1741,8 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
     scroll-behavior: auto;
   }
 
-  .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state-icon svg {
+  .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state-icon svg,
+  .vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status-icon svg {
     animation: none;
   }
 }
