@@ -61,6 +61,12 @@ function hasGeneratedOutputUnderExampleSurface(path: string) {
   return surfaceIndex !== -1 && parts.slice(surfaceIndex + 1).some(part => ignoredGeneratedDirs.has(part))
 }
 
+function expectedSideEffects(packageName: PackageName) {
+  if (packageName === "ui") return ["./dist/styles.css"]
+  if (packageName === "vite-hub") return ["./dist/bin.js", "./dist/ui/styles.css"]
+  return false
+}
+
 describe("package manifest contracts", () => {
   it("tracks every publishable workspace package in the contract surface", () => {
     expect(packageNames).toEqual(expect.arrayContaining(["blob", "database", "kv", "queue", "sandbox", "vite-hub", "workflow"]))
@@ -73,7 +79,7 @@ describe("package manifest contracts", () => {
       expect(manifest.name).toBe(packageInfo(packageName).packageName)
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
-      expect(manifest.sideEffects).toEqual(packageName === "vite-hub" ? ["./dist/bin.js"] : false)
+      expect(manifest.sideEffects).toEqual(expectedSideEffects(packageName))
       expect(manifest.type).toBe("module")
       expect(manifest.types).toBe("./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
@@ -128,7 +134,7 @@ describe("package manifest contracts", () => {
           continue
         }
 
-        expect(target, `${packageName} ${subpath} should point to dist`).toMatch(/^\.\/dist\/.+\.js$/)
+        expect(target, `${packageName} ${subpath} should point to dist`).toMatch(/^\.\/dist\/.+\.(?:css|js)$/)
       }
     }
   })

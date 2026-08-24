@@ -26,6 +26,11 @@ dynamicallyLoaded = [
   "packages/database/src/runtime/definition-defaults.ts",
   "packages/env/test/**/*.test-d.ts",
   "packages/auth/test/**/*.test-d.ts",
+  "packages/ui/test/**/*.test-d.ts",
+  # Copied into the public package and loaded through its CSS export.
+  "packages/ui/styles.css",
+  # Registered by the UI Nuxt module as a client runtime plugin.
+  "packages/ui/src/runtime/nuxt-plugin.ts",
   # Registered by the Auth Nuxt module as a Nitro runtime plugin.
   "packages/auth/src/runtime/nuxt.ts",
   "packages/email/test/**/*.test-d.ts",
@@ -107,6 +112,8 @@ ignoreDependencies = [
   "docus",
   "agents",
   "@nuxt/ui",
+  # Provides the optional peer selected by Pierre Trees during the UI package build.
+  "@pierre/theme",
   "@iconify-json/lucide",
   "@iconify-json/ph",
   "@iconify-json/simple-icons",
@@ -168,6 +175,7 @@ publicPackages = [
   "@vite-hub/sandbox",
   "@vite-hub/schedule",
   "@vite-hub/shell",
+  "@vite-hub/ui",
   "@vite-hub/workspace",
 ]
 

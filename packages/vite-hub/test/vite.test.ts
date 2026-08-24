@@ -73,17 +73,81 @@ const generatedOwnerPackageCases = Object.keys(frameworkPackageManifest.dependen
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
 
+// SAFETY: Resolver tests below do not read the Vite plugin context.
+const pluginContext = {} as never
+// SAFETY: Resolver tests below do not read the Vite resolve options.
+const pluginResolveOptions = {} as never
+
 function pluginNames(plugins: PluginOption[]): string[] {
+  // SAFETY: vitehub() returns a flat list of concrete plugins in these integration tests.
   return plugins.map(plugin => (plugin as Plugin).name)
+}
+
+function isCallable(value: unknown): value is CallableFunction {
+  if (value === null || value === undefined || Object(value) !== value) return false
+  try {
+    Function.prototype.toString.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isRuntimeRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value && !isCallable(value)
+}
+
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]"
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRuntimeRecord(value) && Object.values(value).every(isString)
 }
 
 function dependencyResolver() {
   const resolver = dependencyPlugin({ preset: "node", blob: true })
-  if (!resolver || typeof resolver.resolveId !== "function") throw new TypeError("Expected the framework dependency resolver.")
+  if (!resolver || !isCallable(resolver.resolveId)) throw new TypeError("Expected the framework dependency resolver.")
   return resolver.resolveId
 }
 
+function callHook(hook: unknown, args: readonly unknown[]): unknown {
+  const candidate = isCallable(hook)
+    ? hook
+    : isRuntimeRecord(hook) && "handler" in hook
+      ? hook.handler
+      : undefined
+  if (!isCallable(candidate)) throw new TypeError("Expected a callable plugin hook.")
+  return Reflect.apply(candidate, undefined, args)
+}
+
+function providerAliasesFromCall(call: readonly unknown[] | undefined, index = 0): Record<string, string> {
+  const value = call?.[index]
+  if (!isRuntimeRecord(value) || !("providerImportAliases" in value)) {
+    throw new TypeError("Expected provider import aliases in the integration call.")
+  }
+  const aliases = value.providerImportAliases
+  if (!isStringRecord(aliases)) {
+    throw new TypeError("Expected provider import aliases to be a string record.")
+  }
+  return aliases
+}
+
+function pluginAliases(plugin: Plugin): Record<string, string> {
+  const config = callHook(plugin.config, [{}])
+  if (!isRuntimeRecord(config) || !("resolve" in config)) throw new TypeError("Expected plugin resolve configuration.")
+  const resolve = config.resolve
+  if (!isRuntimeRecord(resolve) || !("alias" in resolve)) throw new TypeError("Expected plugin aliases.")
+  const alias = resolve.alias
+  if (!isStringRecord(alias)) {
+    throw new TypeError("Expected plugin aliases to be a string record.")
+  }
+  return alias
+}
+
 function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "node" }): Plugin {
+  // SAFETY: The test asserts below that the named plugin exists before returning it.
   const plugin = vitehub(options).find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin | undefined
   if (!plugin) throw new TypeError("Expected the framework dependency resolver.")
   return plugin
@@ -93,14 +157,16 @@ async function applyDeploymentConfig(
   options: Parameters<typeof vitehub>[0],
   config: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
-  const plugin = vitehub(options)
-    .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-  const hook = plugin.config as unknown as (
-    config: Record<string, unknown>,
-    env: { command: "build", mode: string },
-  ) => void
-  await hook(config, { command: "build", mode: "production" })
+  const plugin = dependencyPluginByName(vitehub(options), "vite-hub/deployment-preset")
+  await callHook(plugin.config, [config, { command: "build", mode: "production" }])
   return config
+}
+
+function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
+  const plugin = plugins.find(candidate => isRuntimeRecord(candidate) && Reflect.get(candidate, "name") === name)
+  if (!plugin) throw new TypeError(`Expected the ${name} plugin.`)
+  // SAFETY: The runtime name check above identifies the concrete Vite plugin in this flat plugin list.
+  return plugin as Plugin
 }
 
 describe("vitehub", () => {
@@ -167,7 +233,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
       runtimeImport: "vite-hub/_internal/markdown-template",
     })
-    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({
+    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({}, {
       importBase: "vite-hub/auth",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
@@ -194,8 +260,7 @@ describe("vitehub", () => {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
-    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
-      driver: "fs",
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({ driver: "fs" }, {
       importBase: "vite-hub/_internal/blob",
       nitroOwned: true,
     })
@@ -219,7 +284,7 @@ describe("vitehub", () => {
       },
       runtimeImport: "vite-hub/_internal/schedule/runtime/static",
     })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
       agentImportBase: "vite-hub/_internal/agent",
       hosting: "node-server",
       importBase: "vite-hub/_internal/workflow",
@@ -232,13 +297,13 @@ describe("vitehub", () => {
       },
       workspaceImportBase: "vite-hub/_internal/workspace",
     })
-    expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     vitehub({ agent: true, preset: "node" })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       implicitlyEnabled: true,
       includeUserAppEntry: false,
     }))
@@ -256,7 +321,10 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({ imports: false }))
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith({ cli: { generate: false } })
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: "vercel" }),
+      expect.any(Object),
+    )
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ root: ".data/workspaces" }))
 
     integrationMocks.hubQueue.mockClear()
@@ -324,7 +392,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({
       providerOutput: expect.anything(),
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       hosting: "cloudflare-module",
     }))
 
@@ -333,13 +401,13 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining({
       providerOutput: "standalone",
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       hosting: "vercel",
     }))
 
     vitehub({ preset: "netlify", schedule: true, workflow: true })
 
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       hosting: "netlify",
     }))
   })
@@ -381,7 +449,7 @@ describe("vitehub", () => {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
@@ -396,7 +464,7 @@ describe("vitehub", () => {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -430,83 +498,82 @@ describe("vitehub", () => {
   it("resolves only package-owned imports from generated modules", async () => {
     const resolveId = dependencyResolver()
 
-    expect(await resolveId.call({} as never, "vite-hub/auth/server", "/app/server.ts", {} as never)).toBeUndefined()
-    expect(await resolveId.call({} as never, "@vite-hub/agent", "/app/server.ts", {} as never)).toBeUndefined()
-    expect(await resolveId.call({} as never, "@vite-hub/agent", "\0virtual:third-party", {} as never)).toBeUndefined()
-    expect(await resolveId.call({} as never, "@vite-hub/agent", "/app/.vitehub-other/agent.ts", {} as never)).toBeUndefined()
-    expect(await resolveId.call({} as never, "@vite-hub/agent", "\0#vitehub/custom", {} as never)).toBeUndefined()
-    expect(await resolveId.call({} as never, "@vite-hub/workspace/runtime", "\0#vitehub-workspace-registry", {} as never)).toBeUndefined()
-    expect(await resolveId.call({} as never, "@chat-adapter/discord", "/app/.vitehub/agent/route.ts", {} as never)).toBeUndefined()
-    expect(await resolveId.call({} as never, "@vite-hub/agent/server", "/app/.vitehub/agent/route.ts", {} as never))
+    expect(await resolveId.call(pluginContext, "vite-hub/auth/server", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(pluginContext, "@vite-hub/agent", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(pluginContext, "@vite-hub/agent", "\0virtual:third-party", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(pluginContext, "@vite-hub/agent", "/app/.vitehub-other/agent.ts", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(pluginContext, "@vite-hub/agent", "\0#vitehub/custom", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(pluginContext, "@vite-hub/workspace/runtime", "\0#vitehub-workspace-registry", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(pluginContext, "@chat-adapter/discord", "/app/.vitehub/agent/route.ts", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(pluginContext, "@vite-hub/agent/server", "/app/.vitehub/agent/route.ts", pluginResolveOptions))
       .toMatch(/\/agent\/dist\/server\.js$/)
-    expect(await resolveId.call({} as never, "@vite-hub/agent/server", "C:\\app\\.vitehub\\agent\\route.ts", {} as never))
+    expect(await resolveId.call(pluginContext, "@vite-hub/agent/server", "C:\\app\\.vitehub\\agent\\route.ts", pluginResolveOptions))
       .toMatch(/\/agent\/dist\/server\.js$/)
     expect(await resolveId.call(
-      {} as never,
+      pluginContext,
       "@vite-hub/auth/server",
       "\0#vitehub/auth/server",
-      {} as never,
+      pluginResolveOptions,
     )).toMatch(/\/auth\/dist\/server\.js$/)
     expect(await resolveId.call(
-      {} as never,
+      pluginContext,
       "@vite-hub/env/server",
       "\0#vitehub/env/server",
-      {} as never,
+      pluginResolveOptions,
     )).toMatch(/\/env\/dist\/server\.js$/)
     expect(await resolveId.call(
-      {} as never,
+      pluginContext,
       "@vite-hub/schedule/runtime",
       "\0#vitehub/schedule/registry",
-      {} as never,
+      pluginResolveOptions,
     )).toMatch(/\/schedule\/dist\/runtime\.js$/)
     expect(await resolveId.call(
-      {} as never,
+      pluginContext,
       "@vite-hub/agent/cloudflare/state",
       "\0virtual:vitehub-agent-cloudflare-state-exports",
-      {} as never,
+      pluginResolveOptions,
     )).toMatch(/\/agent\/dist\/cloudflare\/state\.js$/)
     expect(await resolveId.call(
-      {} as never,
+      pluginContext,
       "vite-hub/auth/server",
       "\0#vitehub/auth/server",
-      {} as never,
+      pluginResolveOptions,
     )).toMatch(/\/vite-hub\/dist\/auth\/server\.js$/)
     expect(await resolveId.call(
-      {} as never,
+      pluginContext,
       "vite-hub/_internal/blob/runtime/state",
       "/app/.vitehub/nitro/blob/plugin.ts",
-      {} as never,
+      pluginResolveOptions,
     )).toMatch(/\/vite-hub\/dist\/_internal\/blob\/runtime\/state\.js$/)
   })
 
   it("resolves provider facades after framework aliasing", async () => {
     const plugin = dependencyPlugin({ preset: "vercel", sandbox: true })
-    const config = plugin.config as unknown as (config: object) => { resolve: { alias: Record<string, string> } }
-    const frameworkSandboxFacade = config({}).resolve.alias["vite-hub/sandbox"]
-    const sandboxCall = integrationMocks.hubSandbox.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
+    const frameworkSandboxFacade = pluginAliases(plugin)["vite-hub/sandbox"]
+    const sandboxAliases = providerAliasesFromCall(integrationMocks.hubSandbox.mock.calls.at(-1))
     const providerSandboxFacade = "/app/.vitehub/sandbox/provider.mjs"
 
-    sandboxCall[0].providerImportAliases["@vite-hub/sandbox"] = providerSandboxFacade
-    sandboxCall[0].providerImportAliases["vite-hub/sandbox"] = providerSandboxFacade
+    sandboxAliases["@vite-hub/sandbox"] = providerSandboxFacade
+    sandboxAliases["vite-hub/sandbox"] = providerSandboxFacade
 
     const resolveId = plugin.resolveId
-    if (typeof resolveId !== "function") throw new TypeError("Expected the framework dependency resolver.")
-    expect(await resolveId.call({} as never, "vite-hub/sandbox", "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
-    expect(await resolveId.call({} as never, "@vite-hub/sandbox", "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
-    expect(await resolveId.call({} as never, frameworkSandboxFacade, "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
-    expect(await resolveId.call({} as never, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", {} as never)).toBeUndefined()
+    if (!isCallable(resolveId)) throw new TypeError("Expected the framework dependency resolver.")
+    expect(await resolveId.call(pluginContext, "vite-hub/sandbox", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxFacade)
+    expect(await resolveId.call(pluginContext, "@vite-hub/sandbox", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxFacade)
+    expect(await resolveId.call(pluginContext, frameworkSandboxFacade, "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxFacade)
+    expect(await resolveId.call(pluginContext, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
-    const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/env/server", {} as never)
+    // SAFETY: This resolver does not read the Vite plugin context or resolve options in these cases.
+    const resolved = await dependencyResolver().call(pluginContext, name, "\0#vitehub/env/server", pluginResolveOptions)
     if (access === "deny") expect(resolved).toBeUndefined()
     else expect(resolved).toBe(fileURLToPath(import.meta.resolve(name)))
   })
 
   it("keeps third-party driver fallbacks out of the global alias map", async () => {
     const plugin = dependencyPlugin()
-    const config = plugin.config as unknown as (config: object) => { resolve: { alias: Record<string, string> } }
-    const aliases = config({}).resolve.alias
+    const aliases = pluginAliases(plugin)
 
     expect(aliases).not.toHaveProperty("vite-hub")
     expect(aliases).not.toHaveProperty("unstorage/drivers/upstash")
@@ -518,22 +585,19 @@ describe("vitehub", () => {
 
   it("passes the unused Upstash fallback only to provider bundlers", () => {
     vitehub({ agent: true, preset: "node", workflow: true })
-    const defaultCall = integrationMocks.hubAgent.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
-    const defaultAliases = defaultCall[0].providerImportAliases
+    const defaultAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
     expect(defaultAliases).toEqual({
       "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
     })
 
     const upstashPlugins = vitehub({ agent: true, preset: "node", kv: true, workflow: true })
-    const upstashCall = integrationMocks.hubAgent.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
-    const upstashAliases = upstashCall[0].providerImportAliases
+    const upstashAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    // SAFETY: The dependency plugin is part of every vitehub() result.
     const dependency = upstashPlugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
-    const configResolved = dependency.configResolved as unknown as (config: { kv: KVModuleOptions }) => void
-    configResolved({ kv: { driver: "upstash" } })
+    callHook(dependency.configResolved, [{ kv: { driver: "upstash" } satisfies KVModuleOptions }])
 
     expect(upstashAliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
-    const workflowCall = integrationMocks.hubWorkflow.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
-    expect(workflowCall[0].providerImportAliases).toBe(upstashAliases)
+    expect(providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)).toBe(upstashAliases)
   })
 
   it.each([
@@ -543,12 +607,11 @@ describe("vitehub", () => {
     ["deno", "deno-deploy"],
     ["node", "node-server"],
   ] as const)("maps the %s deployment plan to Nitro %s", async (preset, nitroPreset) => {
-    const config = preset === "deno"
+    const config: Record<string, unknown> = preset === "deno"
       ? { nitro: { rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs" } } } }
-      : {} as Record<string, unknown>
-    const plugin = vitehub({ preset }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
-    await hook(config, { command: "build", mode: "production" })
+      : {}
+    const plugin = dependencyPluginByName(vitehub({ preset }), "vite-hub/deployment-preset")
+    await callHook(plugin.config, [config, { command: "build", mode: "production" }])
     expect(config.nitro).toMatchObject({ preset: nitroPreset })
     if (preset === "cloudflare") {
       expect(config.nitro).toMatchObject({ wasm: { lazy: true } })
@@ -599,7 +662,9 @@ describe("vitehub", () => {
       { nitro: { commands: { preview: "node ./preview.mjs" }, modules: [userModule] } },
     )
 
+    // SAFETY: applyDeploymentConfig has populated Nitro commands and modules for the Cloudflare Sandbox preset.
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
+    // SAFETY: The deployment preset prepends its Nitro module to the configured module list.
     const module = nitroConfig.modules[0] as (nitro: {
       hooks: { hook: ReturnType<typeof vi.fn> }
       options: {
@@ -632,19 +697,17 @@ describe("vitehub", () => {
 
   it("preserves an explicit Cloudflare Sandbox deploy command", async () => {
     const plugins = vitehub({ preset: "cloudflare", sandbox: true })
+    // SAFETY: The explicit preset and Sandbox option install both named plugins.
     const preset = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    // SAFETY: The explicit preset and Sandbox option install both named plugins.
     const output = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-output") as Plugin
-    const config = { nitro: { commands: { deploy: "node ./deploy.mjs" } } } as Record<string, unknown>
-    const configure = preset.config as unknown as (
-      config: Record<string, unknown>,
-      env: { command: "build", mode: string },
-    ) => void
-    await configure(config, { command: "build", mode: "production" })
+    const config: Record<string, unknown> = { nitro: { commands: { deploy: "node ./deploy.mjs" } } }
+    await callHook(preset.config, [config, { command: "build", mode: "production" }])
 
+    // SAFETY: The preset config hook populated Nitro commands and modules above.
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
     nitroConfig.commands.deploy = "npx wrangler --cwd ./ deploy"
-    const resolveConfig = output.configResolved as unknown as (config: Record<string, unknown>) => void
-    resolveConfig({ command: "build", nitro: nitroConfig })
+    callHook(output.configResolved, [{ command: "build", nitro: nitroConfig }])
     const nitro = {
       hooks: { hook: vi.fn() },
       options: {
@@ -654,6 +717,7 @@ describe("vitehub", () => {
         rootDir: "/app",
       },
     }
+    // SAFETY: The deployment preset prepends its Nitro module to the module list.
     const module = nitroConfig.modules[0] as (target: typeof nitro) => void
     module(nitro)
 
@@ -666,7 +730,9 @@ describe("vitehub", () => {
       { preset: "cloudflare" },
       { nitro: { hooks: { "prerender:config": existingPrerender } } },
     )
+    // SAFETY: applyDeploymentConfig preserves and returns the configured Nitro hook record.
     const hooks = (config.nitro as { hooks: Record<string, unknown> }).hooks
+    // SAFETY: The fixture installs this exact async prerender hook.
     const prerender = hooks["prerender:config"] as (config: Record<string, unknown>) => Promise<void>
     const prerenderConfig = {
       alias: { existing: "/existing" },
@@ -683,14 +749,17 @@ describe("vitehub", () => {
         existing: "/existing",
       },
     })
-    const external = prerenderConfig.rollupConfig.external as unknown as (source: string) => boolean
+    const external = Reflect.get(prerenderConfig.rollupConfig, "external")
+    if (!isCallable(external)) throw new TypeError("Expected the prerender external predicate.")
     expect(external("cloudflare:workers")).toBe(false)
     expect(external("node:fs")).toBe(true)
   })
 
   it("aliases every Cloudflare Email runtime import during Nitro prerendering", async () => {
     const config = await applyDeploymentConfig({ preset: "cloudflare" })
+    // SAFETY: applyDeploymentConfig installs the Cloudflare prerender hook record.
     const hooks = (config.nitro as { hooks: Record<string, unknown> }).hooks
+    // SAFETY: The deployment plugin installs this exact async prerender hook.
     const prerender = hooks["prerender:config"] as (config: Record<string, unknown>) => Promise<void>
     const prerenderConfig = {
       rollupConfig: { external: ["cloudflare:email", "cloudflare:workers"] },
@@ -704,20 +773,24 @@ describe("vitehub", () => {
         "cloudflare:workers": expect.stringMatching(/cloudflare-prerender\.mjs$/),
       },
     })
-    const external = prerenderConfig.rollupConfig.external as unknown as (source: string) => boolean
+    const external = Reflect.get(prerenderConfig.rollupConfig, "external")
+    if (!isCallable(external)) throw new TypeError("Expected the prerender external predicate.")
     expect(external("cloudflare:email")).toBe(false)
     expect(external("cloudflare:workers")).toBe(false)
   })
 
   it("overrides matching regex externals for Cloudflare prerender imports", async () => {
     const config = await applyDeploymentConfig({ preset: "cloudflare" })
+    // SAFETY: applyDeploymentConfig installs the Cloudflare prerender hook record.
     const hooks = (config.nitro as { hooks: Record<string, unknown> }).hooks
+    // SAFETY: The deployment plugin installs this exact async prerender hook.
     const prerender = hooks["prerender:config"] as (config: Record<string, unknown>) => Promise<void>
     const prerenderConfig = { rollupConfig: { external: [/^cloudflare:/, /^node:/] } }
 
     await prerender(prerenderConfig)
 
-    const external = prerenderConfig.rollupConfig.external as unknown as (source: string) => boolean
+    const external = Reflect.get(prerenderConfig.rollupConfig, "external")
+    if (!isCallable(external)) throw new TypeError("Expected the prerender external predicate.")
     expect(external("cloudflare:email")).toBe(false)
     expect(external("cloudflare:workers")).toBe(false)
     expect(external("node:fs")).toBe(true)
@@ -725,6 +798,7 @@ describe("vitehub", () => {
 
   it("leaves deployment output to the Nitro module matching the active preset", async () => {
     const config = await applyDeploymentConfig({ preset: "cloudflare", sandbox: true })
+    // SAFETY: applyDeploymentConfig populated Nitro commands and modules for the Sandbox preset.
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
     const nitro = {
       hooks: { hook: vi.fn() },
@@ -735,6 +809,7 @@ describe("vitehub", () => {
         rootDir: "/app",
       },
     }
+    // SAFETY: The deployment preset prepends its Nitro module to the module list.
     const module = nitroConfig.modules[0] as (target: typeof nitro) => void
 
     module(nitro)
@@ -744,22 +819,16 @@ describe("vitehub", () => {
   })
 
   it("keeps deployment-owned Nitro configuration out of development", async () => {
-    const config = {
+    const config: Record<string, unknown> = {
       nitro: {
         commands: { preview: "node ./preview.mjs" },
         modules: ["local-module"],
         preset: "node-server",
         rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs" } },
       },
-    } as Record<string, unknown>
-    const plugins = vitehub({ preset: "deno" })
-    const presetPlugin = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const presetHook = presetPlugin.config as unknown as (
-      config: Record<string, unknown>,
-      env: { command: "serve", mode: string },
-    ) => void
-
-    await presetHook(config, { command: "serve", mode: "development" })
+    }
+    const presetPlugin = dependencyPluginByName(vitehub({ preset: "deno" }), "vite-hub/deployment-preset")
+    await callHook(presetPlugin.config, [config, { command: "serve", mode: "development" }])
 
     expect(config.nitro).toEqual({
       commands: { preview: "node ./preview.mjs" },
@@ -779,11 +848,9 @@ describe("vitehub", () => {
           ],
         },
       },
-    } as Record<string, unknown>
-    const plugin = vitehub({ preset: "deno" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
-
-    await hook(config, { command: "build", mode: "production" })
+    }
+    const plugin = dependencyPluginByName(vitehub({ preset: "deno" }), "vite-hub/deployment-preset")
+    await callHook(plugin.config, [config, { command: "build", mode: "production" }])
 
     expect(config.nitro).toMatchObject({
       rollupConfig: {
@@ -796,10 +863,9 @@ describe("vitehub", () => {
   })
 
   it("composes deployment output through a Nitro module", async () => {
-    const config = { nitro: { modules: ["existing-module"] } } as Record<string, unknown>
-    const plugin = vitehub({ preset: "node" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
-    await hook(config, { command: "build", mode: "production" })
+    const config: Record<string, unknown> = { nitro: { modules: ["existing-module"] } }
+    const plugin = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-preset")
+    await callHook(plugin.config, [config, { command: "build", mode: "production" }])
     expect(config.nitro).toMatchObject({ modules: [expect.any(Function), "existing-module"] })
   })
 
@@ -811,7 +877,10 @@ describe("vitehub", () => {
   ] as const)("wires the %s Blob adapter from the deployment plan", (preset, driver) => {
     integrationMocks.hubBlob.mockClear()
     vitehub({ preset, blob: true })
-    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver }))
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
+      expect.objectContaining({ driver }),
+      { importBase: "vite-hub/_internal/blob", nitroOwned: true },
+    )
   })
 
   it("preserves a configured Netlify Blob store name", () => {
@@ -820,7 +889,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
       driver: "netlify-blobs",
       name: "assets",
-    }))
+    }), { importBase: "vite-hub/_internal/blob", nitroOwned: true })
   })
 
   it("keeps Blob disabled until requested and rejects unsupported presets", () => {
@@ -828,24 +897,23 @@ describe("vitehub", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
     expect(integrationMocks.hubBlob).not.toHaveBeenCalled()
+    // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const resolveId = deployment.resolveId as unknown as (source: string, importer?: string) => void
-    expect(() => resolveId("vite-hub/blob", "/app/server/api.ts")).toThrow("cannot provide blob")
-    expect(() => resolveId(fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts")).toThrow("cannot provide blob")
-    expect(() => resolveId("vite-hub/blob/content-type", "/app/server/api.ts")).not.toThrow()
+    expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")
+    expect(() => callHook(deployment.resolveId, [fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts"])).toThrow("cannot provide blob")
+    expect(() => callHook(deployment.resolveId, ["vite-hub/blob/content-type", "/app/server/api.ts"])).not.toThrow()
 
     const dependency = dependencyPlugin({ preset: "deno" })
+    // SAFETY: dependencyPlugin returns the concrete plugin whose config hook supplies this alias shape.
     const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
     expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
     expect(config.resolve.alias["vite-hub/blob/content-type"]).toEqual(expect.any(String))
-    const resolveDependency = dependency.resolveId as unknown as (source: string, importer?: string) => void
-    expect(() => resolveDependency("@vite-hub/blob", "/app/.vitehub/agents.mjs")).toThrow("Blob is unavailable")
+    expect(() => callHook(dependency.resolveId, ["@vite-hub/blob", "/app/.vitehub/agents.mjs"])).toThrow("Blob is unavailable")
   })
 
   it("allows the Agent Blob Capability fallback with an explicit Deno Blob store", () => {
     const dependency = dependencyPlugin({ preset: "deno", blob: { driver: "fs" } })
-    const resolveDependency = dependency.resolveId as unknown as (source: string, importer?: string) => unknown
-    expect(resolveDependency("@vite-hub/blob", "/app/.vitehub/agents.mjs")).toEqual(expect.any(String))
+    expect(callHook(dependency.resolveId, ["@vite-hub/blob", "/app/.vitehub/agents.mjs"])).toEqual(expect.any(String))
   })
 
   it("wires supported Sandbox adapters from the deployment plan", () => {
@@ -976,6 +1044,7 @@ describe("vitehub", () => {
     })
     expect(config.blob).toMatchObject({ bucketName: "a".repeat(48) })
     expect(config.nitro).toMatchObject({ cloudflare: { wrangler: { name: "a".repeat(48) } } })
+    // SAFETY: applyDeploymentConfig populated the enabled Queue integration with a string namePrefix.
     expect((config.queue as { namePrefix: string }).namePrefix).toBe(`${"a".repeat(80)}-`)
     expect(config.rateLimit).toMatchObject({ namespace: "a".repeat(80) })
     expect(config.sandbox).toMatchObject({ name: `${"a".repeat(48)}-sandbox` })
@@ -1018,21 +1087,24 @@ describe("vitehub", () => {
 
     integrationMocks.hubBlob.mockClear()
     vitehub({ name: "logical-app", preset: "cloudflare", blob: { driver: "fs" } })
-    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver: "fs" }))
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
+      expect.objectContaining({ driver: "fs" }),
+      { importBase: "vite-hub/_internal/blob", nitroOwned: true },
+    )
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
     expect(() => vitehub({ preset: "deno", schedule: true })).toThrow("cannot provide Schedule")
     expect(() => vitehub({ preset: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
 
+    // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const unsupportedHook = unsupported.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
-    expect(() => unsupportedHook({}, { command: "build", mode: "production" })).toThrow("cannot provide queue")
+    expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
 
+    // SAFETY: The explicit Vercel preset installs the named deployment plugin.
     const conflicting = vitehub({ preset: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const conflictingHook = conflicting.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
-    expect(() => conflictingHook({ nitro: { preset: "netlify" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
-    expect(() => conflictingHook({ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
+    expect(() => callHook(conflicting.config, [{ nitro: { preset: "netlify" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
+    expect(() => callHook(conflicting.config, [{ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
   })
 
   it("composes Browser for Cloudflare and rejects unsupported presets", () => {

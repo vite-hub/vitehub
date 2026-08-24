@@ -56,6 +56,7 @@ export interface AgentInvocationRecord {
 export interface AgentInvocationListOptions {
   cursor?: string
   limit?: number
+  search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
 }
 
@@ -175,6 +176,25 @@ function normalizeLimit(limit: number | undefined): number {
     throw new TypeError("[vitehub] Agent Invocation list limit must be a positive integer.")
   }
   return Math.min(limit, MAX_LIST_LIMIT)
+}
+
+function normalizeSearch(search: string | undefined): string | undefined {
+  if (search === undefined) return
+  if (typeof search !== "string") {
+    throw new TypeError("[vitehub] Agent Invocation search must be a string.")
+  }
+  const value = search.trim()
+  if (!value) return
+  if (value.length > 256) {
+    throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.")
+  }
+  return value
+}
+
+function matchesInvocationSearch(record: AgentInvocationRecord, search: string | undefined): boolean {
+  if (!search) return true
+  const { cursor: _cursor, observations: _observations, ...summary } = record
+  return JSON.stringify(summary).toLowerCase().includes(search.toLowerCase())
 }
 
 function normalizeBuiltInCursor(cursor: string | undefined): string | undefined {
@@ -333,6 +353,12 @@ function prioritizePendingOutcomes(
   pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
 
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  // SAFETY: Node timers expose optional unref; browser timers are numbers and therefore have no method.
+  const unref = (timer as { unref?: () => void }).unref
+  if (unref) unref.call(timer)
+}
+
 export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
@@ -413,12 +439,13 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     list(options = {}) {
       const limit = normalizeLimit(options.limit)
       const cursor = normalizeBuiltInCursor(options.cursor)
+      const search = normalizeSearch(options.search)
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
       const before = cursor === undefined ? Number.POSITIVE_INFINITY : Number(cursor)
       const candidates = [...records.values()]
-        .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)))
+        .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)) && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
       const page = candidates.slice(0, limit)
       return {
@@ -452,22 +479,96 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
 ): TraceEventLog {
+  const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
+  const messageDeltaChunkEvents = 32
+  let pendingMessageDelta: TraceEventLogEntry | undefined
+  let pendingMessageDeltaEvents = 0
+  const emit = (entry: TraceEventLogEntry) => {
+    void observe({ ...entry, sequence: nextSequence() })
+  }
+  const flushMessageDelta = () => {
+    if (!pendingMessageDelta) return
+    emit(pendingMessageDelta)
+    pendingMessageDelta = undefined
+    pendingMessageDeltaEvents = 0
+  }
+  const queueMessageDelta = (entry: TraceEventLogEntry) => {
+    const rawContent = entry.attributes?.["message.content"]
+    const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
+    if (content && content.length > messageDeltaChunkCharacters) {
+      for (let offset = 0; offset < content.length; offset += messageDeltaChunkCharacters) {
+        queueMessageDelta({
+          ...entry,
+          attributes: {
+            ...entry.attributes,
+            "message.content": content.slice(offset, offset + messageDeltaChunkCharacters),
+          },
+        })
+      }
+      return
+    }
+    const pending = pendingMessageDelta
+    const rawPreviousContent = pending?.attributes?.["message.content"]
+    const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
+      ? String(rawPreviousContent)
+      : undefined
+    const sameMessage = pending
+      && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
+      && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
+      && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
+    if (sameMessage && (previousContent === undefined) === (content === undefined)) {
+      if (previousContent !== undefined && content !== undefined
+        && previousContent.length + content.length > messageDeltaChunkCharacters) {
+        const available = messageDeltaChunkCharacters - previousContent.length
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(0, available) },
+        })
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(available) },
+        })
+        return
+      }
+      const attributes = { ...pending.attributes, ...entry.attributes }
+      if (previousContent !== undefined && content !== undefined) {
+        attributes["message.content"] = `${previousContent}${content}`
+      }
+      pendingMessageDelta = { ...entry, attributes }
+    }
+    else {
+      flushMessageDelta()
+      pendingMessageDelta = entry
+    }
+    pendingMessageDeltaEvents++
+    const pendingContent = pendingMessageDelta.attributes?.["message.content"]
+    if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
+      || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
+      flushMessageDelta()
+    }
+  }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       try {
-        const safeEntry = {
-          ...await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp }),
-          sequence: nextSequence(),
+        const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
+        if (safeEntry.name === "agent.message.delta") {
+          queueMessageDelta(safeEntry)
         }
-        void observe(safeEntry)
+        else {
+          flushMessageDelta()
+          emit(safeEntry)
+        }
       }
       catch {}
       return entry
     },
-    entries: () => traceLog.entries(),
+    entries() {
+      flushMessageDelta()
+      return traceLog.entries()
+    },
   } as TraceEventLog
   if (content === "content") {
     Object.defineProperty(journal, agentInvocationJournalContentTraceLogSymbol, { value: true })
@@ -528,13 +629,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
         if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
-        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-        const unref = (asUnknownBoundary(heartbeat) as { unref?: () => void }).unref
-        if (unref) unref.call(heartbeat)
+        unrefTimer(heartbeat)
         heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
-        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-        const unrefTimeout = (asUnknownBoundary(heartbeatTimeout) as { unref?: () => void }).unref
-        if (unrefTimeout) unrefTimeout.call(heartbeatTimeout)
+        unrefTimer(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
         if (created || creationTimedOut) return created
@@ -740,9 +837,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
-                if (unref) unref.call(timer)
+                unrefTimer(timer)
               })
               await finishOnce()
             }
@@ -773,9 +868,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
-                if (unref) unref.call(timer)
+                unrefTimer(timer)
               })
               if (finished) return
               if (await markRunning()) return
@@ -794,7 +887,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       return await store.get(await boundedIdentity(invocationIdentity(runId, agentName)))
     },
     async list(options = {}) {
-      return await store.list({ ...options, limit: normalizeLimit(options.limit) })
+      const search = normalizeSearch(options.search)
+      const normalized = { ...options, limit: normalizeLimit(options.limit) }
+      if (search) normalized.search = search
+      else delete normalized.search
+      return await store.list(normalized)
     },
   }
   return invocations

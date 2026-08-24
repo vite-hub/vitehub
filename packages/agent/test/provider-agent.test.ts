@@ -230,14 +230,14 @@ describe("Provider Agent Driver", () => {
     await adapter.generate({ ...runContext, runtime: { ...runContext.runtime, traceLog } } as never)
 
     expect(traceLog.entries().map(entry => entry.name)).toEqual([
-      "agent.reasoning",
+      "agent.message.delta",
       "agent.plan.updated",
       "agent.tool.start",
       "agent.tool.output",
       "agent.tool.progress",
       "agent.tool.finish",
       "agent.change.updated",
-      "agent.message",
+      "agent.message.delta",
       "agent.stream.finish",
     ])
     expect(traceLog.entries()[0]?.attributes?.["message.content"]).toBe("Inspecting files")
@@ -284,10 +284,10 @@ describe("Provider Agent Driver", () => {
 
     const invocation = await invocations.getByRunId(runId)
     expect(invocation?.observations.map(observation => observation.name)).toEqual(expect.arrayContaining([
-      "agent.reasoning",
+      "agent.message.delta",
       "agent.tool.start",
       "agent.tool.finish",
-      "agent.message",
+      "agent.message.delta",
       "agent.stream.finish",
     ]))
   })

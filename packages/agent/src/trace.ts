@@ -33,7 +33,11 @@ export function hasAgentTraceLog(context: { runtime: ResolvedAgentRuntimeContext
   return Boolean(context.runtime.traceLog)
 }
 
-function invocationAttributes(context: AgentTraceContext, extra: Record<string, unknown> = {}) {
+function invocationAttributes(
+  context: AgentTraceContext,
+  extra: Record<string, unknown> = {},
+  includeInput = false,
+) {
   return {
     "agent.invoker.id": context.invoker.id,
     "agent.invoker.kind": context.invoker.kind,
@@ -43,8 +47,8 @@ function invocationAttributes(context: AgentTraceContext, extra: Record<string, 
     "channel.delivery.source.id": context.runtime.channelDelivery?.sourceId,
     "input.hasMessages": Boolean(context.input.messages?.length),
     "input.hasPrompt": Boolean(context.input.prompt),
-    "input.messages": context.input.messages,
-    "input.prompt": context.input.prompt,
+    ...(includeInput && context.input.messages?.length ? { "input.messages": context.input.messages } : {}),
+    ...(includeInput && context.input.prompt ? { "input.prompt": context.input.prompt } : {}),
     "runtime.name": context.runtime.runtime,
     ...extra,
   }
@@ -54,10 +58,9 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
   if (event.type === "text-delta") {
     return {
       "message.content": event.text,
-      "message.id": event.messageId || event.id,
+      "message.id": event.messageId ?? event.id,
       "message.phase": event.phase,
-      "message.role": event.role || "assistant",
-      "vitehub.activity.kind": event.phase === "commentary" ? "reasoning" : "message",
+      "message.role": event.role ?? "assistant",
     }
   }
   if (event.type === "tool-call" || event.type === "tool-input-start") {
@@ -69,7 +72,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasInput": event.input !== undefined,
-      "tool.input": event.input,
+      ...(event.input !== undefined ? { "tool.input": event.input } : {}),
       "vitehub.activity.kind": event.activity?.kind || "tool",
       "vitehub.action.name": event.activity?.kind === "action" ? event.activity.name : undefined,
     }
@@ -83,7 +86,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasOutput": event.output !== undefined,
-      "tool.output": event.output,
+      ...(event.output !== undefined ? { "tool.output": event.output } : {}),
       "tool.error": event.error,
       "vitehub.activity.kind": event.activity?.kind || "tool",
       "vitehub.action.name": event.activity?.kind === "action" ? event.activity.name : undefined,
@@ -92,6 +95,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
   if (event.type === "approval-request") {
     return {
       "approval.id": event.id,
+      ...(event.input !== undefined ? { "approval.input": event.input } : {}),
       "approval.name": event.name,
       "approval.reason": event.reason,
       "approval.hasInput": event.input !== undefined,
@@ -106,9 +110,12 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
     }
   }
   if (event.type === "usage") {
+    const reasoningTokens = event.usageRecord.usage?.outputTokenDetails?.reasoningTokens
+      ?? event.usageRecord.usage?.details?.reasoningOutputTokens
     return {
       "usage.hasCost": event.usageRecord.cost !== undefined,
       "usage.hasRaw": event.usageRecord.raw !== undefined,
+      "usage.reasoningTokens": reasoningTokens,
       "usage.totalTokens": event.usageRecord.usage?.totalTokens,
     }
   }
@@ -247,7 +254,7 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
   context: AgentTraceContext<TRuntimeConfig>,
 ): Promise<void> {
   await traceAgentEvent(context, {
-    attributes: invocationAttributes(context),
+    attributes: invocationAttributes(context, {}, true),
     name: "agent.invocation.start",
     type: "run",
   })
@@ -326,7 +333,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     "tool-call": "agent.tool.start",
     "tool-input-start": "agent.tool.start",
     "tool-result": streamEvent.type === "tool-result" && streamEvent.error ? "agent.tool.error" : "agent.tool.finish",
-    "text-delta": streamEvent.type === "text-delta" && streamEvent.phase === "commentary" ? "agent.reasoning" : "agent.message",
+    "text-delta": "agent.message.delta",
     usage: "agent.usage.recorded",
   } as const
   // SAFETY: Trace normalization establishes the asserted telemetry event contract.

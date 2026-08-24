@@ -4,6 +4,7 @@ import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { MaybeRefOrGetter, ShallowRef } from "vue";
 import type {
   AgentInvocationListResult,
+  AgentInvocationRecordStatus,
   AgentInvocationSummary,
 } from "./invocations.ts";
 
@@ -11,18 +12,19 @@ export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
 }
 
-export type AgentInvocationRequester = <T>(
+export type AgentInvocationRequester = (
   path: string,
   options: AgentInvocationRequestOptions,
-) => Promise<T>;
+) => Promise<unknown>;
 
 type QueryValue = boolean | number | string | null | undefined;
+type AgentInvocationQuery = Record<string, QueryValue | readonly QueryValue[]> & { search?: string };
 
 export interface UseAgentInvocationsOptions {
   baseURL?: MaybeRefOrGetter<string>;
   immediate?: boolean;
   pollInterval?: MaybeRefOrGetter<false | number | undefined>;
-  query?: MaybeRefOrGetter<Record<string, QueryValue | readonly QueryValue[]>>;
+  query?: MaybeRefOrGetter<AgentInvocationQuery>;
   request: AgentInvocationRequester;
   watch?: boolean;
 }
@@ -61,6 +63,80 @@ export interface UseAgentInvocationReturn {
 }
 
 const defaultBaseURL = "/api/invocations";
+const retainedReconciliationLimit = 20;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isInvocationStatus(value: unknown): value is AgentInvocationRecordStatus {
+  return value === "pending" || value === "running" || value === "completed" || value === "failed" || value === "cancelled";
+}
+
+function isTraceEventType(value: unknown): value is TraceEventLogEntry["type"] {
+  return value === "approval" || value === "capability" || value === "error" || value === "lifecycle" || value === "policy" || value === "run";
+}
+
+function parseInvocationSummary(value: unknown): AgentInvocationSummary {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.createdAt !== "string" ||
+    typeof value.cursor !== "string" ||
+    !isInvocationStatus(value.status) ||
+    typeof value.traceId !== "string" ||
+    typeof value.updatedAt !== "string"
+  ) {
+    throw new TypeError("Invalid Agent Invocation response.");
+  }
+  return {
+    ...value,
+    createdAt: value.createdAt,
+    cursor: value.cursor,
+    id: value.id,
+    status: value.status,
+    traceId: value.traceId,
+    updatedAt: value.updatedAt,
+  };
+}
+
+function parseInvocationListResult(value: unknown): AgentInvocationListResult {
+  if (!isRecord(value) || !Array.isArray(value.invocations)) {
+    throw new TypeError("Invalid Agent Invocation list response.");
+  }
+  if (value.cursor !== undefined && typeof value.cursor !== "string") {
+    throw new TypeError("Invalid Agent Invocation list cursor.");
+  }
+  return {
+    ...(typeof value.cursor === "string" ? { cursor: value.cursor } : {}),
+    invocations: value.invocations.map(parseInvocationSummary),
+  };
+}
+
+function parseAgentInvocationDetailResult(value: unknown): AgentInvocationDetailResult {
+  if (!isRecord(value) || !Array.isArray(value.observations)) {
+    throw new TypeError("Invalid Agent Invocation detail response.");
+  }
+  const observations = value.observations.map((observation) => {
+    if (
+      !isRecord(observation) ||
+      typeof observation.name !== "string" ||
+      typeof observation.sequence !== "number" ||
+      typeof observation.timestamp !== "string" ||
+      !isTraceEventType(observation.type)
+    ) {
+      throw new TypeError("Invalid Agent Invocation observation.");
+    }
+    return {
+      ...observation,
+      name: observation.name,
+      sequence: observation.sequence,
+      timestamp: observation.timestamp,
+      type: observation.type,
+    };
+  });
+  return { invocation: parseInvocationSummary(value.invocation), observations };
+}
 
 function isAbortError(error: unknown): boolean {
   return Boolean(
@@ -192,18 +268,54 @@ export function useAgentInvocations(
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let revision = 0;
+  let reconciliationOffset = 0;
+  let reconciliationRetryIds = new Set<string>();
+  let resetFirstPage = true;
+  let departedIds = new Set<string>();
+  let reconciledInvocations = new Map<string, AgentInvocationSummary>();
+  let sourceSignature: string | undefined;
   let stopped = false;
+
+  function currentSourceSignature() {
+    return JSON.stringify([
+      toValue(baseURL),
+      options.query ? toValue(options.query) : undefined,
+    ]);
+  }
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
-      invocations.value = result.invocations;
+      if (resetFirstPage || invocations.value.length === 0) {
+        invocations.value = result.invocations;
+        cursor.value = result.cursor;
+        resetFirstPage = false;
+        return;
+      }
+      const firstPageIds = new Set(result.invocations.map(invocation => invocation.id));
+      const retained = invocations.value
+        .filter(invocation => !firstPageIds.has(invocation.id) && !departedIds.has(invocation.id))
+        .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
+      departedIds = new Set();
+      reconciledInvocations = new Map();
+      invocations.value = [...result.invocations, ...retained];
       cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
+      reconciledInvocations = new Map();
+      reconciliationRetryIds = new Set();
     },
     beforeLoad() {
+      const nextSignature = currentSourceSignature();
+      resetFirstPage = sourceSignature !== nextSignature;
+      sourceSignature = nextSignature;
+      if (resetFirstPage) {
+        invocations.value = [];
+        cursor.value = undefined;
+        reconciliationOffset = 0;
+        reconciliationRetryIds = new Set();
+      }
       revision++;
       loadMoreController?.abort();
       loadMoreController = undefined;
@@ -211,11 +323,64 @@ export function useAgentInvocations(
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
-    load: (signal) =>
-      request<AgentInvocationListResult>(
-        appendQuery(toValue(baseURL), options.query ? toValue(options.query) : undefined),
-        { signal },
-      ),
+    load: async (signal) => {
+      const query = options.query ? toValue(options.query) : undefined;
+      const result = parseInvocationListResult(
+        await request(appendQuery(toValue(baseURL), query), { signal }),
+      );
+      const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
+      const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
+      const search = query?.search?.trim().toLowerCase();
+      if (resetFirstPage) return result;
+      const returnedIds = new Set(result.invocations.map(invocation => invocation.id));
+      for (const id of returnedIds) reconciliationRetryIds.delete(id);
+      const retainedIds = invocations.value
+        .filter(invocation => !returnedIds.has(invocation.id))
+        .map(invocation => invocation.id);
+      const retainedIdSet = new Set(retainedIds);
+      const retryCandidates = [...reconciliationRetryIds]
+        .filter(id => retainedIdSet.has(id));
+      const retryLimit = retainedIds.some(id => !reconciliationRetryIds.has(id))
+        ? Math.floor(retainedReconciliationLimit / 2)
+        : retainedReconciliationLimit;
+      const retries = retryCandidates.slice(0, retryLimit);
+      const retryCandidateSet = new Set(retryCandidates);
+      const rotatingIds = retainedIds.filter(id => !retryCandidateSet.has(id));
+      const rotatingCount = Math.min(
+        rotatingIds.length,
+        retainedReconciliationLimit - retries.length,
+      );
+      const rotating = Array.from({ length: rotatingCount }, (_, index) =>
+        rotatingIds[(reconciliationOffset + index) % rotatingIds.length],
+      ).filter((id): id is string => id !== undefined);
+      const displaced = [...retries, ...rotating];
+      reconciliationOffset = rotatingIds.length === 0
+        ? 0
+        : (reconciliationOffset + rotatingCount) % rotatingIds.length;
+      const reconciled = await Promise.allSettled(displaced.map(id =>
+        request(detailPath(toValue(baseURL), id), { signal }).then(parseAgentInvocationDetailResult),
+      ));
+      departedIds = new Set();
+      reconciledInvocations = new Map();
+      for (const [index, outcome] of reconciled.entries()) {
+        const id = displaced[index];
+        if (!id) continue;
+        if (outcome.status === "rejected") {
+          reconciliationRetryIds.delete(id);
+          reconciliationRetryIds.add(id);
+          continue;
+        }
+        reconciliationRetryIds.delete(id);
+        // SAFETY: The detail parser has validated the invocation summary fields; observations are the only detail-only field removed here.
+        const { observations: _observations, ...searchableInvocation } = outcome.value.invocation as AgentInvocationSummary & { observations?: unknown };
+        if (
+          (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))
+          || (search && !JSON.stringify(searchableInvocation).toLowerCase().includes(search))
+        ) departedIds.add(id);
+        else reconciledInvocations.set(id, searchableInvocation);
+      }
+      return result;
+    },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), options.query ? toValue(options.query) : undefined],
     watch: options.watch !== false,
@@ -233,9 +398,11 @@ export function useAgentInvocations(
     resource.error.value = null;
     try {
       const query = options.query ? toValue(options.query) : undefined;
-      const result = await request<AgentInvocationListResult>(
-        appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
-        { signal: controller.signal },
+      const result = parseInvocationListResult(
+        await request(
+          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
+          { signal: controller.signal },
+        ),
       );
       if (loadMoreController !== controller || revision !== currentRevision) return;
       const ids = new Set(invocations.value.map(invocation => invocation.id));
@@ -293,9 +460,9 @@ export function useAgentInvocation(
     load(signal) {
       const resolvedId = toValue(id);
       if (resolvedId === undefined) return Promise.resolve(undefined);
-      return request<AgentInvocationDetailResult>(detailPath(toValue(baseURL), resolvedId), {
-        signal,
-      });
+      return request(detailPath(toValue(baseURL), resolvedId), { signal }).then(
+        parseAgentInvocationDetailResult,
+      );
     },
     pollInterval: options.pollInterval,
     source: () => [toValue(baseURL), toValue(id)],

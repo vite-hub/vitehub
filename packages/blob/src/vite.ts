@@ -38,7 +38,7 @@ interface BlobProvisionContributingPlugin {
 
 export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI }
 
-type InternalBlobModuleOptions = BlobModuleOptions & {
+interface InternalBlobModuleOptions {
   importBase?: string
   nitroOwned?: boolean
 }
@@ -237,10 +237,9 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase))
 }
 
-export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
-  const internalOptions = options as InternalBlobModuleOptions | undefined
-  const importBase = internalOptions?.importBase ?? blobPackageName
-  const nitroOwned = internalOptions?.nitroOwned === true
+export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
+  const importBase = internalOptions.importBase ?? blobPackageName
+  const nitroOwned = internalOptions.nitroOwned === true
   let blob: BlobModuleOptions | undefined = options
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
