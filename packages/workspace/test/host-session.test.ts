@@ -395,13 +395,16 @@ describe("workspace host sessions", () => {
     }
     const host = localHost()
     const read = vi.spyOn(host.files, "read")
+    const list = vi.spyOn(host.files, "list")
 
     try {
       const session = await docs.startSession({ host, target, writeBack: false })
+      const listsAfterOpen = list.mock.calls.length
       await session.writeFile("README.md", "changed")
       await session.close()
 
       expect(read).not.toHaveBeenCalled()
+      expect(list).toHaveBeenCalledTimes(listsAfterOpen + 1)
       await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("# Docs\n")
     }
     finally {

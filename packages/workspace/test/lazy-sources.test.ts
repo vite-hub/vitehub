@@ -695,6 +695,45 @@ describe("lazy sources", () => {
     expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "b.md", "b.md"])
   })
 
+  it("keeps a complete source ready when scoped materialization is canceled", async () => {
+    const abort = new AbortController()
+    let cancel = false
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-scoped-cancel",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          async getItem(key) {
+            if (key === "b.md" && cancel) {
+              abort.abort(new DOMException("Canceled", "AbortError"))
+              abort.signal.throwIfAborted()
+            }
+            return { key, path: key, content: `# ${key}\n` }
+          },
+          async getMeta(key) {
+            return { ref: key }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    cancel = true
+    await expect(view.materializeSources({ abortSignal: abort.signal, path: "docs/b.md" })).rejects.toThrow("Canceled")
+
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      status: "ready",
+      items: {
+        "docs/a.md": expect.any(Object),
+        "docs/b.md": expect.any(Object),
+      },
+    })
+  })
+
   it("persists complete source metadata at lifecycle boundaries", async () => {
     const store = createMemoryWorkspaceStore()
     const statuses: string[] = []

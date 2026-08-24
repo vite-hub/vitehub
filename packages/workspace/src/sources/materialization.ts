@@ -456,9 +456,14 @@ export async function materializeWorkspaceSources(
         items: checkpointItems(itemMetadata),
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
-      await writeSourceSnapshotMetadata(store, options.abortSignal?.aborted
-        ? { ...failed, status: "updating", error: undefined }
-        : failed)
+      const checkpoint = options.abortSignal?.aborted
+        ? completeSource
+          ? { ...failed, status: "updating" as const, error: undefined }
+          : existing?.configHash === configHash
+            ? { ...existing, items: checkpointItems(itemMetadata) }
+            : undefined
+        : failed
+      if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint)
       resultSources.push(failed)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,

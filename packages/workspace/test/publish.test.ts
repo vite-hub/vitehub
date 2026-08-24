@@ -89,6 +89,41 @@ describe("workspace publication", () => {
     }
   })
 
+  it("bounds Local Store digest work during publication", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-publish-concurrency-"))
+    try {
+      const store = createLocalWorkspaceStore(root)
+      const stat = store.stat.bind(store)
+      let active = 0
+      let maxActive = 0
+      store.stat = async (...args) => {
+        active++
+        maxActive = Math.max(maxActive, active)
+        try {
+          await new Promise(resolve => setTimeout(resolve, 1))
+          return await stat(...args)
+        }
+        finally {
+          active--
+        }
+      }
+      const workspace = createWorkspace({
+        name: "bounded-local-current-state",
+        publish: [{ name: "test", publish: async () => {} }],
+        store,
+      })
+      await Promise.all(Array.from({ length: 40 }, (_, index) => workspace.writeFile(`${index}.txt`, String(index))))
+
+      await workspace.publish()
+
+      expect(maxActive).toBeGreaterThan(1)
+      expect(maxActive).toBeLessThanOrEqual(16)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("does no Store work when no publishers are configured", async () => {
     const store = createMemoryWorkspaceStore()
     const diff = vi.spyOn(store, "diff")

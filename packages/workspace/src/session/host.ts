@@ -598,9 +598,28 @@ async function materializeWorkspace(
   host: WorkspaceSessionHost,
   root: string,
   options?: WorkspaceSessionOptions,
+  useRevisionMaterializer?: boolean,
+  onHostMutation?: () => void,
+  captureSnapshot?: true,
+): Promise<{ revision?: string, snapshot: WorkspaceSnapshot }>
+async function materializeWorkspace(
+  workspace: Workspace,
+  host: WorkspaceSessionHost,
+  root: string,
+  options: WorkspaceSessionOptions | undefined,
+  useRevisionMaterializer: boolean,
+  onHostMutation: (() => void) | undefined,
+  captureSnapshot: false,
+): Promise<{ revision?: string, snapshot: undefined }>
+async function materializeWorkspace(
+  workspace: Workspace,
+  host: WorkspaceSessionHost,
+  root: string,
+  options?: WorkspaceSessionOptions,
   useRevisionMaterializer = true,
   onHostMutation?: () => void,
-) {
+  captureSnapshot = true,
+): Promise<{ revision?: string, snapshot: WorkspaceSnapshot | undefined }> {
   const abortSignal = options?.abortSignal
   abortSignal?.throwIfAborted()
   const paths = normalizeSessionPaths(options)
@@ -639,9 +658,11 @@ async function materializeWorkspace(
     abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root, abortSignal)
     abortSignal?.throwIfAborted()
-    const snapshot = options?.writeBack === false
-      ? await createSnapshotFromEntries(await listHostEntries(host, root, "", true, undefined, false, [], abortSignal), "host-open")
-      : await snapshotHost(host, root, "host-open", abortSignal)
+    const snapshot = captureSnapshot
+      ? options?.writeBack === false
+        ? await createSnapshotFromEntries(await listHostEntries(host, root, "", true, undefined, false, [], abortSignal), "host-open")
+        : await snapshotHost(host, root, "host-open", abortSignal)
+      : undefined
     abortSignal?.throwIfAborted()
     return { revision: revision.revision, snapshot }
   }
@@ -993,7 +1014,7 @@ export async function createHostedWorkspaceSession(
           ...options,
           abortSignal,
           onProgress: undefined,
-        })
+        }, true, undefined, false)
         await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState, abortSignal)
         closed = true
         return

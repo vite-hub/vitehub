@@ -2,12 +2,26 @@ import { sha256 } from "../core/path.ts"
 
 import type { WorkspaceDiff, WorkspaceEntry, WorkspaceSnapshot, WorkspaceStore } from "../core/types.ts"
 
+const snapshotStatConcurrency = 16
+
+async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, visit: (value: T) => Promise<U>) {
+  const results = new Array<U>(values.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++
+      results[index] = await visit(values[index]!)
+    }
+  }))
+  return results
+}
+
 export async function createCurrentSnapshotFromStore(store: WorkspaceStore, name?: string): Promise<WorkspaceSnapshot> {
   const entries = await store.list("", { recursive: true })
-  const completeEntries = await Promise.all(entries.map(async (entry) => {
+  const completeEntries = await mapWithConcurrency(entries, snapshotStatConcurrency, async (entry) => {
     if (entry.type !== "file" || entry.digest) return entry
     return await store.stat(entry.path) || entry
-  }))
+  })
   return await createSnapshotFromEntries(completeEntries, name)
 }
 
