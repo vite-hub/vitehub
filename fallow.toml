@@ -34,6 +34,7 @@ dynamicallyLoaded = [
   # Registered by the ViteHub Nuxt module and copied as packaged console runtime entries.
   "packages/vite-hub/src/console/runtime/client/*",
   "packages/vite-hub/src/console/runtime/pages/*.vue",
+  "packages/vite-hub/src/console/runtime/server/agents.get.ts",
   "packages/vite-hub/src/console/runtime/server/invocation.get.ts",
   "packages/vite-hub/src/console/runtime/server/invocations.get.ts",
   "packages/vite-hub/src/console/runtime/server/page.get.ts",

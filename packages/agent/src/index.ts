@@ -1866,9 +1866,14 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = options as AgentSettings
   const channels = normalizeAgentChannels(agentOptions.channels)
-  const normalizedOptions = channels === agentOptions.channels
+  const name = agentOptions.name?.trim()
+  if (name && name.length > 512) {
+    throw new TypeError("[vitehub] Agent names cannot exceed 512 characters.")
+  }
+  let normalizedOptions = channels === agentOptions.channels
     ? agentOptions
     : { ...agentOptions, channels }
+  if (name !== normalizedOptions.name) normalizedOptions = { ...normalizedOptions, name }
   if (isWorkspaceAgentOptions(normalizedOptions)) {
     return createWorkspaceAgentDefinition(normalizedOptions)
   }

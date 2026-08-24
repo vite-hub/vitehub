@@ -2904,6 +2904,21 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   }
 }
 
+export function discoverAgentDefinitionEntries(
+  root: string,
+  serverDirs?: string[],
+): Array<{ handler: string, name: string }> {
+  const resolvedServerDirs = serverDirs ?? [join(root, "server")]
+  const entries = [
+    ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: root }),
+    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: resolvedServerDirs }),
+  ]
+  return [...new Map(entries.map(definition => [definition.handler, {
+    handler: definition.handler,
+    name: definition.name,
+  }])).values()].sort((left, right) => left.name.localeCompare(right.name) || left.handler.localeCompare(right.handler))
+}
+
 declare module "vite" {
   interface UserConfig {
     agent?: false | AgentModuleOptions

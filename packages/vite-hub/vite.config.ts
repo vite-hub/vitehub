@@ -58,6 +58,7 @@ export default defineConfig({
     }],
     entry: [
       ...distributionEntries,
+      "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/page.get.ts",
@@ -66,6 +67,7 @@ export default defineConfig({
       exclude: ["bin"],
       bin: distributionBinEntries,
       customExports(exports) {
+        delete exports["./console/runtime/server/agents.get"]
         delete exports["./console/runtime/server/invocation.get"]
         delete exports["./console/runtime/server/invocations.get"]
         delete exports["./console/runtime/server/page.get"]

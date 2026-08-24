@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -10,6 +10,9 @@ import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { serializeConsoleRefresh } from "../src/console/refresh.ts"
+import agentsHandler from "../src/console/runtime/server/agents.get.ts"
+import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -57,9 +60,30 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
+  it("serializes generated Agent registry refreshes", async () => {
+    const releases: Array<() => void> = []
+    const started: number[] = []
+    const refresh = serializeConsoleRefresh(async () => {
+      started.push(started.length)
+      await new Promise<void>(resolve => releases.push(resolve))
+    })
+
+    const first = refresh()
+    const second = refresh()
+    await vi.waitFor(() => expect(started).toEqual([0]))
+    releases.shift()?.()
+    await vi.waitFor(() => expect(started).toEqual([0, 1]))
+    releases.shift()?.()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined])
+  })
+
   it("registers the standalone console UI and invocation API with Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "review.agent.ts"), "export default {}\n")
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin()
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -76,6 +100,7 @@ describe("Agent invocation console", () => {
       if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
 
       expect(config.nitro.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/agents",
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
         "/_vitehub",
@@ -86,12 +111,198 @@ describe("Agent invocation console", () => {
       ])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
-        `installConsoleInvocations(${JSON.stringify(root)})`,
+        `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
       )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `fallbackName: "review"`,
+      )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`from "file://`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("serves discovered Agent names in stable order for the active project", async () => {
+    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    installConsoleInvocationFallback(first, "/first")
+    installConsoleAgents(["support", "review", "support"], first)
+    installConsoleInvocationFallback(second, "/second")
+    installConsoleAgents(["billing"], second)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["billing"],
+    })
+
+    scope[consoleInvocationsRootKey] = "/first"
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["review", "support"] })
+  })
+
+  it("keeps persisted Agent names alongside discovered definitions", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName: "archived",
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "archived-invocation",
+      observations: [],
+      status: "completed",
+      traceId: "archived-trace",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const invocations = defineAgentInvocations({ store })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgents(["current"], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["archived", "current"],
+    })
+  })
+
+  it("uses explicit Agent Definition names instead of discovered route names", async () => {
+    const definition = defineAgent({ driver: { run: () => "ok" }, name: " support " })
+    expect(definition.name).toBe("support")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+  })
+
+  it("uses the discovered name when an explicit Agent Definition name is blank", async () => {
+    const definition = defineAgent({ driver: { run: () => "ok" }, name: "   " })
+    expect(definition.name).toBe("")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"] })
+  })
+
+  it("rejects Agent names beyond the persisted identity limit", () => {
+    expect(() => defineAgent({ driver: { run: () => "ok" }, name: "a".repeat(513) }))
+      .toThrow("Agent names cannot exceed 512 characters")
+  })
+
+  it("keeps colliding discovered route names until definitions resolve", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-collision-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "review.agent.ts"), "export default {}\n")
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
+      const plugin = consoleVitePlugin()
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config = { root }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated.match(/fallbackName: "review"/g)).toHaveLength(2)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("regenerates discovered Agents when definitions change in development", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-watch-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "review.agent.ts"), "export default {}\n")
+      const plugin = consoleVitePlugin()
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      await Reflect.apply(configHandler, {}, [{ root }, { command: "serve", mode: "development" }])
+
+      const listeners = new Map<string, () => Promise<void>>()
+      const configureServer = plugin.configureServer
+      if (!configureServer) throw new TypeError("Expected a console development-server hook.")
+      const configureServerHandler = "handler" in configureServer ? configureServer.handler : configureServer
+      Reflect.apply(configureServerHandler, {}, [{ watcher: { on: (event: string, listener: () => Promise<void>) => listeners.set(event, listener) } }])
+
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
+      await listeners.get("add")?.()
+      await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8"))
+        .resolves.toContain(`fallbackName: "support"`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("finds Agent names beyond the first persisted invocation page", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, agentName] of ["archived", ...Array.from({ length: 100 }, () => "current")].entries()) {
+      store.create({
+        agentName,
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `inv-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const invocations = defineAgentInvocations({ store })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgents([], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["archived", "current"],
+    })
+  })
+
+  it("filters console sessions by exact Agent name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const agentName of ["review", "review-assistant"]) {
+      store.create({
+        agentName,
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: agentName,
+        observations: [],
+        status: "completed",
+        traceId: `trace-${agentName}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?agent=review"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ agentName: "review" }],
+    })
+  })
+
+  it("accepts persisted Agent names up to the metadata limit", async () => {
+    const agentName = "a".repeat(512)
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName,
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "long-name",
+      observations: [],
+      status: "completed",
+      traceId: "trace-long-name",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = `http://localhost/api/_vitehub/console/invocations?agent=${agentName}`
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ agentName }],
+    })
   })
 
   it("refreshes invocation summaries in one request without observations", async () => {
