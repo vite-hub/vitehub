@@ -995,6 +995,7 @@ function withCapturedUsage(
             ? () => descriptor.get?.call(record)
             : () => descriptor.value
         }
+        // SAFETY: Prototype traversal either reaches another object in the chain or its null terminus.
         owner = Object.getPrototypeOf(owner) as object | null
       }
       return () => undefined
