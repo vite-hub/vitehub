@@ -73,6 +73,16 @@ function formatDuration(startedAt: string | undefined, completedAt: string | und
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+function configurationLabel(configuration: AgentInvocationConfiguration): string | undefined {
+  const driver = configuration.driver;
+  const model = driver?.model;
+  return [
+    driver?.kind,
+    model?.provider ?? driver?.provider,
+    model?.id,
+  ].filter(Boolean).join(" · ") || undefined;
+}
+
 function workspaceLabel(configuration: AgentInvocationConfiguration): string | undefined {
   const workspace = configuration.workspace;
   return workspace ? [workspace.name, workspace.mode].filter(Boolean).join(" · ") : undefined;
@@ -486,65 +496,227 @@ function inspectorSection(title: string, body: ReturnType<typeof h> | null) {
   return body ? h("section", [h("h4", title), body]) : null;
 }
 
-function inspectorRow(label: string, value: string | number | undefined, code = false) {
+function inspectorRow(label: string, value: string | number | undefined, icon?: InspectorIcon) {
   if (value === undefined || value === "") return null;
-  return h("div", [h("dt", label), h("dd", code ? [h("code", String(value))] : String(value))]);
+  return h("div", [
+    icon ? h("span", { class: "vh-invocation-inspector__row-icon" }, [inspectorIcon(icon)]) : null,
+    h("dt", label),
+    h("dd", String(value)),
+  ]);
 }
 
 function copyIcon(copied: boolean) {
-  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, copied
-    ? [h("path", { d: "m5 12 4 4L19 6", "stroke-linecap": "round", "stroke-linejoin": "round" })]
-    : [
-        h("rect", { height: "13", rx: "2", width: "13", x: "8", y: "8" }),
-        h("path", { d: "M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3", "stroke-linecap": "round", "stroke-linejoin": "round" }),
-      ]);
+  return h(
+    "svg",
+    { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" },
+    copied
+      ? [h("path", { d: "m5 12 4 4L19 6", "stroke-linecap": "round", "stroke-linejoin": "round" })]
+      : [
+          h("rect", { height: "13", rx: "2", width: "13", x: "8", y: "8" }),
+          h("path", {
+            d: "M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3",
+            "stroke-linecap": "round",
+            "stroke-linejoin": "round",
+          }),
+        ],
+  );
+}
+
+type InspectorIcon =
+  | "agent"
+  | "capability"
+  | "driver"
+  | "runtime"
+  | "source"
+  | "tool"
+  | "workspace";
+
+const inspectorIconPaths: Record<InspectorIcon, readonly string[]> = {
+  agent: ["M12 8V4H8", "M4 8h16v10H4z", "M8 12h.01", "M16 12h.01"],
+  capability: ["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10", "m9 12 2 2 4-4"],
+  driver: [
+    "M9 2v3",
+    "M15 2v3",
+    "M9 19v3",
+    "M15 19v3",
+    "M2 9h3",
+    "M2 15h3",
+    "M19 9h3",
+    "M19 15h3",
+    "M5 5h14v14H5z",
+    "M9 9h6v6H9z",
+  ],
+  runtime: ["m16 18 6-6-6-6", "m8 6-6 6 6 6"],
+  source: [
+    "M6 3v12",
+    "M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
+    "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
+    "M18 9a9 9 0 0 1-9 9",
+  ],
+  tool: [
+    "M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-2.4 2.4-2.1-2.1a4 4 0 0 0 5 5L3 18l3 3 9.3-9.3a4 4 0 0 0 5-5l-2.1 2.1-2.4-2.4z",
+  ],
+  workspace: ["M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+};
+
+function inspectorIcon(icon: InspectorIcon) {
+  return h(
+    "svg",
+    { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" },
+    inspectorIconPaths[icon].map((path) =>
+      h("path", {
+        d: path,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+      }),
+    ),
+  );
+}
+
+function statusIcon(status: AgentInvocationView["status"]) {
+  const paths: Record<AgentInvocationView["status"], readonly string[]> = {
+    cancelled: ["M18 6 6 18", "M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20"],
+    completed: ["m5 12 4 4L19 6"],
+    failed: ["M18 6 6 18", "m6 6 12 12"],
+    pending: ["M12 8v4l3 2", "M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20"],
+    running: ["M21 12a9 9 0 1 1-6.219-8.56"],
+  };
+  return h(
+    "svg",
+    { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" },
+    paths[status].map((path) =>
+      h("path", {
+        d: path,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+      }),
+    ),
+  );
+}
+
+function inspectorCollection(title: string, icon: InspectorIcon, items: readonly string[]) {
+  return h("div", { class: "vh-invocation-inspector__group" }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [
+      h("span", { class: "vh-invocation-inspector__group-icon" }, [inspectorIcon(icon)]),
+      h("strong", title),
+      h("small", items.length),
+    ]),
+    h(
+      "ul",
+      { class: "vh-invocation-inspector__items" },
+      items.map((item) => h("li", { key: item }, [h("code", item)])),
+    ),
+  ]);
+}
+
+function inspectorDisclosure(
+  title: string,
+  icon: InspectorIcon,
+  summary: string,
+  body: ReturnType<typeof h>,
+) {
+  return h(
+    "details",
+    { class: "vh-invocation-inspector__group vh-invocation-inspector__disclosure" },
+    [
+      h("summary", { class: "vh-invocation-inspector__group-heading" }, [
+        h("span", { class: "vh-invocation-inspector__group-icon" }, [inspectorIcon(icon)]),
+        h("strong", title),
+        h("small", summary),
+        renderChevronDown("vh-invocation-inspector__chevron"),
+      ]),
+      body,
+    ],
+  );
 }
 
 function renderConfiguration(configuration: AgentInvocationConfiguration) {
+  const driver = configurationLabel(configuration);
   const workspace = workspaceLabel(configuration);
-  const disclosures = [
-    configuration.instructions?.length
-      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
-          h("summary", [h("span", "System instructions"), h("small", `${configuration.instructions.length} block${configuration.instructions.length === 1 ? "" : "s"}`)]),
-          h("pre", { class: "vh-invocation-inspector__instructions" }, configuration.instructions.join("\n\n")),
+  const setup = [
+    inspectorRow("Driver", driver, "driver"),
+    inspectorRow("Runtime", configuration.runtime?.name, "runtime"),
+    inspectorRow("Workspace", workspace, "workspace"),
+  ].filter((item) => item !== null);
+  const groups = [
+    setup.length
+      ? h("div", { class: "vh-invocation-inspector__group" }, [
+          h("div", { class: "vh-invocation-inspector__group-heading" }, [
+            h("span", { class: "vh-invocation-inspector__group-icon" }, [inspectorIcon("driver")]),
+            h("strong", "Execution"),
+          ]),
+          h("dl", { class: "vh-invocation-inspector__list" }, setup),
         ])
       : null,
     configuration.workspace?.sources?.length
-      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
-          h("summary", [h("span", "Workspace sources"), h("small", `${configuration.workspace.sources.length}`)]),
-          h("ul", { class: "vh-invocation-inspector__items" }, configuration.workspace.sources.map(source =>
-            h("li", [h("span", { "aria-hidden": "true" }, "↳"), h("code", source)]),
-          )),
-        ])
+      ? inspectorCollection("Sources", "source", configuration.workspace.sources)
       : null,
     configuration.capabilities?.length
-      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
-          h("summary", [h("span", "Capabilities"), h("small", `${configuration.capabilities.length}`)]),
-          h("div", { class: "vh-invocation-inspector__stack" }, configuration.capabilities.map(capability =>
-            h("details", { class: "vh-invocation-inspector__disclosure" }, [
-              h("summary", [h("span", capability.id), capability.metadata ? h("small", "Metadata") : null]),
-              capability.metadata ? h("pre", JSON.stringify(capability.metadata, null, 2)) : h("p", "No additional metadata."),
+      ? h("div", { class: "vh-invocation-inspector__group" }, [
+          h("div", { class: "vh-invocation-inspector__group-heading" }, [
+            h("span", { class: "vh-invocation-inspector__group-icon" }, [
+              inspectorIcon("capability"),
             ]),
-          )),
+            h("strong", "Capabilities"),
+            h("small", configuration.capabilities.length),
+          ]),
+          h(
+            "div",
+            { class: "vh-invocation-inspector__stack" },
+            configuration.capabilities.map((capability) =>
+              capability.metadata
+                ? h(
+                    "details",
+                    { class: "vh-invocation-inspector__item-disclosure", key: capability.id },
+                    [
+                      h("summary", [
+                        h("code", capability.id),
+                        h("small", "Metadata"),
+                        renderChevronDown("vh-invocation-inspector__chevron"),
+                      ]),
+                      h("pre", JSON.stringify(capability.metadata, null, 2)),
+                    ],
+                  )
+                : h("div", { class: "vh-invocation-inspector__item", key: capability.id }, [
+                    h("code", capability.id),
+                  ]),
+            ),
+          ),
         ])
       : null,
     configuration.tools?.length
-      ? h("details", { class: "vh-invocation-inspector__disclosure" }, [
-          h("summary", [h("span", "Tools"), h("small", `${configuration.tools.length}`)]),
-          h("ul", { class: "vh-invocation-inspector__items" }, configuration.tools.map(tool =>
-            h("li", [h("span", { "aria-hidden": "true" }, "⌁"), h("code", tool.name)]),
-          )),
-        ])
+      ? inspectorCollection(
+          "Tools",
+          "tool",
+          configuration.tools.map((tool) => tool.name),
+        )
       : null,
-  ].filter(item => item !== null);
+    configuration.instructions?.length
+      ? inspectorDisclosure(
+          "Instructions",
+          "agent",
+          `${configuration.instructions.length} block${configuration.instructions.length === 1 ? "" : "s"}`,
+          h(
+            "pre",
+            { class: "vh-invocation-inspector__instructions" },
+            configuration.instructions.join("\n\n"),
+          ),
+        )
+      : null,
+  ].filter((item) => item !== null);
   return [
     configuration.truncated
-      ? inspectorSection("Configuration notice", h("p", "Some configuration values were truncated by the invocation journal."))
+      ? h("div", { class: "vh-invocation-inspector__notice", role: "note" }, [
+          h("strong", "Configuration truncated"),
+          h("p", "Some values were shortened by the invocation journal."),
+        ])
       : null,
-    inspectorSection("Agent definition", h("div", { class: "vh-invocation-inspector__configuration" }, [
-      workspace ? h("dl", { class: "vh-invocation-inspector__list" }, [inspectorRow("Workspace", workspace)]) : null,
-      ...disclosures,
-    ])),
+    groups.length
+      ? inspectorSection(
+          "Captured setup",
+          h("div", { class: "vh-invocation-inspector__groups" }, groups),
+        )
+      : null,
   ];
 }
 
@@ -737,32 +909,47 @@ export const AgentInvocationInspector = defineComponent({
     const copied = ref<"invocation" | "trace">();
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
-      changes: activities.value.filter(activity => activity.kind === "change").length,
-      messages: activities.value.filter(activity => activity.kind === "message").length,
-      steps: activities.value.filter(activity => activity.kind !== "message").length,
+      changes: activities.value.filter((activity) => activity.kind === "change").length,
+      messages: activities.value.filter((activity) => activity.kind === "message").length,
+      steps: activities.value.filter((activity) => activity.kind !== "message").length,
       tokens: latestInvocationTokens(activities.value),
     }));
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
       if (!value || !("navigator" in globalThis) || !navigator.clipboard) return;
-      await navigator.clipboard.writeText(value);
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch {
+        return;
+      }
       copied.value = kind;
       if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => { copied.value = undefined; }, 1_600);
+      copyTimer = setTimeout(() => {
+        copied.value = undefined;
+      }, 1_600);
     }
 
     function copyAction(kind: "invocation" | "trace", label: string, value: string | undefined) {
       if (!value) return null;
       const didCopy = copied.value === kind;
-      return h("button", {
-        "aria-label": `Copy ${label}`,
-        class: "vh-invocation-inspector__copy",
-        onClick: () => void copyIdentifier(kind, value),
-        type: "button",
-      }, [
-        h("span", { class: "vh-invocation-inspector__copy-icon" }, [copyIcon(didCopy)]),
-        h("span", didCopy ? "Copied" : `Copy ${label}`),
-      ]);
+      return h(
+        "button",
+        {
+          "aria-label": didCopy ? `Copied ${label}` : `Copy ${label}`,
+          class: "vh-invocation-inspector__copy",
+          onClick: () => void copyIdentifier(kind, value),
+          type: "button",
+        },
+        [
+          h("span", { class: "vh-invocation-inspector__copy-label" }, label),
+          h(
+            "span",
+            { "aria-live": "polite", class: "vh-invocation-inspector__copy-state" },
+            didCopy ? "Copied" : "Copy",
+          ),
+          h("span", { class: "vh-invocation-inspector__copy-icon" }, [copyIcon(didCopy)]),
+        ],
+      );
     }
 
     onBeforeUnmount(() => {
@@ -771,47 +958,95 @@ export const AgentInvocationInspector = defineComponent({
 
     return () => {
       const configuration = props.invocation.configuration;
-      const endedAt = props.invocation.completedAt ?? props.invocation.failedAt ?? props.invocation.cancelledAt;
-      return h("aside", {
+      const agentName = configuration?.agent?.name ?? props.invocation.agentName;
+      const endedAt =
+        props.invocation.completedAt ?? props.invocation.failedAt ?? props.invocation.cancelledAt;
+      const duration =
+        formatDuration(props.invocation.startedAt, endedAt) ??
+        (props.invocation.status === "pending"
+          ? "Waiting to start"
+          : props.invocation.status === "running"
+            ? "In progress"
+            : "Duration unavailable");
+      return h(
+        "aside",
+        {
           "aria-label": "Session details",
           class: "vh-invocation-inspector",
           "data-status": props.invocation.status,
           "data-slot": "invocation-inspector",
-        }, [
+        },
+        [
           h("header", [
-            h("div", [h("h3", "Details"), h("p", invocationProject(props.invocation))]),
+            h("div", [h("p", invocationProject(props.invocation)), h("h3", "Invocation details")]),
             slots.actions?.({ invocation: props.invocation }),
           ]),
           h("div", { class: "vh-invocation-inspector__content" }, [
             h("section", { class: "vh-invocation-inspector__identity" }, [
-              h("div", { class: "vh-invocation-inspector__status" }, [
-                h("span", { class: "vh-invocation-inspector__status-icon", "aria-hidden": "true" }),
-                h("strong", statusLabel(props.invocation.status)),
-                h("small", formatDuration(props.invocation.startedAt, endedAt) ?? "In progress"),
-              ]),
+              h(
+                "div",
+                {
+                  "aria-atomic": "true",
+                  "aria-live": "polite",
+                  class: "vh-invocation-inspector__status",
+                  role: "status",
+                },
+                [
+                  h("span", { class: "vh-invocation-inspector__status-icon" }, [
+                    statusIcon(props.invocation.status),
+                  ]),
+                  h("strong", statusLabel(props.invocation.status)),
+                  h("small", duration),
+                ],
+              ),
               h("h4", invocationTitle(props.invocation)),
               invocationContext(props.invocation) !== props.invocation.id
                 ? h("p", invocationContext(props.invocation))
                 : null,
+              agentName
+                ? h("div", { class: "vh-invocation-inspector__agent" }, [
+                    h("span", { class: "vh-invocation-inspector__agent-icon" }, [
+                      inspectorIcon("agent"),
+                    ]),
+                    h("span", "Agent"),
+                    h("code", agentName),
+                  ])
+                : null,
+              props.invocation.error
+                ? h("div", { class: "vh-invocation-inspector__error" }, [
+                    h("strong", props.invocation.error.name ?? "Invocation failed"),
+                    h("p", props.invocation.error.message),
+                  ])
+                : null,
             ]),
-            inspectorSection("Run", h("dl", { class: "vh-invocation-inspector__list" }, [
-              inspectorRow("Agent", configuration?.agent?.name ?? props.invocation.agentName),
-              inspectorRow("Model", configuration?.driver?.model?.id),
-              inspectorRow("Provider", configuration?.driver?.model?.provider ?? configuration?.driver?.provider),
-              inspectorRow("Runtime", configuration?.runtime?.name ?? configuration?.driver?.kind),
-              inspectorRow("Messages", metrics.value.messages),
-              inspectorRow("Steps", metrics.value.steps),
-              metrics.value.changes ? inspectorRow("Changes", metrics.value.changes) : null,
-              metrics.value.tokens !== undefined ? inspectorRow("Tokens", new Intl.NumberFormat("en").format(metrics.value.tokens)) : null,
-            ])),
+            inspectorSection(
+              "Run summary",
+              h("dl", { class: "vh-invocation-inspector__metrics" }, [
+                h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
+                h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
+                metrics.value.changes
+                  ? h("div", [h("dt", "Changes"), h("dd", metrics.value.changes)])
+                  : null,
+                metrics.value.tokens !== undefined
+                  ? h("div", [
+                      h("dt", "Tokens"),
+                      h("dd", new Intl.NumberFormat("en").format(metrics.value.tokens)),
+                    ])
+                  : null,
+              ]),
+            ),
             ...(configuration ? renderConfiguration(configuration) : []),
             slots.metadata?.({ invocation: props.invocation }),
-            inspectorSection("Identifiers", h("div", { class: "vh-invocation-inspector__copy-list" }, [
-              copyAction("trace", "Trace ID", props.invocation.traceId),
-              copyAction("invocation", "Invocation ID", props.invocation.id),
-            ])),
+            inspectorSection(
+              "Identifiers",
+              h("div", { class: "vh-invocation-inspector__copy-list" }, [
+                copyAction("trace", "Trace ID", props.invocation.traceId),
+                copyAction("invocation", "Invocation ID", props.invocation.id),
+              ]),
+            ),
           ]),
-        ]);
+        ],
+      );
     };
   },
 });

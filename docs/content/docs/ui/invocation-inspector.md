@@ -25,7 +25,7 @@ icon: i-ph-sidebar-simple-light
 </AgentInvocationInspector>
 ```
 
-The inspector shows identity and status first, then run counts, environment, Sources, Capabilities, tools, instructions, and copy actions for identifiers. Structured configuration uses readable rows and disclosures instead of raw JSON as the primary view.
+The inspector keeps the outcome visible, summarizes the run, and groups the captured Agent setup below it. Sources and tools stay compact, while Capability metadata and instructions expand in place. Terminal errors appear with the exact invocation status. Identifiers remain hidden until copied.
 
 ## Captured configuration
 
