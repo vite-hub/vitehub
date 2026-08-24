@@ -11960,7 +11960,9 @@ describe("server helpers", () => {
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
     const replaceQueueHead = state.queueReplaceHead.bind(state)
+    const peekQueue = state.queuePeek.bind(state)
     let interruptRecoveryReplacement = true
+    let interruptRecoveryPeek = true
     vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
       const [, , replacement] = args
       if (interruptRecoveryReplacement && replacement.length === 1) {
@@ -11969,6 +11971,13 @@ describe("server helpers", () => {
         throw new Error("state response lost after persisting recovery claim")
       }
       return await replaceQueueHead(...args)
+    })
+    vi.spyOn(state, "queuePeek").mockImplementation(async (...args) => {
+      if (!interruptRecoveryReplacement && interruptRecoveryPeek && args[0].endsWith(":pending")) {
+        interruptRecoveryPeek = false
+        throw new Error("state temporarily unavailable while reconciling recovery claim")
+      }
+      return await peekQueue(...args)
     })
     const originalExtendLock = state.extendLock.bind(state)
     let ownerVerificationAttempts = 0
@@ -12017,9 +12026,10 @@ describe("server helpers", () => {
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
       await state.forceReleaseLock(ownershipKey!)
-      await vi.advanceTimersByTimeAsync(250)
+      await vi.advanceTimersByTimeAsync(500)
       await vi.waitFor(() => expect(interruptRecoveryReplacement).toBe(false))
 
+      expect(interruptRecoveryPeek).toBe(false)
       expect(ownerVerificationAttempts).toBe(3)
       expect(createBatch).toHaveBeenCalledTimes(2)
       expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "Workflow failed.")

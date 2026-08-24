@@ -4798,9 +4798,13 @@ async function handleChatSdkMessage(
                     const replacementPending = [recoveryPending] as never
                     const atomicQueue = requireAtomicAgentStateQueue(state.state)
                     let replacedRecoveryPending = false
+                    let recoveryReplacementFailed = false
                     try {
                       replacedRecoveryPending = await atomicQueue.queueReplaceHead(pendingQueue, expectedPending, replacementPending, 1)
                     } catch {
+                      recoveryReplacementFailed = true
+                    }
+                    if (!replacedRecoveryPending) {
                       try {
                         const currentPending = await atomicQueue.queuePeek(pendingQueue)
                         replacedRecoveryPending = JSON.stringify(currentPending) === JSON.stringify(recoveryPending)
@@ -4811,16 +4815,13 @@ async function handleChatSdkMessage(
                         expectedRecoveryPending = recoveryPending
                       } else {
                         await state.state.releaseLock(recoveredLock).catch(() => undefined)
+                        if (!recoveryReplacementFailed) return
                         recoveredLock = null
                         const remainingMs = recoveryDeadline - Date.now()
                         if (remainingMs <= 0) return
                         await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                         continue
                       }
-                    }
-                    if (!replacedRecoveryPending) {
-                      await state.state.releaseLock(recoveredLock).catch(() => undefined)
-                      return
                     }
                     const stopRecoveryHeartbeat = startWebhookLockHeartbeat(state.state, recoveredLock, steerTtlMs, () => undefined)
                     try {
