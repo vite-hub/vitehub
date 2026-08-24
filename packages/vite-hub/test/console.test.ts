@@ -61,8 +61,9 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {
       const plugin = consoleVitePlugin()
-      const configHook = typeof plugin.config === "function" ? plugin.config : plugin.config?.handler
+      const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
       const config: {
         nitro?: {
           handlers: Array<{ handler: string, route: string }>
@@ -71,7 +72,7 @@ describe("Agent invocation console", () => {
         }
         root: string
       } = { root }
-      await Reflect.apply(configHook, {}, [config, { command: "build", mode: "production" }])
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
       if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
 
       expect(config.nitro.handlers.map(handler => handler.route)).toEqual([
