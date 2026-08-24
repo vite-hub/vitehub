@@ -349,7 +349,7 @@ export type MaybePromise<T> = T | Promise<T>
 export interface WorkspaceSourceResolutionContextValueReader<TContextMap extends object = WorkspaceSourceResolutionContextMap> {
   entries(): IterableIterator<[string, unknown]>
   get<K extends Extract<keyof TContextMap, string>>(id: K): TContextMap[K] | undefined
-  get<T = unknown>(id: string): T | undefined
+  get(id: string): unknown
   has(id: string): boolean
   toJSON?(): Record<string, unknown>
 }

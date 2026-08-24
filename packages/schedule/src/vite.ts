@@ -638,5 +638,5 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
   }
 
-  return plugin as unknown as ScheduleVitePlugin
+  return plugin as ScheduleVitePlugin
 }
