@@ -358,7 +358,6 @@ function createProgressSummaryState(
   let revision = 0
   let completedRevision = 0
   let dirty = true
-  let running = false
   let closed = false
   let scheduled = false
   let streamStarted = false
@@ -399,11 +398,8 @@ function createProgressSummaryState(
   }
 
   const startGeneration = () => {
-    if (closed || (intervalMs === 0 && running)) return
-    if (intervalMs === 0) {
-      dirty = false
-      running = true
-    }
+    if (closed) return
+    if (intervalMs === 0) dirty = false
     const currentRevision = ++revision
     const inputValue = context.input.get()
     const generationAbort = new AbortController()
@@ -439,14 +435,11 @@ function createProgressSummaryState(
       })
       .finally(() => {
         generations.delete(generationAbort)
-        if (intervalMs !== 0) return
-        running = false
-        scheduleEventDriven()
       })
   }
 
   const scheduleEventDriven = () => {
-    if (closed || running || scheduled || !dirty) return
+    if (closed || scheduled || !dirty) return
     scheduled = true
     queueMicrotask(() => {
       scheduled = false

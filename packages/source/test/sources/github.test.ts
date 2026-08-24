@@ -93,24 +93,36 @@ describe("@vite-hub/source GitHub source", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("passes bulk Source abort signals to git materialization", async () => {
+  it("shares git materialization while callers cancel independently", async () => {
     vi.stubGlobal("fetch", vi.fn())
-    const controller = new AbortController()
-    loadGitArchiveFiles.mockResolvedValue([{
-      content: new TextEncoder().encode("# Docs\n"),
-      key: "docs/README.md",
-      path: "docs/README.md",
-      ref: "main",
-      sha: "checkout-sha",
-    }])
+    let finishMaterialization!: () => void
+    loadGitArchiveFiles.mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        finishMaterialization = resolve
+      })
+      return [{
+        content: new TextEncoder().encode("# Docs\n"),
+        key: "docs/README.md",
+        path: "docs/README.md",
+        ref: "main",
+        sha: "checkout-sha",
+      }]
+    })
     const docs = github({ include: ["docs/**"], ref: "main", repo: "acme/app" })
-    const ctx = { abortSignal: controller.signal, rootDir: process.cwd() }
+    const canceled = new AbortController()
+    const active = new AbortController()
 
-    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
-    await expect(docs.getItems?.(ctx)).resolves.toHaveLength(1)
+    const canceledKeys = docs.getKeys({ abortSignal: canceled.signal, rootDir: process.cwd() })
+    const activeKeys = docs.getKeys({ abortSignal: active.signal, rootDir: process.cwd() })
+    await vi.waitFor(() => expect(finishMaterialization).toBeTypeOf("function"))
+    canceled.abort()
 
-    expect(loadGitArchiveFiles).toHaveBeenCalledTimes(2)
-    expect(loadGitArchiveFiles.mock.calls.every(([input]) => input.signal === controller.signal)).toBe(true)
+    await expect(canceledKeys).rejects.toMatchObject({ name: "AbortError" })
+    finishMaterialization()
+    await expect(activeKeys).resolves.toEqual(["docs/README.md"])
+
+    expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
+    expect(loadGitArchiveFiles).toHaveBeenCalledWith(expect.objectContaining({ signal: undefined }))
   })
 
   it("pins cached default-ref git materialization to the resolved commit", async () => {
@@ -138,8 +150,8 @@ describe("@vite-hub/source GitHub source", () => {
       repo: "acme/app",
     })
 
-    await expect(source.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["README.md"])
-    await expect(source.getItems?.({ rootDir: process.cwd() })).resolves.toEqual([{
+    await expect(source.getKeys({ abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual(["README.md"])
+    await expect(source.getItems?.({ abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual([{
       content: new TextEncoder().encode("first\n"),
       key: "README.md",
       metadata: { ref: "first-commit", sha: "first-commit" },
@@ -282,7 +294,7 @@ describe("@vite-hub/source GitHub source", () => {
 
     const docs = github({ repo: "acme/app", root: "docs" })
 
-    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+    await expect(docs.getMeta?.("README.md", { abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual({
       ref: "latest-commit-sha",
       sha: "sha-docs/README.md",
     })
@@ -301,11 +313,11 @@ describe("@vite-hub/source GitHub source", () => {
 
     const docs = github({ cache: { maxAge: 3600 }, repo: "acme/app", root: "docs" })
 
-    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+    await expect(docs.getMeta?.("README.md", { abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual({
       ref: "latest-commit-sha",
       sha: "sha-docs/README.md",
     })
-    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+    await expect(docs.getMeta?.("README.md", { abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual({
       ref: "latest-commit-sha",
       sha: "sha-docs/README.md",
     })

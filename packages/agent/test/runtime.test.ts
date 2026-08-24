@@ -8801,6 +8801,64 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenNthCalledWith(2, expect.objectContaining({ activeTools: ["inventory search"] }))
   })
 
+  it("starts a fresh event-driven progress summary while an older generation is pending", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const generations = [deferred<string>(), deferred<string>()]
+    let sourceController!: ReadableStreamDefaultController<unknown>
+    const execute = vi.fn(() => generations[execute.mock.calls.length - 1]!.promise)
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                sourceController = controller
+              },
+            })
+          },
+        }) },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    sourceController.enqueue({ messageId: "message-1", type: "start" })
+    await reader.read()
+    expect(execute).toHaveBeenCalledOnce()
+
+    sourceController.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+    await reader.read()
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2))
+
+    const progress = reader.read()
+    generations[1]!.resolve("Checking inventory.")
+    await expect(progress).resolves.toEqual({
+      done: false,
+      value: {
+        data: { revision: 2, summary: "Checking inventory.", type: "progress-summary" },
+        transient: true,
+        type: "data-progress-summary",
+      },
+    })
+    generations[0]!.resolve("Stale preparation.")
+    await Promise.resolve()
+    sourceController.enqueue({ finishReason: "stop", type: "finish" })
+    sourceController.close()
+    const remaining = []
+    for (;;) {
+      const next = await reader.read()
+      if (next.done) break
+      remaining.push(next.value)
+    }
+    expect(remaining).not.toContainEqual(expect.objectContaining({
+      data: expect.objectContaining({ revision: 1 }),
+      type: "data-progress-summary",
+    }))
+  })
+
   it("includes first-chunk tool activity in the initial progress summary", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn((_input: { activeTools: string[] }) => "Checking inventory.")

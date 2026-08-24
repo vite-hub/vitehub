@@ -30,6 +30,16 @@ function dedupeProviderPromise<TResult>(
   return nextPromise
 }
 
+async function waitForCachedGitHubResult<TResult>(result: Promise<TResult>, signal?: AbortSignal): Promise<TResult> {
+  if (!signal) return await result
+  signal.throwIfAborted()
+  return await new Promise<TResult>((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener("abort", abort, { once: true })
+    void result.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort))
+  })
+}
+
 export function github(options: GitHubSourceOptions): Source<string> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
@@ -145,7 +155,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
       )
 
   async function getRef(token = refreshAuth(), signal?: AbortSignal) {
-    return signal ? await resolveRef(token, signal) : await cachedResolveRef(token)
+    return await waitForCachedGitHubResult(cachedResolveRef(token), signal)
   }
 
   async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
@@ -215,7 +225,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
       )
 
   function getFiles(token = refreshAuth(), signal?: AbortSignal, resolvedRef?: string) {
-    return signal ? loadFiles(token, signal, resolvedRef) : cachedLoadFiles(resolvedRef, token)
+    return waitForCachedGitHubResult(cachedLoadFiles(resolvedRef, token), signal)
   }
 
   async function loadFileMetadata(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string> | undefined> {
@@ -362,9 +372,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
     },
     async getMeta(key, ctx) {
       const token = contextAuth(ctx)
-      const file = ctx?.abortSignal
-        ? await loadFileMetadata(key, token, ctx.abortSignal, ctx.revision?.id)
-        : await cachedLoadFileMetadata(key, ctx.revision?.id, token)
+      const file = await waitForCachedGitHubResult(cachedLoadFileMetadata(key, ctx.revision?.id, token), ctx?.abortSignal)
       if (!file) return
       return {
         ref: file.ref,
