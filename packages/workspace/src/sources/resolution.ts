@@ -480,7 +480,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
         await Promise.all(paths.map(path => materializeSources({ path })))
-        const startBoxSession = (workspace as unknown as Partial<Record<symbol, unknown>>)[Symbol.for("vitehub.workspace.start-box-session")]
+        const startBoxSession: unknown = Reflect.get(workspace, Symbol.for("vitehub.workspace.start-box-session"))
         const session = options?.host
           ? await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
           : typeof startBoxSession === "function"
