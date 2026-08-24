@@ -23,10 +23,9 @@ import type {
   WorkspaceStore,
 } from "../core/types.ts"
 
-async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
+async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
   const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
   const { dirname } = await import("node:path")
-  const lock = `${root}.vitehub-lock`
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
   await mkdir(dirname(lock), { recursive: true })
@@ -51,7 +50,7 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
         })
         if (reclaimed) await rm(stale, { force: true, recursive: true })
       }
-      else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace root: ${root}.`)
+      else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
       else await delay(25)
     }
   }
@@ -62,6 +61,16 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
     const activeOwner = await readFile(ownerPath, "utf8").catch(() => undefined)
     if (activeOwner === owner) await rm(lock, { force: true, recursive: true })
   }
+}
+
+async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  return await withFilesystemLock(`${root}.vitehub-lock`, `root: ${root}.`, operation)
+}
+
+async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>): Promise<T> {
+  const normalized = normalizeWorkspacePath(path)
+  const key = createHash("sha256").update(normalized).digest("hex")
+  return await withFilesystemLock(`${root}.vitehub-locks/${key}`, `path: ${normalized}.`, operation)
 }
 
 async function walk(
@@ -148,11 +157,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    await this.#writeFile(path, file)
+    await withWorkspacePathLock(this.root, path, () => this.#writeFile(path, file))
   }
 
   async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
-    await withWorkspaceLock(this.root, async () => {
+    await withWorkspacePathLock(this.root, path, async () => {
       const normalized = normalizeWorkspacePath(path)
       const current = await this.stat(normalized)
       assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
@@ -164,7 +173,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
-    const temp = `${absolute}.${randomUUID()}.tmp`
+    const tempRoot = `${this.root}.vitehub-tmp`
+    const temp = `${tempRoot}/${randomUUID()}.tmp`
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
@@ -176,7 +186,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
       })
       return
     }
-    await mkdir(dirname(absolute), { recursive: true })
+    await Promise.all([
+      mkdir(dirname(absolute), { recursive: true }),
+      mkdir(tempRoot, { recursive: true }),
+    ])
     try {
       await writeFile(temp, bytes)
       await rename(temp, absolute)
@@ -192,7 +205,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
-    return await this.#writeFileStream(path, file)
+    return await withWorkspacePathLock(this.root, path, () => this.#writeFileStream(path, file))
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
@@ -200,11 +213,15 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
-    const temp = `${absolute}.${randomUUID()}.tmp`
+    const tempRoot = `${this.root}.vitehub-tmp`
+    const temp = `${tempRoot}/${randomUUID()}.tmp`
     const hash = createHash("sha256")
     let size = 0
 
-    await mkdir(dirname(absolute), { recursive: true })
+    await Promise.all([
+      mkdir(dirname(absolute), { recursive: true }),
+      mkdir(tempRoot, { recursive: true }),
+    ])
     try {
       const hashing = new Transform({
         transform(chunk: Uint8Array, _encoding, callback) {

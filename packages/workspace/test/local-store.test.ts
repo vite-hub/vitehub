@@ -27,7 +27,13 @@ async function createStore() {
 
 afterEach(async () => {
   vi.clearAllMocks()
-  await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
+  await Promise.all(tempDirs.splice(0).flatMap(path => [
+    path,
+    `${path}.vitehub-lock`,
+    `${path}.vitehub-locks`,
+    `${path}.vitehub-tmp`,
+    `${path}.meta.json`,
+  ]).map(path => rm(path, { recursive: true, force: true })))
 })
 
 describe("local workspace store", () => {
@@ -152,8 +158,43 @@ describe("local workspace store", () => {
     await writingStarted
 
     await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
+    const tempPath = String(vi.mocked(writeFile).mock.calls[0]?.[0])
+    expect(tempPath.startsWith(`${root}.vitehub-tmp/`)).toBe(true)
+    await expect(store.list("", { recursive: true })).resolves.toEqual([])
     release()
     await writing
+  })
+
+  it("preserves conditional-write isolation from concurrent unconditional writes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    const second = createLocalWorkspaceStore(root)
+    await first.writeFile("docs/page.md", { path: "docs/page.md", content: "first" })
+    const baseline = await first.stat("docs/page.md")
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const writing = second.writeFile("docs/page.md", { path: "docs/page.md", content: "second" })
+    await writingStarted
+    const conditional = first.writeFileConditional?.(
+      "docs/page.md",
+      { path: "docs/page.md", content: "stale" },
+      baseline?.digest || null,
+    )
+    release()
+    await writing
+
+    await expect(conditional).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    await expect(readFile(join(root, "docs/page.md"), "utf8")).resolves.toBe("second")
   })
 
   it("rejects a conditional write from a stale local store", async () => {
@@ -235,6 +276,7 @@ describe("local workspace store", () => {
     await waiting
 
     await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(store.list("", { recursive: true })).resolves.toEqual([])
     release()
     await writing
   })
