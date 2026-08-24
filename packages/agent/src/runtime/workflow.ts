@@ -398,8 +398,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
           type: "failed",
           runId,
         })
-      channelDeliveryJournaled = true
         .catch(() => undefined)
+      channelDeliveryJournaled = true
     }
     throw nonRetryableAgentWorkflowError(error)
   } finally {
