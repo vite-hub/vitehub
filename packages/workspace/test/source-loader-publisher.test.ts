@@ -156,6 +156,39 @@ function archiveRequestAuthorization() {
 }
 
 describe("sources, loaders, and publishers", () => {
+  it("pins one revision while syncing a mounted build source", async () => {
+    const root = await createRoot()
+    let resolution = 0
+    const seenRevisions: string[] = []
+
+    await syncWorkspaceDefinition({
+      name: "revision-pinning",
+      rootDir: root,
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async resolveRevision() {
+            return { id: `revision-${++resolution}`, immutable: true }
+          },
+          async prepare(ctx) {
+            seenRevisions.push(ctx.revision?.id ?? "missing")
+          },
+          async getKeys(ctx) {
+            seenRevisions.push(ctx.revision?.id ?? "missing")
+            return ["README.md"]
+          },
+          async getItem(key, ctx) {
+            seenRevisions.push(ctx.revision?.id ?? "missing")
+            return { content: ctx.revision?.id ?? "missing", key }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    expect(resolution).toBe(1)
+    expect(seenRevisions).toEqual(["revision-1", "revision-1", "revision-1"])
+  })
+
   it("keeps Vite out of statically bundled workspace runtime output", async () => {
     const output = await readFile(join(import.meta.dirname, "../dist/index.js"), "utf8")
 
@@ -1492,15 +1525,8 @@ describe("sources, loaders, and publishers", () => {
   })
 
   it("rejects unsafe workspace asset paths", async () => {
-    const workspace = {
-      name: "unsafe",
-      async glob() {
-        return [{ path: "../escape.txt", type: "file" }]
-      },
-      async readFile() {
-        return "escape"
-      },
-    } as unknown as WorkspaceStore
+    const workspace = createMemoryWorkspaceStore()
+    workspace.glob = async () => [{ path: "../escape.txt", type: "file" }]
 
     await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("escapes the workspace root")
   })

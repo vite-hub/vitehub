@@ -1,4 +1,4 @@
-import type { Source as SourcePackageSource } from "@vite-hub/source"
+import type { Source as SourcePackageSource, SourceContext as SourcePackageSourceContext, SourceRevision } from "@vite-hub/source"
 import type { FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/file"
 import type { GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 import type { GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source/glob"
@@ -333,13 +333,9 @@ export interface SourceContextWorkspaceFiles {
   exists(path: string): Promise<boolean>
 }
 
-export interface SourceContext {
-  abortSignal?: AbortSignal
+export interface SourceContext extends SourcePackageSourceContext {
   mountPath?: string
-  rootDir: string
   selectedWorkspaceScope?: WorkspaceSelectedScope
-  source?: string
-  sourceRootDir?: string
   workspace: string
   workspaceFiles?: SourceContextWorkspaceFiles
 }
@@ -474,13 +470,12 @@ export interface WorkspaceSource {
   probeKeys?: string[]
   fingerprint?: unknown
   resolve?: WorkspaceSourceResolver
+  resolveRevision?(ctx: SourceContext): Promise<SourceRevision | undefined>
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
   getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
-  search?(query: WorkspaceSearchQuery, ctx: SourceContext): Promise<WorkspaceSearchHit[]>
-  watch?: unknown[]
 }
 
 export interface WorkspaceSourceSyncPolicy {
@@ -721,7 +716,7 @@ export interface WorkspaceSourceMaterializationStatus {
   source: string
   mountPath: string
   status: "lazy" | "updating" | "ready" | "error"
-  commit?: string
+  revision?: SourceRevision
   materializedAt?: string
   files?: number
   bytes?: number

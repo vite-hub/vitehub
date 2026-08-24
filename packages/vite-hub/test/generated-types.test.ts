@@ -1,9 +1,12 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { IncomingMessage, ServerResponse } from "node:http"
+import { Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createEvent } from "h3-v1"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -33,6 +36,23 @@ function collectionModule(name: string): string {
     `export const ${name} = {`,
     `  async page() { return { items: [], nextCursor: null } },`,
     `  async parseQuery(input: object) { return input },`,
+    `}`,
+    ``,
+  ].join("\n")
+}
+
+function contentModule(): string {
+  return [
+    `export const content = {`,
+    `  async handler(request: Request) {`,
+    `    return Response.json({`,
+    `      aborted: request.signal.aborted,`,
+    `      body: await request.text(),`,
+    `      header: request.headers.get("x-content-test"),`,
+    `      method: request.method,`,
+    `      url: request.url,`,
+    `    })`,
+    `  },`,
     `}`,
     ``,
   ].join("\n")
@@ -222,6 +242,100 @@ describe("framework generated types", () => {
     )
   })
 
+  it("serves server/content.ts through the Comark Content runtime", async () => {
+    const { root } = await createNestedProject()
+    await Promise.all([
+      mkdir(join(root, "server"), { recursive: true }),
+      symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir"),
+    ])
+    await writeFile(join(root, "server/content.ts"), contentModule())
+
+    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
+
+    expect(handlers).toEqual([{
+      handler: join(root, ".vitehub/content/route.mjs"),
+      route: "/api/content/**",
+    }])
+    await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineContentHandler } from "vite-hub/source/content"`,
+        `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
+        ``,
+        `export default defineContentHandler(content)`,
+        ``,
+      ].join("\n"),
+    )
+    const generatedModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
+    const generatedHandler = Reflect.get(Object(generatedModule), "default")
+    if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
+    const nodeRequest = new IncomingMessage(new Socket())
+    nodeRequest.url = "/api/content/custom"
+    nodeRequest.method = "POST"
+    nodeRequest.headers = {
+      host: "internal.test",
+      "x-content-test": "preserved",
+      "x-forwarded-host": "example.test",
+      "x-forwarded-proto": "https",
+    }
+    nodeRequest.push("content body")
+    nodeRequest.push(null)
+    // SAFETY: This fixture models the state Node's HTTP parser sets before emitting the completed request body.
+    Object.defineProperty(nodeRequest, "complete", { value: true })
+    const response: unknown = await generatedHandler(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
+    if (!(response instanceof Response)) throw new TypeError("Expected the Content handler to return a response.")
+    await expect(response.json()).resolves.toEqual({
+      aborted: false,
+      body: "content body",
+      header: "preserved",
+      method: "POST",
+      url: "https://example.test/api/content/custom",
+    })
+
+    const abortedRequest = new IncomingMessage(new Socket())
+    abortedRequest.url = "/api/content/aborted"
+    abortedRequest.headers = { host: "example.test" }
+    Object.defineProperty(abortedRequest, "aborted", { value: true })
+    const abortedResponse: unknown = await generatedHandler(
+      createEvent(abortedRequest, new ServerResponse(abortedRequest)),
+    )
+    if (!(abortedResponse instanceof Response)) throw new TypeError("Expected an aborted Content response.")
+    await expect(abortedResponse.json()).resolves.toMatchObject({ aborted: true })
+  })
+
+  it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {
+    const { root } = await createNestedProject()
+    const firstServerDir = join(root, "api")
+    const secondServerDir = join(root, "admin")
+    await Promise.all([mkdir(firstServerDir), mkdir(secondServerDir)])
+    await Promise.all([
+      writeFile(join(firstServerDir, "content.ts"), contentModule()),
+      writeFile(join(secondServerDir, "content.ts"), contentModule()),
+    ])
+
+    await expect(viteHubTypesPlugin().api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [firstServerDir, secondServerDir],
+    })).rejects.toThrow("Content is defined in more than one server directory")
+
+    await rm(join(secondServerDir, "content.ts"))
+    await writeFile(join(firstServerDir, "content.ts"), "export const other = {}\n")
+    await expect(viteHubTypesPlugin().api.prepareTypes({
+      projectRoot: root,
+      serverDirs: [firstServerDir],
+    })).rejects.toThrow('must export a Comark Content instance named "content"')
+  })
+
+  it("rejects a manual route that bypasses generated Content serving", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server/content.ts"), contentModule())
+
+    await expect(config(viteHubTypesPlugin())({
+      nitro: { handlers: [{ handler: "server/api/content.post.ts", method: "post", route: "/api/content/**" }] },
+      root,
+    })).rejects.toThrow('Generated Content route "/api/content/**" conflicts with an existing handler')
+  })
+
   it.each([
     ["meals.mjs", "meals.d.mts"],
     ["meals.cjs", "meals.d.cts"],
@@ -282,7 +396,7 @@ describe("framework generated types", () => {
       },
     ])
     expect(userConfig.nitro.modules).toContainEqual(
-      expect.objectContaining({ name: "vite-hub/collection-route-guard" }),
+      expect.objectContaining({ name: "vite-hub/generated-route-guard" }),
     )
   })
 

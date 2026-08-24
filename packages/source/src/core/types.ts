@@ -9,6 +9,7 @@ export type ReadSourceResult<TOptions extends ReadSourceOptions | undefined = un
 
 export interface SourceContext {
   abortSignal?: AbortSignal
+  revision?: SourceRevision
   rootDir: string
   sourceRootDir?: string
   source?: string
@@ -19,20 +20,10 @@ export interface SourceCacheOptions {
   maxAge?: number
 }
 
-export interface SourceSearchQuery {
-  pattern: string
-  cwd?: string
-  paths?: string[]
-  regex?: boolean
-  caseSensitive?: boolean
-  limit?: number
-}
-
-export interface SourceSearchHit {
-  path: string
-  line: number
-  column: number
-  text: string
+export interface SourceRevision {
+  id: string
+  immutable: boolean
+  ref?: string
 }
 
 export interface SourceItem<
@@ -56,13 +47,12 @@ export interface Source<
   name: string
   cache?: false | SourceCacheOptions
   fingerprint?: unknown
+  resolveRevision?(ctx: SourceContext): Promise<SourceRevision | undefined>
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<TKey[]>
   getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>>
   getItems?(ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>[]>
   getMeta?(key: TKey, ctx: SourceContext): Promise<TMetadata | undefined>
-  search?(query: SourceSearchQuery, ctx: SourceContext): Promise<SourceSearchHit[]>
-  watch?: unknown[]
 }
 
 export interface SourceListEntry<TKey extends string = string> {
@@ -94,6 +84,7 @@ export type SourceMetadata<TName extends SourceName = SourceName> =
   SourceMetadataOf<RegisteredSource<TName>>
 
 export interface SourceReader<TName extends SourceName = SourceName> {
+  revision(): Promise<SourceRevision | undefined>
   keys(): Promise<SourceKey<TName>[]>
   get(key: SourceKey<TName>): Promise<SourceItem<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>>
   items(): Promise<Array<SourceItem<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>>>

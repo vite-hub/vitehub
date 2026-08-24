@@ -16,6 +16,7 @@ import {
   type SourceData,
   type SourceItem,
   type SourceMetadata,
+  type SourceRevision,
   useSource,
 } from "../src/index.ts"
 import { file } from "../src/file.ts"
@@ -317,6 +318,7 @@ describe("@vite-hub/source types", () => {
     expectTypeOf(await docs.read("README.md", { encoding: "binary" })).toEqualTypeOf<Uint8Array>()
     expectTypeOf(await docs.exists("guide/setup.md")).toEqualTypeOf<boolean>()
     expectTypeOf(await docs.meta("README.md")).toEqualTypeOf<Record<string, unknown> | undefined>()
+    expectTypeOf(await docs.revision()).toEqualTypeOf<SourceRevision | undefined>()
     expectTypeOf(await dynamic.keys()).toEqualTypeOf<string[]>()
     expectTypeOf<SourceData<"meals">>().toEqualTypeOf<Meal>()
     expectTypeOf<SourceMetadata<"meals">>().toEqualTypeOf<MealMetadata>()

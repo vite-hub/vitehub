@@ -123,6 +123,8 @@
     "./shell/workspace": "./dist/shell/workspace.js",
     "./source": "./dist/source.js",
     "./source/client": "./dist/source/client.js",
+    "./source/content": "./dist/source/content.js",
+    "./source/content/client": "./dist/source/content/client.js",
     "./source/file": "./dist/source/file.js",
     "./source/github": "./dist/source/github.js",
     "./source/glob": "./dist/source/glob.js",
@@ -210,6 +212,7 @@
     "@types/node": "catalog:tooling",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vite-hub/internal": "workspace:*",
+    "h3-v1": "npm:h3@^1.15.11",
     "publint": "catalog:tooling",
     "tailwindcss": "^4.3.2",
     "typescript": "catalog:tooling",
@@ -222,10 +225,14 @@
   },
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",
+    "comark-content": "catalog:markdown",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@nuxt/ui": {
+      "optional": true
+    },
+    "comark-content": {
       "optional": true
     },
     "vite": {

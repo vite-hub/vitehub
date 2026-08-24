@@ -1,4 +1,4 @@
-import { parse } from "comark"
+import { parseMarkdown } from "comark"
 import binding, { Binding } from "comark/plugins/binding"
 
 import type { ComarkElement } from "./ast.ts"
@@ -21,10 +21,9 @@ export function createMarkdownTemplateRuntime(nonce: string): MarkdownTemplateRu
 }
 
 export async function parseTemplateMarkdown(template: string, bindings = false) {
-  return await parse(template, {
+  return await parseMarkdown(template, {
     autoClose: false,
     autoUnwrap: false,
-    html: true,
     linkify: false,
     plugins: bindings ? [binding()] : [],
   })

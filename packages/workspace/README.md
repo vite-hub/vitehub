@@ -146,6 +146,13 @@ export default defineConfig({
 
 Use named Workspace Source Binding helpers such as `file()` and `github()`. The lower-level Source registry lives in `@vite-hub/source`; install and import it directly only when you use that package's registry APIs.
 
+Workspace resolves a Source revision once before preparation and materialization.
+`materializeSources()` reports that generic revision in each Source status, and
+every key and item read in the lifecycle observes the same identity. Workspace
+search remains literal or regular-expression filesystem search over the visible
+tree; use Comark Content through `@vite-hub/source/content` for parsed-document
+navigation, query, cache, and ranked full-text search.
+
 ## Box sessions
 
 Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/box`](../box/README.md) session and pass it to `workspace.startSession({ host: boxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Box owns execution and the host lifecycle.

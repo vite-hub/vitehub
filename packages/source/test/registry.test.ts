@@ -16,6 +16,37 @@ afterEach(() => {
 })
 
 describe("@vite-hub/source registry", () => {
+  it("resolves one revision before preparing and reading a Source", async () => {
+    const revisions: Array<string | undefined> = []
+    let resolutionCount = 0
+    registerSources({
+      docs: {
+        name: "docs",
+        async resolveRevision() {
+          resolutionCount++
+          return { id: "revision-1", immutable: true, ref: "main" }
+        },
+        async prepare(ctx) {
+          revisions.push(ctx.revision?.id)
+        },
+        async getKeys(ctx) {
+          revisions.push(ctx.revision?.id)
+          return ["README.md"]
+        },
+        async getItem(key, ctx) {
+          revisions.push(ctx.revision?.id)
+          return { content: "# Readme", key }
+        },
+      },
+    })
+
+    const docs = useSource("docs")
+    await expect(docs.revision()).resolves.toEqual({ id: "revision-1", immutable: true, ref: "main" })
+    await expect(docs.read("README.md")).resolves.toBe("# Readme")
+    expect(resolutionCount).toBe(1)
+    expect(revisions).toEqual(["revision-1", "revision-1"])
+  })
+
   it("bounds invalid Source paths", () => {
     const error = sourcePathError(`../${"x".repeat(20_000)}`)
     expect(error).toMatchObject({ code: "SOURCE_PATH_INVALID" })

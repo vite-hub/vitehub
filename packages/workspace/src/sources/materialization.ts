@@ -3,6 +3,7 @@ import { posix } from "node:path"
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
@@ -314,7 +315,7 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "ready",
-        commit: existing?.commit,
+        revision: existing?.revision,
         materializedAt: existing?.materializedAt,
         files: existing?.files,
         bytes: existing?.bytes,
@@ -330,8 +331,9 @@ export async function materializeWorkspaceSources(
       continue
     }
 
+    let revision = existing?.revision
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
-      ? { ...(existing.items || {}) }
+      ? { ...existing.items }
       : {}
     if (completeSource) {
       await writeSourceSnapshotMetadata(store, {
@@ -339,6 +341,7 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "updating",
+        revision,
         items: checkpointItems(itemMetadata),
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       })
@@ -350,13 +353,13 @@ export async function materializeWorkspaceSources(
     try {
       const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
       throwIfAborted(options.abortSignal)
-      await source.source.prepare?.(ctx)
+      await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
         await store.mkdir(source.mountPath, { recursive: true })
       }
 
-      let commit: string | undefined
+      revision = ctx.revision
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
       for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options)) {
@@ -367,7 +370,6 @@ export async function materializeWorkspaceSources(
         for (let index = 1; index < parts.length; index++) directorySet.add(parts.slice(0, index).join("/"))
         if (entry.reused) {
           itemMetadata[path] = entry.metadata
-          commit ||= entry.metadata.ref || entry.metadata.sha
           sourceFiles++
           sourceBytes += entry.reused.size || 0
           if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
@@ -382,7 +384,6 @@ export async function materializeWorkspaceSources(
         }
         const item = entry.item!
         const metadata = item.metadata || {}
-        commit ||= readStringMeta(metadata, "ref") || readStringMeta(metadata, "sha") || entry.metadata.ref || entry.metadata.sha
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
@@ -418,7 +419,7 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "ready",
-        commit,
+        revision,
         materializedAt: new Date().toISOString(),
         files: sourceFiles,
         bytes: sourceBytes,
@@ -450,6 +451,7 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "error",
+        revision,
         error: error instanceof Error ? error.message : String(error),
         files: sourceFiles,
         bytes: sourceBytes,

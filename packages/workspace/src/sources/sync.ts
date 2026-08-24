@@ -1,6 +1,7 @@
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath } from "./source-items.ts"
 import {
   readWorkspaceSourceSyncState,
@@ -106,7 +107,7 @@ function selectedSyncSources(definition: WorkspaceDefinition, options: Workspace
 }
 
 async function getSourceItems(source: ResolvedWorkspaceSource, ctx: ReturnType<typeof createSourceContext>) {
-  await source.source.prepare?.(ctx)
+  await prepareWorkspaceSource(source.source, ctx)
   if (source.source.getItems) return await source.source.getItems(ctx)
   return await Promise.all((await source.source.getKeys(ctx)).map(async key => await source.source.getItem(key, ctx)))
 }

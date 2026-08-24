@@ -19,6 +19,7 @@ import type {
 
 interface RenderState {
   data: Record<string, unknown>
+  directiveTokens: TemplateTokenState
   fragmentToken: string
   fragments: Array<{ path: string }>
   linkToken: string
@@ -41,6 +42,7 @@ const closesLinkDestinationPattern = /(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[
 const closesEnclosedLinkDestinationPattern = /\s*>(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
 
 interface TemplatePreparation {
+  directiveTokens: TemplateTokenState
   prepare: (value: string) => Promise<string>
   protectedTokens: TemplateTokenState
   runtime: MarkdownTemplateRuntime
@@ -86,6 +88,7 @@ export async function renderMarkdownTemplateInternal(
   const tree = await parseTemplateMarkdown(normalized.template, true)
   const nodes = await composeNodes(tree.nodes, {
     data,
+    directiveTokens: preparation.directiveTokens,
     fragmentToken,
     fragments: normalized.fragments,
     linkToken: normalizedLinks.token,
@@ -93,7 +96,10 @@ export async function renderMarkdownTemplateInternal(
     validateConditionPath: options.validateConditionPath,
   })
   const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: preparation.runtime.components }))
-  return restoreTemplateTokens(restoreTemplateTags(rendered, preparation.tagTokens, data), preparation.protectedTokens)
+  return restoreTemplateTokens(
+    restoreTemplateTags(restoreLiteralDirectives(rendered, preparation.directiveTokens), preparation.tagTokens, data),
+    preparation.protectedTokens,
+  )
 }
 
 async function normalizeLinkBindings(template: string): Promise<{
@@ -208,7 +214,12 @@ function createTemplatePreparation(): TemplatePreparation {
     prefix: `VITEHUBMARKDOWNTEMPLATETAG${nonce}`,
     values: [],
   }
+  const directiveTokens: TemplateTokenState = {
+    prefix: `VITEHUBMARKDOWNTEMPLATEDIRECTIVE${nonce}`,
+    values: [],
+  }
   return {
+    directiveTokens,
     prepare: async (value) => {
       const prepared = maskTemplateTags(
         await protectCodeTemplateSyntax(value, protectedTokens, nonce),
@@ -221,6 +232,23 @@ function createTemplatePreparation(): TemplatePreparation {
     runtime: createMarkdownTemplateRuntime(nonce),
     tagTokens,
   }
+}
+
+function protectLiteralDirectives(template: string, state: TemplateTokenState): string {
+  return template.replace(/^([\t ]*:{2,}[A-Za-z][\w-]*)\{[^{}\r\n]+\}(?=[\t ]*$)/gm, (directive, prefix: string) => {
+    const index = state.values.push(directive) - 1
+    return `${prefix}{#${state.prefix}${index}END}`
+  })
+}
+
+function restoreLiteralDirectives(template: string, state: TemplateTokenState): string {
+  return template.replace(
+    new RegExp(`^[\\t ]*:{2,}[A-Za-z][\\w-]*\\{#${state.prefix}(\\d+)END\\}(?=[\\t ]*$)`, "gm"),
+    (directive, index: string, offset: number, source: string) => {
+      const restored = state.values[Number(index)] ?? directive
+      return offset > 0 && source[offset - 1] === "\n" && source[offset - 2] !== "\n" ? `\n${restored}` : restored
+    },
+  )
 }
 
 async function expandPreparedImports(
@@ -573,7 +601,7 @@ async function fragmentNodes(
     throw new TypeError(`[vitehub] Markdown template fragment "{{{ ${path} }}}" must resolve to a string.`)
   }
 
-  const tree = await parseTemplateMarkdown(value)
+  const tree = await parseTemplateMarkdown(protectLiteralDirectives(value, state.directiveTokens))
   if (inline) {
     if (!tree.nodes.length) return []
     if (tree.nodes.length !== 1 || !isElement(tree.nodes[0]) || tree.nodes[0][0] !== "p") {

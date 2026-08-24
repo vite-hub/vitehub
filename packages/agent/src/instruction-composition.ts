@@ -1,4 +1,4 @@
-import { parse } from "comark"
+import { parseMarkdown } from "comark"
 import binding from "comark/plugins/binding"
 import {
   renderMarkdownTemplateInternal,
@@ -273,10 +273,9 @@ function rethrowInstructionCompositionError(error: unknown, workspaceImport = fa
 }
 
 async function parseInstructionMarkdown(content: string, bindings = false) {
-  return await parse(content, {
+  return await parseMarkdown(content, {
     autoClose: false,
     autoUnwrap: false,
-    html: true,
     linkify: false,
     plugins: bindings ? [binding()] : [],
   })

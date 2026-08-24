@@ -151,7 +151,7 @@
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai",
     "chat": "catalog:chat",
-    "comark": "catalog:ui",
+    "comark": "catalog:markdown",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "valibot": "catalog:runtime"

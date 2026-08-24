@@ -1008,7 +1008,7 @@ describe("ViteHub Nuxt integration", () => {
         scannedHandlers: Array<{ method?: string; route?: string }>
       }) => void
     }>
-    const guard = modules.find(module => module.name === "vite-hub/collection-route-guard")
+    const guard = modules.find(module => module.name === "vite-hub/generated-route-guard")
     let checkRoutes = () => {}
     guard?.setup?.({
       hooks: {

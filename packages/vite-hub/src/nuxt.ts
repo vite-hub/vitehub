@@ -13,7 +13,7 @@ import { mergeConfig } from "vite"
 import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { consoleInvocationRootPlugin } from "./console/vite.ts"
-import { mergeGeneratedCollectionNitroConfig, type GeneratedCollectionHandler } from "./internal/types.ts"
+import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
@@ -548,10 +548,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       prepareTypes?: (options: {
         projectRoot: string
         serverDirs?: string[]
-      }) => Promise<GeneratedCollectionHandler[]>
+      }) => Promise<GeneratedServerHandler[]>
     }
   } | undefined
-  const collectionHandlers = await typesPlugin?.api?.prepareTypes?.({
+  const generatedHandlers = await typesPlugin?.api?.prepareTypes?.({
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
@@ -593,7 +593,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)
-    Object.assign(config, mergeGeneratedCollectionNitroConfig(config, collectionHandlers))
+    Object.assign(config, mergeGeneratedNitroConfig(config, generatedHandlers))
     installMarkdownTemplateResolver(config, markdownTemplatePlugin)
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))

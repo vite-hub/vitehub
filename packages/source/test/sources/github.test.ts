@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { github } from "../../src/github.ts"
 import { clearSources, registerSources, useSource } from "../../src/index.ts"
+import { createGitHubCacheKey, githubAuthenticationScope } from "../../src/sources/github/cache.ts"
 import { createTarGz, jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
 
 const loadGitArchiveFiles = vi.hoisted(() => vi.fn())
@@ -24,6 +25,38 @@ afterEach(() => {
 })
 
 describe("@vite-hub/source GitHub source", () => {
+  it("keeps credentials out of GitHub cache keys", () => {
+    const key = createGitHubCacheKey({
+      authScope: githubAuthenticationScope("github-secret"),
+      kind: "archive",
+      ref: "main",
+      repo: "acme/private",
+      root: "",
+    })
+    expect(key).not.toContain("github-secret")
+    expect(key).not.toBe(createGitHubCacheKey({
+      authScope: githubAuthenticationScope("another-secret"),
+      kind: "archive",
+      ref: "main",
+      repo: "acme/private",
+      root: "",
+    }))
+  })
+
+  it("pins a configured branch to one inspected revision", async () => {
+    stubGitHubSource({ "README.md": "# Readme\n" })
+    registerSources({ docs: github({ ref: "main", repo: "acme/app" }) })
+
+    const docs = useSource("docs")
+    await expect(docs.revision()).resolves.toEqual({
+      id: "latest-commit-sha",
+      immutable: true,
+      ref: "main",
+    })
+    await expect(docs.read("README.md")).resolves.toBe("# Readme\n")
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/tar.gz/latest-commit-sha"))).toBe(true)
+  })
+
   it("materializes simple GitHub source paths with git", async () => {
     vi.stubGlobal("fetch", vi.fn())
     loadGitArchiveFiles.mockResolvedValueOnce([
@@ -538,6 +571,7 @@ describe("@vite-hub/source GitHub source", () => {
         if (!archive) throw new Error("Unexpected extra GitHub archive request")
         return new Response(archive)
       }
+      if (requestUrl.endsWith("/commits/main")) return jsonResponse({ sha: "revision-1" })
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
     }))
 
