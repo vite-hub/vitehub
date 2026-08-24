@@ -7,6 +7,7 @@ type AgentWorkflowRetryContext = AgentRuntimeContext & {
 }
 
 export function registerAgentWorkflowRetry(context: AgentRuntimeContext, promise: Promise<unknown>): void {
+  // SAFETY: Agent Workflow execution installs this optional internal registrar on the runtime context.
   const register = (context as AgentWorkflowRetryContext)[agentWorkflowRetryRegistrar]
   if (register) {
     register(promise)
