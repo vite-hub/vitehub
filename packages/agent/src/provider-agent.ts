@@ -835,6 +835,7 @@ function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.
   const errorMessage = hasRuntimeType(error?.message, "string") ? error.message : providerResultError(data?.result)
   const isMcpTool = event.payload.itemType === "mcp_tool_call"
   const isCodexMcpTool = isMcpTool && item?.type === "mcpToolCall"
+  const title = event.payload.title
   const failed = event.payload.status === "failed"
     || event.payload.status === "declined"
     || item?.status === "failed"
@@ -846,7 +847,7 @@ function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.
       : undefined,
     input: isCodexMcpTool ? item.arguments : isMcpTool && data?.input !== undefined ? data.input : event.payload.data,
     output: isCodexMcpTool ? item.result : isMcpTool && data?.result !== undefined ? data.result : event.payload.data ?? event.payload.detail,
-    title: isMcpTool && event.payload.title !== "MCP tool call" ? event.payload.title : undefined,
+    title: isMcpTool && hasRuntimeType(title, "string") && title !== "MCP tool call" && title.trim() ? title : undefined,
   }
 }
 
