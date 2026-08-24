@@ -132,6 +132,18 @@ describe("Agent invocation console", () => {
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
   })
 
+  it("uses the discovered name when an explicit Agent Definition name is blank", async () => {
+    const definition = defineAgent({ driver: { run: () => "ok" }, name: "   " })
+    expect(definition.name).toBe("")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"] })
+  })
+
   it("finds Agent names beyond the first persisted invocation page", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [index, agentName] of ["archived", ...Array.from({ length: 100 }, () => "current")].entries()) {
@@ -175,6 +187,29 @@ describe("Agent invocation console", () => {
 
     await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
       invocations: [{ agentName: "review" }],
+    })
+  })
+
+  it("accepts persisted Agent names up to the metadata limit", async () => {
+    const agentName = "a".repeat(512)
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName,
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "long-name",
+      observations: [],
+      status: "completed",
+      traceId: "trace-long-name",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = `http://localhost/api/_vitehub/console/invocations?agent=${agentName}`
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ agentName }],
     })
   })
 

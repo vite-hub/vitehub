@@ -26,7 +26,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   }
   const cursor = query.get("cursor") || undefined
   const agentName = query.get("agent")?.trim() || undefined
-  if (agentName && agentName.length > 256) {
+  if (agentName && agentName.length > 512) {
     throw Object.assign(new Error("Invalid Agent name"), {
       statusCode: 400,
       statusMessage: "Invalid Agent name",

@@ -16,9 +16,7 @@ const router = useRouter();
 const props = defineProps<{ agentsBase: string; apiBase: string }>();
 const initialAgentQuery = Array.isArray(route.query.agent) ? route.query.agent[0] : route.query.agent;
 const selectedInvocationId = ref<string>();
-const selectedAgentName = ref(
-  typeof initialAgentQuery === "string" && initialAgentQuery.trim() ? initialAgentQuery : undefined,
-);
+const selectedAgentName = ref(initialAgentQuery?.trim() ? initialAgentQuery : undefined);
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
 const paginationRetryRevision = ref(0);
@@ -214,6 +212,7 @@ async function loadAgents(): Promise<void> {
   agentsLoading.value = true;
   try {
     const value = record(await request(props.agentsBase, { signal: controller.signal }));
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
     const names = Array.isArray(value?.agents)
       ? value.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
       : [];

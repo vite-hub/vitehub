@@ -1870,7 +1870,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   let normalizedOptions = channels === agentOptions.channels
     ? agentOptions
     : { ...agentOptions, channels }
-  if (name && name !== normalizedOptions.name) normalizedOptions = { ...normalizedOptions, name }
+  if (name !== normalizedOptions.name) normalizedOptions = { ...normalizedOptions, name }
   if (isWorkspaceAgentOptions(normalizedOptions)) {
     return createWorkspaceAgentDefinition(normalizedOptions)
   }

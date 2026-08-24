@@ -18,6 +18,7 @@ export function installConsoleAgents(
   invocations: AgentInvocations,
 ): readonly string[] {
   const agents = [...new Set(agentNames.map(name => name.trim()).filter(Boolean))].sort()
+  // SAFETY: This intersection only attaches console-owned metadata to the Agent invocation journal.
   const consoleInvocations = invocations as ConsoleAgentInvocations
   consoleInvocations[consoleAgentsKey] = agents
   return agents
@@ -28,14 +29,21 @@ export function installConsoleAgentDefinitions(
   invocations: AgentInvocations,
 ): readonly string[] {
   return installConsoleAgents(entries.map(({ definition, fallbackName }) => {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Generated plugins can import arbitrary JavaScript definitions, so inspect their runtime shape at this boundary.
+    // SAFETY: The object check establishes the string-keyed record needed to inspect a generated module namespace.
     const module = definition && typeof definition === "object" ? definition as Record<string, unknown> : undefined
-    const agent = module?.default && typeof module.default === "object"
-      ? module.default as Record<string, unknown>
-      : module
+    let agent = module
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Generated plugins can provide an arbitrary default export, so inspect its runtime shape at this boundary.
+    if (module?.default && typeof module.default === "object") {
+      // SAFETY: The object check establishes the string-keyed record needed to inspect a generated module default export.
+      agent = module.default as Record<string, unknown>
+    }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent Definitions may come from untyped JavaScript, so verify the identity before installing it.
     return typeof agent?.name === "string" && agent.name.trim() ? agent.name : fallbackName
   }), invocations)
 }
 
 export function getConsoleAgents(): readonly string[] {
+  // SAFETY: The global journal registry may be absent; when present, installConsoleAgents owns this metadata field.
   return (resolveConsoleInvocations() as ConsoleAgentInvocations | undefined)?.[consoleAgentsKey] ?? []
 }
