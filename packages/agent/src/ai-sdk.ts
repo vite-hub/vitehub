@@ -1052,6 +1052,7 @@ function withCapturedStreamUsage<T extends {
     try {
       for await (const event of stream) {
         if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
+          captures()[0]?.complete()
           const captureList = captures()
           const usage = await combinedCapturedUsage(captureList)
           if (usage !== undefined) {
@@ -1092,10 +1093,12 @@ function withCapturedStreamUsage<T extends {
                 try {
                   const { done, value } = await reader.read()
                   if (done) {
+                    captures()[0]?.complete()
                     controller.close()
                     return
                   }
                   if (value && hasRuntimeType(value, "object") && Reflect.get(value, "type") === "finish") {
+                    captures()[0]?.complete()
                     const captureList = captures()
                     const usage = await combinedCapturedUsage(captureList)
                     const usageRecord = usage === undefined
@@ -1108,11 +1111,17 @@ function withCapturedStreamUsage<T extends {
                   controller.enqueue(value)
                 }
                 catch (error) {
+                  captures()[0]?.complete()
                   controller.error(error)
                 }
               },
               async cancel(reason) {
-                await reader.cancel(reason)
+                try {
+                  await reader.cancel(reason)
+                }
+                finally {
+                  captures()[0]?.complete()
+                }
               },
             }, { highWaterMark: 0 })
           },
