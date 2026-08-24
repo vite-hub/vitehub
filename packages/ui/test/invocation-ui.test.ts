@@ -162,6 +162,47 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("inspect")).toEqual([["agent"], ["workspace"]]);
   });
 
+  it("renders progress summary replacements as bordered ViteHub actions", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "progress-summary",
+      observations: [{
+        attributes: {
+          "step.id": "progress-summary:2",
+          "tool.id": "progress-summary:2",
+          "tool.name": "vitehub_progress_summary",
+          "tool.output": "Checking Airtable for assigned tasks.",
+          "vitehub.action.name": "progress-summary.update",
+          "vitehub.activity.body": "Checking Airtable for assigned tasks.",
+          "vitehub.activity.kind": "action",
+          "vitehub.activity.title": "Updated loading message",
+        },
+        name: "agent.tool.finish",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const activities = invocationActivities(invocation);
+    expect(activities).toEqual([
+      expect.objectContaining({
+        body: "Checking Airtable for assigned tasks.",
+        kind: "action",
+        status: "completed",
+      }),
+    ]);
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const action = wrapper.get('.vh-invocation-activity[data-kind="action"]');
+    expect(action.get(".vh-invocation-event__title").text()).toBe("Updated loading message");
+    expect(action.get(".vh-invocation-event__body").text()).toBe("Checking Airtable for assigned tasks.");
+  });
+
   it("collapses long user messages until requested", async () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

@@ -1157,6 +1157,40 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("records progress summary replacements as ViteHub actions", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield {
+            data: { revision: 2, summary: "Checking Airtable for assigned tasks.", type: "progress-summary" },
+            transient: true,
+            type: "data-progress-summary",
+          }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes).toMatchObject({
+      "gen_ai.operation.name": "execute_tool",
+      "gen_ai.tool.call.id": "progress-summary:2",
+      "gen_ai.tool.name": "vitehub_progress_summary",
+      "step.id": "progress-summary:2",
+      "tool.hasOutput": true,
+      "tool.id": "progress-summary:2",
+      "tool.name": "vitehub_progress_summary",
+      "tool.output": "Checking Airtable for assigned tasks.",
+      "vitehub.action.name": "progress-summary.update",
+      "vitehub.activity.body": "Checking Airtable for assigned tasks.",
+      "vitehub.activity.kind": "action",
+      "vitehub.activity.title": "Updated loading message",
+    })
+  })
+
   it("exports product actions from AI SDK telemetry integrations", async () => {
     const { aiSdkTelemetryIntegration } = await import("../src/trace.ts")
     const traceLog = createTraceEventLog()
