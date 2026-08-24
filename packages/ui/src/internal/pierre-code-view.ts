@@ -122,7 +122,7 @@ export const PierreDiff = defineComponent({
         fileContainer: host,
         fileDiff: fileDiff.value,
         forceRender: true,
-        lineAnnotations: toRaw(props.lineAnnotations),
+        lineAnnotations: toRaw(props.lineAnnotations) ?? [],
       });
       if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
     };
@@ -163,7 +163,7 @@ export const PierreFile = defineComponent({
         file: file.value,
         fileContainer: host,
         forceRender: true,
-        lineAnnotations: toRaw(props.lineAnnotations),
+        lineAnnotations: toRaw(props.lineAnnotations) ?? [],
       });
       if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
     };
@@ -189,13 +189,19 @@ export const PierreUnresolvedFile = defineComponent({
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
     let instance: PierreUnresolvedFileModel<unknown> | undefined;
+    let renderedFile: FileContents | undefined;
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
     const render = () => {
       if (!host) return;
       if (!file.value) {
         instance?.cleanUp();
         instance = undefined;
+        renderedFile = undefined;
         return;
+      }
+      if (instance && renderedFile !== file.value) {
+        instance.cleanUp();
+        instance = undefined;
       }
       const options = controlledOptions(props.options, props.selectedLines);
       if (!instance) instance = new PierreUnresolvedFileModel(options, undefined, true);
@@ -204,8 +210,9 @@ export const PierreUnresolvedFile = defineComponent({
         file: file.value,
         fileContainer: host,
         forceRender: true,
-        lineAnnotations: toRaw(props.lineAnnotations),
+        lineAnnotations: toRaw(props.lineAnnotations) ?? [],
       });
+      renderedFile = file.value;
       if (props.selectedLines !== undefined) instance.setSelectedLines(toRaw(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {

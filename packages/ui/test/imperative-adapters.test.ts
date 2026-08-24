@@ -117,7 +117,11 @@ vi.mock("@pierre/diffs", () => ({
   ),
 }));
 
-import { parseDiffFromFile } from "@pierre/diffs";
+import {
+  type DiffLineAnnotation,
+  type LineAnnotation,
+  parseDiffFromFile,
+} from "@pierre/diffs";
 import { FileTree } from "@pierre/trees";
 import { AgentFileTree } from "../src/components/agent-file-tree.ts";
 import {
@@ -262,15 +266,64 @@ describe("Pierre lifecycle adapters", () => {
 
     expect(fileWrapper.text()).toBe("ready.ts");
     expect(unresolvedWrapper.text()).toBe("conflict.ts");
+    const firstUnresolved = diffState.unresolvedFiles[0]!;
     file.name = "updated.ts";
     unresolvedFile.name = "resolved.ts";
     await flushRender();
     expect(fileWrapper.text()).toBe("updated.ts");
     expect(unresolvedWrapper.text()).toBe("resolved.ts");
+    expect(firstUnresolved.cleanUp).toHaveBeenCalledOnce();
+    const secondUnresolved = diffState.unresolvedFiles[1]!;
     fileWrapper.unmount();
     unresolvedWrapper.unmount();
     expect(diffState.files[0]!.cleanUp).toHaveBeenCalledOnce();
-    expect(diffState.unresolvedFiles[0]!.cleanUp).toHaveBeenCalledOnce();
+    expect(secondUnresolved.cleanUp).toHaveBeenCalledOnce();
+  });
+
+  it("clears annotations when their props are removed", async () => {
+    const diffAnnotations = [
+      { lineNumber: 1, metadata: null, side: "additions" },
+    ] satisfies DiffLineAnnotation<unknown>[];
+    const fileAnnotations = [
+      { lineNumber: 1, metadata: null },
+    ] satisfies LineAnnotation<unknown>[];
+    const diffWrapper = mount(PierreDiff, {
+      props: { patch: "change.ts", lineAnnotations: diffAnnotations },
+    });
+    const fileWrapper = mount(PierreFile, {
+      props: {
+        file: { contents: "const ready = true", name: "ready.ts" },
+        lineAnnotations: fileAnnotations,
+      },
+    });
+    const unresolvedWrapper = mount(PierreUnresolvedFile, {
+      props: {
+        file: { contents: "<<<<<<< current", name: "conflict.ts" },
+        lineAnnotations: diffAnnotations,
+      },
+    });
+    await flushRender();
+
+    await Promise.all([
+      diffWrapper.setProps({ lineAnnotations: undefined }),
+      fileWrapper.setProps({ lineAnnotations: undefined }),
+      unresolvedWrapper.setProps({ lineAnnotations: undefined }),
+    ]);
+    await flushRender();
+
+    expect(diffState.diffs[0]!.render).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lineAnnotations: [] }),
+    );
+    expect(diffState.files[0]!.render).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lineAnnotations: [] }),
+    );
+    expect(diffState.unresolvedFiles[0]!.render).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lineAnnotations: [] }),
+    );
+
+    diffWrapper.unmount();
+    fileWrapper.unmount();
+    unresolvedWrapper.unmount();
   });
 
   it("sets up and cleans the virtualized CodeView model", async () => {
