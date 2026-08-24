@@ -83,6 +83,7 @@ export interface AgentChannelDeliveryWorkflowOwnership {
   handedOff?: boolean
   releaseExecutionCustody?(): Promise<void>
   retrySettlementFailures?: boolean
+  settlementError?: string
   settlementStatus?: "completed" | "failed"
   verify?(): Promise<void>
   settle(status: "completed" | "failed"): Promise<void>

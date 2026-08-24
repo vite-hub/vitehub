@@ -2618,13 +2618,20 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               )
               stopExecutionHeartbeat()
               await resolved.state.releaseLock(executionLock).catch(() => undefined)
-              return { retrySettlementFailures: true, settlementStatus: "failed", verify: async () => undefined, settle: async () => undefined }
+              return {
+                retrySettlementFailures: true,
+                settlementError: pending.message.settlementError,
+                settlementStatus: "failed",
+                verify: async () => undefined,
+                settle: async () => undefined,
+              }
             }
             await restoreDurableSteerQueue(resolved.state, queue, pending.message)
             const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             const restored = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
             if (restored?.message?.input) {
+              const restoredMessage = restored.message
               const recoveredLock = await acquireRequiredStateLock(resolved.state, lock.threadId, ttlMs)
               let recoveredOwnershipLost = false
               const stopRecoveredHeartbeat = startWebhookLockHeartbeat(resolved.state, recoveredLock, ttlMs, () => {
@@ -2690,9 +2697,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: The recovered context preserves the owning route context and portable provider fields.
                   {
                     ...context,
-                    capabilities: restored.message.capabilities,
-                    ...(restored.message.requestUrl ? { request: new Request(restored.message.requestUrl) } : {}),
-                    ...(restored.message.run ? { run: restored.message.run } : {}),
+                    capabilities: restoredMessage.capabilities,
+                    ...(restoredMessage.requestUrl ? { request: new Request(restoredMessage.requestUrl) } : {}),
+                    ...(restoredMessage.run ? { run: restoredMessage.run } : {}),
                   } as never,
                   // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                   recoveredWorkflowInput as never,
@@ -2704,6 +2711,26 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
                 }
               } catch (error) {
+                if (!recoveredWorkflowAccepted && isAmbiguousAgentWorkflowStartFailure(error)) {
+                  registerAgentWorkflowRetry(
+                    context,
+                    new Promise<void>((resolve) => setTimeout(resolve, 10)).then(async () => {
+                      await startAgentInvocation(
+                        // SAFETY: The route resolver receives the internal Agent representation expected by startup.
+                        agent as never,
+                        // SAFETY: The recovered context preserves the owning route context and portable provider fields.
+                        {
+                          ...context,
+                          capabilities: restoredMessage.capabilities,
+                          ...(restoredMessage.requestUrl ? { request: new Request(restoredMessage.requestUrl) } : {}),
+                          ...(restoredMessage.run ? { run: restoredMessage.run } : {}),
+                        } as never,
+                        // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
+                        recoveredWorkflowInput as never,
+                      )
+                    }),
+                  )
+                }
                 if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
                   // Restore the expired Workflow's claim so a provider retry can autonomously
                   // attempt recovery again without waiting for another Channel webhook.
@@ -3079,6 +3106,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         await resolved.state.releaseLock(executionLock).catch(() => undefined)
       },
       retrySettlementFailures: true,
+      settlementError: claimedPending.message.settlementError,
       settlementStatus: claimedPending.message.settlementStatus,
       verify,
       settle,

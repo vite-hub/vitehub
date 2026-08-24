@@ -358,7 +358,11 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     if (channelOwnership?.settlementStatus) {
       channelDeliveryStatus = channelOwnership.settlementStatus
       if (channelDelivery) {
-        await channelDelivery.event({ type: channelDeliveryStatus, runId })
+        await channelDelivery.event({
+          ...(channelOwnership.settlementError ? { error: channelOwnership.settlementError } : {}),
+          type: channelDeliveryStatus,
+          runId,
+        })
         channelDeliveryJournaled = true
       }
       return
@@ -416,5 +420,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     } else {
       await channelOwnership?.releaseExecutionCustody?.()
     }
+    // Settlement can register a successor start after the first retry drain.
+    // Keep that retry inside the durable Workflow completion boundary too.
+    if (workflowRetryTasks.length) await Promise.all(workflowRetryTasks)
   }
 }

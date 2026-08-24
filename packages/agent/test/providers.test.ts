@@ -11892,8 +11892,13 @@ describe("server helpers", () => {
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const acquireLock = vi.spyOn(state, "acquireLock")
     const originalExtendLock = state.extendLock.bind(state)
+    let steerExtensionAttempts = 0
     const extendLock = vi.spyOn(state, "extendLock").mockImplementation(
-      async (lock, ttlMs) => (lock.threadId.includes("durable-steer") ? false : await originalExtendLock(lock, ttlMs)),
+      async (lock, ttlMs) => {
+        if (!lock.threadId.includes("durable-steer")) return await originalExtendLock(lock, ttlMs)
+        steerExtensionAttempts++
+        return steerExtensionAttempts <= 4 ? await originalExtendLock(lock, ttlMs) : false
+      },
     )
     const adapter = createTestChatAdapter()
     let acceptWorkflow!: () => void
@@ -11992,7 +11997,8 @@ describe("server helpers", () => {
     vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
       if (!lock.threadId.includes("durable-steer") || lock.threadId.endsWith(":handoff")) return await originalExtendLock(lock, ttlMs)
       ownerVerificationAttempts++
-      if (ownerVerificationAttempts === 1) return false
+      if (ownerVerificationAttempts <= 2) return await originalExtendLock(lock, ttlMs)
+      if (ownerVerificationAttempts === 3) return false
       recoveryStarted = true
       throw new Error("state temporarily unavailable")
     })
@@ -12049,7 +12055,7 @@ describe("server helpers", () => {
       } else {
         await vi.waitFor(() => expect(interruptRecoveryReplacement).toBe(false))
         expect(interruptRecoveryPeek).toBe(false)
-        expect(ownerVerificationAttempts).toBe(3)
+        expect(ownerVerificationAttempts).toBe(4)
         expect(createBatch).toHaveBeenCalledTimes(2)
         expect(recoveryWorkflowClaimIds).toHaveLength(1)
       }
