@@ -149,12 +149,35 @@ beforeEach(() => {
 
 describe("Pierre lifecycle adapters", () => {
   it("disables Pierre's pointer-only diff interactions", async () => {
-    const unsafeOptions = { enableLineSelection: true, expandUnchanged: false } as never;
+    const unsafeOptions: FileDiffOptions<unknown> = { enableLineSelection: true, expandUnchanged: false };
     mount(PierreDiff, { props: { options: unsafeOptions, patch: "first.patch" } });
     await flushRender();
 
     expect(diffState.diffs[0]!.setOptions).toHaveBeenCalledWith(
       expect.objectContaining({ enableLineSelection: false, expandUnchanged: true }),
+    );
+  });
+
+  it("disables Pierre's pointer-only interactions in every code view", async () => {
+    const file = { contents: "const ready = true", name: "ready.ts" };
+    mount(PierreFile, { props: { file, options: { enableLineSelection: true } } });
+    mount(PierreUnresolvedFile, { props: { file, options: { enableLineSelection: true } } });
+    mount(PierreCodeView, {
+      props: {
+        items: [{ file, id: "ready", type: "file" }],
+        options: { enableLineSelection: true },
+      },
+    });
+    await flushRender();
+
+    expect(diffState.files[0]!.setOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ enableLineSelection: false }),
+    );
+    expect(diffState.unresolvedFiles[0]!.setOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ enableLineSelection: false }),
+    );
+    expect(codeViewState.instances[0]!.setOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ enableLineSelection: false }),
     );
   });
 

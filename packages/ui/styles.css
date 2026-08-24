@@ -969,6 +969,16 @@ button.vh-invocation-lifecycle__row:focus-visible {
   transition: background-color 140ms ease, color 140ms ease;
 }
 
+button.vh-invocation-event__summary {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  width: 100%;
+}
+
 .vh-invocation-event__summary::-webkit-details-marker {
   display: none;
 }
