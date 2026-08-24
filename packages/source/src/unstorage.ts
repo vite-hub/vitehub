@@ -11,7 +11,7 @@ export interface UnstorageSourceOptions {
   prefix?: string
 }
 
-function sourceContent(value: StorageValue): string {
+function sourceContent(value: StorageValue | null): string {
   return typeof value === "string" ? value : JSON.stringify(value)
 }
 
@@ -39,14 +39,15 @@ export function unstorage(options: UnstorageSourceOptions): Source {
     },
     async getItem(key) {
       const normalizedKey = sourceKey(key)
-      const value = await storage.getItem(storageKey(normalizedKey))
-      if (value === null) throw new TypeError(`[vitehub] unstorage() could not find ${JSON.stringify(key)}.`)
+      const itemKey = storageKey(normalizedKey)
+      if (!await storage.hasItem(itemKey)) throw new TypeError(`[vitehub] unstorage() could not find ${JSON.stringify(key)}.`)
+      const value = await storage.getItem(itemKey)
       return {
         content: sourceContent(value),
         ...(typeof value === "string" ? {} : { data: value }),
         key: normalizedKey,
         ...(options.mediaType === undefined ? {} : { mediaType: options.mediaType }),
-        metadata: await storage.getMeta(storageKey(normalizedKey)),
+        metadata: await storage.getMeta(itemKey),
         path: normalizedKey,
       }
     },

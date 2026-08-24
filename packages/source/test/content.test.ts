@@ -91,6 +91,33 @@ describe("contentSource", () => {
     expect(JSON.stringify(refreshed?.nodes)).toContain("Revision 2")
   })
 
+  it("keeps overlapping loads on their selected reader revisions", async () => {
+    let revision = 0
+    registerSources({
+      overlap: {
+        name: "overlap",
+        async resolveRevision() {
+          return { id: String(++revision), immutable: true }
+        },
+        async getKeys() {
+          return ["index.md"]
+        },
+        async getItem(key, ctx) {
+          return { content: `revision ${ctx.revision?.id}`, key }
+        },
+      },
+    })
+    const source = contentSource(() => useSource("overlap" as any))
+
+    await expect(Promise.all([
+      Promise.resolve(source.keys()).then(async keys => [keys, await source.getItem("index.md")]),
+      Promise.resolve(source.keys()).then(async keys => [keys, await source.getItem("index.md")]),
+    ])).resolves.toEqual([
+      [["index.md"], "revision 1"],
+      [["index.md"], "revision 2"],
+    ])
+  })
+
   it("serializes structured Source data for Comark parsers", async () => {
     registerSources({
       records: {

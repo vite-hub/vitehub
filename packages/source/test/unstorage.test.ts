@@ -34,4 +34,16 @@ describe("unstorage Source", () => {
     const source = unstorage({ driver: memoryDriver() })
     await expect(source.getItem("missing", { rootDir: process.cwd() })).rejects.toThrow("could not find")
   })
+
+  it("preserves stored null values", async () => {
+    const driver = memoryDriver()
+    const storage = createStorage({ driver })
+    await storage.setItem("nullable.json", null)
+
+    await expect(unstorage({ driver }).getItem("nullable.json", { rootDir: process.cwd() })).resolves.toMatchObject({
+      content: "null",
+      data: null,
+      key: "nullable.json",
+    })
+  })
 })

@@ -28,7 +28,7 @@ function textContent(item: ContentSourceItem): string {
 
 /** Adapt a registered ViteHub Source or Source Reader to the interface consumed by Comark Content. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
-  let currentItems = new Map<string, ContentSourceItem>()
+  const pendingLoads: Map<string, ContentSourceItem>[] = []
 
   async function loadItems() {
     const nextItems = new Map<string, ContentSourceItem>()
@@ -44,20 +44,29 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
       }
       nextItems.set(path, item)
     }
-    currentItems = nextItems
     return nextItems
   }
 
   async function findItem(key: string) {
     const path = normalizeSafeSourcePath(key)
-    return currentItems.get(path) ?? (await loadItems()).get(path)
+    const loadIndex = pendingLoads.findIndex(items => items.has(path))
+    if (loadIndex !== -1) {
+      const items = pendingLoads[loadIndex]!
+      const item = items.get(path)
+      items.delete(path)
+      if (items.size === 0) pendingLoads.splice(loadIndex, 1)
+      return item
+    }
+    return (await loadItems()).get(path)
   }
 
   return {
     ...(options.prefix === undefined ? {} : { prefix: options.prefix }),
     ...(options.schema === undefined ? {} : { schema: options.schema }),
     async keys() {
-      return [...(await loadItems()).keys()]
+      const items = await loadItems()
+      pendingLoads.push(new Map(items))
+      return [...items.keys()]
     },
     async getItem(key) {
       const item = await findItem(key)

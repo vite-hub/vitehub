@@ -223,7 +223,10 @@ function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoa
     ...source.source,
     key: source.key,
     async resolveRevision(ctx) {
-      return await source.source.resolveRevision?.(getSourceContext(ctx))
+      const sourceContext = getSourceContext(ctx)
+      const revision = await source.source.resolveRevision?.(sourceContext)
+      if (revision) sourceContext.revision = revision
+      return revision
     },
     async prepare(ctx) {
       await prepareWorkspaceSource(source.source, getSourceContext(ctx))
