@@ -66,9 +66,13 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
 }
 
 export function createAgentUIMessageStream(options: {
-  execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
+  execute: (context: { abortSignal: AbortSignal, writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
+  const cancellation = new AbortController()
   return new ReadableStream<unknown>({
+    cancel(reason) {
+      cancellation.abort(reason ?? new DOMException("[vitehub] Agent UI-message stream cancelled.", "AbortError"))
+    },
     start(controller) {
       const writer: AgentUIMessageStreamWriter = {
         write(event) {
@@ -80,7 +84,7 @@ export function createAgentUIMessageStream(options: {
           }
         },
       }
-      void Promise.resolve(options.execute({ writer }))
+      void Promise.resolve(options.execute({ abortSignal: cancellation.signal, writer }))
         .catch((error) => {
           try {
             controller.enqueue({
@@ -506,10 +510,20 @@ export async function finalizeUiMessageStreamOutput(
     ? rendered.toUIMessageStream()
     : hasAsyncIterable
       ? createAgentUIMessageStream({
-          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered, {
-            onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
-            projection,
-          }),
+          execute: async ({ abortSignal, writer }) => {
+            const iterator = rendered[Symbol.asyncIterator]()
+            const cancel = () => { void Promise.resolve(iterator.return?.(abortSignal.reason)).catch(() => {}) }
+            abortSignal.addEventListener("abort", cancel, { once: true })
+            try {
+              await writeEventsToUiMessageStream(writer, { [Symbol.asyncIterator]: () => iterator }, {
+                onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
+                projection,
+              })
+            }
+            finally {
+              abortSignal.removeEventListener("abort", cancel)
+            }
+          },
         })
       : createAgentUIMessageStream({
         execute({ writer }) {

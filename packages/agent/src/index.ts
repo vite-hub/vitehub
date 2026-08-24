@@ -4604,22 +4604,27 @@ function materializeAgentStructuredOutputWithEvents(
   let retainedEvent: { consumed: () => void, event: StreamEvent } | undefined
   let settled = false
   let wake: (() => void) | undefined
-  const materialized = materializeAgentStructuredOutput(result, materializationSignal, async (event) => {
-    onEvent?.(event)
-    if (event.type === "text-delta" || event.type === "finish") return
-    await new Promise<void>((resolve) => {
-      retainedEvent = { consumed: resolve, event }
+  let materialized: ReturnType<typeof materializeAgentStructuredOutput> | undefined
+  const materialize = () => {
+    materialized ??= materializeAgentStructuredOutput(result, materializationSignal, async (event) => {
+      await onEvent?.(event)
+      if (event.type === "text-delta" || event.type === "finish") return
+      await new Promise<void>((resolve) => {
+        retainedEvent = { consumed: resolve, event }
+        wake?.()
+        wake = undefined
+      })
+    }, output).finally(() => {
+      settled = true
       wake?.()
-      wake = undefined
     })
-  }, output).finally(() => {
-    settled = true
-    wake?.()
-  })
-  void materialized.catch(() => {})
+    void materialized.catch(() => {})
+    return materialized
+  }
   return {
     events: (async function* () {
       try {
+        materialize()
         while (!settled || retainedEvent) {
           if (!retainedEvent) {
             await new Promise<void>(resolve => { wake = resolve })
@@ -4638,10 +4643,12 @@ function materializeAgentStructuredOutputWithEvents(
       finally {
         if (!settled) cancellation.abort(new DOMException("[vitehub] Structured Agent output stream cancelled.", "AbortError"))
         retainedEvent?.consumed()
-        await materialized.catch(() => {})
+        await materialized?.catch(() => {})
       }
     })(),
-    result: materialized,
+    get result() {
+      return materialize()
+    },
   }
 }
 
@@ -5401,6 +5408,9 @@ async function executeAgentInvocationWithCapacityLease<
         const finishResult = structuredOutput
           ? uiMessageFinishResult
           : resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
+        if (structuredOutput && !outcome.failed && !outcome.completed) {
+          outcome = { error: new DOMException("[vitehub] Structured Agent UI-message stream cancelled before output validation.", "AbortError"), failed: true }
+        }
         if (!outcome.failed && !outcome.completed) {
           await lifecycle.finish({
             result: finishResult,
@@ -5505,6 +5515,9 @@ async function executeAgentInvocationWithCapacityLease<
           if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = structuredOutput ? structuredFinishResult : streamed.finishResult(rendered)
           const finishUsageRecord = structuredUsageRecord ?? streamed.finishUsage()
+          if (structuredOutput && !outcome.failed && !outcome.completed) {
+            outcome = { error: new DOMException("[vitehub] Structured Agent event stream cancelled before output validation.", "AbortError"), failed: true }
+          }
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,

@@ -173,6 +173,7 @@ function toolCallingAgent(
   execute: (input: unknown) => string,
   repairToolCall?: boolean,
   finish?: (event: AgentFinishHookEvent) => void,
+  structuredOutput = false,
 ) {
   return defineAgent({
     capabilities: [defineCapability({
@@ -189,6 +190,7 @@ function toolCallingAgent(
       execution: repairToolCall === undefined ? undefined : { repairToolCall },
       // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
       model: fakeModel as never,
+      ...(structuredOutput ? { output: { schema: outputSchema } } : {}),
     },
     ...(finish ? { hooks: { "agent:finish": finish } } : {}),
     runtime: false,
@@ -585,10 +587,21 @@ describe("AI SDK recovery", () => {
 
   it("cancels structured materialization when the event consumer returns", async () => {
     const fakeModel = streamingRepairModel()
-    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, { prompt: "Search" })
 
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
     for await (const _event of result as AsyncIterable<unknown>) break
+
+    await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
+  })
+
+  it("cancels structured materialization when the UI-message consumer returns", async () => {
+    const fakeModel = streamingRepairModel()
+    const stream = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, { prompt: "Search" }, { output: "ui-message-stream" })
+    const reader = (stream as ReadableStream<unknown>).getReader()
+
+    await reader.read()
+    await reader.cancel()
 
     await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
   })
