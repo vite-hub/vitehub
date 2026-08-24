@@ -254,6 +254,7 @@ describe("vitehub", () => {
       },
       runtimeCapabilityImports: {
         blob: "vite-hub/_internal/blob",
+        db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
         kv: "vite-hub/_internal/kv",
       },
@@ -312,6 +313,9 @@ describe("vitehub", () => {
       },
     }))
     vitehub({ agent: true, preset: "node" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      runtimeCapabilityImports: expect.objectContaining({ db: false }),
+    }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       implicitlyEnabled: true,
       includeUserAppEntry: false,
