@@ -24,6 +24,7 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
   const dataDirectory = resolve(projectRoot, ".vitehub/data")
   mkdirSync(dataDirectory, { recursive: true })
   return defineAgentInvocations({
+    metadataContent: ["vitehub.activity.progress"],
     store: createLibsqlAgentInvocationStore({
       url: `file:${resolve(dataDirectory, "console.sqlite")}`,
     }),

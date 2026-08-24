@@ -314,6 +314,7 @@ const contentAttributeKeys = new Set([
   "messages",
   "output",
   "payload",
+  "progress",
   "prompt",
   "raw",
   "request",

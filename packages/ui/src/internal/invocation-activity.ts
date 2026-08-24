@@ -396,6 +396,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";
   if (activity.kind === "delivery") return channelDeliveryTitle(activity);
+  if (activity.attributes["vitehub.action.name"] === "progress-summary.update") return "Updated loading message";
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));

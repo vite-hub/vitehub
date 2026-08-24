@@ -1157,7 +1157,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("records Capability progress summaries from preserved UI-only run results with distinct action identities", async () => {
+  it("records Capability progress summaries from preserved mixed run results with distinct action identities", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
@@ -1166,6 +1166,9 @@ describe("agent message protocol", () => {
         progressSummary({ execute: () => "Syncing assigned tasks.", id: "sync-progress", intervalMs: 0 }),
       ],
       driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
           toUIMessageStream: () => new ReadableStream({
             async start(controller) {
               controller.enqueue({ id: "tool-1", toolName: "airtable", type: "tool-input-start" })

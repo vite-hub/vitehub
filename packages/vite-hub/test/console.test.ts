@@ -337,12 +337,13 @@ describe("Agent invocation console", () => {
         runtime: false,
       })
       const result = await runAgent(agent, runtime("console-progress-summary"), {})
+      // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
       const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-progress-summary")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
-          "content.omitted": expect.arrayContaining(["tool.output", "vitehub.activity.body"]),
+          "content.omitted": expect.arrayContaining(["tool.output", "vitehub.activity.body", "vitehub.activity.title"]),
           "vitehub.activity.progress": "Checking Airtable for assigned tasks.",
         }),
         name: "agent.tool.finish",

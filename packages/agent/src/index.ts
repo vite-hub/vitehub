@@ -5088,10 +5088,14 @@ async function executeAgentInvocationWithCapacityLease<
                   uiMessageStreamResolved = true
                   unresolvedLazyStreamSurfaces--
                 }
-                const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
+                const normalizedStream = normalizeUiMessageStream(renderedStream)
+                const tracedStream = invocation.runtimeContext.traceLog
+                  ? traceUiMessageStream(normalizedStream, invocation)
+                  : normalizedStream
+                const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(tracedStream)
                 preservedSources.set(renderedStream, source)
                 return withReadableStreamCleanup(
-                  normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
+                  toReadableAsyncIterableStream(source.stream),
                   async (outcome) => {
                     finishing = true
                     const finalOutcome = await cancelPreservedSources(outcome)

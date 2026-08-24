@@ -96,6 +96,7 @@ export interface AgentInvocationStore {
 
 export interface AgentInvocationsOptions {
   content?: TraceEventContentPolicy
+  metadataContent?: readonly string[]
   store: AgentInvocationStore
 }
 
@@ -526,6 +527,7 @@ function journalTraceLog(
   observe: (entry: TraceEventLogEntry) => void,
   nextSequence: () => number,
   content: TraceEventContentPolicy,
+  metadataContent: ReadonlySet<string>,
 ): TraceEventLog {
   const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
   const messageDeltaChunkEvents = 32
@@ -608,6 +610,16 @@ function journalTraceLog(
       }
       try {
         const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
+        if (content === "metadata" && safeEntry.attributes && event.attributes) {
+          const omitted = Array.isArray(safeEntry.attributes["content.omitted"])
+            ? safeEntry.attributes["content.omitted"].filter(key => !metadataContent.has(String(key)))
+            : undefined
+          for (const key of metadataContent) {
+            if (key in event.attributes) safeEntry.attributes[key] = event.attributes[key]
+          }
+          if (omitted?.length) safeEntry.attributes["content.omitted"] = omitted
+          else delete safeEntry.attributes["content.omitted"]
+        }
         if (safeEntry.name === "agent.message.delta") {
           queueMessageDelta(safeEntry)
         }
@@ -635,7 +647,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (options.content !== undefined && options.content !== "content" && options.content !== "metadata") {
     throw new TypeError('[vitehub] Agent Invocations content must be "content" or "metadata".')
   }
+  if (options.metadataContent?.some(key => !isTraceContentAttributeKey(key))) {
+    throw new TypeError("[vitehub] Agent Invocations metadataContent entries must name content attributes.")
+  }
   const content = options.content || "metadata"
+  const metadataContent = new Set(options.metadataContent || [])
   const store = options.store
   const invocations: BoundAgentInvocations = {
     [agentInvocationsBrand]: true,
@@ -852,7 +868,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent),
         },
         async finish(status, error) {
           if (finished || finishing) return
