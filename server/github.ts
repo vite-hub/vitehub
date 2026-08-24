@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createAppAuth } from '@octokit/auth-app'
-import { useServerEnv } from '#vitehub/env/server'
 
 type Secret = { unseal: () => string }
 
@@ -17,7 +16,7 @@ type GitHubAppAuth = ReturnType<typeof createAppAuth>
 type GitHubTokenProviderOptions = {
   createAuth?: typeof createAppAuth
   readCliToken?: () => Promise<string>
-  readEnv: () => GitHubAuthenticationEnv
+  readEnv: () => GitHubAuthenticationEnv | Promise<GitHubAuthenticationEnv>
 }
 
 type GitHubCommandOptions = {
@@ -38,7 +37,7 @@ export function createGitHubTokenProvider({
   let cached: { appId: number, auth: GitHubAppAuth, installationId: number, privateKey: string } | undefined
 
   return async ({ refresh = false }: { refresh?: boolean } = {}) => {
-    const env = readEnv()
+    const env = await readEnv()
     const appId = env.appId.trim()
     const installationId = env.installationId.trim()
     const privateKey = env.privateKey?.unseal().trim().replace(/\\n/g, '\n') || ''
@@ -76,7 +75,7 @@ export function createGitHubTokenProvider({
 }
 
 export const githubToken = createGitHubTokenProvider({
-  readEnv: () => useServerEnv().github,
+  readEnv: async () => (await import('#vitehub/env/server')).useServerEnv().github,
 })
 
 export async function runGitHub(args: string[], options: GitHubCommandOptions = {}) {
