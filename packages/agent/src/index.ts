@@ -4504,7 +4504,7 @@ async function finalizeAgentInvocationResult<
 async function materializeAgentStructuredOutput(
   result: unknown,
   abortSignal?: AbortSignal,
-  onEvent?: AgentOutputEventObserver,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
   output?: AgentOutputDefinition,
 ): Promise<unknown> {
   let streamResult = result
@@ -4559,7 +4559,6 @@ async function materializeAgentStructuredOutput(
     cancelOnAbort: source.cancel,
   }) as AsyncIterable<StreamEvent>
   for await (const event of events) {
-    onEvent?.(event)
     if (event.type === "error") {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
@@ -4578,11 +4577,14 @@ async function materializeAgentStructuredOutput(
               text: rejectedText,
             })
           }
+          await onEvent?.(event)
           throw error
         }
       }
+      await onEvent?.(event)
       throw streamError ?? new Error(event.error)
     }
+    await onEvent?.(event)
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
   }
@@ -4595,24 +4597,48 @@ function materializeAgentStructuredOutputWithEvents(
   onEvent: AgentOutputEventObserver | undefined,
   output: AgentOutputDefinition,
 ) {
-  const retainedEvents: StreamEvent[] = []
+  const cancellation = new AbortController()
+  const materializationSignal = abortSignal
+    ? AbortSignal.any([abortSignal, cancellation.signal])
+    : cancellation.signal
+  let retainedEvent: { consumed: () => void, event: StreamEvent } | undefined
   let settled = false
   let wake: (() => void) | undefined
-  const materialized = materializeAgentStructuredOutput(result, abortSignal, (event) => {
+  const materialized = materializeAgentStructuredOutput(result, materializationSignal, async (event) => {
     onEvent?.(event)
-    if (event.type !== "text-delta" && event.type !== "finish") retainedEvents.push(event)
-    wake?.()
-    wake = undefined
+    if (event.type === "text-delta" || event.type === "finish") return
+    await new Promise<void>((resolve) => {
+      retainedEvent = { consumed: resolve, event }
+      wake?.()
+      wake = undefined
+    })
   }, output).finally(() => {
     settled = true
     wake?.()
   })
+  void materialized.catch(() => {})
   return {
     events: (async function* () {
-      while (!settled || retainedEvents.length) {
-        const event = retainedEvents.shift()
-        if (event) yield event
-        else await new Promise<void>(resolve => { wake = resolve })
+      try {
+        while (!settled || retainedEvent) {
+          if (!retainedEvent) {
+            await new Promise<void>(resolve => { wake = resolve })
+            continue
+          }
+          const retained = retainedEvent
+          retainedEvent = undefined
+          try {
+            yield retained.event
+          }
+          finally {
+            retained.consumed()
+          }
+        }
+      }
+      finally {
+        if (!settled) cancellation.abort(new DOMException("[vitehub] Structured Agent output stream cancelled.", "AbortError"))
+        retainedEvent?.consumed()
+        await materialized.catch(() => {})
       }
     })(),
     result: materialized,
@@ -5357,6 +5383,7 @@ async function executeAgentInvocationWithCapacityLease<
             uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
             uiMessageFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
             const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
+              // SAFETY: The runtime type check above proves this property is a string.
               ? Reflect.get(uiMessageFinishResult, "text") as string
               : undefined
             if (text) yield { text, type: "text-delta" }

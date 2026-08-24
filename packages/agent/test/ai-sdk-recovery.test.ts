@@ -246,6 +246,7 @@ describe("AI SDK recovery", () => {
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
     for await (const event of result as AsyncIterable<unknown>) events.push(event)
 
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }))
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
     expect(fakeModel.calls).toHaveLength(1)
   })
@@ -580,6 +581,16 @@ describe("AI SDK recovery", () => {
     await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
     await expect(earlyUsage).resolves.toBeUndefined()
     expect(fakeModel.pullCount).toBe(0)
+  })
+
+  it("cancels structured materialization when the event consumer returns", async () => {
+    const fakeModel = streamingRepairModel()
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const _event of result as AsyncIterable<unknown>) break
+
+    await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
   })
 
   it("includes tool-call repair usage in UI-message streamed invocations", async () => {
