@@ -345,11 +345,11 @@ describe("Pierre lifecycle adapters", () => {
     expect(instance.cleanUp).toHaveBeenCalledOnce();
   });
 
-  it("forwards in-place option and CodeView item updates", async () => {
+  it("forwards in-place option and versioned CodeView item updates", async () => {
     const options = reactive<FileDiffOptions<unknown>>({ diffStyle: "split" });
     const codeViewFile = reactive({ contents: "before", name: "status.ts" });
     const items = reactive<CodeViewItem<unknown>[]>([
-      { file: codeViewFile, id: "status", type: "file" },
+      { file: codeViewFile, id: "status", type: "file", version: 1 },
     ]);
     const diffWrapper = mount(PierreDiff, { props: { options, patch: "change.ts" } });
     const codeViewWrapper = mount(PierreCodeView, { props: { items } });
@@ -357,6 +357,11 @@ describe("Pierre lifecycle adapters", () => {
 
     options.diffStyle = "unified";
     codeViewFile.contents = "after";
+    await flushRender();
+
+    expect(codeViewState.instances[0]!.setItems).toHaveBeenCalledOnce();
+
+    items[0]!.version = 2;
     await flushRender();
 
     expect(diffState.diffs[0]!.setOptions).toHaveBeenLastCalledWith(

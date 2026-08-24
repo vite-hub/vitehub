@@ -65,16 +65,21 @@ function controlledOptions<T extends { controlledSelection?: boolean }>(
   options: T | undefined,
   selectedLines: unknown,
 ) {
-  const rawOptions = trackDeep(options);
+  const rawOptions = trackShallow(options);
   return selectedLines === undefined ? rawOptions : { ...rawOptions, controlledSelection: true };
 }
 
-function trackDeep<T>(value: T, seen = new WeakSet<object>()): T {
+function trackShallow<T>(value: T): T {
   const objectValue = Object(value);
-  if (!Object.is(objectValue, value) || seen.has(objectValue)) return toRaw(value);
-  seen.add(objectValue);
-  for (const key of Reflect.ownKeys(objectValue)) trackDeep(Reflect.get(objectValue, key), seen);
+  if (!Object.is(objectValue, value)) return toRaw(value);
+  for (const key of Reflect.ownKeys(objectValue)) Reflect.get(objectValue, key);
   return toRaw(value);
+}
+
+function trackArrayItems<T extends readonly unknown[] | undefined>(values: T): T {
+  if (!values) return values;
+  for (const value of values) trackShallow(value);
+  return toRaw(values);
 }
 
 function copyFile(file: FileContents | null): FileContents | null {
@@ -105,7 +110,7 @@ export const PierreDiff = defineComponent({
     let host: HTMLElement | null = null;
     let instance: PierreFileDiffModel<unknown> | undefined;
     const fileDiff = computed<FileDiffMetadata | undefined>(() => {
-      if (props.fileDiff) return trackDeep(props.fileDiff);
+      if (props.fileDiff) return trackShallow(props.fileDiff);
       if (props.patch !== undefined) return getSingularPatch(props.patch);
       if (props.oldFile !== undefined && props.newFile !== undefined) {
         return parseDiffFromFile(
@@ -130,9 +135,9 @@ export const PierreDiff = defineComponent({
         fileContainer: host,
         fileDiff: fileDiff.value,
         forceRender: true,
-        lineAnnotations: trackDeep(props.lineAnnotations) ?? [],
+        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
       });
-      if (props.selectedLines !== undefined) instance.setSelectedLines(trackDeep(props.selectedLines));
+      if (props.selectedLines !== undefined) instance.setSelectedLines(trackShallow(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -171,9 +176,9 @@ export const PierreFile = defineComponent({
         file: file.value,
         fileContainer: host,
         forceRender: true,
-        lineAnnotations: trackDeep(props.lineAnnotations) ?? [],
+        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
       });
-      if (props.selectedLines !== undefined) instance.setSelectedLines(trackDeep(props.selectedLines));
+      if (props.selectedLines !== undefined) instance.setSelectedLines(trackShallow(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -218,10 +223,10 @@ export const PierreUnresolvedFile = defineComponent({
         file: file.value,
         fileContainer: host,
         forceRender: true,
-        lineAnnotations: trackDeep(props.lineAnnotations) ?? [],
+        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
       });
       renderedFile = file.value;
-      if (props.selectedLines !== undefined) instance.setSelectedLines(trackDeep(props.selectedLines));
+      if (props.selectedLines !== undefined) instance.setSelectedLines(trackShallow(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -255,9 +260,9 @@ export const PierreCodeView = defineComponent({
         instance.setup(host);
       }
       instance.setOptions(options);
-      instance.setItems(trackDeep(props.items));
+      instance.setItems(trackArrayItems(props.items)!);
       if (props.selectedLines !== undefined) {
-        instance.setSelectedLines(trackDeep(props.selectedLines), { notify: false });
+        instance.setSelectedLines(trackShallow(props.selectedLines), { notify: false });
       }
       instance.render(true);
     };
