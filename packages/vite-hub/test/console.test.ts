@@ -90,20 +90,24 @@ describe("Agent invocation console", () => {
   it("orders grouped sessions and runs by their latest activity", () => {
     // SAFETY: The grouping helper only reads the summary fields provided by this focused fixture.
     const invocations = [
-      { agentName: "first", id: "newer-created", threadId: "thread", updatedAt: "2026-08-23T10:00:00.000Z" },
+      { agentName: "first", channelId: "portal", id: "newer-created", origin: "web", threadId: "thread", updatedAt: "2026-08-23T10:00:00.000Z" },
       { id: "other", threadId: "other", updatedAt: "2026-08-23T10:30:00.000Z" },
-      { agentName: "first", id: "older-created", threadId: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
+      { agentName: "first", channelId: "portal", id: "older-created", origin: "web", threadId: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
       { agentName: "second", id: "separate-agent", threadId: "thread", updatedAt: "2026-08-23T10:45:00.000Z" },
+      { agentName: "first", channelId: "portal", id: "separate-origin", origin: "scheduled", threadId: "thread", updatedAt: "2026-08-23T10:40:00.000Z" },
+      { agentName: "first", channelId: "cli", id: "separate-channel", origin: "web", threadId: "thread", updatedAt: "2026-08-23T10:35:00.000Z" },
     ] as Parameters<typeof groupConsoleSessions>[0]
 
     expect(groupConsoleSessions(invocations)).toMatchObject([
       {
-        id: "5:first:thread",
+        id: '["first","web","portal","thread"]',
         invocations: [{ id: "older-created" }, { id: "newer-created" }],
         updatedAt: "2026-08-23T11:00:00.000Z",
       },
-      { id: "6:second:thread", invocations: [{ id: "separate-agent" }] },
-      { id: "0::other", invocations: [{ id: "other" }] },
+      { id: '["second",null,null,"thread"]', invocations: [{ id: "separate-agent" }] },
+      { id: '["first","scheduled","portal","thread"]', invocations: [{ id: "separate-origin" }] },
+      { id: '["first","web","cli","thread"]', invocations: [{ id: "separate-channel" }] },
+      { id: '[null,null,null,"other"]', invocations: [{ id: "other" }] },
     ])
   })
 

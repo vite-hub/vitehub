@@ -39,7 +39,12 @@ export function groupConsoleSessions(invocations: AgentInvocationSummary[]): Con
   const grouped = new Map<string, ConsoleSession>();
   for (const invocation of invocations) {
     const id = invocation.threadId
-      ? `${invocation.agentName?.length || 0}:${invocation.agentName || ""}:${invocation.threadId}`
+      ? JSON.stringify([
+          invocation.agentName ?? null,
+          invocation.origin ?? null,
+          invocation.channelId ?? null,
+          invocation.threadId,
+        ])
       : invocation.id;
     const session = grouped.get(id);
     if (session) {
