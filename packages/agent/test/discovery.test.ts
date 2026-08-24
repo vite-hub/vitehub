@@ -162,6 +162,15 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("normalizes file-derived Agent identities", async () => {
+    const root = await createTempRoot("vitehub-agent-normalized-name-")
+    await writeFile(join(root, "review .agent.ts"), "export default {}", "utf8")
+
+    expect(discoverAgentDefinitions({ rootDir: root })).toEqual([
+      expect.objectContaining({ name: "review", source: "vite-suffix" }),
+    ])
+  })
+
   it("discovers server agent files and colocated workspace configs", async () => {
     const root = await createTempRoot("vitehub-agent-server-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

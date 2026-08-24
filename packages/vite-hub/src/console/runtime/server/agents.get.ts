@@ -11,9 +11,8 @@ interface ConsoleAgentsResult {
 const agentsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAgentsResult> = async (event) => {
   assertConsoleRequest(event)
   const agents = new Set(getConsoleAgents())
-  if (agents.size) return { agents: [...agents].sort() }
   let cursor: string | undefined
-  // ponytail: This fallback runs only without discovered definitions; add a store-level distinct-name query if large journals make the scan measurable.
+  // ponytail: Add a store-level distinct-name query if large journals make this compatibility scan measurable.
   do {
     const page = await getConsoleInvocations().list({ cursor, limit: 100 })
     for (const invocation of page.invocations) {

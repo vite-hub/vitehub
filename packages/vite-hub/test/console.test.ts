@@ -139,6 +139,26 @@ describe("Agent invocation console", () => {
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["review", "support"] })
   })
 
+  it("keeps persisted Agent names alongside discovered definitions", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName: "archived",
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "archived-invocation",
+      observations: [],
+      status: "completed",
+      traceId: "archived-trace",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const invocations = defineAgentInvocations({ store })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgents(["current"], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["archived", "current"],
+    })
+  })
+
   it("uses explicit Agent Definition names instead of discovered route names", async () => {
     const definition = defineAgent({ driver: { run: () => "ok" }, name: " support " })
     expect(definition.name).toBe("support")

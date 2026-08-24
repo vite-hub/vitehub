@@ -1730,6 +1730,24 @@ describe("Agent Invocations", () => {
         .resolves.toEqual({ invocations: [] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
+
+      const initializedStore = createLibsqlAgentInvocationStore({ client: firstClient })
+      await initializedStore.list()
+      await setupClient.execute({
+        args: [JSON.stringify({
+          agentName: "review",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "overlapping-legacy-writer",
+          observations: [],
+          status: "completed",
+          traceId: "overlapping-legacy-trace",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })],
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('overlapping-legacy-writer', 'completed', ?)",
+      })
+      await expect(initializedStore.list({ agentName: "review" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "overlapping-legacy-writer" })],
+      })
     }
     finally {
       setupClient.close()

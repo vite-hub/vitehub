@@ -52,7 +52,7 @@ export function discoverAgentEvalFiles(rootDirs: string[]): string[] {
 
 function normalizeSuffixAgentName(rootDir: string, file: string) {
   const name = normalizeSuffixDefinitionName(rootDir, file, agentSuffixPattern, { stripPrefix: "src/" })
-  return name.startsWith("server/") ? undefined : name
+  return name.startsWith("server/") ? undefined : name.trim()
 }
 
 function stripComments(source: string) {
@@ -115,7 +115,7 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
 
       if (!entry.isFile() || (!folderAgentPattern.test(basename(file)) && !indexDefinitionPattern.test(basename(file)))) continue
       const source = readFileSync(file, "utf8")
-      const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
+      const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/").trim()
       if (!agent || agent === ".") continue
       const workspace = isWorkspaceAgentDefinition(source)
       candidates.push({
@@ -170,7 +170,7 @@ export function discoverAgentDefinitions(options:
             if (isColocatedAgentResourcePath(path)) return
           }
           if (isInsideFolderAgent(file, folderAgentDirs)) return
-          return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
+          return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "").trim()
         },
         createDefinition({ file, name }) {
           return {
