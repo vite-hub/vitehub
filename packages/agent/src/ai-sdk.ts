@@ -1045,9 +1045,9 @@ function withCapturedStreamUsage<T extends {
     ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
     ...(toUIMessageStream
       ? {
-          toUIMessageStream: (...args: unknown[]) => {
+          toUIMessageStream(this: typeof result, ...args: unknown[]) {
             // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
-            const reader = toUIMessageStream.apply(result, args as never[]).getReader()
+            const reader = toUIMessageStream.apply(this, args as never[]).getReader()
             return new ReadableStream({
               async pull(controller) {
                 try {
