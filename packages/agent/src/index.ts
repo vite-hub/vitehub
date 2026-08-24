@@ -3760,8 +3760,8 @@ async function finishStreamAgentInvocation<
   try {
     const usageRecord = retainedUsageRecord ?? await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
-    const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
-    if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
+    const resolvedResult = context.output ? result : resultWithResolvedUsageRecord(result, usageRecord)
+    if (!context.output && usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
       try {
         Object.defineProperty(result, "usageRecord", {
           configurable: true,
@@ -4589,6 +4589,36 @@ async function materializeAgentStructuredOutput(
   return resultWithUsageRecord(text, usageRecord)
 }
 
+function materializeAgentStructuredOutputWithEvents(
+  result: unknown,
+  abortSignal: AbortSignal | undefined,
+  onEvent: AgentOutputEventObserver | undefined,
+  output: AgentOutputDefinition,
+) {
+  const retainedEvents: StreamEvent[] = []
+  let settled = false
+  let wake: (() => void) | undefined
+  const materialized = materializeAgentStructuredOutput(result, abortSignal, (event) => {
+    onEvent?.(event)
+    if (event.type !== "text-delta" && event.type !== "finish") retainedEvents.push(event)
+    wake?.()
+    wake = undefined
+  }, output).finally(() => {
+    settled = true
+    wake?.()
+  })
+  return {
+    events: (async function* () {
+      while (!settled || retainedEvents.length) {
+        const event = retainedEvents.shift()
+        if (event) yield event
+        else await new Promise<void>(resolve => { wake = resolve })
+      }
+    })(),
+    result: materialized,
+  }
+}
+
 type AgentInvocationExecutionOptions =
   & (
     | { kind: "run", renderOutput: boolean }
@@ -5316,14 +5346,20 @@ async function executeAgentInvocationWithCapacityLease<
       let uiMessageStructuredUsageRecord: AgentUsageRecord | undefined
       const uiMessageRendered = structuredOutput
         ? (async function* () {
-            const materialized = await materializeAgentStructuredOutput(
+            const materialization = materializeAgentStructuredOutputWithEvents(
               enrichedRendered,
               invocation.input.abortSignal,
               invocation.context.get(agentOutputEventObserverContextKey),
               structuredOutput,
             )
+            for await (const event of materialization.events) yield event
+            const materialized = await materialization.result
             uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
             uiMessageFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
+            const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
+              ? Reflect.get(uiMessageFinishResult, "text") as string
+              : undefined
+            if (text) yield { text, type: "text-delta" }
             yield { data: uiMessageFinishResult, type: "data" }
             yield { type: "finish" }
           })()
@@ -5412,12 +5448,14 @@ async function executeAgentInvocationWithCapacityLease<
     let structuredUsageRecord: AgentUsageRecord | undefined
     const stream = structuredOutput
       ? (async function* () {
-          const materialized = await materializeAgentStructuredOutput(
+          const materialization = materializeAgentStructuredOutputWithEvents(
             streamResult,
             invocation.input.abortSignal,
             invocation.context.get(agentOutputEventObserverContextKey),
             structuredOutput,
           )
+          for await (const event of materialization.events) yield event
+          const materialized = await materialization.result
           structuredUsageRecord = usageRecordFromStreamChunk(materialized)
           structuredFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
           yield { data: structuredFinishResult, type: "data" }

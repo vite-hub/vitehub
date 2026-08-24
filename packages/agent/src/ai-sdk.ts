@@ -1559,6 +1559,8 @@ async function createAgent(
           // SAFETY: The one-step repair agent returns the asserted generated result contract.
           const result = await toolRepairAgent.generate({
             ...(abortSignal ? { abortSignal } : {}),
+            ...(context.input.timeout === undefined ? {} : { timeout: context.input.timeout }),
+            ...("options" in context.input ? { options: context.input.options } : {}),
             onEnd: usageCapture.onEnd,
             onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
             onStepEnd: usageCapture.onStepEnd,
