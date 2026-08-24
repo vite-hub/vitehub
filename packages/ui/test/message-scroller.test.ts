@@ -68,6 +68,30 @@ describe("message scroller behavior", () => {
     });
   });
 
+  it("renders root default content once without replacing message bodies", () => {
+    const wrapper = mount(AgentChat, {
+      global: {
+        components: {
+          UChatMessage: defineComponent({
+            setup(_props, { slots }) {
+              return () => h("div", slots.body?.());
+            },
+          }),
+        },
+      },
+      props: {
+        messages: [{ id: "message", parts: [{ text: "Message body", type: "text" }], role: "assistant" }],
+      },
+      slots: {
+        default: () => h("div", { class: "composer" }, "Composer"),
+        text: () => h("div", { class: "message-body" }, "Message body"),
+      },
+    });
+
+    expect(wrapper.findAll(".composer")).toHaveLength(1);
+    expect(wrapper.find(".message-body").text()).toBe("Message body");
+  });
+
   it("preserves the reader offset when older content prepends", () => {
     expect(calculatePrependScrollTop(240, 800, 1_100)).toBe(540);
   });
@@ -213,7 +237,7 @@ describe("message scroller behavior", () => {
     expect(observer.targets.has(content.element)).toBe(true);
     scrollTo.mockClear();
     scrollTop = 250;
-    await viewport.trigger("wheel");
+    await viewport.trigger("wheel", { deltaY: -20 });
     await viewport.trigger("scroll");
     scrollHeight = 600;
     observer.callback([], observer);
@@ -225,6 +249,79 @@ describe("message scroller behavior", () => {
     scrollHeight = 700;
     observer.callback([], observer);
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 700 });
+  });
+
+  it("keeps following when a pointer interaction does not scroll", async () => {
+    const scrollTo = vi.fn();
+    const wrapper = mount(MessageScrollerRoot, {
+      slots: { default: () => h(MessageScrollerViewport) },
+    });
+    const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    let scrollHeight = 500;
+    let scrollTop = 400;
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    await viewport.trigger("scroll");
+
+    await viewport.trigger("pointerdown");
+    await viewport.trigger("pointerup");
+    scrollHeight = 600;
+    resizeObservers[0]!.callback([], resizeObservers[0]!);
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 600 });
+  });
+
+  it("stops following when a cancelled touch gesture scrolls away", async () => {
+    const scrollTo = vi.fn();
+    const wrapper = mount(MessageScrollerRoot, {
+      slots: { default: () => h(MessageScrollerViewport) },
+    });
+    const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    let scrollHeight = 500;
+    let scrollTop = 400;
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    await viewport.trigger("scroll");
+
+    await viewport.trigger("pointerdown");
+    await viewport.trigger("pointercancel");
+    scrollTop = 250;
+    await viewport.trigger("scroll");
+    scrollHeight = 600;
+    resizeObservers[0]!.callback([], resizeObservers[0]!);
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("keeps following for downward wheel input at the live edge", async () => {
+    const scrollTo = vi.fn();
+    const wrapper = mount(MessageScrollerRoot, {
+      slots: { default: () => h(MessageScrollerViewport) },
+    });
+    const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
+    let scrollHeight = 500;
+    let scrollTop = 400;
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    await viewport.trigger("scroll");
+
+    await viewport.trigger("wheel", { deltaY: 20 });
+    scrollHeight = 600;
+    resizeObservers[0]!.callback([], resizeObservers[0]!);
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 600 });
   });
 
   it("stops following when keyboard input scrolls away from the live edge", async () => {

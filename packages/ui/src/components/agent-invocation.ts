@@ -64,8 +64,9 @@ function formatDuration(startedAt: string | undefined, completedAt: string | und
   if (!startedAt || !completedAt) return;
   const duration = Date.parse(completedAt) - Date.parse(startedAt);
   if (!Number.isFinite(duration) || duration < 0) return;
-  if (duration < 60_000) return `${Math.round(duration / 1_000)}s`;
-  return `${Math.floor(duration / 60_000)}m ${Math.round((duration % 60_000) / 1_000)}s`;
+  const seconds = Math.round(duration / 1_000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function configurationLabel(configuration: AgentInvocationConfiguration): string | undefined {

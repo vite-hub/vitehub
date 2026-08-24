@@ -21,8 +21,13 @@ export const AgentChat = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const defaults = useViteHubUI();
-    return () =>
-      h(
+    return () => {
+      const messageSlots = Object.fromEntries(
+        Object.entries(slots).filter(
+          ([name]) => name !== "default" && name !== "message" && name !== "scroll-button",
+        ),
+      );
+      return h(
         MessageScrollerRoot,
         {
           ...attrs,
@@ -66,7 +71,7 @@ export const AgentChat = defineComponent({
                                       (props.status === "streaming" ||
                                         props.status === "submitted"),
                                   },
-                                  slots,
+                                  messageSlots,
                                 ),
                             },
                           ),
@@ -84,5 +89,6 @@ export const AgentChat = defineComponent({
           ],
         },
       );
+    };
   },
 });

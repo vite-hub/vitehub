@@ -246,6 +246,87 @@ describe("Agent Invocation UI", () => {
     },
   );
 
+  it.each([
+    ["cancelled", "completed"],
+    ["failed", "failed"],
+  ] as const)("settles unfinished activities when an invocation is %s", (status, activityStatus) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: `unfinished-${status}`,
+      observations: [{
+        attributes: { "tool.id": "command", "tool.input": { command: "pnpm test" }, "tool.name": "shell" },
+        name: "agent.tool.start",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe(activityStatus);
+  });
+
+  it.each([
+    ["running", "running"],
+    ["completed", "completed"],
+    ["failed", "failed"],
+  ] as const)("derives Provider task lifecycle status for a %s invocation", (status, activityStatus) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: `task-${status}`,
+      observations: [{
+        attributes: { "step.id": "task" },
+        name: "agent.task.started",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe(activityStatus);
+  });
+
+  it("completes a Provider task when its completion event arrives", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "task-completed",
+      observations: [
+        { attributes: { "step.id": "task" }, name: "agent.task.started", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "step.id": "task" }, name: "agent.task.completed", sequence: 2, timestamp, type: "run" as const },
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe("completed");
+  });
+
+  it("settles a stopped Provider task while its invocation keeps running", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "task-stopped",
+      observations: [
+        { attributes: { "step.id": "task" }, name: "agent.task.started", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "step.id": "task" }, name: "agent.task.cancelled", sequence: 2, timestamp, type: "run" as const },
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe("completed");
+  });
+
   it("routes Provider turn diffs through the patch activity model", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const diff = "diff --git a/src/old.ts b/src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-old\n+new";
@@ -375,6 +456,44 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("does not replay an aggregate final answer after matching deltas", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [
+        { attributes: { "message.content": "Final ", "message.role": "assistant" }, name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "message.content": "answer.", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" as const },
+        { attributes: { "result.text": "Final answer." }, name: "agent.invocation.finish", sequence: 3, timestamp, type: "lifecycle" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Final answer."]);
+  });
+
+  it("keeps an aggregate final answer when no matching deltas exist", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [{
+        attributes: { "result.text": "Final answer." },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Final answer."]);
+  });
+
   it("renders canonical tool, error, and approval decision details", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -398,6 +517,26 @@ describe("Agent Invocation UI", () => {
       ["Agent stream", "Recoverable stream error", "failed"],
       ["Approval denied", "Command is destructive", "failed"],
     ]);
+  });
+
+  it("keeps an undecided approval request running", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "pending-approval",
+      observations: [{
+        attributes: { "approval.id": "approval", "approval.name": "Run command" },
+        name: "agent.approval.request",
+        sequence: 1,
+        timestamp,
+        type: "approval" as const,
+      }],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.status).toBe("running");
   });
 
   it("hydrates virtual invocation lists from the complete server-rendered list", async () => {
@@ -466,6 +605,22 @@ describe("Agent Invocation UI", () => {
 
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
+  });
+
+  it("carries rounded duration seconds into minutes", () => {
+    const invocation: AgentInvocationView = {
+      completedAt: "2026-08-22T00:00:59.500Z",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "completed",
+      observations: [],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:59.500Z",
+    };
+
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 0s");
   });
 
   it("settles repeated page failures until the consumer changes the retry key", async () => {

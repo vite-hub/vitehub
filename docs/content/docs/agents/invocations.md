@@ -159,8 +159,9 @@ export default defineAgent({
   name: 'support',
   capabilities: [
     otlp({
-      endpoint: 'https://traces.example/v1/traces',
+      endpoint: 'https://telemetry.example/otlp',
       headers: { authorization: `Bearer ${process.env.OTLP_TOKEN!}` },
+      live: true,
       resource: { 'service.namespace': 'quiver' },
     }),
   ],
@@ -168,9 +169,9 @@ export default defineAgent({
 })
 ```
 
-Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports standard OTLP spans with `gen_ai.*` attributes and a `vitehub.agent.configured` root-span event for Agent, Capability, Driver, tool, runtime, and Workspace metadata. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently; the configuration event remains distinct from user prompt events.
+Pass the OTLP base endpoint; ViteHub appends `/v1/logs` and `/v1/traces`. With `live: true`, new Trace Events are batched as correlated OTLP LogRecords while the invocation runs, then ViteHub exports one completed trace. Without `live`, it exports only the completed trace and retains Trace Events as span events. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently.
 
-Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Receivers should deduplicate spans by trace and span id because retries can deliver the same invocation more than once. See [`otlp()`](/docs/capabilities/otlp) for privacy and Capability-contribution details.
+Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. See [`otlp()`](/docs/capabilities/otlp) for batching, deduplication, privacy, and Capability-contribution details.
 
 To persist a queryable invocation journal, attach Agent Invocations to the Agent Definition. Storage durability and recovery guarantees still depend on the selected store and host lifecycle. The SQLite adapter accepts a local SQLite or remote libSQL URL:
 

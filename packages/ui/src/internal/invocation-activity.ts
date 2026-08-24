@@ -256,9 +256,15 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   let anonymousMessage = 0;
   let anonymousMessageKey: string | undefined;
   let anonymousMessagePhase: string | undefined;
+  let assistantDeltaText = "";
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded" || observation.name === "vitehub.agent.configured") continue;
     const originalAttributes = observation.attributes ?? {};
+    const delta = messageText({ parts: [{ text: originalAttributes["message.content"] }] });
+    const role = messageRole(originalAttributes["message.role"]);
+    const resultText = messageText({ parts: [{ text: originalAttributes["result.text"] }] });
+    if (resultText && assistantDeltaText.endsWith(resultText)) continue;
+    if (delta && (role === undefined || role === "assistant")) assistantDeltaText += delta;
     const inputMessages = Array.isArray(originalAttributes["input.messages"])
       ? originalAttributes["input.messages"]
       : Array.isArray(originalAttributes["input.prompt"])
@@ -317,7 +323,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
       const approvalDenied = attributes["approval.approved"] === false;
-      const completed = sorted.some(item => /\.(finish|decision|recorded)$/.test(item.name));
+      const completed = sorted.some(item => /\.(cancelled|completed|decision|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
       const role = explicitRole ?? (attributes["result.text"]
         ? "assistant"
@@ -325,6 +331,12 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
+      const started = /\.(request|start|started)$/.test(first.name);
+      const unfinishedTerminalStatus = started
+        && invocation.status !== "pending"
+        && invocation.status !== "running"
+        ? invocation.status === "failed" ? "failed" : "completed"
+        : undefined;
       const draft = {
         attributes,
         body: patches.join("") || messageBody || activityBody(attributes),
@@ -338,7 +350,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
         ...(role ? { role } : {}),
-        status: failed || approvalDenied ? "failed" : completed || !first.name.endsWith(".start") ? "completed" : "running",
+        status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
           ? { truncated: true }
           : {}),

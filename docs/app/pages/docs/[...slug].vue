@@ -30,6 +30,9 @@ const { page } = useDocsPage(
 
 const contentTocVariants = useUIConfig("contentToc");
 const isReferencePage = computed(() => route.path.replace(/\/+$/, "") === "/docs/reference");
+const isSupportMatrix = computed(
+  () => route.path.replace(/\/+$/, "") === "/docs/frameworks-hosts/support-matrix",
+);
 const tocLinks = computed(() => page.value?.body?.toc?.links || []);
 
 const docsPageUi = {
@@ -48,7 +51,9 @@ const mobileTocUi = {
 </script>
 
 <template>
-  <UPage v-if="page" :ui="docsPageUi">
+  <SupportMatrix v-if="page && isSupportMatrix" />
+
+  <UPage v-else-if="page" :ui="docsPageUi">
     <UContentToc
       v-if="tocLinks.length"
       class="lg:hidden"
