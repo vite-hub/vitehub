@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { is, object, string } from "valibot"
+import { array, is, object, string } from "valibot"
 
 import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
 
@@ -250,7 +250,7 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(1)
   })
 
-  it("includes completed tool evidence when repairing streamed structured output", async () => {
+  it.each([true, false])("includes completed tool evidence when repairing streamed structured output with workspace fallback %s", async (workspaceFallback) => {
     const fakeModel = streamingRepairModel()
     fakeModel.doGenerate.mockImplementationOnce(async (options?: ModelCall) => {
       expect(JSON.stringify(options?.prompt)).toContain("found")
@@ -312,6 +312,8 @@ describe("AI SDK recovery", () => {
         },
       })],
       driver: {
+        execution: { workspaceFallback },
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
         model: fakeModel as never,
         output: { schema: outputSchema },
       },
@@ -319,6 +321,7 @@ describe("AI SDK recovery", () => {
     })
 
     const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
     for await (const _event of result as AsyncIterable<unknown>) {}
 
     expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
@@ -361,6 +364,59 @@ describe("AI SDK recovery", () => {
 
     expect(events).toContainEqual({ data: { nextAction: "email", priority: "high" }, type: "data" })
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
+  })
+
+  it("emits complete text-bearing structured output from streamed invocations", async () => {
+    const fakeModel = model([])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: '{"text":"answer","citations":["source"]}', id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const textWithCitationsSchema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({ type: "object" }),
+          output: () => ({ type: "object" }),
+        },
+        validate(value: unknown) {
+          return is(object({ citations: array(stringSchema), text: stringSchema }), value)
+            ? { value }
+            : { issues: [{ message: "Expected text and citations" }] }
+        },
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: textWithCitationsSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    const events = []
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ data: { citations: ["source"], text: "answer" }, type: "data" })
   })
 
   it("repairs invalid structured output from UI-message streamed invocations", async () => {

@@ -5324,7 +5324,8 @@ async function executeAgentInvocationWithCapacityLease<
             )
             uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
             uiMessageFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
-            yield* streamAgentOutputToEvents(uiMessageFinishResult)
+            yield { data: uiMessageFinishResult, type: "data" }
+            yield { type: "finish" }
           })()
         : enrichedRendered
       const shouldWrapOutput = shouldHoldInvocationOutput()
@@ -5419,7 +5420,8 @@ async function executeAgentInvocationWithCapacityLease<
           )
           structuredUsageRecord = usageRecordFromStreamChunk(materialized)
           structuredFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
-          yield* streamAgentOutputToEvents(structuredFinishResult)
+          yield { data: structuredFinishResult, type: "data" }
+          yield { type: "finish" }
         })()
       : isStreamResult
         ? streamAgentOutputToEvents(streamResult)
