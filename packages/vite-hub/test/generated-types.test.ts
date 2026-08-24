@@ -279,6 +279,8 @@ describe("framework generated types", () => {
     }
     nodeRequest.push("content body")
     nodeRequest.push(null)
+    // SAFETY: This fixture models the state Node's HTTP parser sets before emitting the completed request body.
+    Object.defineProperty(nodeRequest, "complete", { value: true })
     const response: unknown = await generatedHandler(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
     if (!(response instanceof Response)) throw new TypeError("Expected the Content handler to return a response.")
     await expect(response.json()).resolves.toEqual({
