@@ -673,11 +673,12 @@ describe("Agent Invocation UI", () => {
       createdAt: timestamp,
       id: "invocation",
       observations: [
-        { attributes: { "tool.id": "tool", "tool.input": { query: "agent UI" }, "tool.name": "search" }, name: "agent.tool.start", sequence: 1, timestamp, type: "lifecycle" as const },
-        { attributes: { "tool.error": "Search unavailable", "tool.id": "tool" }, name: "agent.tool.error", sequence: 2, timestamp, type: "error" as const },
-        { attributes: { "error.message": "Recoverable stream error" }, name: "agent.stream.error", sequence: 3, timestamp, type: "error" as const },
-        { attributes: { "approval.id": "approval", "approval.name": "Run command" }, name: "agent.approval.request", sequence: 4, timestamp, type: "approval" as const },
-        { attributes: { "approval.approved": false, "approval.id": "approval", "approval.reason": "Command is destructive" }, name: "agent.approval.decision", sequence: 5, timestamp, type: "approval" as const },
+        { attributes: { "tool.id": "tool", "tool.input": { query: "agent UI" }, "tool.name": "search", "tool.title": "airtable · search" }, name: "agent.tool.start", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "tool.id": "tool", "tool.name": "search" }, name: "agent.tool.start", sequence: 2, timestamp, type: "lifecycle" as const },
+        { attributes: { "tool.durationMs": 42, "tool.error": "Search unavailable", "tool.id": "tool" }, name: "agent.tool.error", sequence: 3, timestamp, type: "error" as const },
+        { attributes: { "error.message": "Recoverable stream error" }, name: "agent.stream.error", sequence: 4, timestamp, type: "error" as const },
+        { attributes: { "approval.id": "approval", "approval.name": "Run command" }, name: "agent.approval.request", sequence: 5, timestamp, type: "approval" as const },
+        { attributes: { "approval.approved": false, "approval.id": "approval", "approval.reason": "Command is destructive" }, name: "agent.approval.decision", sequence: 6, timestamp, type: "approval" as const },
       ],
       status: "completed" as const,
       traceId: "trace",
@@ -686,7 +687,7 @@ describe("Agent Invocation UI", () => {
 
     const activities = invocationActivities(invocation);
     expect(activities.map(activity => [invocationActivityTitle(activity), activity.body, activity.status])).toEqual([
-      ["Search", "Search unavailable", "failed"],
+      ["Airtable · search", "Search unavailable", "failed"],
       ["Agent stream", "Recoverable stream error", "failed"],
       ["Approval denied", "Command is destructive", "failed"],
     ]);
@@ -788,6 +789,12 @@ describe("Agent Invocation UI", () => {
 
     expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
     expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy");
+
+    const status = wrapper.get('[role="status"]');
+    await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
+    expect(status.text()).toBe("");
+    await Promise.resolve();
+    expect(status.text()).toBe("Trace ID could not be copied");
   });
 
   it("announces when the Clipboard API is unavailable", async () => {

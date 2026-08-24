@@ -1,47 +1,80 @@
 ---
 title: Diff
-description: Render a unified patch or a parsed Pierre file diff inside a Vue application.
+description: Render files, patches, parsed diffs, and merge conflicts inside a Vue application.
 navigation.order: 34
 navigation.group: Agent work
 icon: i-ph-file-code-light
 ---
 
-`AgentDiff` is the Vue lifecycle adapter for `@pierre/diffs`. Pass a patch for the direct path, or pass a parsed `FileDiffMetadata` when the application already owns diff parsing and configuration.
+ViteHub provides Vue lifecycle adapters for Pierre's six code and diff views. They use Nuxt UI backgrounds, borders, radius, typography, and semantic colors by default while Pierre continues to own parsing, syntax highlighting, selection, and rendering.
 
 ::component-preview{name="DiffExample"}
 ::
+
+## Components
+
+| Component | Purpose |
+| --- | --- |
+| `AgentCodeView` | Render a virtualized list containing files and diffs. |
+| `AgentMultiFileDiff` | Compare two `FileContents` values directly. |
+| `AgentPatchDiff` | Render one file change from a unified patch string. |
+| `AgentFileDiff` | Render pre-parsed `FileDiffMetadata`. |
+| `AgentFile` | Render one syntax-highlighted file without a diff. |
+| `AgentUnresolvedFile` | Render conflict markers with resolution controls. |
+
+Nuxt registers every component automatically. In Vue with Vite, import them from `@vite-hub/ui`.
 
 ## Usage
 
 Render a unified patch:
 
 ```vue
-<AgentDiff :patch="patch" />
+<AgentPatchDiff :patch="patch" />
 ```
 
-Use `fileDiff` for a pre-parsed diff and `options` for Pierre behavior such as split view and themes:
+Compare two files without creating a patch first:
 
 ```vue
-<AgentDiff
-  :file-diff="fileDiff"
-  :options="{
-    diffStyle: 'split',
-    theme: { dark: 'pierre-dark', light: 'pierre-light' },
-  }"
-/>
+<AgentMultiFileDiff :old-file="before" :new-file="after" />
 ```
 
-## Props
+Pass `null` for the missing side of an added or deleted file.
 
-| Prop            | Type                        | Purpose                                   |
-| --------------- | --------------------------- | ----------------------------------------- |
-| `patch`         | `string`                    | Unified patch text.                       |
-| `fileDiff`      | `FileDiffMetadata`          | A diff already parsed by Pierre.          |
-| `options`       | `FileDiffOptions`           | Pierre rendering options.                  |
-| `selectedLines` | `SelectedLineRange \| null` | Controlled line selection.                |
+Use a parsed diff when the application already owns parsing or partial diff hydration:
 
-Pass either `patch` or `fileDiff`. The component forwards HTML attributes to the diff host and updates the Pierre renderer when its inputs change. ViteHub expands unchanged hunks and disables pointer-only line selection until Pierre exposes equivalent keyboard behavior.
+```vue
+<AgentFileDiff :file-diff="fileDiff" />
+```
 
-## Ownership
+Render a mixed virtualized view. Give the component a height so it can own scrolling:
 
-Pierre owns parsing, syntax highlighting, selection, and diff presentation. ViteHub owns the Vue mount, update, and cleanup boundary. This keeps the public data model compatible with Pierre instead of introducing a second ViteHub diff schema.
+```vue
+<AgentCodeView class="h-[32rem]" :items="items" />
+```
+
+## Shared diff props
+
+`AgentMultiFileDiff`, `AgentPatchDiff`, and `AgentFileDiff` share these props:
+
+| Prop | Type | Purpose |
+| --- | --- | --- |
+| `options` | `FileDiffOptions` | Configure layout, themes, headers, interactions, and hydration. |
+| `lineAnnotations` | `DiffLineAnnotation[]` | Render application-owned content on diff lines. |
+| `selectedLines` | `SelectedLineRange \| null` | Control the selected line range. |
+
+`AgentFile` uses `FileOptions` and `LineAnnotation[]`. `AgentUnresolvedFile` uses `UnresolvedFileOptions`. `AgentCodeView` accepts `CodeViewItem[]`, `CodeViewOptions`, and a `CodeViewLineSelection`.
+
+The package also exports Pierre's `getSingularPatch`, `parseDiffFromFile`, and `parsePatchFiles` helpers plus the public types used by these components.
+
+## Styling
+
+The default theme maps Pierre's inherited CSS properties to Nuxt UI's `--ui-*` properties. Override a ViteHub property on one view when a product needs a different treatment:
+
+```css
+.review-diff {
+  --vh-ui-bg: var(--ui-bg-elevated);
+  --vh-ui-success: var(--ui-primary);
+}
+```
+
+Pass Pierre's `theme` option when you need different syntax token colors. The surrounding backgrounds and semantic diff colors still follow the application theme.

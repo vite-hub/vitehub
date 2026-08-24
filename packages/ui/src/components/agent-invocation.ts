@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, onBeforeUnmount, ref, type PropType, Suspense } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
   agentConfigurationSummary,
@@ -11,7 +11,7 @@ import {
   type InvocationActivity,
 } from "../internal/invocation-activity.ts";
 import { isSafeExternalUrl } from "../internal/url.ts";
-import { AgentDiff } from "./agent-diff.ts";
+import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 
 function invocationTitle(invocation: AgentInvocationView): string {
@@ -274,7 +274,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
           ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
           : null,
         activity.patches.length
-          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentDiff, { key: index, patch })))
+          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentPatchDiff, { key: index, patch })))
           : command
           ? h("div", { class: "vh-invocation-command" }, [
               h("div", { class: "vh-invocation-command__bar" }, [
@@ -867,6 +867,8 @@ export const AgentInvocationInspector = defineComponent({
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
       if (!value) return;
+      copyError.value = undefined;
+      await nextTick();
       if (!("navigator" in globalThis) || !navigator.clipboard) {
         copied.value = undefined;
         copyError.value = kind;

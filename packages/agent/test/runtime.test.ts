@@ -8511,11 +8511,11 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it("runs fixed-cadence progress generations concurrently and ignores stale completions", async () => {
+  it("does not overlap slow interval progress generations", async () => {
     vi.useFakeTimers()
     try {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
-      const generations = [deferred<string>(), deferred<string>(), deferred<string>(), deferred<string>()]
+      const generations = [deferred<string>(), deferred<string>()]
       let sourceController!: ReadableStreamDefaultController<unknown>
       const execute = vi.fn(() => generations[execute.mock.calls.length - 1]!.promise)
       const agent = defineAgent({
@@ -8539,42 +8539,18 @@ describe("agent message protocol", () => {
       sourceController.enqueue({ messageId: "message-1", type: "start" })
       await reader.read()
       expect(execute).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(execute).toHaveBeenCalledOnce()
+
+      generations[0]!.resolve("First snapshot")
+      await Promise.resolve()
       await vi.advanceTimersByTimeAsync(10_000)
       expect(execute).toHaveBeenCalledTimes(2)
 
-      const progress = reader.read()
       generations[1]!.resolve("Second snapshot")
-      await expect(progress).resolves.toEqual({
-        done: false,
-        value: {
-          data: { revision: 2, summary: "Second snapshot", type: "progress-summary" },
-          transient: true,
-          type: "data-progress-summary",
-        },
-      })
-      generations[0]!.resolve("Stale first snapshot")
-      await Promise.resolve()
-      await vi.advanceTimersByTimeAsync(20_000)
-      expect(execute).toHaveBeenCalledTimes(4)
-      generations[3]!.resolve("Second snapshot")
-      await Promise.resolve()
-      generations[2]!.resolve("Stale third snapshot")
-      await Promise.resolve()
       sourceController.enqueue({ finishReason: "stop", type: "finish" })
       sourceController.close()
-      const remaining = []
-      for (;;) {
-        const next = await reader.read()
-        if (next.done) break
-        remaining.push(next.value)
-      }
-
-      for (const revision of [1, 3]) {
-        expect(remaining).not.toContainEqual(expect.objectContaining({
-          data: expect.objectContaining({ revision }),
-          type: "data-progress-summary",
-        }))
-      }
+      await reader.cancel()
     }
     finally {
       vi.useRealTimers()
@@ -8624,14 +8600,14 @@ describe("agent message protocol", () => {
       sourceController.enqueue({ messageId: "message-1", type: "start" })
       await reader.read()
       await vi.advanceTimersByTimeAsync(20_000)
-      expect(execute).toHaveBeenCalledTimes(3)
+      expect(execute).toHaveBeenCalledOnce()
       const closed = reader.closed
       primaryAbort.abort(new DOMException("Primary invocation completed.", "AbortError"))
       await expect(closed).rejects.toThrow("Primary invocation completed.")
       await Promise.allSettled(generations)
       await Promise.resolve()
 
-      expect(aborted).toEqual([1, 2, 3])
+      expect(aborted).toEqual([1])
       expect(warning).not.toHaveBeenCalled()
       expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({ name: "agent.progress-summary.error" }))
     }

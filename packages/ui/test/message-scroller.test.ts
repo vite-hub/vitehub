@@ -68,7 +68,7 @@ describe("message scroller behavior", () => {
       tabindex: "0",
     });
     expect(wrapper.get("[data-slot='message-scroller-content']").attributes()).toMatchObject({
-      "aria-relevant": "additions",
+      "aria-relevant": "additions text",
       role: "log",
     });
   });

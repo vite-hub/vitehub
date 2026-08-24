@@ -310,8 +310,8 @@ export type AgentActivity =
 export type StreamEvent =
   | { id?: string, messageId?: string, phase?: AgentMessagePhase, role?: MessageRole, text: string, type: "text-delta" }
   | { data: unknown, id?: string, messageId?: string, transient?: boolean, type: "data" | `data-${string}` }
-  | { activity?: AgentActivity, id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
-  | { activity?: AgentActivity, durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
+  | { activity?: AgentActivity, id: string, input?: unknown, messageId?: string, name: string, title?: string, type: "tool-call" | "tool-input-start" }
+  | { activity?: AgentActivity, durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, title?: string, type: "tool-result" }
   | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, toolCallId?: string, type: "approval-request" }
   | { approved: boolean, decidedAt?: Date | string, id: string, messageId?: string, reason?: string, type: "approval-decision" }
   | { error: string, id?: string, messageId?: string, recoverable?: boolean, type: "error" }

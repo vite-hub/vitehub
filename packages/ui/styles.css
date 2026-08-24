@@ -5,8 +5,11 @@
   --vh-ui-dimmed: var(--ui-text-muted, color-mix(in oklab, currentColor 68%, transparent));
   --vh-ui-text: var(--ui-text, currentColor);
   --vh-ui-bg: var(--ui-bg, Canvas);
+  --vh-ui-bg-muted: var(--ui-bg-muted, color-mix(in oklab, Canvas 94%, currentColor));
   --vh-ui-bg-elevated: var(--ui-bg-elevated, color-mix(in oklab, Canvas 96%, currentColor));
   --vh-ui-error: var(--ui-error, #df3030);
+  --vh-ui-info: var(--ui-info, #2563eb);
+  --vh-ui-success: var(--ui-success, #16a34a);
   --vh-ui-warning: var(--ui-warning, #ad6500);
 }
 
@@ -70,17 +73,6 @@
   transform: translateX(-50%);
   width: 2rem;
   z-index: 2;
-}
-
-.vh-chat__scroll-button[data-active="false"] {
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
-}
-
-.vh-chat__scroll-button:focus-visible {
-  outline: 2px solid var(--ui-primary, #2563eb);
-  outline-offset: 2px;
 }
 
 .vh-message-parts {
@@ -168,18 +160,6 @@
   text-underline-offset: 0.2em;
 }
 
-.vh-typeset :where(a:focus-visible),
-.vh-attachment:focus-visible,
-.vh-source:focus-visible,
-.vh-prompt__attachment button:focus-visible,
-.vh-trace__trigger:focus-visible,
-.vh-invocation-message__more:focus-visible,
-.vh-invocation-event__inspect:focus-visible,
-.vh-invocation-inspector__disclosure summary:focus-visible {
-  outline: 2px solid var(--ui-primary, #2563eb);
-  outline-offset: 2px;
-}
-
 .vh-typeset-chat > :first-child {
   margin-block-start: 0;
 }
@@ -235,11 +215,7 @@
   border: 0;
   color: var(--vh-ui-muted);
   cursor: pointer;
-  display: inline-grid;
   font: inherit;
-  min-height: 2rem;
-  min-width: 2rem;
-  place-items: center;
 }
 
 .vh-prompt__footer {
@@ -315,6 +291,19 @@
   padding: 0;
 }
 
+.vh-invocation-list ul.vh-invocation-list__virtual {
+  display: block;
+  position: relative;
+  width: 100%;
+}
+
+.vh-invocation-list__virtual > li {
+  inset-inline: 0;
+  padding-block-end: 0.125rem;
+  position: absolute;
+  top: 0;
+}
+
 .vh-invocation-list__item {
   appearance: none;
   background: transparent;
@@ -333,12 +322,17 @@
   width: 100%;
 }
 
+.vh-invocation-list__virtual .vh-invocation-list__item {
+  grid-template-rows: repeat(4, minmax(0, auto));
+  overflow: hidden;
+}
+
 .vh-invocation-list__item:hover {
   background: color-mix(in oklab, var(--vh-ui-bg-elevated) 72%, transparent);
 }
 
 .vh-invocation-list__item:focus-visible {
-  outline: 2px solid var(--ui-primary, #2563eb);
+  outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 52%, transparent);
   outline-offset: -2px;
 }
 
@@ -404,7 +398,7 @@
 }
 
 .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state {
-  color: var(--ui-info, #007eb5);
+  color: var(--ui-info, #0284c7);
 }
 
 .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state-icon svg {
@@ -418,7 +412,7 @@
 }
 
 .vh-invocation-list__item[data-status="completed"] .vh-invocation-list__state {
-  color: var(--ui-success, #168742);
+  color: var(--ui-success, #15803d);
 }
 
 .vh-invocation-list__item[data-status="failed"] .vh-invocation-list__state,
@@ -641,8 +635,7 @@
   font: inherit;
   font-size: 0.75rem;
   margin-block-start: 0.35rem;
-  min-height: 2rem;
-  padding: 0 0.25rem;
+  padding: 0;
   text-decoration: underline dotted;
   text-underline-offset: 0.25rem;
 }
@@ -708,7 +701,7 @@
 }
 
 .vh-invocation-preparation__summary:focus-visible {
-  outline: 2px solid var(--ui-primary, #2563eb);
+  outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
   outline-offset: -2px;
 }
 
@@ -836,22 +829,18 @@
   color: var(--vh-ui-muted);
   cursor: pointer;
   display: inline-flex;
-  flex: 0 0 2rem;
-  height: 2rem;
+  flex: 0 0 1.25rem;
+  height: 1.25rem;
   justify-content: center;
   padding: 0;
   text-decoration: none;
-  width: 2rem;
+  width: 1.25rem;
 }
 
-.vh-invocation-preparation__action:hover {
-  color: var(--vh-ui-text);
-}
-
+.vh-invocation-preparation__action:hover,
 .vh-invocation-preparation__action:focus-visible {
   color: var(--vh-ui-text);
-  outline: 2px solid var(--ui-primary, #2563eb);
-  outline-offset: -2px;
+  outline: none;
 }
 
 .vh-invocation-preparation__action .vh-invocation-event__icon {
@@ -864,8 +853,7 @@
   width: 0.8rem;
 }
 
-.vh-invocation-activity[data-inspectable="true"] .vh-invocation-event__summary,
-details.vh-invocation-event > .vh-invocation-event__summary {
+.vh-invocation-activity[data-inspectable="true"] .vh-invocation-event__summary {
   cursor: pointer;
 }
 
@@ -915,7 +903,7 @@ button.vh-invocation-lifecycle__row:focus-visible {
 }
 
 button.vh-invocation-lifecycle__row:focus-visible {
-  outline: 2px solid var(--ui-primary, #2563eb);
+  outline: 1px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
   outline-offset: -1px;
 }
 
@@ -971,20 +959,14 @@ button.vh-invocation-lifecycle__row:focus-visible {
 }
 
 .vh-invocation-event__summary {
-  appearance: none;
   align-items: center;
-  background: transparent;
-  border: 0;
   border-radius: inherit;
-  color: inherit;
+  cursor: pointer;
   display: flex;
-  font: inherit;
   gap: 0.375rem;
   min-height: 1.5rem;
   padding: 0.125rem;
-  text-align: start;
   transition: background-color 140ms ease, color 140ms ease;
-  width: 100%;
 }
 
 .vh-invocation-event__summary::-webkit-details-marker {
@@ -994,27 +976,8 @@ button.vh-invocation-lifecycle__row:focus-visible {
 .vh-invocation-event__summary:focus-visible {
   background: color-mix(in oklab, var(--vh-ui-bg-elevated) 55%, transparent);
   color: inherit;
-  outline: 2px solid var(--ui-primary, #2563eb);
+  outline: 1px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
   outline-offset: 1px;
-}
-
-.vh-invocation-event__inspect {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.75rem;
-  margin-block-start: 0.375rem;
-  min-height: 2rem;
-  padding: 0.25rem 0.5rem;
-}
-
-.vh-invocation-event__inspect:hover {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 70%, transparent);
-  color: var(--vh-ui-text);
 }
 
 details.vh-invocation-event > .vh-invocation-event__summary:hover {
@@ -1091,7 +1054,6 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   gap: 0.25rem;
   line-height: 1.25rem;
   list-style: none;
-  min-height: 2rem;
   padding: 0 0.25rem;
   user-select: none;
   width: fit-content;
@@ -1102,7 +1064,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-work__summary:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--ui-primary, #2563eb);
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--ui-primary, #2563eb) 70%, transparent);
   outline: none;
 }
 
@@ -1164,7 +1126,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event__notice {
-  color: var(--vh-ui-warning);
+  color: var(--vh-ui-warning, #d97706);
   font-size: 0.75rem;
   margin: 0.5rem 0 0 1.75rem;
 }
@@ -1572,8 +1534,8 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-inspector__copy:focus-visible {
-  outline: 2px solid var(--ui-primary, #2563eb);
-  outline-offset: 1px;
+  outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
+  outline-offset: -2px;
 }
 
 .vh-invocation-inspector__copy-icon {
@@ -1704,13 +1666,47 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   }
 }
 
+.vh-code-view,
 .vh-diff,
+.vh-file,
+.vh-unresolved-file,
 .vh-file-tree {
   border: 1px solid var(--vh-ui-border);
   border-radius: var(--vh-ui-radius);
   display: block;
-  min-height: 4rem;
   overflow: hidden;
+}
+
+.vh-code-view,
+.vh-diff,
+.vh-file,
+.vh-unresolved-file {
+  --diffs-addition-base: var(--vh-ui-success);
+  --diffs-bg: var(--vh-ui-bg);
+  --diffs-bg-addition: color-mix(in oklab, var(--vh-ui-success) 12%, var(--vh-ui-bg));
+  --diffs-bg-addition-emphasis: color-mix(in oklab, var(--vh-ui-success) 22%, var(--vh-ui-bg));
+  --diffs-bg-buffer: var(--vh-ui-bg-muted);
+  --diffs-bg-context: var(--vh-ui-bg);
+  --diffs-bg-context-gutter: color-mix(in oklab, var(--vh-ui-bg-muted) 72%, var(--vh-ui-bg));
+  --diffs-bg-deletion: color-mix(in oklab, var(--vh-ui-error) 12%, var(--vh-ui-bg));
+  --diffs-bg-deletion-emphasis: color-mix(in oklab, var(--vh-ui-error) 22%, var(--vh-ui-bg));
+  --diffs-bg-separator: var(--vh-ui-bg-muted);
+  --diffs-deletion-base: var(--vh-ui-error);
+  --diffs-fg: var(--vh-ui-text);
+  --diffs-fg-conflict-marker: var(--vh-ui-muted);
+  --diffs-fg-number: var(--vh-ui-dimmed);
+  --diffs-font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  --diffs-font-size: 0.8125rem;
+  --diffs-header-font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  --diffs-line-height: 1.5rem;
+  --diffs-modified-base: var(--vh-ui-info);
+  background: var(--vh-ui-bg);
+  color: var(--vh-ui-text);
+  min-height: 4rem;
+}
+
+.vh-code-view {
+  min-height: 12rem;
 }
 
 .vh-file-tree {
@@ -1737,10 +1733,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
     animation: none;
   }
 
-  .vh-invocation-event__disclosure,
-  .vh-invocation-inspector__chevron,
-  .vh-invocation-preparation__disclosure,
-  .vh-invocation-work__disclosure {
+  .vh-invocation-inspector__chevron {
     transition: none;
   }
 }

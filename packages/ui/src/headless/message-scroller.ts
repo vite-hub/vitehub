@@ -280,7 +280,7 @@ export const MessageScrollerContent = defineComponent({
       return h(
         props.as,
         {
-          "aria-relevant": "additions",
+          "aria-relevant": "additions text",
           role: "log",
           ...attrs,
           "data-slot": "message-scroller-content",
