@@ -111,6 +111,7 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
       entries = readdirSync(current, { withFileTypes: true })
     }
     catch (error) {
+      // SAFETY: Node filesystem errors expose `code`; other errors simply fail this comparison.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return
       throw error
     }
@@ -124,7 +125,7 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
 
       if (!entry.isFile() || (!folderAgentPattern.test(basename(file)) && !indexDefinitionPattern.test(basename(file)))) continue
       const source = readFileSync(file, "utf8")
-      const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/").trim()
+      const agent = normalizeDiscoveredAgentName(relative(agentsRoot, dirname(file)).replace(/\\/g, "/"))
       if (!agent || agent === ".") continue
       const workspace = isWorkspaceAgentDefinition(source)
       candidates.push({

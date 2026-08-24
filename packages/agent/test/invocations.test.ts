@@ -1616,6 +1616,19 @@ describe("Agent Invocations", () => {
       expect(agentQueryPlan.rows.map(row => String(row.detail))).toContainEqual(
         expect.stringContaining("vitehub_agent_invocations_agent_name_sequence"),
       )
+      const compatibleAgentQueryPlan = await readerClient.execute({
+        args: ["review", "review"],
+        sql: `EXPLAIN QUERY PLAN SELECT sequence, record FROM vitehub_agent_invocations
+          WHERE agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?)
+          ORDER BY sequence DESC LIMIT 51`,
+      })
+      const compatibleAgentPlanDetails = compatibleAgentQueryPlan.rows.map(row => String(row.detail))
+      expect(compatibleAgentPlanDetails).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_agent_name_sequence"),
+      )
+      expect(compatibleAgentPlanDetails).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_legacy_agent_name_sequence"),
+      )
       const localeLowercase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
         return String(this).replaceAll("I", "ı").toLowerCase()
       })

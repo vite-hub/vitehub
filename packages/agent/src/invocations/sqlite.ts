@@ -177,6 +177,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
+        ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
+        WHERE agent_name IS NULL OR agent_name = ''`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
@@ -248,7 +251,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const agentName = listOptions.agentName?.trim()
       if (agentName) {
-        filters.push("(agent_name = ? OR (agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?)")
+        filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))")
         args.push(agentName, agentName)
       }
       const search = searchValue(listOptions.search)
