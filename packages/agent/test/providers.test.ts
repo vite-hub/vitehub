@@ -14542,22 +14542,31 @@ describe("server helpers", () => {
       )
       await new Promise((resolve) => setTimeout(resolve, 10))
       expect(runs).toHaveBeenCalledOnce()
+      const originalScopeToken = binding!.steer!.lock.token
+      let originalExecutionToken: string | undefined
       const originalExtendLock = state.extendLock.bind(state)
       const extendLock = vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
-        if (lock.threadId.includes(":execution:")) return false
+        if (lock.threadId.includes(":execution:") && originalExecutionToken === undefined) {
+          originalExecutionToken = lock.token
+        }
+        if (lock.token === originalExecutionToken || lock.token === originalScopeToken) {
+          await state.releaseLock(lock)
+          return false
+        }
         return await originalExtendLock(lock, ttlMs)
       })
       await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
 
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
       await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
-      await handler(chatWebhookRequest(91_145), "telegram", {
+      const overlappingDelivery = handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
+      acceptRecoveredRetry()
+      await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
-      acceptRecoveredRetry()
 
       const replayOutcome = await replay
       expect(replayOutcome).toEqual({ value: undefined })
