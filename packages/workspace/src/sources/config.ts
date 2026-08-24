@@ -5,6 +5,7 @@ import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import { loadMcpResourcesSource } from "./mcp-resources-loader.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   copyWorkspaceSourceRequestMetadata,
   assertWorkspaceSourceRequestDescriptorKey,
@@ -31,8 +32,6 @@ import type {
 } from "../core/types.ts"
 
 type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
-
-const revisionResolutionByContext = new WeakMap<SourceContext, Promise<void>>()
 
 export interface ResolvedWorkspaceSource {
   key: string
@@ -88,21 +87,6 @@ export function createSourceContext(
     workspace: definition.name,
     workspaceFiles: store ? createSourceContextWorkspaceFiles(store) : undefined,
   }
-}
-
-export async function prepareWorkspaceSource(source: WorkspaceSource, ctx: SourceContext): Promise<void> {
-  let revisionResolution = revisionResolutionByContext.get(ctx)
-  if (!revisionResolution) {
-    revisionResolution = ctx.revision
-      ? Promise.resolve()
-      : (async () => {
-          const revision = await source.resolveRevision?.(ctx)
-          if (revision) ctx.revision = revision
-        })()
-    revisionResolutionByContext.set(ctx, revisionResolution)
-  }
-  await revisionResolution
-  await source.prepare?.(ctx)
 }
 
 function createSourceContextWorkspaceFiles(store: WorkspaceStore): SourceContextWorkspaceFiles {

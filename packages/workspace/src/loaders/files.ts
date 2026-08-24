@@ -1,5 +1,6 @@
 import { matchesAny, normalizeWorkspacePath } from "../core/path.ts"
-import { createSourceContext, prepareWorkspaceSource } from "../sources/config.ts"
+import { createSourceContext } from "../sources/config.ts"
+import { prepareWorkspaceSource } from "../sources/preparation.ts"
 
 import type { LoaderContext, WorkspaceContent, WorkspaceLoader, WorkspaceSourceItem } from "../core/types.ts"
 

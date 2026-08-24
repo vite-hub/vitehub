@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 
-import { prepareWorkspaceSource } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { resolveWorkspaceEnv } from "../env.ts"
 import { processEnv, resolveGitHubTokenOption } from "../providers/github/shared.ts"

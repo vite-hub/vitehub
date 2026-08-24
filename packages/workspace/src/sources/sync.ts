@@ -1,6 +1,7 @@
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, sha256 } from "../core/path.ts"
-import { createSourceContext, normalizeWorkspaceSources, prepareWorkspaceSource, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath } from "./source-items.ts"
 import {
   readWorkspaceSourceSyncState,

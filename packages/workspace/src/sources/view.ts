@@ -2,7 +2,8 @@ import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
-import { createSourceContext, normalizeWorkspaceSources, prepareWorkspaceSource, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   hasCurrentSourceSnapshot,
   materializeWorkspaceSources,
