@@ -316,7 +316,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
       ],
-      plugins: ["/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs"],
+      plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(development.nuxt.options.devServerHandlers).toEqual([
       { handler: existingConsoleHandler, route: "/api/_vitehub/console" },
@@ -324,7 +324,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
-    await expect(readFile("/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs", "utf8")).resolves.toContain(
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleInvocations("/tmp/vitehub-nuxt")`,
     )
 
@@ -343,7 +343,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
       ],
-      plugins: ["/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs"],
+      plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(production.nuxt.options.devServerHandlers).toBeUndefined()
     expect(production.nuxt.options.vite.plugins).toContainEqual(
