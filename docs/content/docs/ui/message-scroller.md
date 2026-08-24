@@ -1,8 +1,8 @@
 ---
 title: Message Scroller
 description: Compose headless message scrolling with live-edge, prepend, and jump behavior.
-navigation.order: 20
-navigation.group: Headless
+navigation.order: 41
+navigation.group: Utilities
 icon: i-ph-scroll-light
 ---
 

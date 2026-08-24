@@ -37,9 +37,9 @@ icon: i-ph-squares-four-light
   :::u-page-card
   ---
   title: Inspect Agent work
-  description: Present invocation state and the trace runs derived by ViteHub Runtime.
+  description: Browse sessions, render invocation activity, and inspect the captured configuration.
   icon: i-ph-activity-light
-  to: /docs/ui/invocations-and-traces
+  to: /docs/ui/invocation
   ---
   :::
 ::
@@ -63,5 +63,5 @@ The package does not own chat transport. Use `useChat()` from `@ai-sdk/vue` or t
 - [Message parts](/docs/ui/message-parts) and [Markdown](/docs/ui/markdown)
 - [Chat prompt](/docs/ui/chat-prompt) and [attachments](/docs/ui/attachments)
 - [Message scroller](/docs/ui/message-scroller)
-- [Diff and file tree](/docs/ui/code-views)
-- [Invocation lists, session details, and traces](/docs/ui/invocations-and-traces)
+- [Invocation list](/docs/ui/invocation-list), [invocation](/docs/ui/invocation), and [invocation inspector](/docs/ui/invocation-inspector)
+- [Diff](/docs/ui/diff), [file tree](/docs/ui/file-tree), and [trace](/docs/ui/trace)

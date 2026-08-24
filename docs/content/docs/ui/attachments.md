@@ -1,8 +1,8 @@
 ---
 title: Attachments
 description: Validate browser files, preview them, and convert them to AI SDK FileUIParts.
-navigation.order: 15
-navigation.group: Chat
+navigation.order: 40
+navigation.group: Utilities
 icon: i-ph-files-light
 ---
 
