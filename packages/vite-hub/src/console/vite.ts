@@ -34,9 +34,8 @@ async function writeConsoleNitroPlugin(file: string, projectRoot: string): Promi
   await writeFile(file, contents, "utf8")
 }
 
-function generatedRegistration(value: unknown, path: string): boolean {
-  return typeof value === "string"
-    && (value === path || value.replaceAll("\\", "/").endsWith(`/${path}`))
+function generatedRegistration(value: string, path: string): boolean {
+  return value === path || value.replaceAll("\\", "/").endsWith(`/${path}`)
 }
 
 export function consoleVitePlugin(): Plugin {
@@ -48,8 +47,9 @@ export function consoleVitePlugin(): Plugin {
       const plugin = resolve(root, generatedConsolePlugin)
       await writeConsoleNitroPlugin(plugin, projectRoot)
 
+      // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
       const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
-      const nitro: ConsoleNitroConfig = viteConfig.nitro && typeof viteConfig.nitro === "object"
+      const nitro: ConsoleNitroConfig = viteConfig.nitro
         ? { ...viteConfig.nitro }
         : {}
       const handlers = Array.isArray(nitro.handlers)
