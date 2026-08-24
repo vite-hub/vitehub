@@ -239,7 +239,7 @@ describe("Vite schedule integration", () => {
       `const proof = ${JSON.stringify(proof)}`,
       "const captureRuntimeError = console.error",
       "const runtimeInstallation = Promise.resolve({ controller: { close: async () => { await writeFile(proof, 'closed') } } })",
-      pluginSource.slice(shutdownStart, shutdownEnd).replace(": NodeJS.Signals", ""),
+      pluginSource.slice(shutdownStart, shutdownEnd).replaceAll(/: NodeJS\.Signals(?:\[\])?/g, ""),
       "process.stdout.write('ready')",
       "setInterval(() => {}, 1000)",
     ].join("\n"), "utf8")
@@ -255,6 +255,27 @@ describe("Vite schedule integration", () => {
     child.kill("SIGTERM")
     await expect(exited).resolves.toEqual([null, "SIGTERM"])
     await expect(readFile(proof, "utf8")).resolves.toBe("closed")
+    const stalledChildFile = join(root, "schedule-stalled-signal.mjs")
+    await writeFile(stalledChildFile, [
+      "const captureRuntimeError = console.error",
+      "const runtimeInstallation = Promise.resolve({ controller: { close: async () => await new Promise(() => {}) } })",
+      pluginSource.slice(shutdownStart, shutdownEnd)
+        .replaceAll(/: NodeJS\.Signals(?:\[\])?/g, "")
+        .replace("10_000", "50"),
+      "process.stdout.write('ready')",
+      "setInterval(() => {}, 1000)",
+    ].join("\n"), "utf8")
+    const stalledChild = spawn(process.execPath, [stalledChildFile], { stdio: ["ignore", "pipe", "pipe"] })
+    if (!stalledChild.stdout) throw new Error("Expected stalled Schedule signal test stdout.")
+    const stalledExit = once(stalledChild, "exit")
+    await Promise.race([
+      once(stalledChild.stdout, "data"),
+      stalledExit.then(([code, signal]) => {
+        throw new Error(`Stalled Schedule signal child exited before installing listeners: ${code ?? signal}`)
+      }),
+    ])
+    stalledChild.kill("SIGTERM")
+    await expect(stalledExit).resolves.toEqual([null, "SIGTERM"])
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     resolvePluginConfig(plugin, root)

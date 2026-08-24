@@ -745,8 +745,8 @@ export async function createHostedWorkspaceSession(
     ...(options.writeBack?.exclude || []).map(path => normalizeSafeWorkspacePath(path, { allowReserved: true })),
   ]
   let closed = false
-  const existingExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
-  let attachedState = options.attach ? await captureHostState(host, root, "host-attach") : undefined
+  const existingExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths, options.abortSignal)
+  let attachedState = options.attach ? await captureHostState(host, root, "host-attach", options.abortSignal) : undefined
   let materialization: { revision?: string, snapshot: WorkspaceSnapshot }
   let materializedExcludedState: Awaited<ReturnType<typeof captureExcludedHostState>> | undefined
   let setupMutatedHost = false
@@ -755,7 +755,7 @@ export async function createHostedWorkspaceSession(
       ? { snapshot: attachedState.snapshot }
       : await materializeWorkspace(workspace, host, root, options, true, () => { setupMutatedHost = true })
     if (!attachedState)
-      materializedExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
+      materializedExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths, options.abortSignal)
   }
   catch (error) {
     if (attachedState || !setupMutatedHost) throw error

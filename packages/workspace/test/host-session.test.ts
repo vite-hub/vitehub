@@ -572,6 +572,26 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/local.txt")).toBe("untouched")
   })
 
+  it("cancels startup while capturing the existing host state", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    const reason = new DOMException("invocation deadline", "TimeoutError")
+    await host.files.mkdir("/workspace", { recursive: true })
+    await host.files.write("/workspace/local.txt", new TextEncoder().encode("large host state"))
+    const list = host.files.list.bind(host.files)
+    let observedSignal: AbortSignal | undefined
+    host.files.list = async (path, options) => {
+      observedSignal = options?.signal
+      abort.abort(reason)
+      options?.signal?.throwIfAborted()
+      return await list(path, options)
+    }
+
+    await expect(docs.startSession({ abortSignal: abort.signal, host })).rejects.toBe(reason)
+    expect(observedSignal).toBe(abort.signal)
+  })
+
   it("bounds host file reads while capturing Session state", async () => {
     const docs = workspace()
     const host = memoryHost()
