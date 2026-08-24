@@ -20,6 +20,7 @@ export interface AgentClient {
 
 export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE> & {
   api?: string
+  resume?: boolean
 }
 
 export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
@@ -45,6 +46,10 @@ function agentChatRoute(name: string): string {
   return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
 }
 
+function isBrowserRuntime(): boolean {
+  return typeof (globalThis as { window?: unknown }).window !== "undefined"
+}
+
 export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   agent: AgentClient,
   options?: AgentChatInit<UI_MESSAGE>,
@@ -61,9 +66,20 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
-  const resolveTransport = () => latestOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
-    api: latestOptions.value.api ?? agentChatRoute(agent.name),
-  })
+  const resolveTransport = () => {
+    if (latestOptions.value.transport) return latestOptions.value.transport
+    const route = latestOptions.value.api ?? agentChatRoute(agent.name)
+    return new DefaultChatTransport<UI_MESSAGE>({
+      api: route,
+      prepareReconnectToStreamRequest({ credentials, headers, id }) {
+        return {
+          api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
+          credentials,
+          headers,
+        }
+      },
+    })
+  }
   const transport = {
     reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
       resolveTransport().reconnectToStream(...args)
@@ -73,7 +89,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     ),
   }
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
+    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
     return {
       ...init,
       onData(part) {
@@ -87,12 +103,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       transport,
     }
   })
+  const reconnecting = shallowRef(false)
   watch(() => toValue(options), (next, previous) => {
     const prior = latestOptions.value
     latestOptions.value = next
     if (next.id !== previous.id) {
       constructorOptions.value = next
       streamedParts.value = []
+      if (next.resume && isBrowserRuntime()) queueMicrotask(reconnect)
       return
     }
 
@@ -107,9 +125,36 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       }
     }
   })
-  onScopeDispose(chat.stop, true)
+  if (initialOptions.resume && isBrowserRuntime()) queueMicrotask(reconnect)
+  onScopeDispose(() => {
+    void chat.stop()
+  }, true)
+
+  async function stop(): Promise<void> {
+    await chat.stop()
+    if (!latestOptions.value.resume || latestOptions.value.transport || !isBrowserRuntime()) return
+    const route = latestOptions.value.api ?? agentChatRoute(agent.name)
+    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
+      credentials: "same-origin",
+      method: "DELETE",
+    }).then(() => undefined, () => undefined)
+  }
+
+  async function reconnect(): Promise<void> {
+    const messages = latestOptions.value.messages ?? chat.messages.value
+    if (messages.at(-1)?.role !== "user") return
+    reconnecting.value = true
+    try {
+      await chat.resumeStream()
+    } finally {
+      reconnecting.value = false
+    }
+  }
+
   return {
     ...chat,
+    status: computed(() => reconnecting.value && chat.status.value === "ready" ? "submitted" : chat.status.value),
+    stop,
     data: computed(() => createAgentChatData([
       ...chat.messages.value.flatMap(message => message.parts),
       ...streamedParts.value,

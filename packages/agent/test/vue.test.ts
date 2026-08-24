@@ -197,6 +197,80 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("reconnects resumable chats through the default route and exposes the pending state", async () => {
+    vi.stubGlobal("window", {})
+    let finishReconnect!: (response: Response) => void
+    const reconnectResponse = new Promise<Response>((resolve) => {
+      finishReconnect = resolve
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, request) => {
+      if (request?.method === "GET") return await reconnectResponse
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const messages: UIMessage[] = [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      api: "/chat/support?source=portal",
+      id: "chat-1",
+      messages,
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(fetch).toHaveBeenCalledWith("/chat/support?source=portal&id=chat-1", expect.objectContaining({ method: "GET" }))
+    expect(chat.status.value).toBe("submitted")
+
+    finishReconnect(new Response(null, { status: 204 }))
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    scope.stop()
+  })
+
+  it("keeps resumable reconnect and stop ownership with an explicit transport", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    vi.stubGlobal("fetch", fetch)
+    const reconnectToStream = vi.fn(async () => null)
+    const transport: ChatTransport<UIMessage> = {
+      reconnectToStream,
+      sendMessages: async () => new ReadableStream({ start: controller => controller.close() }),
+    }
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }],
+      resume: true,
+      transport,
+    }))!
+
+    await vi.waitFor(() => expect(reconnectToStream).toHaveBeenCalledOnce())
+    await chat.stop()
+
+    expect(fetch).not.toHaveBeenCalled()
+    scope.stop()
+  })
+
+  it("cancels a resumable server run only through the public stop helper", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      api: "/chat/support",
+      id: "chat-1",
+      resume: true,
+    }))!
+
+    scope.stop()
+    expect(fetch).not.toHaveBeenCalled()
+
+    await chat.stop()
+    expect(fetch).toHaveBeenCalledWith("/chat/support?id=chat-1", {
+      credentials: "same-origin",
+      method: "DELETE",
+    })
+  })
+
   it("uses an explicit API instead of the conventional generated route", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({ execute() {} }),
@@ -226,7 +300,7 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
-  it("stops an active stream when its Vue scope is disposed", async () => {
+  it.each([false, true])("stops an active stream when its Vue scope is disposed (resume: %s)", async (resume) => {
     let aborted = false
     const transport: ChatTransport<UIMessage> = {
       reconnectToStream: async () => null,
@@ -240,7 +314,7 @@ describe("Agent Vue clients", () => {
       }),
     }
     const scope = effectScope()
-    const chat = scope.run(() => useChat(useAgent("support"), { transport }))!
+    const chat = scope.run(() => useChat(useAgent("support"), { resume, transport }))!
     const request = chat.sendMessage({ text: "Hello" })
     await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
 

@@ -850,6 +850,9 @@ describe("agent public types", () => {
 
     type ServerExports = typeof import("../src/server.ts")
     type _PublicDiscordGatewayRouteHandler = ServerExports["createDiscordGatewayRouteHandler"]
+    type _PublicResumableChatRouteContext = import("../src/server.ts").AgentChannelChatRouteResumableContext
+    type _PublicResumableChatRouteOptions = import("../src/server.ts").AgentChannelChatRouteResumableOptions
+    type _PublicResumableChatRouteRequestBody = import("../src/server.ts").AgentChannelChatRouteResumableRequestBody
     // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
     type _PublicChannelChatRouteHandler = ServerExports["createChannelChatRouteHandler"]
     // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
