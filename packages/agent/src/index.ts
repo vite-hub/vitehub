@@ -947,10 +947,10 @@ async function runAgentAsWorkflow<
     },
   }
   // Durable Channel recovery may be a fresh provider start while still owning
-  // one persisted logical run. The claim keeps retries idempotent without
-  // making a promoted successor reuse the previous claim's provider ID.
+  // one persisted logical run. Initial starts remain stable by claim, while a
+  // fresh recovery gets a new provider ID after a definitive rejection.
   const workflowProviderRunId = context.run?.runId && durableChannelDelivery && channelDeliveryBinding.steer
-    ? `${context.run.runId}:${channelDeliveryBinding.steer.claimId}`
+    ? `${context.run.runId}:${channelDeliveryBinding.steer.claimId}${options.fresh ? `:${crypto.randomUUID()}` : ""}`
     : context.run?.runId
   const workflowRunId = context.run?.runId && (!options.fresh || durableChannelDelivery)
     ? workflowConfig && workflowConfig.provider === "cloudflare"
@@ -1015,12 +1015,12 @@ async function runAgentAsWorkflow<
   if (hasAgentDefinition(agent) && agent.invocations && run.provider !== "vercel") {
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
-      const sourceRunId = context.run?.runId ?? run.id
+      const sourceRunId = options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id
       if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
     }
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
-      run: { ...context.run, runId: context.run?.runId ?? run.id },
+      run: { ...context.run, runId: options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id },
     }, { agentName: agent.name || context.agentIdentity?.name, deferClaim: true, terminalTakeover: true })
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)

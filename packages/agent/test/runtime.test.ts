@@ -11255,6 +11255,53 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("records a successful fresh Workflow under the child run ID", async () => {
+      const { defineAgent, startAgentInvocation, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          registerInlineWorkflowDefinition: vi.fn(),
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({
+          createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
+            ? { defer: async () => ({ id: "recovery", provider: "openworkflow", status: "queued" }) }
+            : { run: async () => ({ id: "child-run", provider: "openworkflow", status: "queued" }) },
+        }) as never,
+      })
+      try {
+        const agent = defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          name: "fresh-child-agent",
+          runtime: workflow("fresh-child-agent"),
+        })
+
+        await startAgentInvocation(agent, {
+          memo: vi.fn(),
+          run: { runId: "parent-run" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})
+
+        await expect(invocations.getByRunId("child-run", agent.name)).resolves.toMatchObject({ status: "pending" })
+        await expect(invocations.getByRunId("parent-run", agent.name)).resolves.toBeUndefined()
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("leaves controlled Vercel pre-worker failures to Workflow inspection", async () => {
       const { defineAgent, startAgentInvocation } = await import("../src/index.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
