@@ -42,7 +42,6 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
       href: part.url,
       rel: isSafeExternalUrl(part.url) ? "noreferrer" : undefined,
       target: isSafeExternalUrl(part.url) ? "_blank" : undefined,
-      rel: isSafeExternalUrl(part.url) ? "noreferrer" : undefined,
     },
     [
       image

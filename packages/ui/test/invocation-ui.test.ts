@@ -116,7 +116,6 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ=="]);
     expect(wrapper.findAll("a")[0]!.attributes("rel")).toBe("noreferrer");
     expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
-    expect(wrapper.findAll("a")[0]!.attributes("rel")).toBe("noreferrer");
     expect(wrapper.get("img").attributes("alt")).toBe("");
     expect(wrapper.text()).toContain("unsafe.txt");
     expect(wrapper.text()).toContain("inline.png");
