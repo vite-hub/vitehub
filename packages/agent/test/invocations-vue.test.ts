@@ -194,6 +194,13 @@ describe("Agent Invocation Vue composables", () => {
     await refresh;
 
     expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
+    expect(resource.cursor.value).toBe("new-page-2");
+
+    const fillGap = resource.loadMore();
+    expect(calls[5]!.path).toBe("/api/invocations?cursor=new-page-2");
+    calls[5]!.resolve({ cursor: "page-3", invocations: [record("inv-1")] });
+    await fillGap;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
     expect(resource.cursor.value).toBe("page-3");
     scope.stop();
   });

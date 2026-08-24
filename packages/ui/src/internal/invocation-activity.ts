@@ -253,9 +253,19 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   let anonymousMessage = 0;
   let anonymousMessageKey: string | undefined;
   let anonymousMessagePhase: string | undefined;
+  let assistantDeltaText = "";
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded" || observation.name === "vitehub.agent.configured") continue;
     const originalAttributes = observation.attributes ?? {};
+    const delta = typeof originalAttributes["message.content"] === "string"
+      ? originalAttributes["message.content"]
+      : undefined;
+    const role = messageRole(originalAttributes["message.role"]);
+    const resultText = typeof originalAttributes["result.text"] === "string"
+      ? originalAttributes["result.text"]
+      : undefined;
+    if (resultText && assistantDeltaText.endsWith(resultText)) continue;
+    if (delta && (role === undefined || role === "assistant")) assistantDeltaText += delta;
     const inputMessages = Array.isArray(originalAttributes["input.messages"])
       ? originalAttributes["input.messages"]
       : Array.isArray(originalAttributes["input.prompt"])

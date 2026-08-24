@@ -298,7 +298,7 @@ export function useAgentInvocations(
       departedIds = new Set();
       reconciledInvocations = new Map();
       invocations.value = [...result.invocations, ...retained];
-      if (retained.length === 0) cursor.value = result.cursor;
+      cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];

@@ -414,6 +414,44 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("does not replay an aggregate final answer after matching deltas", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [
+        { attributes: { "message.content": "Final ", "message.role": "assistant" }, name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "message.content": "answer.", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" as const },
+        { attributes: { "result.text": "Final answer." }, name: "agent.invocation.finish", sequence: 3, timestamp, type: "lifecycle" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Final answer."]);
+  });
+
+  it("keeps an aggregate final answer when no matching deltas exist", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [{
+        attributes: { "result.text": "Final answer." },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Final answer."]);
+  });
+
   it("renders canonical tool, error, and approval decision details", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
