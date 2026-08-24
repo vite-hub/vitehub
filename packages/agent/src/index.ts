@@ -5320,7 +5320,9 @@ async function executeAgentInvocationWithCapacityLease<
               invocation.context.get(agentOutputEventObserverContextKey),
               structuredOutput,
             )
+            const materializedUsageRecord = usageRecordFromStreamChunk(materialized)
             uiMessageFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
+            if (materializedUsageRecord) yield { type: "usage", usageRecord: materializedUsageRecord }
             yield* streamAgentOutputToEvents(uiMessageFinishResult)
           })()
         : enrichedRendered
@@ -5412,7 +5414,9 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.context.get(agentOutputEventObserverContextKey),
             structuredOutput,
           )
+          const materializedUsageRecord = usageRecordFromStreamChunk(materialized)
           structuredFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
+          if (materializedUsageRecord) yield { type: "usage", usageRecord: materializedUsageRecord }
           yield* streamAgentOutputToEvents(structuredFinishResult)
         })()
       : isStreamResult

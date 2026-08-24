@@ -326,6 +326,28 @@ describe("Agent structured output", () => {
     }))
   })
 
+  it("preserves structured UI-message stream usage through the finish lifecycle", async () => {
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        output: { schema: summarySchema() },
+        run: async function* () {
+          yield { text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+          yield { type: "usage" as const, usageRecord: { usage: { totalTokens: 3 } } }
+        },
+      },
+      hooks: { "agent:finish": finish },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime(), {}, { output: "ui-message-stream" })
+    for await (const _event of result as AsyncIterable<unknown>) {}
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({ usage: { usage: { totalTokens: 3 } } }),
+      result: { summary: "Decisions", title: "Weekly sync" },
+    }))
+  })
+
   it("reports Standard Schema failures separately from JSON decoding", async () => {
     const agent = defineAgent({
       driver: { output: { schema: summarySchema() }, run: () => "{\"title\":42}" },
