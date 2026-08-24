@@ -256,6 +256,8 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain("@cloudflare/workers-types")
     const consolePage = readFileSync(`${packageRoot}/dist/console/runtime/pages/agents.vue`, "utf8")
     expect(consolePage).toContain("AgentInvocationList")
+    expect(consolePage).toContain(':retry-key="paginationRetryRevision"')
+    expect(consolePage).toContain("Retry loading older sessions")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })

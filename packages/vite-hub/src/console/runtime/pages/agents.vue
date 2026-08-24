@@ -13,6 +13,7 @@ import type {
 const route = useRoute();
 const router = useRouter();
 const selectedInvocationId = ref<string>();
+const paginationRetryRevision = ref(0);
 const lastSuccessfulPollAt = ref<Date>();
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
@@ -176,6 +177,10 @@ async function refresh(): Promise<void> {
   ]);
 }
 
+function retryPagination(): void {
+  paginationRetryRevision.value++;
+}
+
 function updateDesktop(event?: MediaQueryListEvent): void {
   isDesktop.value = event?.matches ?? media?.matches ?? false;
 }
@@ -263,6 +268,16 @@ onBeforeUnmount(() => {
             title="Could not load sessions"
             :description="errorMessage(list.error.value)"
           />
+          <UButton
+            v-if="invocationItems.length && list.cursor.value"
+            class="mt-2"
+            color="neutral"
+            label="Retry loading older sessions"
+            size="sm"
+            variant="soft"
+            :loading="list.isLoadingMore.value"
+            @click="retryPagination"
+          />
         </div>
         <div
           v-if="!collapsed && list.isLoading.value && !invocationItems.length"
@@ -297,6 +312,7 @@ onBeforeUnmount(() => {
           :items="invocationItems"
           :loading="list.isLoadingMore.value"
           :now="nowMs"
+          :retry-key="paginationRetryRevision"
           :selected-id="selectedInvocationId"
           @end-reached="list.loadMore()"
           @select="selectInvocation($event.id)"
