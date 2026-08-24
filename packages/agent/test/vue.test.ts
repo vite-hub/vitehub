@@ -275,6 +275,36 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("keeps the current reconnect pending when an older reconnect settles first", async () => {
+    vi.stubGlobal("window", {})
+    const responses = new Map<string, (response: Response) => void>()
+    const fetch = vi.fn<typeof globalThis.fetch>(async input => await new Promise<Response>((resolve) => {
+      responses.set(String(input), resolve)
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const id = ref("chat-a")
+    const messages: UIMessage[] = [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), () => ({
+      id: id.value,
+      messages,
+      resume: true,
+    })))!
+
+    await vi.waitFor(() => expect(responses.has("/api/_vitehub/agents/support/chat?id=chat-a")).toBe(true))
+    id.value = "chat-b"
+    await nextTick()
+    await vi.waitFor(() => expect(responses.has("/api/_vitehub/agents/support/chat?id=chat-b")).toBe(true))
+
+    responses.get("/api/_vitehub/agents/support/chat?id=chat-a")!(new Response(null, { status: 204 }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(chat.status.value).toBe("submitted")
+
+    responses.get("/api/_vitehub/agents/support/chat?id=chat-b")!(new Response(null, { status: 204 }))
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    scope.stop()
+  })
+
   it("discards a pending replay after a fresh send to the same chat", async () => {
     vi.stubGlobal("window", {})
     let finishReconnect!: (response: Response) => void

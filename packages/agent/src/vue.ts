@@ -67,8 +67,10 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
+  const reconnecting = shallowRef(false)
   let resumableMessageId = initialOptions.messages?.at(-1)?.id
   let reconnectGeneration = 0
+  let reconnectStatusGeneration = 0
   let chat!: UseChatHelpers<UI_MESSAGE>
   const resolveTransport = (generation?: number) => {
     if (latestOptions.value.transport) return latestOptions.value.transport
@@ -104,6 +106,8 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     },
     sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => {
       reconnectGeneration++
+      reconnectStatusGeneration++
+      reconnecting.value = false
       resumableMessageId = args[0].messageId ?? args[0].messages.at(-1)?.id
       return resolveTransport().sendMessages(...args)
     },
@@ -123,7 +127,6 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       transport,
     }
   })
-  const reconnecting = shallowRef(false)
   watch(() => toValue(options), (next, previous) => {
     const prior = latestOptions.value
     latestOptions.value = next
@@ -166,11 +169,12 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   async function reconnect(): Promise<void> {
     const messages = latestOptions.value.messages ?? chat.messages.value
     if (!messages.length) return
+    const generation = ++reconnectStatusGeneration
     reconnecting.value = true
     try {
       await chat.resumeStream()
     } finally {
-      reconnecting.value = false
+      if (generation === reconnectStatusGeneration) reconnecting.value = false
     }
   }
 
