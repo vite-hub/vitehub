@@ -414,6 +414,11 @@ function renderLabelChip(activity: InvocationActivity) {
 function groupedActivityTitle(activity: InvocationActivity): string {
   if (!stringAttribute(activity.attributes, "github.label.name")) return invocationActivityTitle(activity);
   const operation = stringAttribute(activity.attributes, "github.label.operation")?.toLocaleLowerCase();
+  if (activity.status === "failed") {
+    if (operation === "add" || operation === "added") return "Failed to add label";
+    if (operation === "remove" || operation === "removed") return "Failed to remove label";
+    return "Failed to update label";
+  }
   if (operation === "add" || operation === "added") return "Added label";
   if (operation === "remove" || operation === "removed") return "Removed label";
   return "Updated label";
@@ -566,10 +571,7 @@ function renderActivitySequence(
     const group = activityGroup(activities[index]!);
     if (group) {
       let end = index + 1;
-      while (
-        activityGroup(activities[end]) === group
-        && activities[end]!.sequence === activities[end - 1]!.sequence + 1
-      ) end += 1;
+      while (activityGroup(activities[end]) === group) end += 1;
       rendered.push(renderActivityGroup(group, activities.slice(index, end), inspect));
       index = end;
       continue;

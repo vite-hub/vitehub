@@ -1112,8 +1112,42 @@ describe("Agent Invocation UI", () => {
     const row = wrapper.get('[data-activity-group="github-lifecycle"] [data-status="failed"]');
 
     expect(row.get('[data-icon="error"]').attributes("data-icon")).toBe("error");
+    expect(row.get(".vh-invocation-lifecycle__title").text()).toBe("Failed to add label");
     expect(row.get(".vh-invocation-lifecycle__failure").text()).toBe("GitHub rejected the label update");
     expect(row.get(".vh-invocation-lifecycle__label").text()).toBe("Agent: Working");
+  });
+
+  it("groups adjacent lifecycle activities after their observations collapse", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const observation = (sequence: number, step: string, phase: "started" | "completed") => ({
+      attributes: {
+        "step.id": step,
+        "vitehub.activity.group": "github-lifecycle",
+        "vitehub.activity.kind": "action",
+        "vitehub.activity.title": step,
+      },
+      name: `vitehub.github.${step}.${phase}`,
+      sequence,
+      timestamp,
+      type: "lifecycle" as const,
+    });
+    const invocation = {
+      createdAt: timestamp,
+      id: "collapsed-lifecycle",
+      observations: [
+        observation(1, "first", "started"),
+        observation(2, "first", "completed"),
+        observation(3, "second", "started"),
+        observation(4, "second", "completed"),
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.findAll('[data-activity-group="github-lifecycle"]')).toHaveLength(1);
+    expect(wrapper.findAll('[data-activity-group="github-lifecycle"] .vh-invocation-lifecycle__row')).toHaveLength(2);
   });
 
   it("groups consecutive lifecycle rows and renders structured GitHub labels", () => {
