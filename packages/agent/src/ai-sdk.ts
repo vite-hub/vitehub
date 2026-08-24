@@ -942,6 +942,7 @@ function createUsageCapture() {
     get captured() {
       return captured
     },
+    complete,
     completed,
     get usage() {
       return captured ? Promise.resolve(capturedUsage) : undefined
@@ -985,14 +986,28 @@ function withCapturedUsage(
   if (result && hasRuntimeType(result, "object")) {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = result as Record<string, unknown>
-    const resultUsage = record.usage
-    const totalUsage = record.totalUsage
-    const resolvedCapturedUsage = async (fallback: unknown) => {
+    const originalValue = (key: "totalUsage" | "usage") => {
+      let owner: object | null = record
+      while (owner) {
+        const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+        if (descriptor) {
+          return descriptor.get
+            ? () => descriptor.get?.call(record)
+            : () => descriptor.value
+        }
+        owner = Object.getPrototypeOf(owner) as object | null
+      }
+      return () => undefined
+    }
+    const resultUsage = originalValue("usage")
+    const totalUsage = originalValue("totalUsage")
+    const hasTotalUsage = "totalUsage" in record
+    const resolvedCapturedUsage = async (fallback: () => unknown) => {
       if (hasRuntimeType(captures, "function")) {
         const [primaryCapture] = captures()
         await primaryCapture?.completed
       }
-      const resolvedFallback = await fallback
+      const resolvedFallback = await fallback()
       return await capturedUsage() ?? resolvedFallback
     }
     Object.defineProperty(record, "usage", {
@@ -1002,7 +1017,7 @@ function withCapturedUsage(
         return resolvedCapturedUsage(resultUsage)
       },
     })
-    if (totalUsage !== undefined) {
+    if (hasTotalUsage) {
       Object.defineProperty(record, "totalUsage", {
         configurable: true,
         enumerable: true,
@@ -1033,21 +1048,26 @@ function withCapturedStreamUsage<T extends {
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
   const wrap = (stream: AsyncIterable<unknown>) => (async function* () {
-    for await (const event of stream) {
-      if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
-        const captureList = captures()
-        const usage = await combinedCapturedUsage(captureList)
-        if (usage !== undefined) {
-          const usageRecord = await combinedUsageRecord(
-            captureList.map(capture => ({ capture })),
-            usage,
-          )
-          // SAFETY: AI SDK stream events are records after the object guard above.
-          yield { ...(event as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), usage }
-          continue
+    try {
+      for await (const event of stream) {
+        if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
+          const captureList = captures()
+          const usage = await combinedCapturedUsage(captureList)
+          if (usage !== undefined) {
+            const usageRecord = await combinedUsageRecord(
+              captureList.map(capture => ({ capture })),
+              usage,
+            )
+            // SAFETY: AI SDK stream events are records after the object guard above.
+            yield { ...(event as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), usage }
+            continue
+          }
         }
+        yield event
       }
-      yield event
+    }
+    finally {
+      captures()[0]?.complete()
     }
   })()
   const stream = result.stream
