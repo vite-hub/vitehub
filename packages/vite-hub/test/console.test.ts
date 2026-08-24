@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -12,14 +12,14 @@ import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
-import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
-import { consoleInvocationRootPlugin } from "../src/console/vite.ts"
+import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
+import { consoleInvocationRootPlugin, consoleVitePlugin } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
-import type { ConsoleRequestEvent } from "../src/console/runtime/server/local-request.ts"
+import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | string | undefined>
 
@@ -57,6 +57,42 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
+  it("registers the standalone console UI and invocation API with Nitro", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
+    try {
+      const plugin = consoleVitePlugin()
+      const configHook = typeof plugin.config === "function" ? plugin.config : plugin.config?.handler
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const config: {
+        nitro?: {
+          handlers: Array<{ handler: string, route: string }>
+          plugins: string[]
+          publicAssets: Array<{ baseURL: string, dir: string }>
+        }
+        root: string
+      } = { root }
+      await Reflect.apply(configHook, {}, [config, { command: "build", mode: "production" }])
+      if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
+
+      expect(config.nitro.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/invocations",
+        "/api/_vitehub/console/invocations/:id",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      expect(config.nitro.publicAssets).toEqual([
+        expect.objectContaining({ baseURL: "/_vitehub/assets" }),
+      ])
+      expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `installConsoleInvocations(${JSON.stringify(root)})`,
+      )
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("refreshes invocation summaries in one request without observations", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const id of ["inv-1", "inv-2"]) {
@@ -284,48 +320,12 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it.each(["127.0.0.1", "::1", "::ffff:127.0.0.1"])("accepts GET requests from loopback address %s", (address) => {
-    expect(() => assertLocalConsoleRequest(event(address))).not.toThrow()
-  })
-
-  it("hides console handlers from requests without a trusted socket peer", () => {
-    expect(() => assertLocalConsoleRequest(event("203.0.113.2"))).toThrow(expect.objectContaining({ statusCode: 404 }))
-    expect(() => assertLocalConsoleRequest(event(undefined))).toThrow(expect.objectContaining({ statusCode: 404 }))
-  })
-
-  it("does not trust spoofed localhost forwarding headers from a remote socket", () => {
-    const value = event("203.0.113.2")
-    value.context = { clientAddress: "127.0.0.1" }
-    value.headers = new Headers({ host: "localhost", "x-forwarded-for": "127.0.0.1" })
-
-    expect(() => assertLocalConsoleRequest(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
-  })
-
-  it("accepts Nitro forwarding headers after the outer guard", () => {
-    const value = event("127.0.0.1")
-    value.headers = new Headers({ host: "localhost", "x-forwarded-for": "203.0.113.2" })
-
-    expect(() => assertLocalConsoleRequest(value)).not.toThrow()
-  })
-
-  it.each(["forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip", "cf-connecting-ip"])(
-    "rejects the %s proxy header",
-    (name) => {
-      const value = event("127.0.0.1")
-      value.headers = new Headers({ host: "localhost", [name]: "127.0.0.1" })
-
-      expect(() => assertLocalConsolePeer(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
-    },
-  )
-
-  it("keeps the local host check as defense in depth", () => {
-    const value = event("127.0.0.1")
-    value.headers = new Headers({ host: "192.0.2.10:3000" })
-
-    expect(() => assertLocalConsoleRequest(value)).toThrow(expect.objectContaining({ statusCode: 404 }))
+  it("accepts public read-only requests", () => {
+    expect(() => assertConsoleRequest(event("203.0.113.2"))).not.toThrow()
+    expect(() => assertConsoleRequest(event(undefined))).not.toThrow()
   })
 
   it("rejects non-GET console requests", () => {
-    expect(() => assertLocalConsoleRequest(event("127.0.0.1", "POST"))).toThrow(expect.objectContaining({ statusCode: 405 }))
+    expect(() => assertConsoleRequest(event("127.0.0.1", "POST"))).toThrow(expect.objectContaining({ statusCode: 405 }))
   })
 })

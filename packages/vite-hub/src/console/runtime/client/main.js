@@ -1,0 +1,26 @@
+import "./styles.css";
+import "@vite-hub/ui/styles.css";
+
+import ui from "@nuxt/ui/vue-plugin";
+import { createViteHubUI } from "@vite-hub/ui";
+import { createApp } from "vue";
+import { createRouter, createWebHistory } from "vue-router";
+
+import ConsoleApp from "../components/console-app.vue";
+import App from "./app.vue";
+
+const router = createRouter({
+  history: createWebHistory("/_vitehub/"),
+  routes: [
+    { path: "/", redirect: { name: "vitehub-console-agents" } },
+    {
+      component: ConsoleApp,
+      name: "vitehub-console-agents",
+      path: "/agents/:invocation?",
+      props: { apiBase: "/api/_vitehub/console/invocations" },
+    },
+  ],
+});
+
+document.title = "Agents · ViteHub Console";
+createApp(App).use(router).use(ui).use(createViteHubUI()).mount("#app");

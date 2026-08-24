@@ -28,6 +28,7 @@ import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
+import { consoleInvocationRootPlugin, consoleVitePlugin } from "./console/vite.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -642,6 +643,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
 
   if (envPlugin) plugins.push(envPlugin)
+
+  if (options.console) {
+    plugins.push(consoleVitePlugin(), consoleInvocationRootPlugin())
+  }
 
   if (options.auth) {
     plugins.push(hubAuth(

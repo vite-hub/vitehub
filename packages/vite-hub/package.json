@@ -147,8 +147,8 @@
     "./tsconfig": "./tsconfig.json"
   },
   "scripts": {
-    "build": "vp pack",
-    "dev": "vp pack --watch",
+    "build": "vp build --config console.vite.config.ts && vp pack",
+    "dev": "vp build --config console.vite.config.ts && vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.dev.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
@@ -206,14 +206,19 @@
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
+    "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",
+    "@vitejs/plugin-vue": "^6.0.8",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
+    "tailwindcss": "^4.3.2",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui",
+    "vue-router": "^4.6.4"
   },
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",

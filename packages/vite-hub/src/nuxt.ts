@@ -12,7 +12,6 @@ import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
-import { assertLocalConsolePeer } from "./console/runtime/server/local-request.ts"
 import { consoleInvocationRootPlugin } from "./console/vite.ts"
 import { mergeGeneratedCollectionNitroConfig, type GeneratedCollectionHandler } from "./internal/types.ts"
 
@@ -39,7 +38,7 @@ type NuxtLike = {
     database?: DatabaseNuxtIntegrationOptions
     dev?: boolean
     devServerHandlers?: Array<{
-      handler: (event: import("./console/runtime/server/local-request.ts").ConsoleRequestEvent) => void
+      handler: (event: import("./console/runtime/server/request.ts").ConsoleRequestEvent) => void
       route?: string
     }>
     imports?: {
@@ -207,12 +206,6 @@ async function installConsole(nuxt: NuxtLike, projectRoot: string): Promise<void
   ]
   for (const handler of additions) {
     if (!handlers.some(candidate => candidate.route === handler.route)) handlers.push(handler)
-  }
-  const devServerHandlers = (nuxt.options.devServerHandlers ??= [])
-  for (const route of ["/_vitehub", "/api/_vitehub/console"]) {
-    if (!devServerHandlers.some(candidate => candidate.route === route && candidate.handler === assertLocalConsolePeer)) {
-      devServerHandlers.push({ handler: assertLocalConsolePeer, route })
-    }
   }
   const plugins = (nitro.plugins ??= [])
   const plugin = join(nuxt.options.buildDir, "vitehub-console-plugin.mjs")
@@ -434,7 +427,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
-  if (options.console && nuxt.options.dev) await installConsole(nuxt, projectRoot)
+  if (options.console) await installConsole(nuxt, projectRoot)
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
@@ -481,9 +474,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
+    .filter(plugin => !options.console || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
-    ...(options.console && nuxt.options.dev ? [consoleInvocationRootPlugin(projectRoot)] : []),
+    ...(options.console ? [consoleInvocationRootPlugin(projectRoot)] : []),
   ]
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
