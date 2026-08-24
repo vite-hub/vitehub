@@ -257,6 +257,7 @@ describe("framework package contract", () => {
     const consolePage = readFileSync(`${packageRoot}/dist/console/runtime/pages/agents.vue`, "utf8")
     expect(consolePage).toContain("AgentInvocationList")
     expect(consolePage).toContain(':retry-key="paginationRetryRevision"')
+    expect(consolePage).toContain("list.loadMoreError.value")
     expect(consolePage).toContain("Retry loading older sessions")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")

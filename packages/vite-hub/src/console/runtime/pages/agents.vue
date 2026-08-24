@@ -260,16 +260,19 @@ onBeforeUnmount(() => {
           </div>
           <span class="text-xs text-dimmed">{{ invocationItems.length }}</span>
         </div>
-        <div v-if="!collapsed && errorMessage(list.error.value)" class="px-3">
+        <div
+          v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
+          class="px-3"
+        >
           <UAlert
             color="error"
             variant="subtle"
             icon="i-lucide-cloud-off"
             title="Could not load sessions"
-            :description="errorMessage(list.error.value)"
+            :description="errorMessage(list.error.value || list.loadMoreError.value)"
           />
           <UButton
-            v-if="invocationItems.length && list.cursor.value"
+            v-if="invocationItems.length && list.cursor.value && list.loadMoreError.value"
             class="mt-2"
             color="neutral"
             label="Retry loading older sessions"

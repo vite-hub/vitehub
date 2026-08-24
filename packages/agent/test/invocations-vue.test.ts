@@ -213,6 +213,54 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("keeps pagination failures separate from first-page refreshes", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+
+    const failedPage = resource.loadMore();
+    const failure = new Error("Page unavailable");
+    calls[1]!.reject(failure);
+    await failedPage;
+    expect(resource.loadMoreError.value).toBe(failure);
+    expect(resource.error.value).toBeNull();
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await refresh;
+    expect(resource.loadMoreError.value).toBe(failure);
+
+    const retriedPage = resource.loadMore();
+    calls[3]!.resolve({ invocations: [record("inv-1")] });
+    await retriedPage;
+    expect(resource.loadMoreError.value).toBeNull();
+    scope.stop();
+  });
+
+  it("makes pagination interrupted by a first-page refresh retryable", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+
+    const interruptedPage = resource.loadMore();
+    const refresh = resource.refresh();
+    await interruptedPage;
+    expect(resource.loadMoreError.value).toEqual(
+      new Error("Loading older Agent Invocations was interrupted."),
+    );
+
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await refresh;
+    expect(resource.loadMoreError.value).toBeInstanceOf(Error);
+    scope.stop();
+  });
+
   it("reconciles retained pages while filters are active", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
