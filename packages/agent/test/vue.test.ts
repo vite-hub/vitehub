@@ -331,22 +331,24 @@ describe("Agent Vue clients", () => {
     vi.stubGlobal("window", {})
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
       if (init?.method === "DELETE") return new Response(null, { status: 204 })
-      const body = JSON.parse(String(init?.body)) as { messageId?: string, trigger: string }
+      const body: unknown = JSON.parse(String(init?.body))
       expect(body).toMatchObject({ messageId, trigger })
       return createUIMessageStreamResponse({ stream: createUIMessageStream({ execute() {} }) })
     })
     vi.stubGlobal("fetch", fetch)
     const scope = effectScope()
+    // SAFETY: Both branches construct valid assistant UI message parts for the two initiation paths under test.
+    const messages = [{
+      id: "assistant-1",
+      parts: trigger === "submit-message"
+        ? [{ input: {}, state: "input-available", toolCallId: "tool-1", type: "tool-weather" }]
+        : [{ text: "Hello", type: "text" }],
+      role: "assistant",
+    }] as UIMessage[]
     const chat = scope.run(() => useChat(useAgent("support"), {
       api: "/chat/support",
       id: "chat-1",
-      messages: [{
-        id: "assistant-1",
-        parts: trigger === "submit-message"
-          ? [{ input: {}, state: "input-available", toolCallId: "tool-1", type: "tool-weather" }]
-          : [{ text: "Hello", type: "text" }],
-        role: "assistant",
-      }] as UIMessage[],
+      messages,
       resume: true,
       ...(trigger === "submit-message"
         ? { sendAutomaticallyWhen: vi.fn().mockReturnValueOnce(true).mockReturnValue(false) }
