@@ -7,7 +7,7 @@ export const AgentDiff = defineComponent({
   inheritAttrs: false,
   props: {
     fileDiff: { type: Object as PropType<FileDiffMetadata> },
-    options: { type: Object as PropType<FileDiffOptions<unknown>> },
+    options: { type: Object as PropType<Omit<FileDiffOptions<unknown>, "enableLineSelection" | "expandUnchanged">> },
     patch: { type: String },
     selectedLines: {
       default: undefined,
@@ -20,7 +20,7 @@ export const AgentDiff = defineComponent({
         ...attrs,
         class: ["vh-diff", attrs.class],
         fileDiff: props.fileDiff,
-        options: props.options,
+        options: { ...props.options, enableLineSelection: false, expandUnchanged: true },
         patch: props.patch,
         selectedLines: props.selectedLines,
       });

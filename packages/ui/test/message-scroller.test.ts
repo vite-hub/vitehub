@@ -48,9 +48,39 @@ beforeEach(() => {
   resizeObservers.length = 0;
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   vi.stubGlobal("MutationObserver", MutationObserverStub);
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
 });
 
 describe("message scroller behavior", () => {
+  it("labels the keyboard-scrollable transcript and announces added rows", () => {
+    const wrapper = mount(MessageScrollerRoot, {
+      slots: {
+        default: () =>
+          h(MessageScrollerViewport, null, {
+            default: () => h(MessageScrollerContent),
+          }),
+      },
+    });
+
+    expect(wrapper.get("[data-slot='message-scroller-viewport']").attributes()).toMatchObject({
+      "aria-label": "Messages",
+      role: "region",
+      tabindex: "0",
+    });
+    expect(wrapper.get("[data-slot='message-scroller-content']").attributes()).toMatchObject({
+      "aria-relevant": "additions",
+      role: "log",
+    });
+  });
+
+  it("marks the transcript busy until a streamed response settles", async () => {
+    const wrapper = mount(AgentChat, { props: { status: "streaming" } });
+
+    expect(wrapper.get("[data-slot='message-scroller-content']").attributes("aria-busy")).toBe("true");
+    await wrapper.setProps({ status: "ready" });
+    expect(wrapper.get("[data-slot='message-scroller-content']").attributes("aria-busy")).toBeUndefined();
+  });
+
   it("applies package-wide defaults to the styled chat", () => {
     const wrapper = mount(AgentChat, {
       global: {
@@ -158,7 +188,13 @@ describe("message scroller behavior", () => {
           });
       },
     });
-    const wrapper = mount(Harness);
+    const wrapper = mount(Harness, { attachTo: document.body });
+    const inactiveButton = wrapper.get("[data-slot='message-scroller-button']");
+    expect(inactiveButton.attributes()).toMatchObject({
+      "data-active": "false",
+      inert: "",
+      tabindex: "-1",
+    });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
     let scrollHeight = 500;
     let scrollTop = 200;
@@ -177,8 +213,12 @@ describe("message scroller behavior", () => {
     await viewport.trigger("scroll");
     const button = wrapper.find("[data-slot='message-scroller-button']");
     expect(button.exists()).toBe(true);
+    expect(button.attributes("data-active")).toBe("true");
+    expect(button.attributes("inert")).toBeUndefined();
+    (button.element as HTMLElement).focus();
     await button.trigger("click");
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 500 });
+    expect(document.activeElement).toBe(viewport.element);
 
     scrollTo.mockClear();
     scrollTop = 300;
@@ -186,6 +226,33 @@ describe("message scroller behavior", () => {
     scrollHeight = 600;
     resizeObservers[0]!.callback([], resizeObservers[0]!);
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 600 });
+    wrapper.unmount();
+  });
+
+  it("uses instant scrolling when reduced motion is requested", async () => {
+    const matchMedia = vi.spyOn(globalThis, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+    const scrollTo = vi.fn();
+    const Harness = defineComponent({
+      setup() {
+        return () => h(MessageScrollerRoot, null, {
+          default: () => [h(MessageScrollerViewport), h(MessageScrollerButton)],
+        });
+      },
+    });
+    const wrapper = mount(Harness);
+    const viewport = wrapper.get("[data-slot='message-scroller-viewport']");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, value: 200, writable: true },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+
+    await viewport.trigger("scroll");
+    await wrapper.get("[data-slot='message-scroller-button']").trigger("click");
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 500 });
+    matchMedia.mockRestore();
   });
 
   it("stops following before user scrolling and follows content-only growth at the edge", async () => {

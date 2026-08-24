@@ -83,6 +83,8 @@ describe("Agent Invocation UI", () => {
     ]);
     expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ=="]);
     expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
+    expect(wrapper.findAll("a")[0]!.attributes("rel")).toBe("noreferrer");
+    expect(wrapper.get("img").attributes("alt")).toBe("");
     expect(wrapper.text()).toContain("unsafe.txt");
     expect(wrapper.text()).toContain("inline.png");
     expect(wrapper.text()).toContain("text/html");
@@ -92,7 +94,6 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
         items: [{ id: "running", status: "running", title: "Working session" }],
-        virtual: false,
       },
     });
 
@@ -100,21 +101,19 @@ describe("Agent Invocation UI", () => {
       .toBe("M21 12a9 9 0 1 1-6.219-8.56");
   });
 
-  it("reserves virtual row space for error descriptions", async () => {
+  it("keeps every session in the accessible navigation list", () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      description: index === 0 ? "The host stopped before this invocation finished." : undefined,
+      id: `inv-${index}`,
+      status: "completed" as const,
+      title: `Invocation ${index}`,
+    }));
     const wrapper = mount(AgentInvocationList, {
-      props: {
-        items: [
-          { description: "The host stopped before this invocation finished.", id: "failed", status: "failed", title: "Failed session" },
-          { id: "completed", status: "completed", title: "Completed session" },
-        ],
-      },
+      props: { items },
     });
 
-    await nextTick();
-
-    const rows = wrapper.findAll("li");
-    expect(rows[0]!.attributes("style")).toContain("height: 106px");
-    expect(rows[1]!.attributes("style")).toContain("transform: translateY(106px)");
+    expect(wrapper.findAll("li")).toHaveLength(100);
+    expect(wrapper.text()).toContain("The host stopped before this invocation finished.");
   });
 
   it("renders configuration and delivery lifecycle events", async () => {
@@ -125,6 +124,7 @@ describe("Agent Invocation UI", () => {
       observations: [
         {
           attributes: {
+            "vitehub.activity.body": "Agent configuration is available for inspection.",
             "vitehub.agent.configuration": {
               capabilities: [{ id: "db" }, { id: "blob" }],
               driver: { model: { id: "claude-sonnet-4-5" } },
@@ -157,9 +157,36 @@ describe("Agent Invocation UI", () => {
 
     const wrapper = mount(AgentInvocation, { props: { invocation } });
     expect(wrapper.get('[data-kind="system"] .vh-invocation-event__suffix').text()).toBe("claude-sonnet-4-5 · 2 capabilities · 1 tool");
-    await wrapper.get('[data-kind="system"] .vh-invocation-event__summary').trigger("click");
-    await wrapper.get('[data-kind="delivery"] .vh-invocation-event__summary').trigger("keydown", { key: " " });
+    const system = wrapper.get('[data-kind="system"]');
+    expect(system.get("summary").element.tagName).toBe("SUMMARY");
+    await system.get("summary").trigger("click");
+    expect(wrapper.emitted("inspect")).toBeUndefined();
+    await system.get(".vh-invocation-event__inspect").trigger("click");
+    const delivery = wrapper.get('[data-kind="delivery"] .vh-invocation-event__summary');
+    expect(delivery.element.tagName).toBe("BUTTON");
+    await delivery.trigger("click");
     expect(wrapper.emitted("inspect")).toEqual([["agent"], ["workspace"]]);
+  });
+
+  it("includes failure in a collapsed activity's accessible text", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-tool",
+      observations: [{
+        attributes: { "tool.name": "Search" },
+        name: "agent.tool.error",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.get('[data-status="failed"] .vh-visually-hidden').text()).toBe("Failed");
   });
 
   it("collapses long user messages until requested", async () => {
@@ -643,7 +670,7 @@ describe("Agent Invocation UI", () => {
     expect(invocationActivities(invocation)[0]?.status).toBe("running");
   });
 
-  it("hydrates virtual invocation lists from the complete server-rendered list", async () => {
+  it("hydrates complete invocation lists without dropping rows", async () => {
     const items = Array.from({ length: 40 }, (_, index) => ({
       id: `inv-${index}`,
       status: "completed" as const,
@@ -687,22 +714,21 @@ describe("Agent Invocation UI", () => {
 
     expect(wrapper.text()).not.toContain(invocation.id);
     expect(wrapper.text()).not.toContain(invocation.traceId);
-    await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
+    const copy = wrapper.get('button[aria-label="Copy Trace ID"]');
+    await copy.trigger("click");
     await Promise.resolve();
 
     expect(writeText).toHaveBeenCalledWith(invocation.traceId);
-    expect(wrapper.get('button[aria-label="Copied Trace ID"]').text()).toContain("Copied");
+    expect(copy.attributes("aria-label")).toBe("Trace ID copied");
+    expect(copy.text()).toContain("Copied");
+    expect(wrapper.get('[role="status"]').text()).toBe("Trace ID copied");
     wrapper.unmount();
   });
 
-  it("keeps clipboard failures recoverable", async () => {
+  it("announces clipboard failures without an unhandled rejection", async () => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: {
-        writeText: vi.fn(async () => {
-          throw new Error("Denied");
-        }),
-      },
+      value: { writeText: vi.fn(async () => { throw new Error("Clipboard denied"); }) },
     });
     const invocation: AgentInvocationView = {
       createdAt: "2026-08-22T00:00:00.000Z",
@@ -717,7 +743,8 @@ describe("Agent Invocation UI", () => {
     await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
     await Promise.resolve();
 
-    expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy");
+    expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
+    expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy Trace ID");
   });
 
   it("surfaces the terminal error beside the exact status", () => {
@@ -782,10 +809,10 @@ describe("Agent Invocation UI", () => {
       props: { hasMore: true, items, retryKey: 0 },
     });
     const viewport = wrapper.get("nav");
-    Object.defineProperty(viewport.element, "scrollTop", {
-      configurable: true,
-      writable: true,
-      value: 20 * 86,
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 2_000 },
+      scrollTop: { configurable: true, writable: true, value: 1_500 },
     });
 
     await viewport.trigger("scroll");
@@ -799,6 +826,25 @@ describe("Agent Invocation UI", () => {
 
     await wrapper.setProps({ retryKey: 1 });
     expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
+  it("requests another page when the loaded sessions do not fill the viewport", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [{ id: "one", status: "completed", title: "One" }],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
   });
 
   it("formats token counts with a stable locale", () => {
@@ -827,19 +873,40 @@ describe("Agent Invocation UI", () => {
       props: {
         items: [{ id: "old", status: "completed", title: "Old session", updatedAt: "2026-08-23T00:30:00.000Z" }],
         now: Date.parse("2026-08-25T00:30:00.000Z"),
-        virtual: false,
       },
     });
 
     expect(wrapper.get("time").text()).toBe("Aug 23");
   });
 
-  it("keeps virtual rows in list coordinates when a header precedes them", async () => {
-    const offsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
-    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
-      configurable: true,
-      get() { return this.classList.contains("vh-invocation-list__virtual") ? 1000 : 0; },
+  it("expands compact running times and uses their source timestamp", () => {
+    const startedAt = "2026-08-23T09:15:00.000Z";
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "running", startedAt, status: "running", title: "Running", updatedAt: "2026-08-23T09:19:00.000Z" }],
+        now: Date.parse("2026-08-23T09:20:00.000Z"),
+      },
     });
+
+    expect(wrapper.get("time").attributes()).toMatchObject({
+      "aria-label": "5 minutes ago",
+      datetime: startedAt,
+      title: "5 minutes ago",
+    });
+    expect(wrapper.get("time").text()).toBe("5m");
+  });
+
+  it("announces loading without replacing the session navigation", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: { items: [{ id: "one", status: "completed", title: "One" }], loading: true },
+    });
+
+    expect(wrapper.get("nav").attributes("aria-busy")).toBe("true");
+    expect(wrapper.get('[role="status"]').text()).toBe("Loading sessions…");
+    expect(wrapper.findAll("li")).toHaveLength(1);
+  });
+
+  it("keeps every row available when a header precedes the list", () => {
     const items = Array.from({ length: 40 }, (_, index) => ({
       id: `inv-${index}`,
       status: "completed" as const,
@@ -849,15 +916,8 @@ describe("Agent Invocation UI", () => {
       props: { items },
       slots: { header: "Header" },
     });
-    const viewport = wrapper.get("nav");
-    Object.defineProperty(viewport.element, "clientHeight", { configurable: true, value: 430 });
-    Object.defineProperty(viewport.element, "scrollTop", { configurable: true, value: 1860 });
-
-    await viewport.trigger("scroll");
-
-    expect(wrapper.get("li").attributes("data-index")).toBe("4");
-    wrapper.unmount();
-    if (offsetTop) Object.defineProperty(HTMLElement.prototype, "offsetTop", offsetTop);
+    expect(wrapper.text()).toContain("Header");
+    expect(wrapper.findAll("li")).toHaveLength(40);
   });
 
   it("uses one flexible grid row when the host owns the header", () => {
@@ -1088,7 +1148,8 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocation, { props: { invocation } });
     const messages = wrapper.findAll(".vh-invocation-message");
 
-    expect(messages.map(message => message.text())).toEqual(["First question", "First answer", "Unanswered question"]);
+    expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
+      .toEqual(["First question", "First answer", "Unanswered question"]);
     expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
   });
 

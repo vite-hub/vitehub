@@ -41,11 +41,12 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
       download: part.filename,
       href: part.url,
       target: isSafeExternalUrl(part.url) ? "_blank" : undefined,
+      rel: isSafeExternalUrl(part.url) ? "noreferrer" : undefined,
     },
     [
       image
         ? h("img", {
-            alt: part.filename ?? "Attachment",
+            alt: "",
             class: "vh-attachment__preview",
             src: part.url,
           })

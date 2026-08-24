@@ -120,6 +120,7 @@ function renderMessage(
       key: activity.id,
     },
     [
+      h("span", { class: "vh-visually-hidden" }, `${activity.role === "user" ? "User" : "Assistant"} message`),
       h("div", {
         class: "vh-invocation-message__content",
         "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
@@ -233,24 +234,18 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated);
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
-  const summary = h(hasDetails ? "summary" : "div", {
+  const summary = h(hasDetails ? "summary" : inspectable ? "button" : "div", {
     class: "vh-invocation-event__summary",
-    ...(inspectable
+    ...(inspectable && !hasDetails
       ? {
-          role: hasDetails ? undefined : "button",
-          tabindex: hasDetails ? undefined : 0,
           onClick: () => inspect(inspectTarget),
-          onKeydown: (event: KeyboardEvent) => {
-            if (!hasDetails && (event.key === "Enter" || event.key === " ")) {
-              event.preventDefault();
-              inspect(inspectTarget);
-            }
-          },
+          type: "button",
         }
       : {}),
   }, [
     renderActivityIcon(activity),
     h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
+    activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
     hasDetails
       ? h("span", { class: "vh-invocation-event__disclosure", "aria-hidden": "true" }, "⌄")
@@ -288,6 +283,13 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
           : activity.body
             ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
             : null,
+        inspectable
+          ? h("button", {
+              class: "vh-invocation-event__inspect",
+              onClick: () => inspect(inspectTarget),
+              type: "button",
+            }, `Inspect ${inspectTarget}`)
+          : null,
       ]) : null,
     ]),
   ]);
@@ -810,7 +812,7 @@ export const AgentInvocation = defineComponent({
           ]),
           slots.actions?.({ invocation: props.invocation }),
         ]) : null,
-        h("main", { class: "vh-invocation-thread" }, [
+        h("div", { class: "vh-invocation-thread" }, [
           h("div", { class: "vh-invocation-thread__content" }, [
             props.invocation.error
               ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
@@ -819,14 +821,19 @@ export const AgentInvocation = defineComponent({
                 ])
               : null,
             activities.value.length
-              ? h("ol", { "aria-label": "Session thread", class: "vh-invocation-activities" }, renderInvocationActivities(
+              ? h("ol", {
+                  "aria-label": "Session thread",
+                  "aria-relevant": "additions",
+                  class: "vh-invocation-activities",
+                  role: "log",
+                }, renderInvocationActivities(
                   activities.value,
                   props.invocation,
                   expandedMessages.value,
                   toggleExpanded,
                   target => emit("inspect", target),
                 ))
-              : h("div", { class: "vh-invocation-empty" }, [h("span", { "aria-hidden": "true" }, "○"), h("p", "Waiting for the first update…")]),
+              : h("div", { class: "vh-invocation-empty", role: "status" }, [h("span", { "aria-hidden": "true" }, "○"), h("p", "Waiting for the first update…")]),
             slots.footer?.({ invocation: props.invocation }),
           ]),
         ]),
@@ -843,6 +850,7 @@ export const AgentInvocationInspector = defineComponent({
   setup(props, { slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
     const copied = ref<"invocation" | "trace">();
+    const copyError = ref<"invocation" | "trace">();
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
@@ -855,14 +863,14 @@ export const AgentInvocationInspector = defineComponent({
       if (!value || !("navigator" in globalThis) || !navigator.clipboard) return;
       try {
         await navigator.clipboard.writeText(value);
+        copied.value = kind;
+        copyError.value = undefined;
+        if (copyTimer) clearTimeout(copyTimer);
+        copyTimer = setTimeout(() => { copied.value = undefined; }, 1_600);
       } catch {
-        return;
-      }
-      copied.value = kind;
-      if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => {
         copied.value = undefined;
-      }, 1_600);
+        copyError.value = kind;
+      }
     }
 
     function copyAction(kind: "invocation" | "trace", label: string, value: string | undefined) {
@@ -871,7 +879,7 @@ export const AgentInvocationInspector = defineComponent({
       return h(
         "button",
         {
-          "aria-label": didCopy ? `Copied ${label}` : `Copy ${label}`,
+          "aria-label": didCopy ? `${label} copied` : `Copy ${label}`,
           class: "vh-invocation-inspector__copy",
           onClick: () => void copyIdentifier(kind, value),
           type: "button",
@@ -918,6 +926,14 @@ export const AgentInvocationInspector = defineComponent({
             slots.actions?.({ invocation: props.invocation }),
           ]),
           h("div", { class: "vh-invocation-inspector__content" }, [
+            h("span", {
+              class: "vh-visually-hidden",
+              role: "status",
+            }, copied.value
+              ? `${copied.value === "trace" ? "Trace" : "Invocation"} ID copied`
+              : copyError.value
+                ? `${copyError.value === "trace" ? "Trace" : "Invocation"} ID could not be copied`
+                : ""),
             h("section", { class: "vh-invocation-inspector__identity" }, [
               h(
                 "div",

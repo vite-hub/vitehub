@@ -36,7 +36,7 @@ const selectedPaths = useAgentFileTreeSelection(tree);
 </script>
 
 <template>
-  <AgentFileTree :model="tree" />
+  <AgentFileTree :model="tree" aria-label="Repository files" />
 </template>
 ```
 
@@ -51,3 +51,5 @@ The composables dispose subscriptions and the model with the current Vue scope.
 | `model`   | `FileTree`                       |         | An application-owned Pierre tree model.  |
 
 When `model` is present, it is the source of truth. Do not also use `paths` or `options` as controlled inputs.
+
+The inner tree is named `Files` by default. Pass `aria-label` when the surrounding context calls for a more specific name.

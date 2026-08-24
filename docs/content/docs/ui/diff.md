@@ -19,7 +19,7 @@ Render a unified patch:
 <AgentDiff :patch="patch" />
 ```
 
-Use `fileDiff` for a pre-parsed diff and `options` for Pierre behavior such as split view, line selection, and themes:
+Use `fileDiff` for a pre-parsed diff and `options` for Pierre behavior such as split view and themes:
 
 ```vue
 <AgentDiff
@@ -37,10 +37,10 @@ Use `fileDiff` for a pre-parsed diff and `options` for Pierre behavior such as s
 | --------------- | --------------------------- | ----------------------------------------- |
 | `patch`         | `string`                    | Unified patch text.                       |
 | `fileDiff`      | `FileDiffMetadata`          | A diff already parsed by Pierre.          |
-| `options`       | `FileDiffOptions`           | Pierre rendering and interaction options. |
+| `options`       | `FileDiffOptions`           | Pierre rendering options.                  |
 | `selectedLines` | `SelectedLineRange \| null` | Controlled line selection.                |
 
-Pass either `patch` or `fileDiff`. The component forwards HTML attributes to the diff host and updates the Pierre renderer when its inputs change.
+Pass either `patch` or `fileDiff`. The component forwards HTML attributes to the diff host and updates the Pierre renderer when its inputs change. ViteHub expands unchanged hunks and disables pointer-only line selection until Pierre exposes equivalent keyboard behavior.
 
 ## Ownership
 

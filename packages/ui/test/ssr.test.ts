@@ -195,7 +195,7 @@ describe("UI server rendering", () => {
     expect(html).toContain("support");
     expect(html).toContain("Completed");
     expect(html).toContain("Inspecting the repository.");
-    expect(html).not.toContain("Assistant");
+    expect(html).toContain("Assistant message");
     expect(html).not.toContain("12:00 AM");
     expect(html).toContain("Ran command");
     expect(html).toContain("git status --short");

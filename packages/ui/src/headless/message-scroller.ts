@@ -56,7 +56,10 @@ export function useMessageScroller(): MessageScrollerContext {
 }
 
 function toNativeBehavior(value: MessageScrollBehavior | undefined): ScrollBehavior {
-  return value === "instant" ? "auto" : (value ?? "smooth");
+  const behavior = value ?? "smooth";
+  return behavior === "instant" || (behavior === "smooth" && globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+    ? "auto"
+    : behavior;
 }
 
 export function calculatePrependScrollTop(
@@ -208,7 +211,11 @@ export const MessageScrollerViewport = defineComponent({
       const { style, ...viewportAttrs } = attrs;
       return h(
         props.as,
-        mergeProps(viewportAttrs, {
+        mergeProps({
+          "aria-label": "Messages",
+          role: "region",
+          tabindex: 0,
+        }, viewportAttrs, {
           "data-at-end": context.atEnd.value ? "" : undefined,
           "data-slot": "message-scroller-viewport",
           onKeydown,
@@ -272,7 +279,13 @@ export const MessageScrollerContent = defineComponent({
       previousTop = viewport?.scrollTop ?? 0;
       return h(
         props.as,
-        { ...attrs, "data-slot": "message-scroller-content", ref: setContent as VNodeRef },
+        {
+          "aria-relevant": "additions",
+          role: "log",
+          ...attrs,
+          "data-slot": "message-scroller-content",
+          ref: setContent as VNodeRef,
+        },
         slots.default?.(),
       );
     };
@@ -330,22 +343,29 @@ export const MessageScrollerButton = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const context = useInternalMessageScroller();
-    return () =>
-      context.isScrollable.value && !context.atEnd.value
-        ? h(
-            props.as,
-            {
-              ...attrs,
-              "aria-label": attrs["aria-label"] ?? "Scroll to latest message",
-              "data-slot": "message-scroller-button",
-              onClick: (event: MouseEvent) => {
-                context.scrollToEnd({ behavior: props.behavior });
-                if (typeof attrs.onClick === "function") attrs.onClick(event);
-              },
-              type: props.as === "button" ? "button" : undefined,
-            },
-            slots.default?.({ scrollToEnd: context.scrollToEnd }) ?? "↓",
-          )
-        : null;
+    return () => {
+      const active = context.isScrollable.value && !context.atEnd.value;
+      return h(
+        props.as,
+        {
+          ...attrs,
+          "aria-label": attrs["aria-label"] ?? "Scroll to latest message",
+          "data-active": active ? "true" : "false",
+          "data-slot": "message-scroller-button",
+          inert: active ? undefined : true,
+          onClick: (event: MouseEvent) => {
+            if (!active) return;
+            if (document.activeElement === event.currentTarget) {
+              context.viewport.value?.focus({ preventScroll: true });
+            }
+            context.scrollToEnd({ behavior: props.behavior });
+            if (typeof attrs.onClick === "function") attrs.onClick(event);
+          },
+          tabindex: active ? attrs.tabindex : -1,
+          type: props.as === "button" ? "button" : undefined,
+        },
+        slots.default?.({ scrollToEnd: context.scrollToEnd }) ?? "↓",
+      );
+    };
   },
 });

@@ -47,4 +47,6 @@ Import primitives from `@vite-hub/ui/headless` when you do not want the styled c
 
 ## Accessibility
 
-`MessageScrollerButton` has a default accessible label and uses a native button by default. The viewport never steals focus when content streams or older messages load.
+The viewport is a labelled, keyboard-scrollable region and the content is an additions-only log. `AgentChat` marks that log busy while a response is submitted or streaming, which prevents partial updates from being announced as settled content.
+
+`MessageScrollerButton` has a default accessible label and uses a native button by default. It stays mounted but inert at the live edge, moves focus back to the viewport when activated, and replaces smooth scrolling with instant scrolling when the reader requests reduced motion.

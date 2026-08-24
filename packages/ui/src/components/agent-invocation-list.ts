@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
+import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "../types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -11,33 +11,31 @@ function statusLabel(status: AgentInvocationStatus): string {
   }[status];
 }
 
-const invocationListRowSize = 86;
-const invocationListRowWithDescriptionSize = 106;
-
-function rowSize(item: AgentInvocationListItem): number {
-  return item.description ? invocationListRowWithDescriptionSize : invocationListRowSize;
+interface RelativeTime {
+  label: string;
+  short: string;
 }
 
-function rowIndexAtOffset(offsets: readonly number[], offset: number): number {
-  let low = 0;
-  let high = offsets.length - 2;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    if (offset < offsets[middle]!) high = middle - 1;
-    else if (offset >= offsets[middle + 1]!) low = middle + 1;
-    else return middle;
-  }
-  return Math.max(0, Math.min(low, offsets.length - 2));
-}
+const invocationListPaginationThreshold = 6 * 106;
 
-function relativeTime(value: string | undefined, now: number | undefined): string | undefined {
+function relativeTime(value: string | undefined, now: number | undefined): RelativeTime | undefined {
   if (!value || now === undefined) return;
   const elapsed = now - Date.parse(value);
   if (!Number.isFinite(elapsed) || elapsed < 0) return;
-  if (elapsed < 60_000) return "now";
-  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
-  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`;
-  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(value));
+  if (elapsed < 60_000) return { label: "now", short: "now" };
+  if (elapsed < 3_600_000) {
+    const minutes = Math.floor(elapsed / 60_000);
+    return { label: new Intl.RelativeTimeFormat("en").format(-minutes, "minute"), short: `${minutes}m` };
+  }
+  if (elapsed < 86_400_000) {
+    const hours = Math.floor(elapsed / 3_600_000);
+    return { label: new Intl.RelativeTimeFormat("en").format(-hours, "hour"), short: `${hours}h` };
+  }
+  const date = new Date(value);
+  return {
+    label: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date),
+    short: new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }).format(date),
+  };
 }
 
 function folderIcon() {
@@ -74,18 +72,18 @@ function renderItem(
   select: (item: AgentInvocationListItem) => void,
   projectIconSlot?: Slot,
   harnessSlot?: Slot,
-  itemProps?: Record<string, unknown>,
 ) {
-  const time = relativeTime(item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt, now);
+  const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
+  const time = relativeTime(timestamp, now);
   const harness = harnessSlot?.({ item }) ?? [
     item.provider ? h("span", { title: `Provider: ${item.provider}` }, [metadataIcon("provider"), h("span", { class: "vh-visually-hidden" }, `Provider ${item.provider}`)]) : null,
     item.agent ? h("span", { title: `Agent: ${item.agent}` }, [metadataIcon("agent"), h("span", { class: "vh-visually-hidden" }, `Agent ${item.agent}`)]) : null,
   ];
-  return h("li", { key: item.id, ...itemProps }, [
+  return h("li", { key: item.id }, [
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
       class: "vh-invocation-list__item",
-      "data-relative-time": time,
+      "data-relative-time": time?.short,
       "data-status": item.status,
       onClick: () => select(item),
       type: "button",
@@ -96,7 +94,7 @@ function renderItem(
         h("span", { class: "vh-invocation-list__state" }, [
           h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
           h("span", statusLabel(item.status)),
-          time ? h("time", { datetime: item.updatedAt }, time) : null,
+          time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
         ]),
       ]),
       h("strong", { class: "vh-invocation-list__title" }, item.title),
@@ -121,7 +119,6 @@ export const AgentInvocationList = defineComponent({
     now: Number,
     retryKey: [Number, String],
     selectedId: String,
-    virtual: { default: true, type: Boolean },
   },
   emits: {
     endReached: () => true,
@@ -129,104 +126,50 @@ export const AgentInvocationList = defineComponent({
   },
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
-    const list = ref<HTMLElement | null>(null);
-    const mounted = ref(false);
-    const listOffset = computed(() => list.value?.offsetTop ?? 0);
     const requestedLength = ref<number>();
-    const scrollRevision = ref(0);
-    const scrollTop = ref(0);
-    const viewportHeight = ref(0);
-    const overscan = 6;
     let resizeObserver: ResizeObserver | undefined;
-    let measureViewport: (() => void) | undefined;
-    const rowOffsets = computed(() => {
-      const offsets = [0];
-      for (const item of props.items) offsets.push(offsets.at(-1)! + rowSize(item));
-      return offsets;
-    });
-    const virtualRows = computed(() => {
-      if (!props.items.length) return [];
-      const offsets = rowOffsets.value;
-      const listScrollTop = Math.max(0, scrollTop.value - listOffset.value);
-      const firstVisible = rowIndexAtOffset(offsets, listScrollTop);
-      const lastVisible = rowIndexAtOffset(offsets, listScrollTop + Math.max(0, viewportHeight.value - 1));
-      const start = Math.max(0, firstVisible - overscan);
-      const end = Math.min(props.items.length, lastVisible + overscan + 1);
-      return Array.from({ length: end - start }, (_, offset) => {
-        const index = start + offset;
-        return { index, size: offsets[index + 1]! - offsets[index]!, start: offsets[index]! };
-      });
-    });
-    watch(
-      [virtualRows, () => props.hasMore, () => props.loading, () => props.items.length, scrollRevision],
-      ([rows, hasMore, loading, length]) => {
-        if (!hasMore || loading || !length || requestedLength.value === length) return;
-        if (rows.at(-1)?.index !== undefined && rows.at(-1)!.index >= length - 6) {
-          requestedLength.value = length;
-          emit("endReached");
-        }
-      },
-      { flush: "post" },
-    );
-    watch(() => props.items.length, (length, previous) => {
+    const requestMoreIfNeeded = () => {
+      const element = viewport.value;
+      const length = props.items.length;
+      if (!element || element.clientHeight <= 0 || !props.hasMore || props.loading || !length || requestedLength.value === length) return;
+      if (element.scrollTop + element.clientHeight >= element.scrollHeight - invocationListPaginationThreshold) {
+        requestedLength.value = length;
+        emit("endReached");
+      }
+    };
+    watch([() => props.items.length, () => props.hasMore, () => props.loading], ([length], [previous]) => {
       if (length < previous) requestedLength.value = undefined;
-    });
+      requestMoreIfNeeded();
+    }, { flush: "post" });
     watch(() => props.retryKey, () => {
       requestedLength.value = undefined;
-      scrollRevision.value++;
+      requestMoreIfNeeded();
     });
     onMounted(() => {
-      mounted.value = true;
-      if (!viewport.value) return;
-      measureViewport = () => { viewportHeight.value = viewport.value?.clientHeight ?? 0; };
-      measureViewport();
-      if ("ResizeObserver" in globalThis) {
-        resizeObserver = new ResizeObserver(measureViewport);
+      requestMoreIfNeeded();
+      if ("ResizeObserver" in globalThis && viewport.value) {
+        resizeObserver = new ResizeObserver(requestMoreIfNeeded);
         resizeObserver.observe(viewport.value);
-      } else {
-        window.addEventListener("resize", measureViewport);
       }
     });
-    onBeforeUnmount(() => {
-      resizeObserver?.disconnect();
-      if (measureViewport) window.removeEventListener("resize", measureViewport);
-    });
+    onBeforeUnmount(() => resizeObserver?.disconnect());
     const select = (item: AgentInvocationListItem) => emit("select", item);
 
     return () => h("nav", {
       "aria-label": props.ariaLabel,
+      "aria-busy": props.loading ? "true" : undefined,
       class: "vh-invocation-list",
-      onScroll: (event: Event) => {
-        scrollTop.value = (event.currentTarget as HTMLElement).scrollTop;
-        scrollRevision.value++;
-      },
+      onScroll: requestMoreIfNeeded,
       ref: viewport,
     }, [
       slots.header?.({ items: props.items }),
       props.items.length === 0
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
-      props.items.length && props.virtual && mounted.value
-        ? h("ul", {
-            class: "vh-invocation-list__virtual",
-            ref: list,
-            style: { height: `${rowOffsets.value.at(-1)}px` },
-          }, virtualRows.value.map(row => renderItem(
-            props.items[row.index]!,
-            props.selectedId,
-            props.now,
-            select,
-            slots.projectIcon,
-            slots.harness,
-            {
-              "data-index": row.index,
-              style: { height: `${row.size}px`, transform: `translateY(${row.start}px)` },
-            },
-          )))
-        : props.items.length
-          ? h("ul", props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
-          : null,
-      props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading" }, "Loading sessions…") : null,
+      props.items.length
+        ? h("ul", props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
+        : null,
+      props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading", role: "status" }, "Loading sessions…") : null,
       slots.footer?.({ items: props.items }),
     ]);
   },

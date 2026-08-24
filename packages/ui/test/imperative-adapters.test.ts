@@ -14,6 +14,7 @@ interface TreeModelStub {
 interface DiffModelStub {
   cleanUp: ReturnType<typeof vi.fn>;
   render: ReturnType<typeof vi.fn>;
+  setOptions: ReturnType<typeof vi.fn>;
 }
 
 const treeState = vi.hoisted(() => ({ instances: [] as TreeModelStub[] }));
@@ -26,7 +27,10 @@ vi.mock("@pierre/trees", () => ({
     getDensityFactor = vi.fn(() => 1);
     getItemHeight = vi.fn(() => 24);
     getSelectedPaths = vi.fn(() => []);
-    render = vi.fn();
+    render = vi.fn(({ fileTreeContainer }: { fileTreeContainer: HTMLElement }) => {
+      const shadow = fileTreeContainer.shadowRoot ?? fileTreeContainer.attachShadow({ mode: "open" });
+      shadow.innerHTML = '<div role="tree"></div>';
+    });
     resetPaths = vi.fn();
     subscribe = vi.fn(() => vi.fn());
     unmount = vi.fn();
@@ -57,6 +61,7 @@ vi.mock("@pierre/diffs", () => ({
 }));
 
 import { FileTree } from "@pierre/trees";
+import { AgentDiff } from "../src/components/agent-diff.ts";
 import { AgentFileTree } from "../src/components/agent-file-tree.ts";
 import { PierreDiff } from "../src/internal/pierre-diff.ts";
 
@@ -71,6 +76,26 @@ beforeEach(() => {
 });
 
 describe("Pierre lifecycle adapters", () => {
+  it("names the tree inside Pierre's shadow boundary", () => {
+    const wrapper = mount(AgentFileTree, { attrs: { "aria-label": "Repository files" }, props: { paths: ["first.ts"] } });
+    const tree = wrapper.element.shadowRoot?.querySelector("[role='tree']");
+
+    expect(tree?.getAttribute("aria-label")).toBe("Repository files");
+  });
+
+  it("disables Pierre's pointer-only diff interactions", async () => {
+    mount(AgentDiff, {
+      props: {
+        options: { enableLineSelection: true, expandUnchanged: false } as never,
+        patch: "first.patch",
+      },
+    });
+    await flushRender();
+
+    expect(diffState.instances[0]!.setOptions)
+      .toHaveBeenCalledWith(expect.objectContaining({ enableLineSelection: false, expandUnchanged: true }));
+  });
+
   it("unmounts external FileTree models and cleans up component-owned replacements", async () => {
     new FileTree({ paths: ["first.ts"] });
     const first = treeState.instances[0]!;
