@@ -43,13 +43,14 @@ describe("UI documentation", () => {
     }
   });
 
-  it("sends component preview source through the Markdown syntax highlighter", () => {
+  it("server-renders component preview source through the Markdown syntax highlighter", () => {
     const preview = readFileSync(
       resolve(docsRoot, "app/components/content/ComponentPreview.vue"),
       "utf8",
     );
 
     expect(preview).toContain('import highlighter from "#mdc-highlighter"');
+    expect(preview).toContain('<div v-show="sourceOpen"');
     expect(preview).toContain('<MDC :value="sourceBlock"');
     expect(preview).toContain(':parser-options="sourceParserOptions"');
     expect(preview).not.toContain("<code>{{ source }}</code>");
