@@ -261,6 +261,27 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("discards interrupted pagination errors when the source changes", async () => {
+    const { calls, request } = controlledRequester();
+    const query = ref({ status: ["running"] });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query, request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+
+    const interruptedPage = resource.loadMore();
+    query.value = { status: ["finished"] };
+    await settle();
+    await interruptedPage;
+
+    expect(resource.loadMoreError.value).toBeNull();
+    calls[2]!.resolve({ invocations: [record("inv-3")] });
+    await settle();
+    expect(resource.loadMoreError.value).toBeNull();
+    scope.stop();
+  });
+
   it("reconciles retained pages while filters are active", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

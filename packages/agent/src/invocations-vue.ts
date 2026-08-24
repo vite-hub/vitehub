@@ -327,7 +327,7 @@ export function useAgentInvocations(
         loadMoreError.value = null;
       }
       revision++;
-      if (loadMoreController) {
+      if (loadMoreController && !resetFirstPage) {
         loadMoreError.value = new Error("Loading older Agent Invocations was interrupted.");
       }
       loadMoreController?.abort();
