@@ -309,7 +309,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.uiModule).toHaveBeenCalledOnce()
     expect(pages).toEqual([
       expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents/:session?" }),
+      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents/:invocation?" }),
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
       handlers: [

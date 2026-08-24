@@ -1,24 +1,19 @@
 <script setup lang="ts">
-import { AgentInvocation, AgentInvocationInspector } from "@vite-hub/ui";
+import { AgentInvocation, AgentInvocationInspector, AgentInvocationList } from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-
-import {
-  CONSOLE_SESSION_LOOKUP_PAGE_LIMIT,
-  createConsoleRequest,
-  groupConsoleSessions,
-  loadRequestedConsoleSessionPage,
-  shouldLoadRequestedConsoleSession,
-} from "../request.ts";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { SplitterItem } from "@nuxt/ui";
-import type { AgentInvocationSummary } from "vite-hub/agent";
-import type { AgentInvocationConfiguration, AgentInvocationView } from "@vite-hub/ui";
-import type { ConsoleSession } from "../request.ts";
+import type {
+  AgentInvocationConfiguration,
+  AgentInvocationListItem,
+  AgentInvocationView,
+} from "@vite-hub/ui";
 
 const route = useRoute();
 const router = useRouter();
 const selectedInvocationId = ref<string>();
+const paginationRetryRevision = ref(0);
 const lastSuccessfulPollAt = ref<Date>();
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
@@ -29,11 +24,14 @@ const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
 const apiBase = `${appBaseURL}/api/_vitehub/console/invocations`;
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
-let requestedSessionLookup: { id: string; loadedPages: number } | undefined;
 
 useHead({ title: "Agents · ViteHub Console" });
 
-const request = createConsoleRequest();
+const request = async (path: string, options: { signal?: AbortSignal }): Promise<unknown> => {
+  const response = await fetch(path, { signal: options.signal });
+  if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`);
+  return response.json();
+};
 const recordSuccessfulPoll = () => {
   lastSuccessfulPollAt.value = new Date();
 };
@@ -52,18 +50,29 @@ const detail = useAgentInvocation(selectedInvocationId, {
   request,
 });
 
-const sessions = computed<ConsoleSession[]>(() => groupConsoleSessions(list.invocations.value));
-
-const routeSession = computed(() => {
-  const value = route.params.session;
+const invocationItems = computed<AgentInvocationListItem[]>(() =>
+  list.invocations.value.map((invocation) => ({
+    agent: invocation.agentName,
+    context: invocation.threadId || invocation.origin || invocation.channelId || invocation.id,
+    description: invocation.error?.message,
+    id: invocation.id,
+    project: invocation.agentName || "Workspace",
+    startedAt: invocation.startedAt,
+    status: invocation.status,
+    title: invocation.agentName || "Agent Invocation",
+    updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
+  })),
+);
+const routeInvocation = computed(() => {
+  const value = route.params.invocation;
   return Array.isArray(value) ? value[0] : value;
 });
-const selectedSession = computed(() =>
-  sessions.value.find((session) => session.id === routeSession.value),
+const selectedSummary = computed(() =>
+  list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
 const invocationView = computed<AgentInvocationView | undefined>(() => {
   const invocation = detail.invocation.value;
-  if (!invocation) return;
+  if (!invocation || invocation.id !== selectedInvocationId.value) return;
   const persistedConfiguration = invocationConfiguration(record(invocation)?.configuration);
   const configuration = persistedConfiguration ?? observedConfiguration(detail.observations.value);
   const view: AgentInvocationView = {
@@ -81,6 +90,9 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   }
   return view;
 });
+const selectedTitle = computed(
+  () => invocationView.value?.agentName || selectedSummary.value?.agentName || "Agent Invocation",
+);
 const splitterItems = computed<SplitterItem[]>(() =>
   detailsOpen.value
     ? [
@@ -153,52 +165,9 @@ function relativeDuration(elapsed: number): string {
   return `${Math.floor(elapsed / 3_600_000)}h`;
 }
 
-function relativeTime(value?: string): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return value;
-  const elapsed = nowMs.value - date.valueOf();
-  if (elapsed < 60_000) return "now";
-  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
-  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`;
-  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(date);
-}
-
-function runLabel(invocation: AgentInvocationSummary): string {
-  const date = new Date(invocation.createdAt);
-  return Number.isNaN(date.valueOf())
-    ? invocation.createdAt
-    : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
-}
-
-function sessionStatus(session: ConsoleSession): AgentInvocationSummary["status"] {
-  if (session.invocations.some((invocation) => invocation.status === "running")) return "running";
-  if (session.invocations.some((invocation) => invocation.status === "pending")) return "pending";
-  return session.invocations[0]?.status ?? "pending";
-}
-
-function sessionLabel(session: ConsoleSession): string {
-  const name = session.agentName || "Agent session";
-  return `${name} · ${session.id.slice(-8)}`;
-}
-
-function statusIcon(status: AgentInvocationSummary["status"]): string {
-  if (status === "running") return "i-lucide-loader-circle";
-  if (status === "completed") return "i-lucide-check";
-  if (status === "failed") return "i-lucide-x";
-  return "i-lucide-clock-3";
-}
-
-function statusColor(status: AgentInvocationSummary["status"]): string {
-  if (status === "running") return "text-info";
-  if (status === "completed") return "text-success";
-  if (status === "failed") return "text-error";
-  return "text-dimmed";
-}
-
-async function selectSession(session: ConsoleSession): Promise<void> {
+async function selectInvocation(id: string): Promise<void> {
   sessionsOpen.value = false;
-  await router.push({ name: "vitehub-console-agents", params: { session: session.id } });
+  await router.push({ name: "vitehub-console-agents", params: { invocation: id } });
 }
 
 async function refresh(): Promise<void> {
@@ -208,51 +177,24 @@ async function refresh(): Promise<void> {
   ]);
 }
 
+function retryPagination(): void {
+  paginationRetryRevision.value++;
+}
+
 function updateDesktop(event?: MediaQueryListEvent): void {
   isDesktop.value = event?.matches ?? media?.matches ?? false;
 }
 
 watch(
-  [sessions, routeSession],
-  async ([next, requestedSession]) => {
-    if (requestedSession && requestedSessionLookup?.id !== requestedSession) {
-      requestedSessionLookup = { id: requestedSession, loadedPages: 0 };
-    } else if (!requestedSession) {
-      requestedSessionLookup = undefined;
+  [routeInvocation, () => list.invocations.value[0]?.id],
+  async ([requestedInvocation, firstInvocation]) => {
+    selectedInvocationId.value = requestedInvocation || firstInvocation;
+    if (!requestedInvocation && firstInvocation) {
+      await router.replace({
+        name: "vitehub-console-agents",
+        params: { invocation: firstInvocation },
+      });
     }
-    const requestedSessionMissing =
-      requestedSession && !next.some((session) => session.id === requestedSession);
-    const loadedPages = requestedSessionLookup?.loadedPages ?? 0;
-    if (
-      shouldLoadRequestedConsoleSession({
-        cursor: list.cursor.value,
-        isLoadingMore: list.isLoadingMore.value,
-        loadedPages,
-        requestedSession,
-        sessions: next,
-      })
-    ) {
-      const lookup = requestedSessionLookup!;
-      await loadRequestedConsoleSessionPage(lookup, list.loadMore);
-      return;
-    }
-    const lookupExhausted =
-      requestedSessionMissing &&
-      (!list.cursor.value || loadedPages >= CONSOLE_SESSION_LOOKUP_PAGE_LIMIT);
-    if (next.length && (!requestedSession || lookupExhausted))
-      await selectSession(next[0]!);
-  },
-  { immediate: true },
-);
-
-watch(
-  selectedSession,
-  (session) => {
-    selectedInvocationId.value = session?.invocations.some(
-      (invocation) => invocation.id === selectedInvocationId.value,
-    )
-      ? selectedInvocationId.value
-      : session?.invocations[0]?.id;
   },
   { immediate: true },
 );
@@ -316,122 +258,76 @@ onBeforeUnmount(() => {
             >
             <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Sessions</h1>
           </div>
-          <span class="text-xs text-dimmed">{{ sessions.length }}</span>
+          <span class="text-xs text-dimmed">{{ invocationItems.length }}</span>
         </div>
-        <div v-if="!collapsed && errorMessage(list.error.value)" class="px-3">
+        <div
+          v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
+          class="px-3"
+        >
           <UAlert
             color="error"
             variant="subtle"
             icon="i-lucide-cloud-off"
             title="Could not load sessions"
-            :description="errorMessage(list.error.value)"
+            :description="errorMessage(list.error.value || list.loadMoreError.value)"
+          />
+          <UButton
+            v-if="invocationItems.length && list.cursor.value && list.loadMoreError.value"
+            class="mt-2"
+            color="neutral"
+            label="Retry loading older sessions"
+            size="sm"
+            variant="soft"
+            :loading="list.isLoadingMore.value"
+            @click="retryPagination"
           />
         </div>
-        <div v-if="!collapsed && list.isLoading.value && !sessions.length" class="grid gap-2 px-3">
+        <div
+          v-if="!collapsed && list.isLoading.value && !invocationItems.length"
+          class="grid gap-2 px-3"
+        >
           <USkeleton v-for="index in 4" :key="index" class="h-16 rounded-lg" />
         </div>
-        <UEmpty
-          v-else-if="!collapsed && !sessions.length && !errorMessage(list.error.value)"
-          class="px-4"
-          icon="i-lucide-message-square-dashed"
-          title="No sessions yet"
-          description="The first Agent Invocation will appear here."
-        />
-
-        <UScrollArea v-if="collapsed || sessions.length" class="min-h-0 flex-1">
-          <nav class="space-y-1 px-2 pb-4" aria-label="Agent sessions">
-            <template v-for="session in sessions" :key="session.id">
-              <UTooltip
-                v-if="collapsed"
-                :text="session.agentName || 'Agent session'"
-                :content="{ side: 'right' }"
-                ><UButton
-                  :icon="statusIcon(sessionStatus(session))"
-                  :color="sessionStatus(session) === 'failed' ? 'error' : 'neutral'"
-                  :variant="selectedSession?.id === session.id ? 'soft' : 'ghost'"
-                  block
-                  :aria-label="session.agentName || 'Agent session'"
-                  @click="selectSession(session)"
-              /></UTooltip>
-              <div v-else>
-                <button
-                  type="button"
-                  class="group flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5 text-start outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary"
-                  :class="
-                    selectedSession?.id === session.id
-                      ? 'border-default bg-default shadow-xs'
-                      : 'border-transparent hover:bg-elevated/60'
-                  "
-                  @click="selectSession(session)"
-                >
-                  <span
-                    class="flex size-7 shrink-0 items-center justify-center rounded-md bg-elevated"
-                    ><UIcon
-                      :name="statusIcon(sessionStatus(session))"
-                      class="size-3.5"
-                      :class="[
-                        statusColor(sessionStatus(session)),
-                        sessionStatus(session) === 'running' ? 'animate-spin' : undefined,
-                      ]"
-                  /></span>
-                  <span class="min-w-0 flex-1"
-                    ><strong class="block truncate text-sm font-medium text-highlighted">{{
-                      sessionLabel(session)
-                    }}</strong
-                    ><span class="mt-0.5 block truncate text-xs text-muted"
-                      >{{ session.invocations.length }} run{{
-                        session.invocations.length === 1 ? "" : "s"
-                      }}</span
-                    ></span
-                  >
-                  <time class="shrink-0 text-xs text-dimmed">{{
-                    relativeTime(session.updatedAt)
-                  }}</time>
-                </button>
-                <div
-                  v-if="selectedSession?.id === session.id"
-                  class="ml-8 mt-1 space-y-px border-l border-default pl-2"
-                  aria-label="Session invocations"
-                >
-                  <button
-                    v-for="invocation in session.invocations"
-                    :key="invocation.id"
-                    type="button"
-                    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-xs outline-none hover:bg-elevated/60 focus-visible:ring-2 focus-visible:ring-primary"
-                    :class="
-                      selectedInvocationId === invocation.id
-                        ? 'bg-elevated text-highlighted'
-                        : 'text-muted'
-                    "
-                    :aria-pressed="selectedInvocationId === invocation.id"
-                    @click="selectedInvocationId = invocation.id"
-                  >
-                    <UIcon
-                      :name="statusIcon(invocation.status)"
-                      class="size-3"
-                      :class="[
-                        statusColor(invocation.status),
-                        invocation.status === 'running' ? 'animate-spin' : undefined,
-                      ]"
-                    /><span class="min-w-0 flex-1 truncate">Run {{ runLabel(invocation) }}</span
-                    ><small class="capitalize text-dimmed">{{ invocation.status }}</small>
-                  </button>
-                </div>
-              </div>
-            </template>
-          </nav>
-        </UScrollArea>
-        <div v-if="!collapsed && list.cursor.value" class="px-3 pb-2">
-          <UButton
-            block
-            color="neutral"
-            label="Load older"
-            size="sm"
-            variant="ghost"
-            :loading="list.isLoadingMore.value"
-            @click="list.loadMore"
-          />
+        <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
+          <div class="grid gap-1 px-2 py-1">
+            <UTooltip
+              v-for="invocation in invocationItems"
+              :key="invocation.id"
+              :text="invocation.title"
+              :content="{ side: 'right' }"
+              ><UButton
+                icon="i-lucide-bot"
+                color="neutral"
+                :variant="selectedInvocationId === invocation.id ? 'soft' : 'ghost'"
+                block
+                :aria-label="invocation.title"
+                @click="selectInvocation(invocation.id)"
+            /></UTooltip>
+          </div>
         </div>
+        <AgentInvocationList
+          v-else-if="
+            (!list.isLoading.value || invocationItems.length) &&
+            (!errorMessage(list.error.value) || invocationItems.length)
+          "
+          class="min-h-0 flex-1 px-1 pb-3"
+          :has-more="Boolean(list.cursor.value)"
+          :items="invocationItems"
+          :loading="list.isLoadingMore.value"
+          :now="nowMs"
+          :retry-key="paginationRetryRevision"
+          :selected-id="selectedInvocationId"
+          @end-reached="list.loadMore()"
+          @select="selectInvocation($event.id)"
+        >
+          <template #empty
+            ><UEmpty
+              class="px-4"
+              icon="i-lucide-message-square-dashed"
+              title="No sessions yet"
+              description="The first Agent Invocation will appear here."
+          /></template>
+        </AgentInvocationList>
       </template>
 
       <template #footer="{ collapsed, collapse }">
@@ -468,10 +364,10 @@ onBeforeUnmount(() => {
     <UDashboardPanel id="agent-session">
       <div class="min-h-0 flex-1" aria-live="polite">
         <div
-          v-if="!selectedSession"
+          v-if="!selectedInvocationId"
           class="flex h-full items-center justify-center p-8 text-sm text-muted"
         >
-          Select a session to inspect its work.
+          Select an Agent Invocation to inspect its work.
         </div>
         <UEmpty
           v-else-if="errorMessage(detail.error.value) && !invocationView"
@@ -506,7 +402,7 @@ onBeforeUnmount(() => {
           >
             <template #thread
               ><AgentInvocation :invocation="invocationView" class="h-full"
-                ><template #title>{{ selectedSession.agentName || "Agent session" }}</template
+                ><template #title>{{ selectedTitle }}</template
                 ><template #actions
                   ><UTooltip text="Session details"
                     ><UButton
@@ -531,7 +427,7 @@ onBeforeUnmount(() => {
             ></template>
           </USplitter>
           <AgentInvocation v-else :invocation="invocationView" class="min-h-0 flex-1"
-            ><template #title>{{ selectedSession.agentName || "Agent session" }}</template
+            ><template #title>{{ selectedTitle }}</template
             ><template #actions
               ><div class="flex items-center gap-1">
                 <UButton

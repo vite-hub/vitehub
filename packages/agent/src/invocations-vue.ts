@@ -37,6 +37,7 @@ export interface UseAgentInvocationsReturn {
   invocations: ShallowRef<readonly AgentInvocationSummary[]>;
   isLoading: ShallowRef<boolean>;
   isLoadingMore: ShallowRef<boolean>;
+  loadMoreError: ShallowRef<unknown>;
   loadMore: () => Promise<AgentInvocationListResult | undefined>;
   refresh: () => Promise<AgentInvocationListResult | undefined>;
   stop: () => void;
@@ -274,6 +275,7 @@ export function useAgentInvocations(
   const invocations = shallowRef<readonly AgentInvocationSummary[]>([]);
   const cursor = shallowRef<string | undefined>();
   const isLoadingMore = shallowRef(false);
+  const loadMoreError = shallowRef<unknown>(null);
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
@@ -322,8 +324,12 @@ export function useAgentInvocations(
         invocations.value = [];
         cursor.value = undefined;
         reconciliationOffset = 0;
+        loadMoreError.value = null;
       }
       revision++;
+      if (loadMoreController && !resetFirstPage) {
+        loadMoreError.value = new Error("Loading older Agent Invocations was interrupted.");
+      }
       loadMoreController?.abort();
       loadMoreController = undefined;
       isLoadingMore.value = false;
@@ -433,10 +439,11 @@ export function useAgentInvocations(
         ...result.invocations.filter(invocation => !ids.has(invocation.id)),
       ];
       cursor.value = result.cursor;
+      loadMoreError.value = null;
       return result;
     } catch (cause) {
       if (loadMoreController !== controller || isAbortError(cause)) return;
-      resource.error.value = cause;
+      loadMoreError.value = cause;
     } finally {
       if (loadMoreController === controller) {
         loadMoreController = undefined;
@@ -456,7 +463,7 @@ export function useAgentInvocations(
   }
 
   onScopeDispose(() => loadMoreController?.abort(), true);
-  return { cursor, invocations, isLoadingMore, loadMore, ...resource, stop };
+  return { cursor, invocations, isLoadingMore, loadMore, loadMoreError, ...resource, stop };
 }
 
 export function useAgentInvocation(
