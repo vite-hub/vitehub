@@ -48,7 +48,20 @@ export type McpResourceContent =
   | { _meta?: Record<string, unknown>, blob: string, mimeType?: string, uri: string }
   | { _meta?: Record<string, unknown>, mimeType?: string, text: string, uri: string }
 
-export type McpResourcesTransport = Transport
+type McpResourcesMessage =
+  | { id: number | string, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
+  | { id?: never, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
+  | { id: number | string, jsonrpc: "2.0", method?: never, result: { [key: string]: unknown, _meta?: Record<string, unknown> } }
+  | { error: { code: number, data?: unknown, message: string }, id: number | string, jsonrpc: "2.0", method?: never }
+
+export interface McpResourcesTransport {
+  close(): Promise<void>
+  onclose?: () => void
+  onerror?: (error: Error) => void
+  onmessage?: (message: McpResourcesMessage) => void
+  send(message: McpResourcesMessage): Promise<void>
+  start(): Promise<void>
+}
 
 export interface McpResourcesClient {
   close?: () => void | Promise<void>
@@ -140,7 +153,8 @@ function isMcpTransport(value: unknown): value is McpResourcesTransport {
 }
 
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
-  if (isMcpTransport(config)) return config
+  // SAFETY: isMcpTransport verifies the SDK transport methods before this private boundary.
+  if (isMcpTransport(config)) return config as Transport
   const { type = "http", url, ...options } = config
   if (type === "sse") {
     const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js")

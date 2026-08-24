@@ -163,7 +163,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
     const ref = resolvedRef ?? await getRef(token, signal)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
     return parseGitHubArchive(archive)
-      .map((entry): GitHubFile<TKey> | undefined => {
+      .map((entry): GitHubFile<string> | undefined => {
         const key = keyForRepoPath(entry.path)
         if (!key || !shouldInclude(key)) return undefined
         return {
@@ -174,7 +174,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
           sha: ref,
         }
       })
-      .filter((file): file is GitHubFile<TKey> => Boolean(file))
+      .filter((file): file is GitHubFile<string> => Boolean(file))
   }
 
   async function loadFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
@@ -198,7 +198,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
     return await loadArchiveFiles(token, signal, ref)
   }
 
-  const loadedFiles = new Map<string, Promise<GitHubFile<TKey>[]>>()
+  const loadedFiles = new Map<string, Promise<GitHubFile<string>[]>>()
   const cachedLoadFiles = providerCache
     ? defineCachedFunction(
         async (resolvedRef: string | undefined, token: string | undefined) => await loadFiles(token, undefined, resolvedRef),
@@ -218,8 +218,8 @@ export function github(options: GitHubSourceOptions): Source<string> {
     return signal ? loadFiles(token, signal, resolvedRef) : cachedLoadFiles(resolvedRef, token)
   }
 
-  async function loadFileMetadata(key: TKey, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<TKey> | undefined> {
-    const normalizedKey = normalizeSourcePath(key) as TKey
+  async function loadFileMetadata(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string> | undefined> {
+    const normalizedKey = normalizeSourcePath(key)
     if (!normalizedKey || !shouldInclude(normalizedKey)) return
     const ref = resolvedRef ?? await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
@@ -254,17 +254,17 @@ export function github(options: GitHubSourceOptions): Source<string> {
     }
   }
 
-  const loadedFileMetadata = new Map<string, Promise<GitHubFile<TKey> | undefined>>()
+  const loadedFileMetadata = new Map<string, Promise<GitHubFile<string> | undefined>>()
   const cachedLoadFileMetadata = providerCache
     ? defineCachedFunction(
-        async (key: TKey, resolvedRef: string | undefined, token: string | undefined) => await loadFileMetadata(key, token, undefined, resolvedRef),
+        async (key: string, resolvedRef: string | undefined, token: string | undefined) => await loadFileMetadata(key, token, undefined, resolvedRef),
         {
           ...providerCache,
           getKey: (key, resolvedRef, token) => cacheKey("metadata", token, key, resolvedRef),
           name: "github-source-metadata",
         },
       )
-    : (key: TKey, resolvedRef: string | undefined, token: string | undefined) => dedupeProviderPromise(
+    : (key: string, resolvedRef: string | undefined, token: string | undefined) => dedupeProviderPromise(
         loadedFileMetadata,
         cacheKey("metadata", token, key, resolvedRef),
         () => loadFileMetadata(key, token, undefined, resolvedRef),
@@ -274,8 +274,8 @@ export function github(options: GitHubSourceOptions): Source<string> {
     return isSourceError(error) && error instanceof Error && error.message.includes(" could not access the repository or ref ")
   }
 
-  async function loadFile(key: TKey, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<TKey>> {
-    const normalizedKey = normalizeSourcePath(key) as TKey
+  async function loadFile(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string>> {
+    const normalizedKey = normalizeSourcePath(key)
     if (!normalizedKey || !shouldInclude(normalizedKey)) {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
@@ -303,7 +303,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
     }
   }
 
-  async function getFile(key: TKey, ctx?: SourceContext, token = refreshAuth()) {
+  async function getFile(key: string, ctx?: SourceContext, token = refreshAuth()) {
     if (ctx?.abortSignal) return await loadFile(key, token, ctx.abortSignal, ctx.revision?.id)
     const file = (await getFiles(token, undefined, ctx?.revision?.id)).find(file => file.key === key)
     if (!file) {
@@ -312,7 +312,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
     return file
   }
 
-  function fetchContent(key: TKey, file: GitHubFile<TKey>) {
+  function fetchContent(key: string, file: GitHubFile<string>) {
     if (file.content) return Promise.resolve(file.content)
     throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
   }
