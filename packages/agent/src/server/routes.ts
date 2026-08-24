@@ -48,6 +48,7 @@ import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
+import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import {
@@ -4764,7 +4765,8 @@ async function handleChatSdkMessage(
               const persistedPending = steerPending
               const persistedMessage = persistedPending.message
               if (!persistedMessage) throw new Error("[vitehub] Durable steered Channel delivery lost its persisted startup input.")
-              context.waitUntil(
+              registerAgentWorkflowRetry(
+                context,
                 (async () => {
                   let expectedRecoveryPending = persistedPending
                   let recoveredLock: Lock | null = null

@@ -21,6 +21,7 @@ import {
   withAgentChannelDeliveryOwnershipVerifier,
 } from "../internal/channel-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
+import { agentWorkflowRetryRegistrar } from "../internal/workflow-retry.ts"
 import { isRuntimeBoolean, isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "../internal/runtime-value.ts"
 
 import type {
@@ -294,6 +295,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const runId = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) ? payload.run?.runId || context.id : context.id || payload.run?.runId
   const backgroundTasks: Promise<unknown>[] = []
+  const workflowRetryTasks: Promise<unknown>[] = []
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
@@ -317,6 +319,12 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, {
     enumerable: true,
     value: true,
+  })
+  Object.defineProperty(runtimeContext, agentWorkflowRetryRegistrar, {
+    enumerable: false,
+    value(promise: Promise<unknown>) {
+      workflowRetryTasks.push(promise)
+    },
   })
 
   if (payload.invocationRecovery) {
@@ -391,5 +399,6 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
       if (channelOwnership.retrySettlementFailures) throw error
     })
+    if (workflowRetryTasks.length) await Promise.all(workflowRetryTasks)
   }
 }

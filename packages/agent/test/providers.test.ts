@@ -12737,8 +12737,8 @@ describe("server helpers", () => {
 
       if (persistentOutage) {
         expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
-        // The failed durable Workflow attempt is retried by its provider. The
-        // persisted pending claim must let that retry resume without a webhook.
+        // Exhaustion rejects the durable Workflow after preserving the pending
+        // claim. This call simulates its provider retry without another webhook.
         // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
         await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).resolves.toBeUndefined()
         expect(createBatch).toHaveBeenCalledTimes(6)
