@@ -10,6 +10,7 @@ test-results
 .data
 .nitro
 .cache
+.swc
 .generated
 .vitehub
 .sandcastle
@@ -31,6 +32,7 @@ docs/types/auto-imports.d.ts
 docs/types/mdc-runtime.d.ts
 packages/*/dist
 packages/*/*.tgz
+*.tsbuildinfo
 *.log
 .DS_Store
 .vercel

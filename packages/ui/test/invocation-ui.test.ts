@@ -82,6 +82,7 @@ describe("Agent Invocation UI", () => {
       "data:image/png;base64,c2FmZQ==",
     ]);
     expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ=="]);
+    expect(wrapper.findAll("a")[0]!.attributes("rel")).toBe("noreferrer");
     expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
     expect(wrapper.text()).toContain("unsafe.txt");
     expect(wrapper.text()).toContain("inline.png");
@@ -833,6 +834,25 @@ describe("Agent Invocation UI", () => {
     });
 
     expect(wrapper.get("time").text()).toBe("Aug 23");
+  });
+
+  it("uses the running timestamp in visible and machine-readable time", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{
+          id: "running",
+          startedAt: "2026-08-23T09:10:00.000Z",
+          status: "running",
+          title: "Running session",
+          updatedAt: "2026-08-23T09:19:00.000Z",
+        }],
+        now: Date.parse("2026-08-23T09:20:00.000Z"),
+        virtual: false,
+      },
+    });
+
+    expect(wrapper.get("time").text()).toBe("10m");
+    expect(wrapper.get("time").attributes("datetime")).toBe("2026-08-23T09:10:00.000Z");
   });
 
   it("keeps virtual rows in list coordinates when a header precedes them", async () => {

@@ -9,7 +9,7 @@ import { resolve } from "pathe"
 
 import { runProvision } from "./provision.ts"
 
-import type { InlineConfig, ResolvedConfig } from "vite"
+import type { InlineConfig } from "vite"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 
 interface ViteHubCliSpawnResult {
@@ -35,11 +35,17 @@ interface ViteHubCliStreams {
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
 
+interface ViteHubCliLoadedConfig {
+  plugins: readonly unknown[]
+  root: string
+  vitehubConfigResolved?: true
+}
+
 export interface RunViteHubCliOptions {
   args?: string[]
   cwd?: string
   env?: NodeJS.ProcessEnv
-  loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved?: true }>
+  loadConfig?: (rootDir: string) => Promise<ViteHubCliLoadedConfig>
   loadNuxtViteConfig?: (rootDir: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
@@ -61,11 +67,12 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly 
   const nuxt = await loadNuxt({ cwd: rootDir, dev: false })
   try {
     const { resolveConfig } = await import("vite")
+    const viteRoot = nuxt.options.vite.root
     const config = await resolveConfig({
       ...nuxt.options.vite,
       configFile: false,
-      root: typeof nuxt.options.vite.root === "string"
-        ? resolve(nuxt.options.rootDir || rootDir, nuxt.options.vite.root)
+      root: viteRoot
+        ? resolve(nuxt.options.rootDir || rootDir, viteRoot)
         : nuxt.options.rootDir || rootDir,
     }, "serve", "development")
     return {
@@ -95,7 +102,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
   })
 }
 
-async function loadViteConfig(rootDir: string): Promise<Pick<ResolvedConfig, "plugins" | "root">> {
+async function loadViteConfig(rootDir: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
   const inlineConfig: InlineConfig = { root: rootDir }
   return await resolveConfig(inlineConfig, "serve", "development")
@@ -139,7 +146,10 @@ function writeNamespaceHelp(namespace: ViteHubCliCommandNamespace, stdout: ViteH
     namespace.description || "",
     "",
     "Available features:",
-    ...namespace.features.map(feature => `  ${feature.name.padEnd(12)} ${feature.description || ""}`.trimEnd()),
+    ...namespace.features.flatMap(feature => [
+      `  ${feature.name.padEnd(12)} ${feature.description || ""}`.trimEnd(),
+      ...(feature.usage ? [`    Usage: ${feature.usage}`] : []),
+    ]),
     "",
   ].filter(Boolean).join("\n"))
 }
@@ -154,12 +164,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const env = options.env || process.env
   const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
-  const config: Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved?: true }
-    = await (options.loadConfig || loadViteConfig)(cwd)
+  const config = await (options.loadConfig || loadViteConfig)(cwd)
   const nuxtConfig = config.vitehubConfigResolved || (!options.loadConfig && hasViteConfig(cwd))
     ? undefined
     : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
-  const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])] as typeof config.plugins
+  const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])]
   const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
   const namespaces = [
     ...await collectViteHubCliNamespaces(plugins),
@@ -202,7 +211,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   const result = await feature.run(args.slice(2), context)
-  return typeof result === "number" ? result : 0
+  return result ?? 0
 }
 
 function isCliEntrypoint() {
@@ -217,9 +226,9 @@ function isCliEntrypoint() {
 
 if (isCliEntrypoint()) {
   runViteHubCli().then((exitCode) => {
-    process.exit(exitCode)
+    process.exitCode = exitCode
   }).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error)
-    process.exit(1)
+    process.exitCode = 1
   })
 }
