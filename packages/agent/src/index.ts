@@ -3748,6 +3748,7 @@ async function finishStreamAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
   failureMessage: string,
   outputExtensions = new Map<string, unknown>(),
+  allowMaterializedOutput = false,
 ): Promise<void> {
   if (outcome.status === "error") {
     await lifecycle.finish(outcome)
@@ -3774,7 +3775,7 @@ async function finishStreamAgentInvocation<
     }
     finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
     finishResult = context.output
-      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal, undefined, context.output), { allowMaterializedObject: finishResult !== result })
+      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal, undefined, context.output), { allowMaterializedObject: allowMaterializedOutput || finishResult !== result })
       : resultWithUsageRecord(finishResult, usageRecord)
   }
   catch (finishError) {
@@ -5248,6 +5249,7 @@ async function executeAgentInvocationWithCapacityLease<
       : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
+      const structuredOutput = invocation.output
       const projection = hasRuntimeType(definition?.uiMessageStream, "function")
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
@@ -5309,13 +5311,28 @@ async function executeAgentInvocationWithCapacityLease<
         : isAsyncIterable(capacityRendered)
           ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
           : capacityRendered
+      let uiMessageFinishResult = rendered
+      const uiMessageRendered = structuredOutput
+        ? (async function* () {
+            const materialized = await materializeAgentStructuredOutput(
+              enrichedRendered,
+              invocation.input.abortSignal,
+              invocation.context.get(agentOutputEventObserverContextKey),
+              structuredOutput,
+            )
+            uiMessageFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
+            yield* streamAgentOutputToEvents(uiMessageFinishResult)
+          })()
+        : enrichedRendered
       const shouldWrapOutput = shouldHoldInvocationOutput()
       const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(uiMessageRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
         const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
-        const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
+        const finishResult = structuredOutput
+          ? resultWithUsageRecord(uiMessageFinishResult, streamedUsageRecord ?? driverUsageRecord)
+          : resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
         if (!outcome.failed && !outcome.completed) {
           await lifecycle.finish({
             result: finishResult,
@@ -5386,6 +5403,7 @@ async function executeAgentInvocationWithCapacityLease<
       }
     }
     const structuredOutput = invocation.output
+    let structuredFinishResult = rendered
     const stream = structuredOutput
       ? (async function* () {
           const materialized = await materializeAgentStructuredOutput(
@@ -5394,8 +5412,8 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.context.get(agentOutputEventObserverContextKey),
             structuredOutput,
           )
-          const validated = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
-          yield* streamAgentOutputToEvents(validated)
+          structuredFinishResult = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
+          yield* streamAgentOutputToEvents(structuredFinishResult)
         })()
       : isStreamResult
         ? streamAgentOutputToEvents(streamResult)
@@ -5412,7 +5430,7 @@ async function executeAgentInvocationWithCapacityLease<
           const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
-          const finishResult = streamed.finishResult()
+          const finishResult = streamed.finishResult(structuredOutput ? structuredFinishResult : rendered)
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,
@@ -5424,7 +5442,7 @@ async function executeAgentInvocationWithCapacityLease<
             })
           }
           else {
-            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions, Boolean(structuredOutput))
           }
         }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
       : tracedStream

@@ -29,6 +29,26 @@ const outputSchema = {
   },
 }
 
+const arbitraryOutputSchema = {
+  "~standard": {
+    jsonSchema: {
+      input: () => ({
+        properties: { nextAction: { type: "string" }, priority: { type: "string" } },
+        required: ["nextAction", "priority"],
+        type: "object",
+      }),
+      output: () => ({ type: "object" }),
+    },
+    validate(value: unknown) {
+      return is(object({ nextAction: stringSchema, priority: stringSchema }), value)
+        ? { value }
+        : { issues: [{ message: "Expected nextAction and priority strings" }] }
+    },
+    vendor: "vitehub-test",
+    version: 1 as const,
+  },
+}
+
 type ModelContent = Array<Record<string, unknown>>
 type ModelCall = { abortSignal?: AbortSignal, prompt: unknown, responseFormat?: unknown }
 type ModelResponse = ModelContent | string | ((options: ModelCall) => Promise<ModelContent | string>)
@@ -227,6 +247,84 @@ describe("AI SDK recovery", () => {
     for await (const event of result as AsyncIterable<unknown>) events.push(event)
 
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
+    expect(fakeModel.calls).toHaveLength(1)
+  })
+
+  it("emits arbitrary structured output from streamed invocations", async () => {
+    const fakeModel = model([])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: '{"nextAction":"email","priority":"high"}', id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: arbitraryOutputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    const events = []
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ data: { nextAction: "email", priority: "high" }, type: "data" })
+    expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
+  })
+
+  it("repairs invalid structured output from UI-message streamed invocations", async () => {
+    const fakeModel = model(['{"text":"repaired"}'])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: '{"text":1}', id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" }, { output: "ui-message-stream" })
+    const events = []
+    // SAFETY: UI-message stream output implements the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual(expect.objectContaining({ delta: "repaired", type: "text-delta" }))
     expect(fakeModel.calls).toHaveLength(1)
   })
 

@@ -717,5 +717,8 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
       ? (value as { finishReason: string }).finishReason
       : undefined
     yield { ...(reason ? { reason } : {}), type: "finish" }
+    return
   }
+  if (value !== undefined) yield { data: value, type: "data" }
+  yield { type: "finish" }
 }
