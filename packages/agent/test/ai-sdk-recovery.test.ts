@@ -41,7 +41,7 @@ function model(responses: ModelResponse[]) {
       calls.push(options)
       const response = responses[calls.length - 1]
       if (response === undefined) throw new Error("Unexpected model call")
-      const resolvedResponse = typeof response === "function" ? await response(options) : response
+      const resolvedResponse = response instanceof Function ? await response(options) : response
       return {
         content: is(stringSchema, resolvedResponse) ? [{ text: resolvedResponse, type: "text" }] : resolvedResponse,
         finishReason: { raw: "stop", unified: "stop" },
@@ -71,6 +71,7 @@ function streamingRepairModel() {
   const doGenerate = vi.fn(async () => ({
     content: [{ text: "{\"query\":\"fixed\"}", type: "text" }],
     finishReason: { raw: "stop", unified: "stop" },
+    providerMetadata: { test: { usage: { cost: 0.2 } } },
     usage,
     warnings: [],
   }))
@@ -82,13 +83,13 @@ function streamingRepairModel() {
           controller.enqueue({ type: "stream-start", warnings: [] })
           if (streamCall === 1) {
             controller.enqueue({ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" })
-            controller.enqueue({ finishReason: { raw: "tool-calls", unified: "tool-calls" }, type: "finish", usage })
+            controller.enqueue({ finishReason: { raw: "tool-calls", unified: "tool-calls" }, providerMetadata: { test: { usage: { cost: 0.1 } } }, type: "finish", usage })
           }
           else {
             controller.enqueue({ id: "answer", type: "text-start" })
             controller.enqueue({ delta: "Finished", id: "answer", type: "text-delta" })
             controller.enqueue({ id: "answer", type: "text-end" })
-            controller.enqueue({ finishReason: { raw: "stop", unified: "stop" }, type: "finish", usage })
+            controller.enqueue({ finishReason: { raw: "stop", unified: "stop" }, providerMetadata: { test: { usage: { cost: 0.1 } } }, type: "finish", usage })
           }
           controller.close()
         },
@@ -256,14 +257,25 @@ describe("AI SDK recovery", () => {
     const agent = toolCallingAgent(fakeModel, executions, undefined, finish)
 
     const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    const earlyUsage = (result as { usage: Promise<unknown> }).usage
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
     for await (const _event of result as AsyncIterable<unknown>) {}
 
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
     expect(fakeModel.doStream).toHaveBeenCalledTimes(2)
+    await expect(earlyUsage).resolves.toMatchObject({ totalTokens: 6 })
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({
-        usage: expect.objectContaining({ usage: expect.objectContaining({ totalTokens: 6 }) }),
+        usage: expect.objectContaining({
+          calls: expect.arrayContaining([
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          ]),
+          cost: expect.objectContaining({ usd: "0.3" }),
+          usage: expect.objectContaining({ totalTokens: 6 }),
+        }),
       }),
     }))
   })

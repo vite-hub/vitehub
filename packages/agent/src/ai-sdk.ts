@@ -958,11 +958,15 @@ function withCapturedUsage(
     const record = result as Record<string, unknown>
     const resultUsage = record.usage
     const totalUsage = record.totalUsage
+    const resolvedCapturedUsage = async (fallback: unknown) => {
+      const resolvedFallback = await fallback
+      return await capturedUsage() ?? resolvedFallback
+    }
     Object.defineProperty(record, "usage", {
       configurable: true,
       enumerable: true,
       get() {
-        return capturedUsage() ?? resultUsage
+        return resolvedCapturedUsage(resultUsage)
       },
     })
     if (totalUsage !== undefined) {
@@ -970,7 +974,7 @@ function withCapturedUsage(
         configurable: true,
         enumerable: true,
         get() {
-          return capturedUsage() ?? totalUsage
+          return resolvedCapturedUsage(totalUsage)
         },
       })
     }
@@ -994,9 +998,15 @@ function withCapturedStreamUsage<T extends { fullStream?: AsyncIterable<unknown>
   const wrap = (stream: AsyncIterable<unknown>) => (async function* () {
     for await (const event of stream) {
       if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
-        const usage = await combinedCapturedUsage(captures())
+        const captureList = captures()
+        const usage = await combinedCapturedUsage(captureList)
         if (usage !== undefined) {
-          yield { ...event as Record<string, unknown>, usage }
+          const usageRecord = await combinedUsageRecord(
+            captureList.map(capture => ({ capture })),
+            usage,
+          )
+          // SAFETY: AI SDK stream events are records after the object guard above.
+          yield { ...(event as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), usage }
           continue
         }
       }
@@ -1664,14 +1674,15 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures]
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const streamed = await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
       } as never) as StreamTextResult<ToolSet, never, never>
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const result = withResolvedModelMetadata(withCapturedStreamUsage(
         withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
         usageCaptures,

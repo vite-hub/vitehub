@@ -377,7 +377,7 @@ function withFallbackUsageMetadata(
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
   const type = String(chunk.type || "")
-  if (type === "usage" && isUsageRecord(chunk.usageRecord)) {
+  if (isUsageRecord(chunk.usageRecord)) {
     return withFallbackUsageMetadata(
       withFallbackUsageMetadata(chunk.usageRecord, chunk, run),
       fallbackMetadataSource,
