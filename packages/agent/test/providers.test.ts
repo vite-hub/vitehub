@@ -12839,7 +12839,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("settles a same-invoker restored primary delivery once", async () => {
+  it.each(["completed", "failed"] as const)("retries a restored primary %s journal before settling ownership", async (settlementStatus) => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -12909,30 +12909,65 @@ describe("server helpers", () => {
       expect(workflowPayloads[1]?.run?.runId).toBe("telegram:91151")
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91150", "91151"])
       const recoveredRunIds: Array<string | undefined> = []
+      const executionError = new Error("restored primary failed")
+      const originalAppendToList = state.appendToList.bind(state)
+      let rejectPrimaryTerminal = true
+      const appendToList = vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+        // SAFETY: Delivery journal writes use this event record shape at the State boundary.
+        const event = value as { runId?: string; type?: string }
+        if (rejectPrimaryTerminal && key.startsWith("deliveries:") && key.endsWith(":events") && event.type === settlementStatus && event.runId === "telegram:91151") {
+          rejectPrimaryTerminal = false
+          throw new Error("primary terminal journal unavailable")
+        }
+        return await originalAppendToList(key, value, options)
+      })
+      const execution = runAgentWorkflowDefinition(
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        agent as never,
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        {
+          id: "restored-primary",
+          name: "calories",
+          payload: workflowPayloads[1],
+          provider: "cloudflare",
+        },
+        async (_agent, context) => {
+          recoveredRunIds.push(context.run?.runId)
+          if (settlementStatus === "failed") throw executionError
+          return "completed"
+        },
+      )
+      await expect(execution).rejects.toThrow("primary terminal journal unavailable")
+      expect(rejectPrimaryTerminal).toBe(false)
+      expect(recoveredRunIds).toEqual(["telegram:91151"])
+      // SAFETY: The pending queue contains the normalized durable steer entry created by this fixture.
+      const pending = (await state.queuePeek(`${ownershipKey}:queue:pending`)) as { message?: { settlementStatus?: string } } | null
+      expect(pending?.message?.settlementStatus).toBe(settlementStatus)
+      appendToList.mockRestore()
+
       await expect(
         runAgentWorkflowDefinition(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           agent as never,
-          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
-            id: "restored-primary",
+            id: "restored-primary-retry",
             name: "calories",
             payload: workflowPayloads[1],
             provider: "cloudflare",
           },
-          async (_agent, context) => {
-            recoveredRunIds.push(context.run?.runId)
+          async () => {
+            recoveredRunIds.push("unexpected retry")
             return "completed"
           },
         ),
-      ).resolves.toBe("completed")
+      ).resolves.toBeUndefined()
       expect(recoveredRunIds).toEqual(["telegram:91151"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_151), "telegram", runtime)
       for (const runId of ["telegram:91150", "telegram:91151"]) {
         const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
-        expect(delivery?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
-        expect(delivery?.events.filter((event) => event.type === "completed")).toHaveLength(1)
+        expect(delivery?.events.filter((event) => event.type === `invocation.${settlementStatus}`)).toHaveLength(1)
+        expect(delivery?.events.filter((event) => event.type === settlementStatus)).toHaveLength(1)
       }
     } finally {
       setActiveCloudflareEnv(undefined)

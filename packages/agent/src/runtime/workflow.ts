@@ -352,9 +352,14 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     : (payload.input ?? {})
 
   let channelDeliveryStatus: "completed" | "failed" = "failed"
+  let channelDeliveryJournaled = !channelDelivery
   try {
     if (channelOwnership?.settlementStatus) {
       channelDeliveryStatus = channelOwnership.settlementStatus
+      if (channelDelivery) {
+        await channelDelivery.event({ type: channelDeliveryStatus, runId })
+        channelDeliveryJournaled = true
+      }
       return
     }
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
@@ -367,14 +372,18 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     channelOwnership?.abortSignal?.throwIfAborted()
     const result = await portableWorkflowResult(inlineResult)
     await channelOwnership?.verify?.()
+    channelDeliveryStatus = "completed"
+    await channelOwnership?.checkpoint?.(channelDeliveryStatus)
     if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery.event({ type: "invocation.completed", runId }).catch(() => undefined)
-      await channelDelivery.event({ type: "completed", runId }).catch(() => undefined)
+      await channelDelivery.event({ type: "completed", runId })
+      channelDeliveryJournaled = true
     }
-    channelDeliveryStatus = "completed"
     return result
   } catch (error) {
+    if (channelDeliveryStatus === "completed") throw error
     await channelOwnership?.verify?.()
+    await channelOwnership?.checkpoint?.(channelDeliveryStatus)
     if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery
         .event({
@@ -389,6 +398,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
           type: "failed",
           runId,
         })
+      channelDeliveryJournaled = true
         .catch(() => undefined)
     }
     throw nonRetryableAgentWorkflowError(error)
@@ -399,8 +409,10 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     // Recovery must establish replacement custody before terminal settlement
     // can acknowledge the owner-fenced pending claim.
     if (workflowRetryTasks.length) await Promise.all(workflowRetryTasks)
-    await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
-      if (channelOwnership.retrySettlementFailures) throw error
-    })
+    if (channelDeliveryJournaled) {
+      await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
+        if (channelOwnership.retrySettlementFailures) throw error
+      })
+    }
   }
 }

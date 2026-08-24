@@ -5028,7 +5028,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    for (const concurrency of ["drop", "queue", "reject", "serial", "steer", "tenant-policy"] as const) {
+    for (const concurrency of ["drop", "queue", "reject", "serial", "tenant-policy"] as const) {
       expect(() => defineAgent({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         channels: { telegram: telegram({ adapter: () => ({}) as never }) },
@@ -5040,6 +5040,16 @@ describe("agent message protocol", () => {
         },
       })).toThrow(`messages.durable cannot be combined with concurrency: ${JSON.stringify(concurrency)}`)
     }
+
+    expect(() => defineAgent({
+      channels: { telegram: telegram({ adapter: () => ({}) as never }) },
+      driver: { run: () => "ok" },
+      messages: {
+        concurrency: "steer",
+        delivery: "manual",
+        durable: true,
+      },
+    })).not.toThrow()
   })
 
   it("rejects invalid message timeouts", async () => {
@@ -11293,6 +11303,71 @@ describe("agent message protocol", () => {
 
         await expect(invocations.getByRunId("child-run", agent.name)).resolves.toMatchObject({ status: "pending" })
         await expect(invocations.getByRunId("parent-run", agent.name)).resolves.toBeUndefined()
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("uses a distinct OpenWorkflow ID for fresh durable Channel recovery", async () => {
+      const { defineAgent, startAgentInvocation, workflow } = await import("../src/index.ts")
+      const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      let providerRunId: string | undefined
+      let payloadRunId: string | undefined
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          registerInlineWorkflowDefinition: vi.fn(),
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({
+          createWorkflow: () => ({
+            run: async (payload: { run?: { runId?: string } }, options: { id?: string }) => {
+              payloadRunId = payload.run?.runId
+              providerRunId = options.id
+              return { id: options.id || "missing", provider: "openworkflow", status: "queued" }
+            },
+          }),
+        }) as never,
+      })
+      try {
+        const agent = defineAgent({
+          driver: { run: () => "unreachable" },
+          name: "durable-recovery-agent",
+          runtime: workflow("durable-recovery-agent"),
+        })
+        await startAgentInvocation(agent, {
+          memo: vi.fn(),
+          run: { runId: "telegram:42" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: {
+            [agentChannelDeliveryWorkflowContextKey]: {
+              deliveryId: "delivery-42",
+              provider: "telegram",
+              state: "chat",
+              steer: {
+                claimId: "claim-42",
+                lock: { expiresAt: Date.now() + 30_000, threadId: "thread-42", token: "token-42" },
+                pendingQueue: "pending-42",
+                queue: "queue-42",
+                ttlMs: 30_000,
+              },
+            },
+          },
+        })
+
+        expect(payloadRunId).toBe("telegram:42")
+        expect(providerRunId).toMatch(/^telegram:42:claim-42:/)
       }
       finally {
         setAgentWorkflowRuntimeLoaders({

@@ -955,7 +955,7 @@ async function runAgentAsWorkflow<
   const workflowRunId = context.run?.runId && (!options.fresh || durableChannelDelivery)
     ? workflowConfig && workflowConfig.provider === "cloudflare"
       ? await portableAgentWorkflowRunId(workflowProviderRunId ?? context.run.runId)
-      : context.run.runId
+      : workflowProviderRunId ?? context.run.runId
     : undefined
   const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
     if (!hasAgentDefinition(agent)) return false

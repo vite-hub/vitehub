@@ -2750,7 +2750,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
       throw error
     }
     // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-    const claimedPending = pending as DurableSteerQueueEntry & { message: DurableSteerQueueMessage & { input: AgentRunInput } }
+    let claimedPending = pending as DurableSteerQueueEntry & { message: DurableSteerQueueMessage & { input: AgentRunInput } }
     const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, loseOwnership)
     const verify = async () => {
       executionAbort.signal.throwIfAborted()
@@ -2784,6 +2784,21 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         executionAbort.signal.throwIfAborted()
       }
       ownershipLost = false
+    }
+    const checkpoint = async (status: "completed" | "failed") => {
+      if (claimedPending.message.settlementStatus) return
+      const settlementPending: typeof claimedPending = {
+        ...claimedPending,
+        message: { ...claimedPending.message, settlementStatus: status },
+      }
+      if (
+        // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+        !(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(ownedPendingQueue, claimedPending as never, [settlementPending as never], 1))
+      ) {
+        loseOwnership()
+        executionAbort.signal.throwIfAborted()
+      }
+      claimedPending = settlementPending
     }
     const settle = async (status: "completed" | "failed") => {
       let activePending: DurableSteerQueueEntry = claimedPending
@@ -2829,20 +2844,8 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           ownerReleased = true
           return
         }
-        if (!activePending.message?.settlementStatus) {
-          const settlementPending: DurableSteerQueueEntry = {
-            ...activePending,
-            message: { ...claimedPending.message, ...activePending.message, settlementStatus: status },
-          }
-          if (
-            // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-            !(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(ownedPendingQueue, activePending as never, [settlementPending as never], 1))
-          ) {
-            loseOwnership()
-            return
-          }
-          activePending = settlementPending
-        }
+        await checkpoint(status)
+        activePending = claimedPending
         for (const deliveryId of binding.steer?.deliveryIds ?? []) {
           if (activePending.message?.settledDeliveryIds?.includes(deliveryId)) continue
           const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
@@ -3039,7 +3042,14 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         await resolved.state.releaseLock(executionLock).catch(() => undefined)
       }
     }
-    return { abortSignal: executionAbort.signal, retrySettlementFailures: true, settlementStatus: claimedPending.message.settlementStatus, verify, settle }
+    return {
+      abortSignal: executionAbort.signal,
+      checkpoint,
+      retrySettlementFailures: true,
+      settlementStatus: claimedPending.message.settlementStatus,
+      verify,
+      settle,
+    }
   })
 }
 
