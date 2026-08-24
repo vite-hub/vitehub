@@ -97,6 +97,7 @@ describe("Agent invocation console", () => {
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `fallbackName: "review"`,
       )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`from "file://`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -120,10 +121,12 @@ describe("Agent invocation console", () => {
   })
 
   it("uses explicit Agent Definition names instead of discovered route names", async () => {
+    const definition = defineAgent({ driver: { run: () => "ok" }, name: " support " })
+    expect(definition.name).toBe("support")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgentDefinitions([
-      { definition: { default: defineAgent({ driver: { run: () => "ok" }, name: "support" }) }, fallbackName: "help" },
+      { definition: { default: definition }, fallbackName: "help" },
     ], invocations)
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
