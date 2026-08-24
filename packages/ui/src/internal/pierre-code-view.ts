@@ -70,9 +70,10 @@ function controlledOptions<T extends { controlledSelection?: boolean }>(
 }
 
 function trackDeep<T>(value: T, seen = new WeakSet<object>()): T {
-  if (typeof value !== "object" || value === null || seen.has(value)) return toRaw(value);
-  seen.add(value);
-  for (const key of Reflect.ownKeys(value)) trackDeep(Reflect.get(value, key), seen);
+  const objectValue = Object(value);
+  if (!Object.is(objectValue, value) || seen.has(objectValue)) return toRaw(value);
+  seen.add(objectValue);
+  for (const key of Reflect.ownKeys(objectValue)) trackDeep(Reflect.get(objectValue, key), seen);
   return toRaw(value);
 }
 
