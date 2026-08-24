@@ -17,6 +17,7 @@ import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
 import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
 import { agentInvocationJournalContentTraceLogSymbol, traceAgentEvent } from "../trace.ts"
+import { agentChannelDeliveryOwnershipVerifier } from "../internal/channel-delivery.ts"
 
 import type {
   AgentAdapterRunContext,
@@ -910,10 +911,17 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
         const state = context.context.get(messageChannelStateContextKey)
-        channelDeliveryAttempt ??= options.channelDelivery === "always" || !supportsTitleDelivery(context) || !state || !context.run?.threadId
-          ? { deliver: true }
-          : claimMessageChannelTitleDelivery(context.context, context.run)
-              .catch(error => ({ deliver: true, error }))
+        const verifyOwnership = context.runtimeContext
+          ? agentChannelDeliveryOwnershipVerifier(context.runtimeContext)
+          : undefined
+        const prepareAttempt = async (): Promise<MessageChannelTitleDeliveryAttempt> => {
+          await verifyOwnership?.()
+          return options.channelDelivery === "always" || !supportsTitleDelivery(context) || !state || !context.run?.threadId
+            ? { deliver: true }
+            : claimMessageChannelTitleDelivery(context.context, context.run)
+                .catch(error => ({ deliver: true, error }))
+        }
+        channelDeliveryAttempt ??= prepareAttempt()
         return channelDeliveryAttempt
       }
       const releaseChannelDeliveryAttempt = async () => {

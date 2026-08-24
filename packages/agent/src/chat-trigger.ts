@@ -334,7 +334,7 @@ export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.durable && options.delivery !== "manual") {
     throw new TypeError("[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply.")
   }
-  if (options.durable && options.concurrency !== undefined && options.concurrency !== "parallel") {
+  if (options.durable && options.concurrency !== undefined && options.concurrency !== "parallel" && options.concurrency !== "steer") {
     throw new TypeError(`[vitehub] messages.durable cannot be combined with concurrency: ${JSON.stringify(options.concurrency)} because Workflow handoff releases the webhook lease before the Agent Invocation settles.`)
   }
 }

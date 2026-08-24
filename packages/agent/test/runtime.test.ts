@@ -3810,6 +3810,103 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("does not run delivery effects after durable Channel ownership is lost", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { withAgentChannelDeliveryOwnershipVerifier } = await import("../src/internal/channel-delivery.ts")
+    const delivered = vi.fn()
+    const verifyOwnership = vi.fn().mockRejectedValue(new Error("Channel ownership was reclaimed"))
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reaction: delivered },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(
+      // SAFETY: This fixture intentionally constructs the exact asserted runtime contract.
+      { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() } as never,
+      verifyOwnership,
+    )
+
+    try {
+      await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+      expect(verifyOwnership).toHaveBeenCalledOnce()
+      expect(delivered).not.toHaveBeenCalled()
+    }
+    finally {
+      error.mockRestore()
+    }
+  })
+
+  it("does not reserve or generate a title after durable Channel ownership is lost", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { withAgentChannelDeliveryOwnershipVerifier } = await import("../src/internal/channel-delivery.ts")
+    const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
+    const acquireLock = vi.fn()
+    const execute = vi.fn(() => "Stale title")
+    const delivered = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "channel-state",
+          output(context) {
+            context.context.set(messageChannelStateContextKey, {
+              keyPrefix: "chat:test:",
+              state: { acquireLock, get: vi.fn() },
+            })
+          },
+        }),
+        title({ execute }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { title: delivered },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(
+      // SAFETY: This fixture intentionally constructs the exact asserted runtime contract.
+      { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() } as never,
+      vi.fn().mockRejectedValue(new Error("Channel ownership was reclaimed")),
+    )
+
+    await expect(runAgentTrigger(agent, runtime, "portal.message", {})).rejects.toThrow("Channel ownership was reclaimed")
+    expect(acquireLock).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+    expect(delivered).not.toHaveBeenCalled()
+  })
+
   it("runs delivery effects when outbound custody evidence cannot be written", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
@@ -4931,7 +5028,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    for (const concurrency of ["drop", "queue", "reject", "serial", "steer", "tenant-policy"] as const) {
+    for (const concurrency of ["drop", "queue", "reject", "serial", "tenant-policy"] as const) {
       expect(() => defineAgent({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         channels: { telegram: telegram({ adapter: () => ({}) as never }) },
@@ -4943,6 +5040,16 @@ describe("agent message protocol", () => {
         },
       })).toThrow(`messages.durable cannot be combined with concurrency: ${JSON.stringify(concurrency)}`)
     }
+
+    expect(() => defineAgent({
+      channels: { telegram: telegram({ adapter: () => ({}) as never }) },
+      driver: { run: () => "ok" },
+      messages: {
+        concurrency: "steer",
+        delivery: "manual",
+        durable: true,
+      },
+    })).not.toThrow()
   })
 
   it("rejects invalid message timeouts", async () => {
@@ -11158,6 +11265,118 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("records a successful fresh Workflow under the child run ID", async () => {
+      const { defineAgent, startAgentInvocation, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          registerInlineWorkflowDefinition: vi.fn(),
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({
+          createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
+            ? { defer: async () => ({ id: "recovery", provider: "openworkflow", status: "queued" }) }
+            : { run: async () => ({ id: "child-run", provider: "openworkflow", status: "queued" }) },
+        }) as never,
+      })
+      try {
+        const agent = defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          name: "fresh-child-agent",
+          runtime: workflow("fresh-child-agent"),
+        })
+
+        await startAgentInvocation(agent, {
+          memo: vi.fn(),
+          run: { runId: "parent-run" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})
+
+        await expect(invocations.getByRunId("child-run", agent.name)).resolves.toMatchObject({ status: "pending" })
+        await expect(invocations.getByRunId("parent-run", agent.name)).resolves.toBeUndefined()
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("uses a distinct OpenWorkflow ID for fresh durable Channel recovery", async () => {
+      const { defineAgent, startAgentInvocation, workflow } = await import("../src/index.ts")
+      const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      let providerRunId: string | undefined
+      let payloadRunId: string | undefined
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          registerInlineWorkflowDefinition: vi.fn(),
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({
+          createWorkflow: () => ({
+            run: async (payload: { run?: { runId?: string } }, options: { id?: string }) => {
+              payloadRunId = payload.run?.runId
+              providerRunId = options.id
+              return { id: options.id || "missing", provider: "openworkflow", status: "queued" }
+            },
+          }),
+        }) as never,
+      })
+      try {
+        const agent = defineAgent({
+          driver: { run: () => "unreachable" },
+          name: "durable-recovery-agent",
+          runtime: workflow("durable-recovery-agent"),
+        })
+        await startAgentInvocation(agent, {
+          memo: vi.fn(),
+          run: { runId: "telegram:42" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {
+          context: {
+            [agentChannelDeliveryWorkflowContextKey]: {
+              deliveryId: "delivery-42",
+              provider: "telegram",
+              state: "chat",
+              steer: {
+                claimId: "claim-42",
+                lock: { expiresAt: Date.now() + 30_000, threadId: "thread-42", token: "token-42" },
+                pendingQueue: "pending-42",
+                queue: "queue-42",
+                ttlMs: 30_000,
+              },
+            },
+          },
+        })
+
+        expect(payloadRunId).toBe("telegram:42")
+        expect(providerRunId).toMatch(/^telegram:42:claim-42:/)
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("leaves controlled Vercel pre-worker failures to Workflow inspection", async () => {
       const { defineAgent, startAgentInvocation } = await import("../src/index.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
@@ -12811,6 +13030,28 @@ describe("agent message protocol", () => {
       await telemetryStarted.promise
       expect(completed).toBe(false)
       telemetry.resolve()
+      await expect(result).resolves.toBe("done")
+    })
+
+    it("retains invocation journal recovery through Workflow completion", async () => {
+      const { registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const recovery = deferred<void>()
+      let completed = false
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = runAgentWorkflowDefinition({} as never, {
+        id: "invocation-recovery-run",
+        name: "invocation-recovery-run",
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        registerAgentInvocationRecovery(context, recovery.promise)
+        return "done"
+      }).finally(() => { completed = true })
+
+      await vi.waitFor(() => expect(completed).toBe(false))
+      recovery.resolve()
       await expect(result).resolves.toBe("done")
     })
 

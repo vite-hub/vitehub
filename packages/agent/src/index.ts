@@ -9,7 +9,7 @@ import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
-import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
+import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
 import {
   createBackedAgentInvocationController,
   startLiveAgentInvocation,
@@ -857,6 +857,20 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
   })))
 }
 
+export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): Promise<AgentRunInput<CALL_OPTIONS>> {
+  const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
+  delete workflowInput.abortSignal
+  if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
+  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
+  if (workflowInput.message && !hasRuntimeType(workflowInput.message, "string")) [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
+  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
+  // Validate and detach the complete payload before it crosses a durable State
+  // or Workflow boundary. Materializing messages alone would still allow
+  // context and call options to be silently coerced by JSON persistence.
+  // SAFETY: cloneWorkflowJsonValue preserves the normalized AgentRunInput shape while rejecting non-JSON values.
+  return cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>
+}
+
 async function runAgentAsWorkflow<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -904,14 +918,11 @@ async function runAgentAsWorkflow<
   const workflowName = resolveAgentWorkflowName(agent, binding, context)
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
-  const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
-  delete workflowInput.abortSignal
-  if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
-  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
-  if (workflowInput.message && !hasRuntimeType(workflowInput.message, "string")) [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
-  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
-  const inheritedRun = options.fresh && context.run
+  const workflowInput = await portableAgentWorkflowInput(input)
+  const channelDeliveryBinding = input.context?.[agentChannelDeliveryWorkflowContextKey]
+  const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
+  const inheritedRun = options.fresh && context.run && !durableChannelDelivery
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
@@ -935,10 +946,16 @@ async function runAgentAsWorkflow<
       waitUntil: context.waitUntil,
     },
   }
-  const workflowRunId = !options.fresh && context.run?.runId
+  // Durable Channel recovery may be a fresh provider start while still owning
+  // one persisted logical run. Initial starts remain stable by claim, while a
+  // fresh recovery gets a new provider ID after a definitive rejection.
+  const workflowProviderRunId = context.run?.runId && durableChannelDelivery && channelDeliveryBinding.steer
+    ? `${context.run.runId}:${channelDeliveryBinding.steer.claimId}${options.fresh ? `:${crypto.randomUUID()}` : ""}`
+    : context.run?.runId
+  const workflowRunId = context.run?.runId && (!options.fresh || durableChannelDelivery)
     ? workflowConfig && workflowConfig.provider === "cloudflare"
-      ? await portableAgentWorkflowRunId(context.run.runId)
-      : context.run.runId
+      ? await portableAgentWorkflowRunId(workflowProviderRunId ?? context.run.runId)
+      : workflowProviderRunId ?? context.run.runId
     : undefined
   const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
     if (!hasAgentDefinition(agent)) return false
@@ -998,12 +1015,12 @@ async function runAgentAsWorkflow<
   if (hasAgentDefinition(agent) && agent.invocations && run.provider !== "vercel") {
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
-      const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id
+      const sourceRunId = options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id
       if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
     }
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
-      run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
+      run: { ...context.run, runId: options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id },
     }, { agentName: agent.name || context.agentIdentity?.name, deferClaim: true, terminalTakeover: true })
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)
@@ -1113,6 +1130,7 @@ async function applyChannelDeliveryEffectIntents<
   if (!intents.length) return
   const active = activeAgentChannel(context.channels, context.context, context.run)
   const delivery = agentChannelDeliveryTracker(context.runtimeContext)
+  const verifyOwnership = agentChannelDeliveryOwnershipVerifier(context.runtimeContext)
 
   for (const intent of intents) {
     const handlers = active ? channelDeliveryEffectHandlers(active.channel, intent) : []
@@ -1162,6 +1180,7 @@ async function applyChannelDeliveryEffectIntents<
     for (const handler of handlers) {
       let handlerCompleted = false
       try {
+        await verifyOwnership?.()
         try {
           await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
         }
@@ -1173,6 +1192,7 @@ async function applyChannelDeliveryEffectIntents<
           owner: "channel",
           phase: "effect",
         }, async () => {
+          await verifyOwnership?.()
           await handler({
             ...context.runtimeContext,
             channel: active.channel,
