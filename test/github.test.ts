@@ -17,13 +17,14 @@ test('mints and caches installation authentication from complete App credentials
     readEnv: () => ({
       appId: '123',
       installationId: '456',
+      owner: 'vite-hub',
       privateKey: secret('line-1\\nline-2'),
     }),
   })
 
   assert.equal(await provider(), 'installation-token')
   assert.equal(await provider(), 'installation-token')
-  assert.equal(await provider({ refresh: true }), 'installation-token')
+  assert.equal(await provider({ refresh: true, repository: 'vite-hub/vitehub' }), 'installation-token')
   assert.deepEqual(calls, [
     { appId: 123, privateKey: 'line-1\nline-2' },
     { type: 'installation', installationId: 456, refresh: false },
@@ -34,7 +35,7 @@ test('mints and caches installation authentication from complete App credentials
 
 test('rejects partial App configuration instead of falling through to another identity', async () => {
   const provider = createGitHubTokenProvider({
-    readEnv: () => ({ appId: '123', installationId: '' }),
+    readEnv: () => ({ appId: '123', installationId: '', owner: 'vite-hub' }),
   })
 
   await assert.rejects(provider, /must be configured together/)
@@ -43,15 +44,29 @@ test('rejects partial App configuration instead of falling through to another id
 test('uses the configured token and then local gh auth as development fallbacks', async () => {
   const configured = createGitHubTokenProvider({
     readCliToken: async () => 'cli-token',
-    readEnv: () => ({ appId: '', installationId: '', token: secret('configured-token') }),
+    readEnv: () => ({ appId: '', installationId: '', owner: 'vite-hub', token: secret('configured-token') }),
   })
   const local = createGitHubTokenProvider({
     readCliToken: async () => 'cli-token\n',
-    readEnv: () => ({ appId: '', installationId: '' }),
+    readEnv: () => ({ appId: '', installationId: '', owner: 'vite-hub' }),
   })
 
   assert.equal(await configured(), 'configured-token')
   assert.equal(await local(), 'cli-token')
+})
+
+test('keeps the fallback identity for repositories outside the App owner', async () => {
+  const provider = createGitHubTokenProvider({
+    readCliToken: async () => 'cli-token',
+    readEnv: () => ({
+      appId: '123',
+      installationId: '456',
+      owner: 'vite-hub',
+      privateKey: secret('private-key'),
+    }),
+  })
+
+  assert.equal(await provider({ repository: 'onmax/quiver-babysitter' }), 'cli-token')
 })
 
 test('projects the bot token and commit identity into the agent environment', () => {

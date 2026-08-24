@@ -7,6 +7,7 @@ type Secret = { unseal: () => string }
 export type GitHubAuthenticationEnv = {
   appId: string
   installationId: string
+  owner: string
   privateKey?: Secret
   token?: Secret
 }
@@ -22,6 +23,7 @@ type GitHubTokenProviderOptions = {
 type GitHubCommandOptions = {
   cwd?: string
   env?: NodeJS.ProcessEnv
+  repository?: string
 }
 
 const exec = promisify(execFile)
@@ -36,10 +38,11 @@ export function createGitHubTokenProvider({
 }: GitHubTokenProviderOptions) {
   let cached: { appId: number, auth: GitHubAppAuth, installationId: number, privateKey: string } | undefined
 
-  return async ({ refresh = false }: { refresh?: boolean } = {}) => {
+  return async ({ refresh = false, repository }: { refresh?: boolean, repository?: string } = {}) => {
     const env = await readEnv()
     const appId = env.appId.trim()
     const installationId = env.installationId.trim()
+    const owner = env.owner.trim().toLowerCase()
     const privateKey = env.privateKey?.unseal().trim().replace(/\\n/g, '\n') || ''
     const appValues = [appId, installationId, privateKey]
 
@@ -47,6 +50,10 @@ export function createGitHubTokenProvider({
       if (!appValues.every(Boolean)) {
         throw new Error('GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, and GITHUB_APP_PRIVATE_KEY must be configured together.')
       }
+      if (!owner) throw new Error('GITHUB_APP_OWNER must be configured with GitHub App credentials.')
+
+      const repositoryOwner = repository?.split('/', 1)[0]?.toLowerCase()
+      if (repositoryOwner && repositoryOwner !== owner) return await fallbackToken(env, readCliToken)
 
       const numericAppId = positiveInteger(appId, 'GITHUB_APP_ID')
       const numericInstallationId = positiveInteger(installationId, 'GITHUB_APP_INSTALLATION_ID')
@@ -65,12 +72,7 @@ export function createGitHubTokenProvider({
       return (await cached.auth({ type: 'installation', installationId: numericInstallationId, refresh })).token
     }
 
-    const configuredToken = env.token?.unseal().trim()
-    if (configuredToken) return configuredToken
-
-    const cliToken = (await readCliToken()).trim()
-    if (!cliToken) throw new Error('GitHub authentication is not configured.')
-    return cliToken
+    return await fallbackToken(env, readCliToken)
   }
 }
 
@@ -79,9 +81,10 @@ export const githubToken = createGitHubTokenProvider({
 })
 
 export async function runGitHub(args: string[], options: GitHubCommandOptions = {}) {
+  const { repository, ...commandOptions } = options
   return await exec('gh', args, {
-    ...options,
-    env: githubCommandEnvironment(await githubToken(), options.env),
+    ...commandOptions,
+    env: githubCommandEnvironment(await githubToken({ repository }), options.env),
   })
 }
 
@@ -106,4 +109,13 @@ function positiveInteger(value: string, name: string) {
   const number = Number(value)
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error(`${name} must be a positive integer.`)
   return number
+}
+
+async function fallbackToken(env: GitHubAuthenticationEnv, readCliToken: () => Promise<string>) {
+  const configuredToken = env.token?.unseal().trim()
+  if (configuredToken) return configuredToken
+
+  const cliToken = (await readCliToken()).trim()
+  if (!cliToken) throw new Error('GitHub authentication is not configured.')
+  return cliToken
 }

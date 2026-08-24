@@ -52,7 +52,7 @@ export default defineSchedule({
           ...owner,
         })
         try {
-          const token = await githubToken({ refresh: true })
+          const token = await githubToken({ refresh: true, repository })
           await withPullRequestCheckout(repository, pullRequest, token, async checkout => {
             const context = {
               pullRequestHead: pullRequest.headRefOid,
@@ -124,11 +124,11 @@ async function readCompletion(key: string) {
 }
 
 async function listPullRequests(repository: string) {
-  const result = await runGitHub(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields])
+  const result = await runGitHub(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields], { repository })
   return JSON.parse(result.stdout) as PullRequest[]
 }
 
 async function readPullRequest(repository: string, number: number) {
-  const result = await runGitHub(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields])
+  const result = await runGitHub(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields], { repository })
   return JSON.parse(result.stdout) as PullRequest
 }

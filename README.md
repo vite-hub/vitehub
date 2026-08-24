@@ -60,9 +60,12 @@ flowchart TD
    ```sh
    GITHUB_APP_ID=4698907 \
    GITHUB_APP_INSTALLATION_ID=156121915 \
+   GITHUB_APP_OWNER=vite-hub \
    GITHUB_APP_PRIVATE_KEY='-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----' \
    pnpm dev
    ```
+
+   Repositories outside `GITHUB_APP_OWNER` keep using `GITHUB_TOKEN` or the host's existing `gh` login, so one Babysitter can retain queues that span accounts.
 
    To mirror invocation sessions and export completed OTLP traces to ViteHub Console, set its base URL and bearer token:
 

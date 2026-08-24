@@ -18,6 +18,7 @@ export default defineConfig({
       github: {
         appId: env({ default: '', source: env.source('GITHUB_APP_ID') }),
         installationId: env({ default: '', source: env.source('GITHUB_APP_INSTALLATION_ID') }),
+        owner: env({ default: 'vite-hub', source: env.source('GITHUB_APP_OWNER') }),
         privateKey: env({ optional: true, secret: true, source: env.source('GITHUB_APP_PRIVATE_KEY') }),
         token: env({ optional: true, secret: true, source: env.source('GITHUB_TOKEN') }),
       },
