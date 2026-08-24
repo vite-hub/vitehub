@@ -976,8 +976,9 @@ describe("workspace host sessions", () => {
     const writeFile = docs.writeFile.bind(docs)
     let writes = 0
     docs.writeFile = async (...args) => {
-      await writeFile(...args)
+      const result = await writeFile(...args)
       if (++writes === 1) abort.abort(new DOMException("cleanup deadline", "TimeoutError"))
+      return result
     }
 
     await expect(session.commit({ abortSignal: abort.signal, message: "published" })).resolves.toBeUndefined()
