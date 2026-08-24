@@ -1958,6 +1958,7 @@ export default defineAgent({
       webhooks: { id: "telegram", secretToken: false },
     }),
   },
+  workspace: {},
   driver: {
     run: async () => undefined,
   },
@@ -2275,7 +2276,7 @@ export default defineAgent({
 
       expect(webhookRoute).toContain('import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"')
       expect(webhookRoute).toContain('import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"')
-      expect(webhookRoute).toContain("function hasHostedWorkspaceStore(module)")
+      expect(webhookRoute).toContain("function hasHostedWorkspaceStore(module: AgentRegistryModule)")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")

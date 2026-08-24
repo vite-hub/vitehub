@@ -1675,7 +1675,11 @@ function generatedNetlifyRuntimeHelpers(): string[] {
   ]
 }
 
-function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefinition[], workspaceImportBase: string): { imports: string[], setup: string[] } {
+function generatedHostedWorkspaceRuntimeSetup(
+  definitions: DiscoveredAgentDefinition[],
+  workspaceImportBase: string,
+  typescript = false,
+): { imports: string[], setup: string[] } {
   const modules = definitions
     .map((definition, index) => definition.workspace ? `agent${index}` : undefined)
     .filter((module): module is string => Boolean(module))
@@ -1686,18 +1690,19 @@ function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefini
       `import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted-vercel-blob"))}`,
     ],
     setup: [
-      "function hasHostedWorkspaceStore(module) {",
-      "  const agent = resolveAgentModule(module)",
-      "  const store = agent?.__vitehubWorkspaceAgentOptions?.workspace?.store",
-      "  return store && typeof store === 'object' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
+      `function hasHostedWorkspaceStore(module${typescript ? ": AgentRegistryModule" : ""}) {`,
+      `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
+      "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
+      "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
+      "  return store && typeof store === 'object' && 'provider' in store && typeof store.provider === 'string' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
       "}",
       "",
-      "function hasHostedVercelBlobWorkspaceStore(module) {",
-      "  const agent = resolveAgentModule(module)",
+      `function hasHostedVercelBlobWorkspaceStore(module${typescript ? ": AgentRegistryModule" : ""}) {`,
+      `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
-      "  const store = workspace?.store",
+      "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
       "  if (workspace && !store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
-      "  return store && typeof store === 'object' && store.provider === 'vercel-blob'",
+      "  return store && typeof store === 'object' && 'provider' in store && store.provider === 'vercel-blob'",
       "}",
       "",
       `if ([${modules.join(", ")}].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()`,
@@ -1749,7 +1754,7 @@ async function generateAgentDeploymentCatalog(
         : undefined,
     }
   }))
-  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, options.workspaceImportBase)
+  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, options.workspaceImportBase, typescript)
   const workspaceEntries = entries.flatMap(entry => entry.workspaceEntry ? [entry.workspaceEntry] : []).join(",\n  ")
   if (workspaceEntries && !options.workspaceRuntimeImport) {
     throw new TypeError("[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents.")
@@ -1803,14 +1808,17 @@ async function generateAgentDeploymentCatalog(
             "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
             "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
             "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
-            "  return [workspaceName, async () => ({ ...module, default: agent })]",
+            `  return [workspaceName, async () => ({ ...module, default: agent })]${typescript ? " as const" : ""}`,
             "}",
             "",
           ]
         : []),
       ...hostedWorkspaceRuntime.setup,
       ...(options.workspaceRuntimeImport
-        ? [`setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`, ""]
+        ? [
+            `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].flatMap(entry => entry ? [entry] : []))${typescript ? " as Parameters<typeof setWorkspaceRuntimeRegistry>[0]" : ""})`,
+            "",
+          ]
         : []),
       `const agents${typescript ? ": Record<string, AgentInput>" : ""} = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
       ...registeredAgentWorkspaceEntries,
