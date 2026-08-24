@@ -170,7 +170,7 @@ function commandDetails(
   };
 }
 
-function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
+export function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = attributes[key];
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -445,8 +445,8 @@ function channelDeliveryTitle(activity: InvocationActivity): string {
 export function channelDeliverySummary(activity: InvocationActivity): string | undefined {
   if (activity.kind !== "delivery") return;
   if (activity.attributes["channel.effect.supported"] === false) return "Not supported";
-  const skipped = activity.attributes["channel.effect.skipped"];
-  if (typeof skipped === "string" && skipped.trim()) return normalizedTitle(skipped);
+  const skipped = stringAttribute(activity.attributes, "channel.effect.skipped");
+  if (skipped) return normalizedTitle(skipped);
   const kind = String(activity.attributes["channel.effect.kind"] ?? "").trim().toLocaleLowerCase();
   const intent = String(activity.attributes["channel.effect.intent"] ?? "").trim();
   if (!intent || (kind === "reaction" && ["completed", "failed", "started"].includes(intent.toLocaleLowerCase()))) return;

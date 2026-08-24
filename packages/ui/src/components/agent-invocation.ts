@@ -6,6 +6,7 @@ import {
   invocationActivities,
   invocationActivityTitle,
   latestInvocationTokens,
+  stringAttribute,
   terminalText,
   type InvocationActivity,
 } from "../internal/invocation-activity.ts";
@@ -282,13 +283,11 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
 }
 
 function activityDetail(activity: InvocationActivity): string | undefined {
-  const value = activity.attributes["vitehub.activity.detail"];
-  return activity.preview ?? (typeof value === "string" && value.trim() ? value.trim() : undefined);
+  return activity.preview ?? stringAttribute(activity.attributes, "vitehub.activity.detail");
 }
 
 function githubUrl(invocation: AgentInvocationView): string | undefined {
-  const value = invocation.annotations?.["github.url"];
-  return typeof value === "string" && value ? value : undefined;
+  return stringAttribute(invocation.annotations ?? {}, "github.url");
 }
 
 function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
@@ -376,13 +375,8 @@ function renderPreparationGroup(
   ]);
 }
 
-function nonEmptyAttribute(activity: InvocationActivity, key: string): string | undefined {
-  const value = activity.attributes[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
 function activityGroup(activity: InvocationActivity | undefined): string | undefined {
-  return activity ? nonEmptyAttribute(activity, "vitehub.activity.group") : undefined;
+  return activity ? stringAttribute(activity.attributes, "vitehub.activity.group") : undefined;
 }
 
 function labelStyle(color: string | undefined): Record<string, string> {
@@ -399,26 +393,26 @@ function labelStyle(color: string | undefined): Record<string, string> {
 }
 
 function renderLabelChip(activity: InvocationActivity) {
-  const name = nonEmptyAttribute(activity, "github.label.name");
+  const name = stringAttribute(activity.attributes, "github.label.name");
   if (!name) return;
   return h("span", {
     class: "vh-invocation-lifecycle__label",
-    "data-operation": nonEmptyAttribute(activity, "github.label.operation"),
-    style: labelStyle(nonEmptyAttribute(activity, "github.label.color")),
+    "data-operation": stringAttribute(activity.attributes, "github.label.operation"),
+    style: labelStyle(stringAttribute(activity.attributes, "github.label.color")),
   }, name);
 }
 
 function groupedActivityTitle(activity: InvocationActivity): string {
-  if (!nonEmptyAttribute(activity, "github.label.name")) return invocationActivityTitle(activity);
-  const operation = nonEmptyAttribute(activity, "github.label.operation")?.toLocaleLowerCase();
+  if (!stringAttribute(activity.attributes, "github.label.name")) return invocationActivityTitle(activity);
+  const operation = stringAttribute(activity.attributes, "github.label.operation")?.toLocaleLowerCase();
   if (operation === "add" || operation === "added") return "Added label";
   if (operation === "remove" || operation === "removed") return "Removed label";
   return "Updated label";
 }
 
 function renderGroupedActivityIcon(activity: InvocationActivity) {
-  if (nonEmptyAttribute(activity, "github.label.name")) return renderNamedActivityIcon("label");
-  const delivery = nonEmptyAttribute(activity, "channel.effect.kind")?.toLocaleLowerCase();
+  if (stringAttribute(activity.attributes, "github.label.name")) return renderNamedActivityIcon("label");
+  const delivery = stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase();
   if (delivery === "reaction") {
     return h("span", { "aria-label": "eyes", class: "vh-invocation-lifecycle__emoji", role: "img" }, "👀");
   }
@@ -452,7 +446,7 @@ function renderActivityGroup(
           renderGroupedActivityIcon(activity),
           h("span", { class: "vh-invocation-lifecycle__title" }, groupedActivityTitle(activity)),
           renderLabelChip(activity),
-          !nonEmptyAttribute(activity, "github.label.name") && channelDeliverySummary(activity)
+          !stringAttribute(activity.attributes, "github.label.name") && channelDeliverySummary(activity)
             ? h("code", { class: "vh-invocation-lifecycle__detail" }, channelDeliverySummary(activity))
             : null,
         ]),
