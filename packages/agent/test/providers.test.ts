@@ -11949,10 +11949,14 @@ describe("server helpers", () => {
     }
   })
 
-  it("detaches persisted steer input when lost ownership verification throws", async () => {
+  it.each([
+    { persistentStateFailure: false, title: "executes a persisted recovery claim after transient reconciliation failure" },
+    { persistentStateFailure: true, title: "bounds persistent recovered State reconciliation failures" },
+  ])("$title", async ({ persistentStateFailure }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -11963,18 +11967,22 @@ describe("server helpers", () => {
     const peekQueue = state.queuePeek.bind(state)
     let interruptRecoveryReplacement = true
     let interruptRecoveryPeek = true
+    let recoveryStarted = false
+    const recoveryWorkflowClaimIds: string[] = []
     vi.spyOn(state, "queueReplaceHead").mockImplementation(async (...args) => {
       const [, , replacement] = args
-      if (interruptRecoveryReplacement && replacement.length === 1) {
-        interruptRecoveryReplacement = false
-        await replaceQueueHead(...args)
+      if (recoveryStarted && args[0].endsWith(":pending") && interruptRecoveryReplacement && replacement.length === 1) {
+        if (!persistentStateFailure) {
+          interruptRecoveryReplacement = false
+          await replaceQueueHead(...args)
+        }
         throw new Error("state response lost after persisting recovery claim")
       }
       return await replaceQueueHead(...args)
     })
     vi.spyOn(state, "queuePeek").mockImplementation(async (...args) => {
-      if (!interruptRecoveryReplacement && interruptRecoveryPeek && args[0].endsWith(":pending")) {
-        interruptRecoveryPeek = false
+      if (recoveryStarted && (persistentStateFailure || !interruptRecoveryReplacement) && interruptRecoveryPeek && args[0].endsWith(":pending")) {
+        if (!persistentStateFailure) interruptRecoveryPeek = false
         throw new Error("state temporarily unavailable while reconciling recovery claim")
       }
       return await peekQueue(...args)
@@ -11985,6 +11993,7 @@ describe("server helpers", () => {
       if (!lock.threadId.includes("durable-steer") || lock.threadId.endsWith(":handoff")) return await originalExtendLock(lock, ttlMs)
       ownerVerificationAttempts++
       if (ownerVerificationAttempts === 1) return false
+      recoveryStarted = true
       throw new Error("state temporarily unavailable")
     })
     const adapter = createTestChatAdapter()
@@ -11992,9 +12001,13 @@ describe("server helpers", () => {
     const workflowRejected = new Promise<void>((resolve) => {
       rejectWorkflow = resolve
     })
-    const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => {
+    let workflowStartCalls = 0
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params?: { input?: AgentRunInput } }>) => {
+      const callNumber = ++workflowStartCalls
       await workflowRejected
-      if (createBatch.mock.calls.length === 1) throw Object.assign(new Error("Workflow unavailable"), { status: 503 })
+      if (callNumber === 1) throw Object.assign(new Error("Workflow unavailable"), { status: 503 })
+      const delivery = params?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as { steer?: { claimId?: string } } | undefined
+      if (delivery?.steer?.claimId) recoveryWorkflowClaimIds.push(delivery.steer.claimId)
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const agent = defineAgent({
@@ -12026,12 +12039,19 @@ describe("server helpers", () => {
       const ownershipKey = acquireLock.mock.calls.find(([key]) => key.includes("durable-steer") && !key.endsWith(":handoff"))?.[0]
       expect(ownershipKey).toBeDefined()
       await state.forceReleaseLock(ownershipKey!)
-      await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(interruptRecoveryReplacement).toBe(false))
+      await vi.advanceTimersByTimeAsync(persistentStateFailure ? 300_500 : 500)
 
-      expect(interruptRecoveryPeek).toBe(false)
-      expect(ownerVerificationAttempts).toBe(3)
-      expect(createBatch).toHaveBeenCalledTimes(2)
+      if (persistentStateFailure) {
+        const replacementAttempts = vi.mocked(state.queueReplaceHead).mock.calls.length
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(vi.mocked(state.queueReplaceHead)).toHaveBeenCalledTimes(replacementAttempts)
+      } else {
+        await vi.waitFor(() => expect(interruptRecoveryReplacement).toBe(false))
+        expect(interruptRecoveryPeek).toBe(false)
+        expect(ownerVerificationAttempts).toBe(3)
+        expect(createBatch).toHaveBeenCalledTimes(2)
+        expect(recoveryWorkflowClaimIds).toHaveLength(1)
+      }
       expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "Workflow failed.")
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
     } finally {

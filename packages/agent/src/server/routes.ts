@@ -4753,7 +4753,9 @@ async function handleChatSdkMessage(
                 (async () => {
                   let expectedRecoveryPending = persistedPending
                   let recoveredLock: Lock | null = null
-                  let recoveryDeadline = steerLock.expiresAt
+                  let recoveryInput: AgentRunInput | null = null
+                  let recoveryPending: DurableSteerQueueEntry | null = null
+                  const recoveryDeadline = Date.now() + steerTtlMs
                   while (true) {
                     while (!recoveredLock) {
                       try {
@@ -4766,31 +4768,32 @@ async function handleChatSdkMessage(
                       if (remainingMs <= 0) return
                       await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                     }
-                    recoveryDeadline = recoveredLock.expiresAt
-                    const recoveredClaimId = crypto.randomUUID()
-                    const recoveredDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
-                    const recoveryInput: AgentRunInput = {
-                      ...workflowInput,
-                      context: {
-                        ...workflowInput.context,
-                        [agentChannelDeliveryWorkflowContextKey]: {
-                          ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
-                          steer: {
-                            ...(isRecord(recoveredDelivery) && isRecord(recoveredDelivery.steer) ? recoveredDelivery.steer : {}),
-                            claimId: recoveredClaimId,
-                            lock: recoveredLock,
+                    if (!recoveryInput || !recoveryPending) {
+                      const recoveredClaimId = crypto.randomUUID()
+                      const recoveredDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+                      recoveryInput = {
+                        ...workflowInput,
+                        context: {
+                          ...workflowInput.context,
+                          [agentChannelDeliveryWorkflowContextKey]: {
+                            ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
+                            steer: {
+                              ...(isRecord(recoveredDelivery) && isRecord(recoveredDelivery.steer) ? recoveredDelivery.steer : {}),
+                              claimId: recoveredClaimId,
+                              lock: recoveredLock,
+                            },
                           },
                         },
-                      },
-                    }
-                    const recoveryPending: DurableSteerQueueEntry = {
-                      ...persistedPending,
-                      message: {
-                        ...persistedMessage,
-                        claimId: recoveredClaimId,
-                        input: recoveryInput,
-                        ownerToken: recoveredLock.token,
-                      },
+                      }
+                      recoveryPending = {
+                        ...persistedPending,
+                        message: {
+                          ...persistedMessage,
+                          claimId: recoveredClaimId,
+                          input: recoveryInput,
+                          ownerToken: recoveredLock.token,
+                        },
+                      }
                     }
                     // SAFETY: persistedPending is normalized durable queue data owned by this route boundary.
                     const expectedPending = expectedRecoveryPending as never
@@ -4814,11 +4817,15 @@ async function handleChatSdkMessage(
                       if (replacedRecoveryPending) {
                         expectedRecoveryPending = recoveryPending
                       } else {
-                        await state.state.releaseLock(recoveredLock).catch(() => undefined)
-                        if (!recoveryReplacementFailed) return
-                        recoveredLock = null
+                        if (!recoveryReplacementFailed) {
+                          await state.state.releaseLock(recoveredLock).catch(() => undefined)
+                          return
+                        }
                         const remainingMs = recoveryDeadline - Date.now()
-                        if (remainingMs <= 0) return
+                        if (remainingMs <= 0) {
+                          await state.state.releaseLock(recoveredLock).catch(() => undefined)
+                          return
+                        }
                         await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                         continue
                       }
@@ -4836,6 +4843,8 @@ async function handleChatSdkMessage(
                     }
                     await state.state.releaseLock(recoveredLock).catch(() => undefined)
                     recoveredLock = null
+                    recoveryInput = null
+                    recoveryPending = null
                     const remainingMs = recoveryDeadline - Date.now()
                     if (remainingMs <= 0) return
                     await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
