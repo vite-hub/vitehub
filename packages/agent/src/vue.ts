@@ -132,10 +132,13 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     latestOptions.value = next
     if (next.id !== previous.id) {
       reconnectGeneration++
+      reconnectStatusGeneration++
       constructorOptions.value = next
       streamedParts.value = []
       resumableMessageId = undefined
-      if (next.resume && isBrowserRuntime()) queueMicrotask(reconnect)
+      const shouldReconnect = Boolean(next.resume && isBrowserRuntime() && (next.messages ?? chat.messages.value).length)
+      reconnecting.value = shouldReconnect
+      if (shouldReconnect) queueMicrotask(reconnect)
       return
     }
 

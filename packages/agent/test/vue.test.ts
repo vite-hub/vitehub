@@ -305,6 +305,41 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it.each([
+    ["resume disabled", false, [{ id: "user-2", parts: [{ text: "Hi", type: "text" }], role: "user" }]],
+    ["empty history", true, []],
+  ])("releases pending status after changing to a chat with %s", async (_case, resume, nextMessages) => {
+    vi.stubGlobal("window", {})
+    let finishReconnect!: (response: Response) => void
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => await new Promise<Response>((resolve) => {
+      finishReconnect = resolve
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const id = ref("chat-a")
+    const messages = ref<UIMessage[]>([
+      { id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" },
+    ])
+    const shouldResume = ref(true)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), () => ({
+      id: id.value,
+      messages: messages.value,
+      resume: shouldResume.value,
+    })))!
+
+    await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
+    id.value = "chat-b"
+    messages.value = nextMessages as UIMessage[]
+    shouldResume.value = resume
+    await nextTick()
+
+    expect(chat.status.value).toBe("ready")
+    finishReconnect(new Response(null, { status: 204 }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(chat.status.value).toBe("ready")
+    scope.stop()
+  })
+
   it("discards a pending replay after a fresh send to the same chat", async () => {
     vi.stubGlobal("window", {})
     let finishReconnect!: (response: Response) => void
