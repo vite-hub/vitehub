@@ -25,6 +25,7 @@ import { agentWorkflowRetryRegistrar } from "../internal/workflow-retry.ts"
 import { isRuntimeBoolean, isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "../internal/runtime-value.ts"
 
 import type {
+  AgentChannelDeliveryEventInput,
   AgentHostIdentity,
   AgentInput,
   AgentRunInput,
@@ -227,15 +228,16 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
       const headers = Array.from(result.headers)
       const mediaType = result.headers.get("content-type") || "application/octet-stream"
       const bytes = new Uint8Array(await result.arrayBuffer())
-      return {
+      const responseResult: AgentRunResult = {
         raw: {
           body: { data: workflowBytesToBase64(bytes), encoding: "base64", mediaType },
           headers,
           status: result.status,
           statusText: result.statusText,
         },
-        ...(isTextResponseMediaType(mediaType) ? { text: new TextDecoder().decode(bytes) } : {}),
-      } satisfies AgentRunResult
+      }
+      if (isTextResponseMediaType(mediaType)) responseResult.text = new TextDecoder().decode(bytes)
+      return responseResult
     }
     const jsonResult = jsonWorkflowValue(result)
     if (jsonResult !== unportableWorkflowValue) return jsonResult
@@ -287,30 +289,28 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
-  const waitUntil = (promise: Promise<unknown>): void => {
-    void Promise.resolve(promise).catch(() => {})
-  }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare" ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent()) : undefined
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const runId = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) ? payload.run?.runId || context.id : context.id || payload.run?.runId
   const backgroundTasks: Promise<unknown>[] = []
   const workflowRetryTasks: Promise<unknown>[] = []
-  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-  let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
-    ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
-    ...(payload.capabilities ? { capabilities: payload.capabilities } : {}),
-    ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
-    ...(payload.requestUrl ? { request: new Request(payload.requestUrl) } : {}),
-    ...(runId ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } } : {}),
-    ...(payload.trace ? { trace: payload.trace } : {}),
+  // SAFETY: The workflow payload's runtimeConfig was serialized from the same generic Agent runtime definition.
+  const runtimeConfig = (payload.runtimeConfig || {}) as TRuntimeConfig
+  const runtimeInput: Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & { memo?: AgentRuntimeContext<TRuntimeConfig>["memo"] } = {
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
-    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
+    runtimeConfig,
     waitUntil(promise: Promise<unknown>) {
       backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
     },
-  } as never)
+  }
+  if (payload.agentIdentity) runtimeInput.agentIdentity = payload.agentIdentity
+  if (payload.capabilities) runtimeInput.capabilities = payload.capabilities
+  if (cloudflareEnv) runtimeInput.cloudflare = { env: cloudflareEnv }
+  if (payload.requestUrl) runtimeInput.request = new Request(payload.requestUrl)
+  if (runId) runtimeInput.run = { origin: `workflow:${context.provider}`, ...payload.run, runId }
+  if (payload.trace) runtimeInput.trace = payload.trace
+  let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>(runtimeInput)
   if (payload.run?.runId && payload.run.runId !== runId) {
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     ;(runtimeContext as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
@@ -358,11 +358,12 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     if (channelOwnership?.settlementStatus) {
       channelDeliveryStatus = channelOwnership.settlementStatus
       if (channelDelivery) {
-        await channelDelivery.event({
-          ...(channelOwnership.settlementError ? { error: channelOwnership.settlementError } : {}),
+        const settlementEvent: AgentChannelDeliveryEventInput = {
           type: channelDeliveryStatus,
           runId,
-        })
+        }
+        if (channelOwnership.settlementError) settlementEvent.error = channelOwnership.settlementError
+        await channelDelivery.event(settlementEvent)
         channelDeliveryJournaled = true
       }
       return

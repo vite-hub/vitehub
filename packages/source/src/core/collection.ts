@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import { isPlainRecord } from "@vite-hub/internal/object"
 
 const defaultPageLimit = 50
 const defaultMaxLimit = 100
@@ -222,12 +223,51 @@ function decodeBase64Url(value: string): string {
   return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
 }
 
-function isCursorValue(value: unknown): value is CollectionCursorValue {
-  if (Number(value) === value) return Number.isFinite(Number(value)) && !Object.is(value, -0)
-  if (value === null || value === true || value === false || String(value) === value) return true
-  if (Array.isArray(value)) return value.every(isCursorValue)
-  if (Object(value) !== value || value instanceof Function) return false
-  return Object.values(Object(value)).every(isCursorValue)
+function hasPrimitiveRuntimeTag(value: unknown, tag: string): boolean {
+  return value !== null && value !== undefined && Object(value) !== value && Object.prototype.toString.call(value) === tag
+}
+
+function isRuntimeNumber(value: unknown): value is number {
+  return hasPrimitiveRuntimeTag(value, "[object Number]")
+}
+
+function isRuntimeObject(value: unknown): value is object {
+  return value !== null && Object(value) === value
+}
+
+function isRuntimeString(value: unknown): value is string {
+  return hasPrimitiveRuntimeTag(value, "[object String]")
+}
+
+function isCursorValue(value: unknown, ancestors = new Set<object>()): value is CollectionCursorValue {
+  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0)
+  if (value === null || value === true || value === false || isRuntimeString(value)) return true
+  if (!isRuntimeObject(value) || ancestors.has(value)) return false
+
+  ancestors.add(value)
+  try {
+    if (Array.isArray(value)) {
+      const keys = Reflect.ownKeys(value)
+      if (keys.length !== value.length + 1 || keys.some(key => key !== "length" && !isRuntimeString(key))) return false
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+        if (!descriptor?.enumerable || !("value" in descriptor) || !isCursorValue(descriptor.value, ancestors)) return false
+      }
+      return true
+    }
+
+    if (!isPlainRecord(value)) return false
+    for (const key of Reflect.ownKeys(value)) {
+      if (!isRuntimeString(key)) return false
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (!descriptor?.enumerable || !("value" in descriptor) || !isCursorValue(descriptor.value, ancestors)) return false
+    }
+    return true
+  } catch {
+    return false
+  } finally {
+    ancestors.delete(value)
+  }
 }
 
 function encodeCursor(value: CollectionCursorValue): string {

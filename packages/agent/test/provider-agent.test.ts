@@ -8,7 +8,7 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: unknown) => providerRuntimes.shift()))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string> }) => providerRuntimes.shift()))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 
@@ -111,8 +111,8 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
       environment: expect.objectContaining({ PROVIDER_SELECTED: "selected" }),
     }))
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect((createProviderRuntime.mock.lastCall?.[0] as { environment: Record<string, string> }).environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    expect(createProviderRuntime).toHaveBeenCalled()
+    expect(createProviderRuntime.mock.calls.at(-1)![0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
   })
 

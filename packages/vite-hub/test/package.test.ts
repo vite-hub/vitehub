@@ -1,5 +1,10 @@
+import { execFile } from "node:child_process"
 import { existsSync, globSync, readFileSync } from "node:fs"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
@@ -29,6 +34,7 @@ import { distributionBinEntries, distributionEntriesFromManifest } from "../vite
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
+const execFileAsync = promisify(execFile)
 
 interface DistributionManifest {
   bin: Record<string, string>
@@ -263,6 +269,32 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.js`, "utf8")).toContain("ViteHub")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8")).toContain("vitehub-console")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
+  })
+
+  it("runs the distributed CLI entrypoint with clean help streams", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"))
+    try {
+      await writeFile(join(root, "vite.config.mjs"), `
+const namespaces = Array.from({ length: 4096 }, (_, index) => ({
+  description: "A package-contributed command whose help output must flush before exit.",
+  features: [],
+  name: \`namespace-\${String(index).padStart(4, "0")}\`,
+}))
+export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespaces } } }] }
+`)
+      const { stderr, stdout } = await execFileAsync(process.execPath, [`${packageRoot}/${manifest.bin.vitehub}`, "--help"], {
+        cwd: root,
+        env: { ...process.env, NO_COLOR: "1" },
+      })
+
+      expect(stdout).toContain("Usage: vitehub <namespace> <feature>")
+      expect(stdout).toContain("namespace-4095")
+      expect(stdout).toContain("provision")
+      expect(stderr).toBe("")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("derives deduplicated binary entries from the package manifest", () => {

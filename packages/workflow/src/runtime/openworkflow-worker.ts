@@ -1,5 +1,7 @@
 import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition } from "./openworkflow.ts"
+import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
 
@@ -24,23 +26,21 @@ function getProcess(): {
   off?: (event: string, listener: () => void) => void
   on?: (event: string, listener: () => void) => void
 } | undefined {
-  return (globalThis as {
-    process?: {
-      emitWarning?: (warning: Error) => void
-      off?: (event: string, listener: () => void) => void
-      on?: (event: string, listener: () => void) => void
-    }
-  }).process
+  return globalThis.process
+}
+
+function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
+  return isRuntimeRecord(value) && hasRuntimeType(value.handler, "function")
 }
 
 async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
   const definitions = new Map<string, WorkflowDefinition>()
   for (const name of Object.keys(registry).sort()) {
     const loaded = await registry[name]?.()
-    const definition = (loaded && typeof loaded === "object" && "default" in loaded
+    const definition = (isRuntimeRecord(loaded) && "default" in loaded
       ? loaded.default
-      : loaded) as WorkflowDefinition | undefined
-    if (definition && typeof definition === "object" && "handler" in definition && typeof definition.handler === "function") {
+      : loaded)
+    if (isWorkflowDefinition(definition)) {
       definitions.set(name, definition)
       continue
     }
@@ -87,7 +87,51 @@ export async function createOpenWorkflowWorker(options: CreateOpenWorkflowWorker
 
 export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOptions = {}): Promise<OpenWorkflowWorker> {
   const worker = await createOpenWorkflowWorker(options)
-  await worker.start()
+  await runWorkflowProviderOperation("openworkflow", "start", async () => {
+    let removeStartupAbortListener: (() => void) | undefined
+    let startTask: Promise<void> | undefined
+    try {
+      if (options.signal?.aborted) throw options.signal.reason
+      startTask = Promise.resolve(worker.start())
+      if (!options.signal) {
+        await startTask
+      }
+      else {
+        const signal = options.signal
+        const abortTask = new Promise<never>((_resolve, reject) => {
+          const abort = () => reject(signal.reason)
+          removeStartupAbortListener = () => signal.removeEventListener("abort", abort)
+          signal.addEventListener("abort", abort, { once: true })
+          if (signal.aborted) abort()
+        })
+        await Promise.race([startTask, abortTask])
+      }
+    }
+    catch (startError) {
+      const stopTask = Promise.resolve().then(() => worker.stop())
+      if (startTask && options.signal?.aborted) {
+        void startTask.then(async () => {
+          await stopTask.catch(() => {})
+          await worker.stop()
+        }).catch(() => {})
+      }
+      try {
+        await stopTask
+      }
+      catch (stopError) {
+        throw new AggregateError(
+          [startError, stopError],
+          "OpenWorkflow worker startup and cleanup failed.",
+        )
+      }
+      throw startError
+    }
+    finally {
+      removeStartupAbortListener?.()
+    }
+  }, {
+    boundaryError: error => options.signal?.aborted === true && error === options.signal.reason,
+  })
 
   const originalStop = worker.stop.bind(worker)
   const proc = getProcess()

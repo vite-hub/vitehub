@@ -76,7 +76,8 @@ function renderItem(
   harnessSlot?: Slot,
   itemProps?: Record<string, unknown>,
 ) {
-  const time = relativeTime(item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt, now);
+  const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
+  const time = relativeTime(timestamp, now);
   const harness = harnessSlot?.({ item }) ?? [
     item.provider ? h("span", { title: `Provider: ${item.provider}` }, [metadataIcon("provider"), h("span", { class: "vh-visually-hidden" }, `Provider ${item.provider}`)]) : null,
     item.agent ? h("span", { title: `Agent: ${item.agent}` }, [metadataIcon("agent"), h("span", { class: "vh-visually-hidden" }, `Agent ${item.agent}`)]) : null,
@@ -96,7 +97,7 @@ function renderItem(
         h("span", { class: "vh-invocation-list__state" }, [
           h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
           h("span", statusLabel(item.status)),
-          time ? h("time", { datetime: item.updatedAt }, time) : null,
+          time ? h("time", { datetime: timestamp }, time) : null,
         ]),
       ]),
       h("strong", { class: "vh-invocation-list__title" }, item.title),

@@ -71,10 +71,23 @@ function isSourceName(input: SourceName | SourceReader | (() => SourceReader)): 
   return !(input instanceof Object)
 }
 
+function configuredContentSource(input: ComarkContentSource, options: ContentSourceOptions): ComarkContentSource {
+  const source: ComarkContentSource = {
+    getItem: input.getItem.bind(input),
+    getItemRaw: undefined,
+    keys: input.keys.bind(input),
+    prefix: options.prefix ?? input.prefix,
+    schema: options.schema ?? input.schema,
+  }
+  if (input.getItemRaw) source.getItemRaw = input.getItemRaw.bind(input)
+  if (input.watch) source.watch = input.watch.bind(input)
+  return source
+}
+
 /** Adapt a registered ViteHub Source or Source Reader to the interface consumed by Comark Content. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
   if (isComarkContentSource(input)) {
-    return options.prefix === undefined && options.schema === undefined ? input : { ...input, ...options }
+    return options.prefix === undefined && options.schema === undefined ? input : configuredContentSource(input, options)
   }
   // SAFETY: The native Comark Source branch returned above, leaving only ViteHub Source inputs.
   const sourceInput = input as SourceName | SourceReader | (() => SourceReader)

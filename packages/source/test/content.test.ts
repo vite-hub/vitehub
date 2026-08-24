@@ -3,6 +3,8 @@ import media from "comark-content/plugins/media"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { afterEach, describe, expect, it } from "vitest"
 
+import type { Source as ComarkContentSource } from "comark-content"
+
 import { contentSource, defineContent } from "../src/content.ts"
 import { clearSources, registerSources, useSource } from "../src/index.ts"
 
@@ -180,6 +182,48 @@ describe("contentSource", () => {
     const content = defineContent({ sources: { native: source } })
     expect(content.getSource("native")).toBe(source)
     await expect(content.get("/")).resolves.toEqual(expect.objectContaining({ path: "/" }))
+  })
+
+  it("preserves prototype-backed native Sources when applying options", async () => {
+    class PrototypeSource {
+      #content = "# Native"
+      prefix = "original"
+
+      async keys() {
+        return ["index.md"]
+      }
+
+      async getItem() {
+        return this.#content
+      }
+
+      async getItemRaw() {
+        return this.#content
+      }
+    }
+
+    const source = contentSource(new PrototypeSource(), { prefix: "configured" })
+
+    expect(source.prefix).toBe("configured")
+    await expect(source.keys()).resolves.toEqual(["index.md"])
+    await expect(source.getItem("index.md")).resolves.toBe("# Native")
+  })
+
+  it("preserves native Sources without an optional raw-item handler when applying options", async () => {
+    const nativeSource: ComarkContentSource = {
+      getItemRaw: undefined,
+      async keys() {
+        return ["index.md"]
+      },
+      async getItem() {
+        return "# Native"
+      },
+    }
+    const source = contentSource(nativeSource, { prefix: "configured" })
+
+    expect(source.prefix).toBe("configured")
+    expect(source.getItemRaw).toBeUndefined()
+    await expect(source.getItem("index.md")).resolves.toBe("# Native")
   })
 
   it("rejects duplicate public paths", async () => {

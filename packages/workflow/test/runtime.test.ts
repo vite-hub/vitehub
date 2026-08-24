@@ -2,6 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
@@ -1418,6 +1419,143 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
     await worker.start()
     expect(worker.start).toHaveBeenCalled()
+  })
+
+  it("registers OpenWorkflow handlers created in another JavaScript realm", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    // SAFETY: Node's VM evaluates the exact async function literal owned by this test fixture.
+    const handler = runInNewContext("(async () => ({ ok: true }))") as () => Promise<{ ok: boolean }>
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler } }),
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("welcome")).toBe(true)
+  })
+
+  it("closes a partially started OpenWorkflow worker and normalizes startup failures", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const cause = new Error("worker startup failed")
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => { throw cause }),
+      stop,
+    })
+
+    await expect(startOpenWorkflowWorker()).rejects.toMatchObject({
+      cause,
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation: "start", provider: "openworkflow" },
+    })
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("keeps startup and cleanup failures when an OpenWorkflow worker cannot start", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const startError = new Error("worker startup failed")
+    const stopError = new Error("worker cleanup failed")
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => { throw startError }),
+      stop: vi.fn(async () => { throw stopError }),
+    })
+
+    const error = await startOpenWorkflowWorker().catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation: "start", provider: "openworkflow" },
+    })
+    expect(error.cause).toBeInstanceOf(AggregateError)
+    expect(error.cause.errors).toEqual([startError, stopError])
+  })
+
+  it("does not start and cleans up an OpenWorkflow worker for a pre-aborted signal", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("cancelled", "AbortError")
+    controller.abort(reason)
+    const start = vi.fn(async () => {})
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    await expect(startOpenWorkflowWorker({ signal: controller.signal })).rejects.toBe(reason)
+    expect(start).not.toHaveBeenCalled()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("preserves an arbitrary abort reason while an OpenWorkflow worker starts", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new Error("cancelled")
+    const start = vi.fn(() => new Promise<void>(() => {}))
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    const workerTask = startOpenWorkflowWorker({ signal: controller.signal })
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    controller.abort(reason)
+
+    await expect(workerTask).rejects.toBe(reason)
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("stops a partially started OpenWorkflow worker when startup is aborted", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("cancelled", "AbortError")
+    const start = vi.fn(() => new Promise<void>(() => {}))
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    const workerTask = startOpenWorkflowWorker({ signal: controller.signal })
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    controller.abort(reason)
+
+    await expect(workerTask).rejects.toBe(reason)
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("stops an OpenWorkflow worker again when startup succeeds after abort cleanup", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("cancelled", "AbortError")
+    let finishStart: (() => void) | undefined
+    const start = vi.fn(() => new Promise<void>((resolve) => { finishStart = resolve }))
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    const workerTask = startOpenWorkflowWorker({ signal: controller.signal })
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    controller.abort(reason)
+
+    await expect(workerTask).rejects.toBe(reason)
+    expect(stop).toHaveBeenCalledOnce()
+    finishStart?.()
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(2))
   })
 
   it("owns OpenWorkflow worker listeners until a cached public stop fails", async () => {
