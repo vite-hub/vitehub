@@ -26,7 +26,9 @@ This pass may post only the direction comment, one review request, or a comment 
 
 Before merging, refresh the head, checks, review request and reactions, later Codex events, and threads. The gate requires the expected head, passing checks, no actionable or unresolved feedback, and a positive exact-head Codex or read-only fallback review.
 
-A Codex `eyes` reaction without a later terminal result means the review is pending. Stop unchanged. A terminal Codex error, quota, or unavailable result permits one read-only fallback review. A later Codex result replaces that fallback evidence.
+An absent exact-head `@codex review` request is pending, not evidence that Codex is unavailable. Request it once and stop. A Codex `eyes` reaction without a later terminal result is also pending. A terminal Codex error, quota, or unavailable result permits one read-only fallback review. A later Codex result replaces that fallback evidence.
+
+An unfinished Pullfrog progress comment or workflow run is pending. Inspect the latest Pullfrog comment, its linked workflow run, and Pullfrog reviews after the expected head was pushed. A failed, cancelled, or stale run does not pass the gate. If Pullfrog started for this pull request, stop unchanged until Pullfrog has finished successfully and submitted its review for the expected head.
 
 Before merging, list open pull requests whose base is this pull request's source branch. Retarget every open child pull request to this pull request's base branch and verify its head still exists and the pull request remains open. If a child cannot be preserved, block this pull request instead of merging or deleting the source branch.
 

@@ -30,3 +30,11 @@ test('yields pending checks and reviews to the next schedule', async () => {
   assert.match(prompt, /stop unchanged/)
   assert.match(prompt, /GitHub state change wakes the next pass/)
 })
+
+test('waits for Codex and Pullfrog to finish before merging', async () => {
+  const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
+
+  assert.match(prompt, /An absent exact-head `@codex review` request is pending/)
+  assert.match(prompt, /An unfinished Pullfrog progress comment or workflow run is pending/)
+  assert.match(prompt, /Pullfrog has finished successfully and submitted its review/)
+})
