@@ -82,7 +82,7 @@ const sourceLabel = computed(() => (sourceOpen.value ? "Hide code" : "View code"
       </Suspense>
     </div>
 
-    <div v-if="sourceOpen" class="component-preview-source border-t border-default">
+    <div v-show="sourceOpen" class="component-preview-source border-t border-default">
       <MDC :value="sourceBlock" :parser-options="sourceParserOptions" :tag="false" />
     </div>
   </div>
