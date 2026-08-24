@@ -329,7 +329,7 @@ describe("ViteHub Nuxt integration", () => {
       `installConsoleInvocations("/tmp/vitehub-nuxt")`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleAgents([], "/tmp/vitehub-nuxt")`,
+      `installConsoleAgentDefinitions([], "/tmp/vitehub-nuxt")`,
     )
 
     mocks.uiModule.mockClear()

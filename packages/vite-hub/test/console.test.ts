@@ -11,7 +11,7 @@ import { createServer } from "vite"
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
-import { consoleAgentsKey, consoleAgentsRegistryKey, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
+import { consoleAgentsKey, consoleAgentsRegistryKey, installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -98,7 +98,7 @@ describe("Agent invocation console", () => {
         `installConsoleInvocations(${JSON.stringify(root)})`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
-        `installConsoleAgents(["review","support"], ${JSON.stringify(root)})`,
+        `fallbackName: "review"`,
       )
     }
     finally {
@@ -112,6 +112,14 @@ describe("Agent invocation console", () => {
     expect(agentsHandler(event("127.0.0.1"))).toEqual({
       agents: ["review", "support"],
     })
+  })
+
+  it("uses explicit Agent Definition names instead of discovered route names", () => {
+    installConsoleAgentDefinitions([
+      { definition: { default: defineAgent({ driver: { run: () => "ok" }, name: "support" }) }, fallbackName: "help" },
+    ], process.cwd())
+
+    expect(agentsHandler(event("127.0.0.1"))).toEqual({ agents: ["support"] })
   })
 
   it("filters console sessions by exact Agent name", async () => {

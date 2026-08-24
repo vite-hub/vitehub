@@ -20,6 +20,11 @@ export type ConsoleAgentScope = {
   [consoleInvocationsRootKey]?: string
 }
 
+export type ConsoleAgentDefinitionEntry = {
+  definition: unknown
+  fallbackName: string
+}
+
 function agentsByRoot(value: unknown): ConsoleAgentsByRoot | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return
@@ -73,6 +78,20 @@ export function installConsoleAgents(
     registry[consoleAgentsKey] = agents
   }
   return agents
+}
+
+export function installConsoleAgentDefinitions(
+  entries: readonly ConsoleAgentDefinitionEntry[],
+  projectRoot: string,
+  scope: ConsoleAgentScope = globalThis as ConsoleAgentScope,
+): readonly string[] {
+  return installConsoleAgents(entries.map(({ definition, fallbackName }) => {
+    const module = definition && typeof definition === "object" ? definition as Record<string, unknown> : undefined
+    const agent = module?.default && typeof module.default === "object"
+      ? module.default as Record<string, unknown>
+      : module
+    return typeof agent?.name === "string" && agent.name.trim() ? agent.name : fallbackName
+  }), projectRoot, scope)
 }
 
 export function getConsoleAgents(): readonly string[] {

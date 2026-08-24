@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { discoverAgentDefinitionNames } from "@vite-hub/agent/vite"
+import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { Plugin } from "vite"
@@ -19,11 +19,14 @@ type ConsoleNitroConfig = {
   [key: string]: unknown
 }
 
-function renderConsoleNitroPlugin(projectRoot: string, agentNames: readonly string[]): string {
+type ConsoleAgentEntry = { handler: string, name: string }
+
+function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[]): string {
   return [
-    `import { installConsoleAgents, installConsoleInvocations } from "vite-hub/console/server"`,
+    `import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`,
+    ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(agent.handler)}`),
     `installConsoleInvocations(${JSON.stringify(projectRoot)})`,
-    `installConsoleAgents(${JSON.stringify(agentNames)}, ${JSON.stringify(projectRoot)})`,
+    `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], ${JSON.stringify(projectRoot)})`,
     "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
@@ -32,9 +35,9 @@ function renderConsoleNitroPlugin(projectRoot: string, agentNames: readonly stri
 async function writeConsoleNitroPlugin(
   file: string,
   projectRoot: string,
-  agentNames: readonly string[],
+  agents: readonly ConsoleAgentEntry[],
 ): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, agentNames)
+  const contents = renderConsoleNitroPlugin(projectRoot, agents)
   if (await readFile(file, "utf8").catch(() => undefined) === contents) return
   await mkdir(resolve(file, ".."), { recursive: true })
   await writeFile(file, contents, "utf8")
@@ -44,7 +47,7 @@ export function discoverConsoleAgentNames(
   root: string,
   serverDirs = [join(root, "server")],
 ): string[] {
-  return discoverAgentDefinitionNames(root, serverDirs)
+  return discoverAgentDefinitionEntries(root, serverDirs).map(agent => agent.name)
 }
 
 function generatedRegistration(value: string, path: string): boolean {
@@ -60,7 +63,7 @@ export function consoleVitePlugin(): Plugin {
       const root = resolve(config.root || process.cwd())
       projectRoot = resolveViteHubProjectRoot(root)
       generatedPlugin = resolve(root, generatedConsolePlugin)
-      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverConsoleAgentNames(root))
+      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root))
 
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
       const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
@@ -100,7 +103,7 @@ export function consoleVitePlugin(): Plugin {
       await writeConsoleNitroPlugin(
         generatedPlugin,
         projectRoot,
-        discoverConsoleAgentNames(config.root, serverDirs),
+        discoverAgentDefinitionEntries(config.root, serverDirs),
       )
     },
   }

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
@@ -12,7 +13,7 @@ import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
-import { consoleInvocationRootPlugin, discoverConsoleAgentNames } from "./console/vite.ts"
+import { consoleInvocationRootPlugin } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -157,11 +158,12 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   }
 }
 
-function renderConsoleNitroPlugin(projectRoot: string, agentNames: readonly string[]): string {
+function renderConsoleNitroPlugin(projectRoot: string, agents: readonly { handler: string, name: string }[]): string {
   return [
-    `import { installConsoleAgents, installConsoleInvocations } from "vite-hub/console/server"`,
+    `import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`,
+    ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(agent.handler)}`),
     `installConsoleInvocations(${JSON.stringify(projectRoot)})`,
-    `installConsoleAgents(${JSON.stringify(agentNames)}, ${JSON.stringify(projectRoot)})`,
+    `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], ${JSON.stringify(projectRoot)})`,
     "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
@@ -170,9 +172,9 @@ function renderConsoleNitroPlugin(projectRoot: string, agentNames: readonly stri
 async function writeConsoleNitroPlugin(
   file: string,
   projectRoot: string,
-  agentNames: readonly string[],
+  agents: readonly { handler: string, name: string }[],
 ): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, agentNames)
+  const contents = renderConsoleNitroPlugin(projectRoot, agents)
   if (await readFile(file, "utf8").catch(() => undefined) === contents) return
   await mkdir(resolve(file, ".."), { recursive: true })
   await writeFile(file, contents, "utf8")
@@ -224,7 +226,7 @@ async function installConsole(
   await writeConsoleNitroPlugin(
     plugin,
     projectRoot,
-    discoverConsoleAgentNames(discoveryRoot, serverDirs),
+    discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
   )
   if (!plugins.includes(plugin)) plugins.push(plugin)
 }
