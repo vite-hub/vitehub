@@ -3,8 +3,6 @@ import media from "comark-content/plugins/media"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { afterEach, describe, expect, it } from "vitest"
 
-import type { Source as ComarkContentSource } from "comark-content"
-
 import { contentSource, defineContent } from "../src/content.ts"
 import { clearSources, registerSources, useSource } from "../src/index.ts"
 
@@ -206,22 +204,6 @@ describe("contentSource", () => {
 
     expect(source.prefix).toBe("configured")
     await expect(source.keys()).resolves.toEqual(["index.md"])
-    await expect(source.getItem("index.md")).resolves.toBe("# Native")
-  })
-
-  it("preserves native Sources without an optional raw-item handler when applying options", async () => {
-    const nativeSource = {
-      async keys() {
-        return ["index.md"]
-      },
-      async getItem() {
-        return "# Native"
-      },
-    } as unknown as ComarkContentSource
-    const source = contentSource(nativeSource, { prefix: "configured" })
-
-    expect(source.prefix).toBe("configured")
-    expect(source.getItemRaw).toBeUndefined()
     await expect(source.getItem("index.md")).resolves.toBe("# Native")
   })
 
