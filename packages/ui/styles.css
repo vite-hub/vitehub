@@ -5,8 +5,11 @@
   --vh-ui-dimmed: var(--ui-text-dimmed, color-mix(in oklab, currentColor 48%, transparent));
   --vh-ui-text: var(--ui-text, currentColor);
   --vh-ui-bg: var(--ui-bg, Canvas);
+  --vh-ui-bg-muted: var(--ui-bg-muted, color-mix(in oklab, Canvas 94%, currentColor));
   --vh-ui-bg-elevated: var(--ui-bg-elevated, color-mix(in oklab, Canvas 96%, currentColor));
   --vh-ui-error: var(--ui-error, #dc2626);
+  --vh-ui-info: var(--ui-info, #2563eb);
+  --vh-ui-success: var(--ui-success, #16a34a);
 }
 
 .vh-chat {
@@ -1662,13 +1665,47 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   }
 }
 
+.vh-code-view,
 .vh-diff,
+.vh-file,
+.vh-unresolved-file,
 .vh-file-tree {
   border: 1px solid var(--vh-ui-border);
   border-radius: var(--vh-ui-radius);
   display: block;
-  min-height: 4rem;
   overflow: hidden;
+}
+
+.vh-code-view,
+.vh-diff,
+.vh-file,
+.vh-unresolved-file {
+  --diffs-addition-base: var(--vh-ui-success);
+  --diffs-bg: var(--vh-ui-bg);
+  --diffs-bg-addition: color-mix(in oklab, var(--vh-ui-success) 12%, var(--vh-ui-bg));
+  --diffs-bg-addition-emphasis: color-mix(in oklab, var(--vh-ui-success) 22%, var(--vh-ui-bg));
+  --diffs-bg-buffer: var(--vh-ui-bg-muted);
+  --diffs-bg-context: var(--vh-ui-bg);
+  --diffs-bg-context-gutter: color-mix(in oklab, var(--vh-ui-bg-muted) 72%, var(--vh-ui-bg));
+  --diffs-bg-deletion: color-mix(in oklab, var(--vh-ui-error) 12%, var(--vh-ui-bg));
+  --diffs-bg-deletion-emphasis: color-mix(in oklab, var(--vh-ui-error) 22%, var(--vh-ui-bg));
+  --diffs-bg-separator: var(--vh-ui-bg-muted);
+  --diffs-deletion-base: var(--vh-ui-error);
+  --diffs-fg: var(--vh-ui-text);
+  --diffs-fg-conflict-marker: var(--vh-ui-muted);
+  --diffs-fg-number: var(--vh-ui-dimmed);
+  --diffs-font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  --diffs-font-size: 0.8125rem;
+  --diffs-header-font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  --diffs-line-height: 1.5rem;
+  --diffs-modified-base: var(--vh-ui-info);
+  background: var(--vh-ui-bg);
+  color: var(--vh-ui-text);
+  min-height: 4rem;
+}
+
+.vh-code-view {
+  min-height: 12rem;
 }
 
 .vh-file-tree {
