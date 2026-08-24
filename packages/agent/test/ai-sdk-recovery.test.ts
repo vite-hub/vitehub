@@ -659,6 +659,39 @@ describe("AI SDK recovery", () => {
     await vi.waitFor(() => expect(cancelCount).toBe(1))
   })
 
+  it("cancels traced structured materialization when the UI-message consumer returns", async () => {
+    let cancelCount = 0
+    const fakeModel = {
+      ...model([]),
+      async doStream() {
+        return {
+          stream: new ReadableStream({
+            cancel() {
+              cancelCount += 1
+            },
+            pull() {
+              // Keep the first provider read pending until the caller cancels.
+            },
+          }, { highWaterMark: 0 }),
+        }
+      },
+    }
+    const stream = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), {
+      ...runtime,
+      traceLog: {
+        append: vi.fn(async event => event),
+        entries: () => [],
+      } as never,
+    }, { prompt: "Search" }, { output: "ui-message-stream" })
+    // SAFETY: UI-message output is a ReadableStream under the selected output contract.
+    const reader = (stream as ReadableStream<unknown>).getReader()
+
+    await reader.read()
+    await reader.cancel()
+
+    await vi.waitFor(() => expect(cancelCount).toBe(1))
+  })
+
   it("includes tool-call repair usage in UI-message streamed invocations", async () => {
     const fakeModel = streamingRepairModel()
     const finish = vi.fn()

@@ -3448,7 +3448,7 @@ function maybeTraceAgentStream<
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   const tracer = createAgentStreamEventTracer(toTraceContext(context))
-  return (async function* () {
+  const traced = (async function* () {
     try {
       for await (const event of stream) {
         const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities)
@@ -3460,6 +3460,11 @@ function maybeTraceAgentStream<
       await tracer.flush()
     }
   })()
+  const directCancel = Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
+  if (hasRuntimeType(directCancel, "function")) {
+    Object.defineProperty(traced, Symbol.for("vitehub.agent.stream.cancel"), { value: directCancel })
+  }
+  return traced
 }
 
 function withEagerStreamUsageExtensions<
