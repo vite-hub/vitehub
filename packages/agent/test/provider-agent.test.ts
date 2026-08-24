@@ -304,6 +304,7 @@ describe("Provider Agent Driver", () => {
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never))
 
     expect(events.slice(0, 2)).toEqual([
@@ -329,6 +330,7 @@ describe("Provider Agent Driver", () => {
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const events = await collect(await createProviderAgentAdapter({ provider: "claude-code" }).stream!(context(threadId) as never))
 
     expect(events.slice(0, 2)).toEqual([
