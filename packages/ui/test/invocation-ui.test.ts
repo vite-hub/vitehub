@@ -1085,6 +1085,37 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-event__notice").text()).toContain("truncated");
   });
 
+  it("exposes grouped lifecycle failures", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "lifecycle-failures",
+      observations: [{
+        attributes: {
+          "error.message": "GitHub rejected the label update",
+          "github.label.name": "Agent: Working",
+          "github.label.operation": "add",
+          "vitehub.activity.group": "github-lifecycle",
+          "vitehub.activity.kind": "action",
+          "vitehub.activity.title": "Added label",
+        },
+        name: "vitehub.github.label.error",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const row = wrapper.get('[data-activity-group="github-lifecycle"] [data-status="failed"]');
+
+    expect(row.get('[data-icon="error"]').attributes("data-icon")).toBe("error");
+    expect(row.get(".vh-invocation-lifecycle__failure").text()).toBe("GitHub rejected the label update");
+    expect(row.get(".vh-invocation-lifecycle__label").text()).toBe("Agent: Working");
+  });
+
   it("groups consecutive lifecycle rows and renders structured GitHub labels", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const event = (sequence: number, attributes: Record<string, unknown>, name: string) => ({

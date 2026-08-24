@@ -420,6 +420,7 @@ function groupedActivityTitle(activity: InvocationActivity): string {
 }
 
 function renderGroupedActivityIcon(activity: InvocationActivity) {
+  if (activity.status === "failed") return renderActivityIcon(activity);
   if (stringAttribute(activity.attributes, "github.label.name")) return renderNamedActivityIcon("label");
   const delivery = stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase();
   if (delivery === "reaction") {
@@ -463,6 +464,9 @@ function renderActivityGroup(
           renderLabelChip(activity),
           !stringAttribute(activity.attributes, "github.label.name") && channelDeliverySummary(activity)
             ? h("code", { class: "vh-invocation-lifecycle__detail" }, channelDeliverySummary(activity))
+            : null,
+          activity.status === "failed" && activity.body
+            ? h("span", { class: "vh-invocation-lifecycle__failure" }, activity.body)
             : null,
           activity.truncated
             ? h("span", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")

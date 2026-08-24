@@ -944,6 +944,13 @@ button.vh-invocation-lifecycle__row:focus-visible {
   white-space: nowrap;
 }
 
+.vh-invocation-lifecycle__failure {
+  color: var(--vh-ui-error);
+  flex: 1;
+  font-size: 0.6875rem;
+  min-width: 0;
+}
+
 .vh-invocation-lifecycle__emoji {
   align-items: center;
   display: inline-flex;
