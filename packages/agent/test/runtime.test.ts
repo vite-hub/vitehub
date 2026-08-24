@@ -1301,10 +1301,10 @@ describe("agent message protocol", () => {
     })
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({
-        toolResults: [expect.objectContaining({ output: { records: 2 }, toolCallId: "tool-1", toolName: "airtable" })],
         usage: expect.objectContaining({ usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } }),
       }),
       result: expect.objectContaining({ text: "Done" }),
+      toolResults: [expect.objectContaining({ output: { records: 2 }, toolCallId: "tool-1", toolName: "airtable" })],
     }))
   })
 
