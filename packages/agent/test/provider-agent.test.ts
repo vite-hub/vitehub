@@ -215,11 +215,14 @@ describe("Provider Agent Driver", () => {
         itemType: "mcp_tool_call",
         title: "airtable · search_records",
       }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.started", threadId, {
+        data: { item: { arguments: { query: "purchase orders" }, server: "airtable", tool: "search_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
       event("item.completed", threadId, {
         data: { item: { durationMs: 42, result: { content: [{ text: "12 records", type: "text" }] }, server: "airtable", status: "completed", tool: "search_records", type: "mcpToolCall" } },
         itemType: "mcp_tool_call",
         status: "completed",
-        title: "airtable · search_records",
       }, { itemId: "mcp-1", turnId: "turn-1" }),
       event("item.started", threadId, {
         data: { item: { arguments: { query: "errors" }, server: "posthog", tool: "query", type: "mcpToolCall" } },
@@ -259,9 +262,15 @@ describe("Provider Agent Driver", () => {
       }),
       expect.objectContaining({
         attributes: expect.objectContaining({
+          "tool.input": { query: "purchase orders" },
+          "tool.name": "search_records",
+        }),
+        name: "agent.tool.start",
+      }),
+      expect.objectContaining({
+        attributes: expect.objectContaining({
           "tool.durationMs": 42,
           "tool.name": "search_records",
-          "tool.title": "airtable · search_records",
         }),
         name: "agent.tool.finish",
       }),
@@ -284,6 +293,10 @@ describe("Provider Agent Driver", () => {
         type: "error",
       }),
     ])
+    const firstToolObservations = observations.filter(observation => observation.attributes?.["tool.id"] === "mcp-1")
+    expect(firstToolObservations).toHaveLength(3)
+    expect(firstToolObservations[0]?.attributes).toHaveProperty("tool.title", "airtable · search_records")
+    expect(firstToolObservations.slice(1).every(observation => !("tool.title" in (observation.attributes ?? {})))).toBe(true)
     expect(observations.find(observation => observation.name === "agent.tool.error")?.attributes).not.toHaveProperty("tool.output")
   })
 
