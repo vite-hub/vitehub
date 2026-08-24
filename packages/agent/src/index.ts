@@ -918,7 +918,8 @@ async function runAgentAsWorkflow<
   const resolvedContext = createResolvedRuntimeContext(context)
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   const workflowInput = await portableAgentWorkflowInput(input)
-  const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(input.context?.[agentChannelDeliveryWorkflowContextKey])
+  const channelDeliveryBinding = input.context?.[agentChannelDeliveryWorkflowContextKey]
+  const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
   const inheritedRun = options.fresh && context.run && !durableChannelDelivery
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
@@ -944,11 +945,14 @@ async function runAgentAsWorkflow<
     },
   }
   // Durable Channel recovery may be a fresh provider start while still owning
-  // one persisted logical run. Reuse that ID so an ambiguous create can be
-  // retried without starting a second Workflow.
+  // one persisted logical run. The claim keeps retries idempotent without
+  // making a promoted successor reuse the previous claim's provider ID.
+  const workflowProviderRunId = context.run?.runId && durableChannelDelivery && channelDeliveryBinding.steer
+    ? `${context.run.runId}:${channelDeliveryBinding.steer.claimId}`
+    : context.run?.runId
   const workflowRunId = context.run?.runId && (!options.fresh || durableChannelDelivery)
     ? workflowConfig && workflowConfig.provider === "cloudflare"
-      ? await portableAgentWorkflowRunId(context.run.runId)
+      ? await portableAgentWorkflowRunId(workflowProviderRunId ?? context.run.runId)
       : context.run.runId
     : undefined
   const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
