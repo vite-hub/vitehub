@@ -34,7 +34,9 @@ test('yields pending checks and reviews to the next schedule', async () => {
 test('waits for Codex and Pullfrog to finish before merging', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
-  assert.match(prompt, /An absent exact-head `@codex review` request is pending/)
-  assert.match(prompt, /An unfinished Pullfrog progress comment or workflow run is pending/)
-  assert.match(prompt, /Pullfrog has finished successfully and submitted its review/)
+  assert.match(prompt, /If no exact-head `@codex review` request exists, post one and stop/)
+  assert.match(prompt, /While a Codex `eyes` reaction is the latest result, stop unchanged/)
+  assert.match(prompt, /If Pullfrog appears on the pull request, its latest linked workflow run completed successfully and it submitted a review for the expected head/)
+  assert.match(prompt, /While the run is queued or running, stop unchanged/)
+  assert.match(prompt, /A failed or cancelled run, or a review for another head, blocks the merge/)
 })

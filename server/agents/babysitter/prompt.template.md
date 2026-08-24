@@ -24,11 +24,17 @@ This pass may post only the direction comment, one review request, or a comment 
 
 ## Merge gate
 
-Before merging, refresh the head, checks, review request and reactions, later Codex events, and threads. The gate requires the expected head, passing checks, no actionable or unresolved feedback, and a positive exact-head Codex or read-only fallback review.
+Refresh the head, checks, review threads, Codex signals, and Pullfrog state immediately before merging. Merge only when:
 
-An absent exact-head `@codex review` request is pending, not evidence that Codex is unavailable. Request it once and stop. A Codex `eyes` reaction without a later terminal result is also pending. A terminal Codex error, quota, or unavailable result permits one read-only fallback review. A later Codex result replaces that fallback evidence.
+- The expected head is still current.
+- No check is queued, running, failed, or cancelled.
+- No actionable feedback or unresolved review thread remains.
+- Codex returned a positive review for the expected head, or a permitted fallback review did.
+- If Pullfrog appears on the pull request, its latest linked workflow run completed successfully and it submitted a review for the expected head.
 
-An unfinished Pullfrog progress comment or workflow run is pending. Inspect the latest Pullfrog comment, its linked workflow run, and Pullfrog reviews after the expected head was pushed. A failed, cancelled, or stale run does not pass the gate. If Pullfrog started for this pull request, stop unchanged until Pullfrog has finished successfully and submitted its review for the expected head.
+If no exact-head `@codex review` request exists, post one and stop. While a Codex `eyes` reaction is the latest result, stop unchanged. Use a read-only fallback only after Codex reports an error, quota limit, or unavailability. Replace fallback evidence if Codex later responds.
+
+Inspect the latest Pullfrog progress comment, linked workflow run, and reviews. While the run is queued or running, stop unchanged. A failed or cancelled run, or a review for another head, blocks the merge.
 
 Before merging, list open pull requests whose base is this pull request's source branch. Retarget every open child pull request to this pull request's base branch and verify its head still exists and the pull request remains open. If a child cannot be preserved, block this pull request instead of merging or deleting the source branch.
 
