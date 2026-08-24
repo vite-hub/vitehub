@@ -1204,16 +1204,19 @@ describe("agent message protocol", () => {
     expect(summaries).toHaveLength(2)
   })
 
-  it("normalizes a UI message stream reused as a primary stream", async () => {
+  it("preserves and traces a Capability UI message stream reused as a primary stream", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const sharedStream = new ReadableStream({
-      start(controller) {
+      async start(controller) {
+        controller.enqueue({ id: "tool-1", toolName: "airtable", type: "tool-input-start" })
+        await new Promise(resolve => setTimeout(resolve, 20))
         controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
         controller.enqueue({ finishReason: "stop", type: "finish" })
         controller.close()
       },
     })
     const agent = defineAgent({
+      capabilities: [progressSummary({ execute: () => "Checking Airtable for assigned tasks.", intervalMs: 0 })],
       driver: {
         run: () => {
           const result = {
@@ -1229,7 +1232,8 @@ describe("agent message protocol", () => {
       },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as {
+    const traceLog = createTraceEventLog({ content: "content" })
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, { prompt: "Check tasks." }) as {
       fullStream: ReadableStream<unknown>
       toUIMessageStream: () => ReadableStream<unknown>
     }
@@ -1241,6 +1245,7 @@ describe("agent message protocol", () => {
       data: { error: "temporary failure", recoverable: true, type: "error" },
       type: "data-error",
     })
+    expect(traceLog.entries().filter(event => event.attributes?.["vitehub.action.name"] === "progress-summary.update")).toHaveLength(1)
   })
 
   it("exports product actions from AI SDK telemetry integrations", async () => {
