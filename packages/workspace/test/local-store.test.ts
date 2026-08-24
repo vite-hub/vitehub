@@ -79,9 +79,8 @@ describe("local workspace store", () => {
     await store.writeFile("assets/blob.bin", { path: "assets/blob.bin", content })
     vi.mocked(readFile).mockClear()
 
-    await expect(store.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
-      expect.not.objectContaining({ digest: expect.anything() }),
-    ]))
+    const entries = await store.list("", { recursive: true })
+    expect(entries.find(entry => entry.path === "assets/blob.bin")).not.toHaveProperty("digest")
     await expect(store.stat("assets/blob.bin")).resolves.toMatchObject({ digest })
     await expect(store.snapshot()).resolves.toMatchObject({
       entries: { "assets/blob.bin": expect.objectContaining({ digest }) },

@@ -3,7 +3,12 @@ import { sha256 } from "../core/path.ts"
 import type { WorkspaceDiff, WorkspaceEntry, WorkspaceSnapshot, WorkspaceStore } from "../core/types.ts"
 
 export async function createCurrentSnapshotFromStore(store: WorkspaceStore, name?: string): Promise<WorkspaceSnapshot> {
-  return await createSnapshotFromEntries(await store.list("", { recursive: true }), name)
+  const entries = await store.list("", { recursive: true })
+  const completeEntries = await Promise.all(entries.map(async (entry) => {
+    if (entry.type !== "file" || entry.digest) return entry
+    return await store.stat(entry.path) || entry
+  }))
+  return await createSnapshotFromEntries(completeEntries, name)
 }
 
 export async function createSnapshotFromEntries(entries: WorkspaceEntry[], name?: string): Promise<WorkspaceSnapshot> {

@@ -639,7 +639,9 @@ async function materializeWorkspace(
     abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root, abortSignal)
     abortSignal?.throwIfAborted()
-    const snapshot = await snapshotHost(host, root, "host-open", abortSignal)
+    const snapshot = options?.writeBack === false
+      ? await createSnapshotFromEntries(await listHostEntries(host, root, "", true, undefined, false, [], abortSignal), "host-open")
+      : await snapshotHost(host, root, "host-open", abortSignal)
     abortSignal?.throwIfAborted()
     return { revision: revision.revision, snapshot }
   }

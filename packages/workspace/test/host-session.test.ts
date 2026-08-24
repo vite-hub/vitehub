@@ -375,6 +375,41 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("restores an archive-backed non-publishing Session without reading runtime files", async () => {
+    const docs = workspace()
+    const archive = await revisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    const target = join(targetParent, "workspace")
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: archive.bytes,
+          files: 6,
+          revision: "0123456789012345678901234567890123456789",
+          root: ".vitehub/workspaces/docs",
+        }
+      },
+    }
+    const host = localHost()
+    const read = vi.spyOn(host.files, "read")
+
+    try {
+      const session = await docs.startSession({ host, target, writeBack: false })
+      await session.writeFile("README.md", "changed")
+      await session.close()
+
+      expect(read).not.toHaveBeenCalled()
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("# Docs\n")
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
   it("rejects a pinned revision archive whose declared root is missing", async () => {
     const docs = workspace()
     const archive = await revisionArchive()

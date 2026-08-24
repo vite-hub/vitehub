@@ -363,8 +363,8 @@ export async function materializeWorkspaceSources(
         nextPaths.add(path)
         const parts = path.split("/")
         for (let index = 1; index < parts.length; index++) directorySet.add(parts.slice(0, index).join("/"))
-        itemMetadata[path] = entry.metadata
         if (entry.reused) {
+          itemMetadata[path] = entry.metadata
           commit ||= entry.metadata.ref || entry.metadata.sha
           sourceFiles++
           sourceBytes += entry.reused.size || 0
@@ -392,6 +392,7 @@ export async function materializeWorkspaceSources(
             source: source.key,
           },
         })
+        itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
         if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
@@ -453,7 +454,9 @@ export async function materializeWorkspaceSources(
         items: checkpointItems(itemMetadata),
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
-      if (!options.abortSignal?.aborted) await writeSourceSnapshotMetadata(store, failed)
+      await writeSourceSnapshotMetadata(store, options.abortSignal?.aborted
+        ? { ...failed, status: "updating", error: undefined }
+        : failed)
       resultSources.push(failed)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,

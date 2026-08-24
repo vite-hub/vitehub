@@ -660,6 +660,41 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/b.md")).resolves.toBe("# b.md\n")
   })
 
+  it("checkpoints completed source items when materialization is canceled", async () => {
+    const abort = new AbortController()
+    let cancel = true
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "b.md" && cancel) {
+        cancel = false
+        abort.abort(new DOMException("Canceled", "AbortError"))
+        abort.signal.throwIfAborted()
+      }
+      return { key, path: key, content: `# ${key}\n` }
+    })
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-cancel",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          getItem,
+          async getMeta(key) {
+            return { ref: key }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })).rejects.toThrow("Canceled")
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "ready" })],
+    })
+
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "b.md", "b.md"])
+  })
+
   it("persists complete source metadata at lifecycle boundaries", async () => {
     const store = createMemoryWorkspaceStore()
     const statuses: string[] = []
