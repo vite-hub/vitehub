@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -133,6 +133,29 @@ describe("local workspace store", () => {
     })
   })
 
+  it("does not serialize unconditional writes behind the Workspace root lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createLocalWorkspaceStore(root)
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const writing = store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+    await writingStarted
+
+    await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
+    release()
+    await writing
+  })
+
   it("rejects a conditional write from a stale local store", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)
@@ -188,6 +211,32 @@ describe("local workspace store", () => {
       mediaType: "application/octet-stream",
       metadata: { source: "stream" },
     })
+  })
+
+  it("does not serialize unconditional streamed writes behind the Workspace root lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createLocalWorkspaceStore(root)
+    let release!: () => void
+    let signalWaiting!: () => void
+    const waiting = new Promise<void>((resolve) => { signalWaiting = resolve })
+    const content = (async function* () {
+      yield new Uint8Array([0, 1, 2, 3])
+      await new Promise<void>((resolve) => {
+        release = resolve
+        signalWaiting()
+      })
+    })()
+
+    const writing = store.writeFileStream?.("assets/blob.bin", {
+      path: "assets/blob.bin",
+      content,
+    })
+    await waiting
+
+    await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
+    release()
+    await writing
   })
 
   it("supports brace, character class, and extglob patterns", async () => {

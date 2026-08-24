@@ -148,7 +148,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    await withWorkspaceLock(this.root, () => this.#writeFile(path, file))
+    await this.#writeFile(path, file)
   }
 
   async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
@@ -162,8 +162,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
-    const { mkdir, writeFile } = await import("node:fs/promises")
+    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
+    const temp = `${absolute}.${randomUUID()}.tmp`
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
@@ -176,7 +177,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
       return
     }
     await mkdir(dirname(absolute), { recursive: true })
-    await writeFile(absolute, bytes)
+    try {
+      await writeFile(temp, bytes)
+      await rename(temp, absolute)
+    }
+    catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
     this.#files.set(normalized, {
       mediaType: file.mediaType,
       metadata: file.metadata,
@@ -184,7 +192,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
-    return await withWorkspaceLock(this.root, () => this.#writeFileStream(path, file))
+    return await this.#writeFileStream(path, file)
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
@@ -192,7 +200,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
-    const temp = `${absolute}.${process.pid}.${Date.now()}.tmp`
+    const temp = `${absolute}.${randomUUID()}.tmp`
     const hash = createHash("sha256")
     let size = 0
 
