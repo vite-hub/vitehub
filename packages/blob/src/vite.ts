@@ -1,7 +1,7 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
@@ -279,7 +279,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     async configResolved(config) {
       resolved = config
       clientOutDir = config.build.outDir
-      rootDir = config.root
+      rootDir = resolveViteHubProjectRoot(config.root)
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       cloudflareOwnedByNitro = (nitroOwned || hasNitroConfigContext(config)) && isNitroCloudflareHost(configuredNitro)
@@ -288,7 +288,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflareOwnedByNitro,
-        config.root,
+        rootDir,
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useComposedProviderOutput(config)
@@ -296,7 +296,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       const hosting = getNitroHostingProvider(configuredNitro)
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
       await refreshBlobGeneratedFiles(
-        config.root,
+        rootDir,
         runtimeConfig.blob,
         cloudflareOwnedByNitro,
         importBase,
