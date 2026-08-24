@@ -572,6 +572,26 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/local.txt")).toBe("untouched")
   })
 
+  it("cancels startup while capturing the existing host state", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    const reason = new DOMException("invocation deadline", "TimeoutError")
+    await host.files.mkdir("/workspace", { recursive: true })
+    await host.files.write("/workspace/local.txt", new TextEncoder().encode("large host state"))
+    const list = host.files.list.bind(host.files)
+    let observedSignal: AbortSignal | undefined
+    host.files.list = async (path, options) => {
+      observedSignal = options?.signal
+      abort.abort(reason)
+      options?.signal?.throwIfAborted()
+      return await list(path, options)
+    }
+
+    await expect(docs.startSession({ abortSignal: abort.signal, host })).rejects.toBe(reason)
+    expect(observedSignal).toBe(abort.signal)
+  })
+
   it("bounds host file reads while capturing Session state", async () => {
     const docs = workspace()
     const host = memoryHost()
@@ -966,6 +986,28 @@ describe("workspace host sessions", () => {
     await session.close()
   })
 
+  it("finishes durable publication after cancellation arrives during the first write", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    const session = await docs.startSession({ host })
+    await session.writeFile("first.txt", "first")
+    await session.writeFile("second.txt", "second")
+    const writeFile = docs.writeFile.bind(docs)
+    let writes = 0
+    docs.writeFile = async (...args) => {
+      const result = await writeFile(...args)
+      if (++writes === 1) abort.abort(new DOMException("cleanup deadline", "TimeoutError"))
+      return result
+    }
+
+    await expect(session.commit({ abortSignal: abort.signal, message: "published" })).resolves.toBeUndefined()
+
+    await expect(docs.readFile("first.txt")).resolves.toBe("first")
+    await expect(docs.readFile("second.txt")).resolves.toBe("second")
+    await session.close()
+  })
+
   it("does not inspect the host after publication has succeeded", async () => {
     const docs = workspace()
     const host = memoryHost()
@@ -1325,6 +1367,32 @@ describe("workspace host sessions", () => {
     expect(materializeRevision).toHaveBeenLastCalledWith(expect.objectContaining({ abortSignal: undefined }))
   })
 
+  it("cancels a deferred recursive snapshot during Session close", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const list = host.files.list.bind(host.files)
+    const session = await docs.startSession({ host })
+    let observedSignal: AbortSignal | undefined
+    host.files.list = async (path, options) => {
+      const signal = options?.signal
+      observedSignal = signal
+      if (!signal) return await list(path, options)
+      return await new Promise<never>((_resolve, reject) => {
+        const abort = () => reject(signal.reason)
+        signal.addEventListener("abort", abort, { once: true })
+        if (signal.aborted) abort()
+      })
+    }
+    const controller = new AbortController()
+    const reason = new DOMException("cleanup deadline", "TimeoutError")
+
+    const closing = session.close({ abortSignal: controller.signal })
+    await vi.waitFor(() => expect(observedSignal).toBe(controller.signal))
+    controller.abort(reason)
+
+    await expect(closing).rejects.toBe(reason)
+  })
+
   it("restores excluded state when authoritative close rematerialization fails", async () => {
     const docs = workspace()
     const host = memoryHost()
@@ -1445,6 +1513,30 @@ describe("workspace host sessions", () => {
     await session.close()
     expect(host.readText("/workspace/escape")).toBe("../../outside")
     await expect(session.commit({ message: "too late" })).rejects.toThrow("already closed")
+  })
+
+  it("finishes replacing an escaping host symlink when cancellation follows removal", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    const remove = host.files.remove.bind(host.files)
+    const write = host.files.write.bind(host.files)
+    host.files.remove = async (path, options) => {
+      await remove(path, options)
+      if (path === "/workspace/escape") abort.abort(new Error("cleanup expired"))
+    }
+    host.files.write = async (path, content, options) => {
+      options?.signal?.throwIfAborted()
+      await write(path, content, options)
+    }
+    const session = await docs.startSession({ host })
+
+    await expect(session.exec("ln", ["-s", "../../outside", "escape"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(session.commit({ abortSignal: abort.signal, message: "capture unsafe link" })).resolves.toBeUndefined()
+
+    expect(host.readText("/workspace/escape")).toBe("../../outside")
+    await expect(docs.readFile("escape")).resolves.toBe("../../outside")
+    await expect(docs.stat("escape")).resolves.toMatchObject({ metadata: undefined })
   })
 
   it("keeps an attached escaping host symlink inert after publication and close", async () => {

@@ -295,14 +295,30 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "      return { error }",
           "    },",
           "  )",
+          "  const nodeProcess = globalThis.process",
+          "  const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']",
+          "  let runtimeClose: Promise<void> | undefined",
+          "  function removeRuntimeShutdownSignals() {",
+          "    for (const signal of shutdownSignals) nodeProcess?.off(signal, closeRuntimeOnSignal)",
+          "  }",
+          "  function closeRuntime() {",
+          "    removeRuntimeShutdownSignals()",
+          "    runtimeClose ??= runtimeInstallation.then(async (result) => {",
+          "      if ('controller' in result) await result.controller.close()",
+          "    })",
+          "    return runtimeClose",
+          "  }",
+          "  function closeRuntimeOnSignal(signal: NodeJS.Signals) {",
+          "    void closeRuntime().catch(captureRuntimeError).finally(() => {",
+          "      if (nodeProcess) nodeProcess.kill(nodeProcess.pid, signal)",
+          "    })",
+          "  }",
+          "  for (const signal of shutdownSignals) nodeProcess?.prependOnceListener(signal, closeRuntimeOnSignal)",
           "  nitroApp.hooks.hook('request', async () => {",
           "    const result = await runtimeInstallation",
           "    if ('error' in result) throw result.error",
           "  })",
-          "  nitroApp.hooks.hook('close', async () => {",
-          "    const result = await runtimeInstallation",
-          "    if ('controller' in result) await result.controller.close()",
-          "  })",
+          "  nitroApp.hooks.hook('close', closeRuntime)",
         ]
       : []),
     "})",
@@ -624,5 +640,5 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
   }
 
-  return plugin as unknown as ScheduleVitePlugin
+  return plugin as ScheduleVitePlugin
 }

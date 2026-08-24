@@ -228,6 +228,34 @@ function createProviderCleanupSignal(invocationSignal: AbortSignal | undefined):
   }
 }
 
+function providerCleanupTimedOut(error: unknown): boolean {
+  return error instanceof DOMException
+    && error.name === "TimeoutError"
+    && error.message === "[vitehub] Provider Agent Driver cleanup timed out."
+}
+
+async function removeProviderRoot(root: string): Promise<void> {
+  if (dirname(root) !== tmpdir() || !basename(root).startsWith("vitehub-provider-")) {
+    throw new Error(`[vitehub] Refusing to remove unexpected Provider Agent Driver root: ${root}`)
+  }
+  if (process.platform === "win32") return await rm(root, { force: true, recursive: true })
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("rm", ["-rf", "--", root], { stdio: "ignore" })
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      if (error) reject(error)
+      else resolve()
+    }
+    child.once("error", finish)
+    child.once("close", (code, childSignal) => {
+      if (code === 0) finish()
+      else finish(new Error(`[vitehub] Provider Agent Driver root cleanup exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}.`))
+    })
+  })
+}
+
 async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key: string, signal?: AbortSignal): Promise<() => void> {
   const previous = locks.get(key) || Promise.resolve()
   let release!: () => void
@@ -420,16 +448,22 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       processes: "arbitrary",
     }),
     files: {
-      async exists(path) {
+      async exists(path, options) {
+        options?.signal?.throwIfAborted()
         // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        return await lstat(path).then(() => true, error => (error as NodeJS.ErrnoException).code === "ENOENT" ? false : Promise.reject(error))
+        const exists = await lstat(path).then(() => true, error => (error as NodeJS.ErrnoException).code === "ENOENT" ? false : Promise.reject(error))
+        options?.signal?.throwIfAborted()
+        return exists
       },
       async list(path, options) {
+        options?.signal?.throwIfAborted()
         const entries: WorkspaceSessionHostFileEntry[] = []
         const excluded = options?.exclude?.map(item => resolve(item)) || []
         const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         const visit = async (directory: string) => {
+          options?.signal?.throwIfAborted()
           for (const entry of await readdir(directory, { withFileTypes: true })) {
+            options?.signal?.throwIfAborted()
             const target = join(directory, entry.name)
             if (isExcluded(resolve(target))) continue
             const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
@@ -446,18 +480,23 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
         return entries
       },
       async mkdir(path, options) {
+        options?.signal?.throwIfAborted()
         await mkdir(path, options)
+        options?.signal?.throwIfAborted()
       },
-      async read(path) {
+      async read(path, options) {
         // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        return await readFile(path).then(value => new Uint8Array(value), error => (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(error))
+        return await readFile(path, { signal: options?.signal }).then(value => new Uint8Array(value), error => (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(error))
       },
       async remove(path, options) {
+        options?.signal?.throwIfAborted()
         await rm(path, { force: true, recursive: options?.recursive })
+        options?.signal?.throwIfAborted()
       },
-      async write(path, content) {
+      async write(path, content, options) {
+        options?.signal?.throwIfAborted()
         await mkdir(dirname(path), { recursive: true })
-        await writeFile(path, content)
+        await writeFile(path, content, { signal: options?.signal })
       },
     },
     async exec(command, args = [], options = {}) {
@@ -579,19 +618,19 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   return session
 }
 
-async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error?: unknown) {
+async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
   if (!session) return
   try {
     if (error || !context.workspaceDefinition || context.workspaceMode !== "write") return
-    const diff = await session.diff()
+    const diff = await session.diff({ abortSignal })
     const definition = workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
     const commit = resolveWorkspaceAutoCommit(definition, diff)
     if (!commit) return
-    await session.commit({ message: commit.message || "provider-workspace-session" })
+    await session.commit({ abortSignal, message: commit.message || "provider-workspace-session" })
     setAgentWorkspaceDiff(context.context, diff)
   }
   finally {
-    await session.close()
+    await session.close({ abortSignal })
   }
 }
 
@@ -919,14 +958,13 @@ async function* runProvider<
   const generatedProviderFiles: GeneratedProviderFile[] = []
   let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
-  let providerCloseCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
   let releaseDeferredRuntimeStopped: (() => void) | undefined
   const deferredRuntimeStopped = new Promise<void>((resolve) => {
     releaseDeferredRuntimeStopped = resolve
   })
   let rootCleanup: Promise<void> | undefined
-  const cleanupRoot = () => rootCleanup ??= rm(root, { force: true, recursive: true })
+  const cleanupRoot = () => rootCleanup ??= removeProviderRoot(root)
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -948,21 +986,6 @@ async function* runProvider<
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
     observeLateCleanup(cleanup)
-  }
-  const deferProviderCloseCleanup = (cleanup: Promise<void>) => {
-    runtimeCleanupDeferred = true
-    providerCloseCleanupDeferred = true
-    let timeout: ReturnType<typeof setTimeout> | undefined
-    const boundedCleanup = Promise.race([
-      cleanup,
-      new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
-    ]).finally(() => {
-      if (timeout) clearTimeout(timeout)
-      releaseDeferredRuntimeStopped?.()
-    })
-    deferredRuntimeCleanup = boundedCleanup
-    void cleanup.catch(() => undefined)
-    void boundedCleanup.catch(() => undefined)
   }
   const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
     workspaceCleanupDeferred = true
@@ -1192,73 +1215,86 @@ async function* runProvider<
     clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
-    const cleanup = createProviderCleanupSignal(effectiveSignal)
-    let runtimeAndToolCleanup: PromiseSettledResult<void | undefined>[] = []
-    try {
-      const cleanupOperations = [runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()]
-        .filter((operation): operation is Promise<void> => operation !== undefined)
-      if (cleanupOperations.length) {
-        runtimeAndToolCleanup = await waitForProviderOperation(
-          Promise.allSettled(cleanupOperations),
-          cleanup.signal,
-          () => undefined,
-          deferProviderCloseCleanup,
-        )
+    const cleanup = createProviderCleanupSignal(completed ? undefined : effectiveSignal)
+    let cleanupTimedOut = false
+    let invocationCleanupDeferred: Promise<void> | undefined
+    let forcedRootCleanup: Promise<void> | undefined
+    const cleanupTask = (async () => {
+      const runtimeAndToolCleanup = await Promise.allSettled([
+        runtimeCleanupDeferred ? undefined : runtime?.close(),
+        toolServer?.close(),
+      ])
+      for (const result of runtimeAndToolCleanup) {
+        const repeatsInvocationFailure = caught !== undefined
+          && result.status === "rejected"
+          && (result.reason === caught || result.reason === effectiveSignal?.reason)
+        if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
       }
+      for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
+        if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
+      }
+      const finalizeWorkspace = async () => {
+        try {
+          for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
+        try {
+          await closeWorkspace(
+            context,
+            workspaceSession,
+            caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")),
+            cleanup.signal,
+          )
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
+        finally {
+          releaseWorkspaceCleanup?.()
+        }
+      }
+      if (runtimeCleanupDeferred) void deferredRuntimeStopped.then(finalizeWorkspace)
+      else await finalizeWorkspace()
+      if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+        try {
+          await cleanupRoot()
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
+    })()
+    try {
+      await waitForProviderOperation(cleanupTask, cleanup.signal)
     }
     catch (error) {
-      const repeatsInvocationFailure = caught !== undefined
-        && runtimeCleanupDeferred
-        && cleanup.signal.reason === effectiveSignal?.reason
+      cleanupTimedOut = providerCleanupTimedOut(error)
+      const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
+      if (cleanupTimedOut) {
+        forcedRootCleanup = cleanupRoot()
+        observeLateCleanup(forcedRootCleanup)
+        void cleanupTask.catch(() => undefined)
+      }
+      else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        invocationCleanupDeferred = Promise.race([
+          cleanupTask,
+          new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+        ]).finally(async () => {
+          if (timeout) clearTimeout(timeout)
+          await cleanupRoot()
+        })
+        observeLateCleanup(invocationCleanupDeferred)
+        void cleanupTask.catch(() => undefined)
+      }
     }
     finally {
       cleanup.dispose()
     }
-    for (const result of runtimeAndToolCleanup) {
-      if (result.status === "rejected") cleanupErrors.push(result.reason)
-    }
-    for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
-      if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
-    }
-    const finalizeWorkspace = async () => {
-      try {
-        for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
-      }
-      catch (error) {
-        cleanupErrors.push(error)
-      }
-      try {
-        await closeWorkspace(context, workspaceSession, caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")))
-      }
-      catch (error) {
-        cleanupErrors.push(error)
-      }
-      finally {
-        releaseWorkspaceCleanup?.()
-      }
-    }
-    if (runtimeCleanupDeferred) {
-      const deferredFinalization = deferredRuntimeStopped.then(async () => {
-        await finalizeWorkspace()
-        if (providerCloseCleanupDeferred) await cleanupRoot()
-      })
-      if (providerCloseCleanupDeferred) {
-        deferredRuntimeCleanup = deferredFinalization
-        observeLateCleanup(deferredFinalization)
-      }
-      else void deferredFinalization.catch(() => undefined)
-    }
-    else await finalizeWorkspace()
-    if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
-      try {
-        await cleanupRoot()
-      }
-      catch (error) {
-        cleanupErrors.push(error)
-      }
-    }
-    const deferredCleanup = deferredRuntimeCleanup || deferredWorkspaceCleanup
+    const deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
     if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
     if (sessionKey) {
@@ -1270,7 +1306,11 @@ async function* runProvider<
       }
     }
     if (cleanupErrors.length) {
-      throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
+      const cleanupError = new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
+      if (completed && caught === undefined && cleanupErrors.every(providerCleanupTimedOut)) {
+        yield { error: cleanupError.message, recoverable: true, type: "error" }
+      }
+      else throw cleanupError
     }
   }
 }

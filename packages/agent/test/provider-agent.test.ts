@@ -1,4 +1,4 @@
-import { access, chmod, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 
 import { describe, expect, it, vi } from "vitest"
@@ -897,6 +897,23 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it("stops local Workspace traversal when cleanup is aborted", async () => {
+    const root = `/tmp/vitehub-provider-aborted-traversal-${crypto.randomUUID()}`
+    await mkdir(root, { recursive: true })
+    try {
+      await writeFile(`${root}/README.md`, "docs")
+      const controller = new AbortController()
+      const reason = new DOMException("cleanup deadline", "TimeoutError")
+      controller.abort(reason)
+
+      await expect(localWorkspaceHost().files.list(root, { recursive: true, signal: controller.signal })).rejects.toBe(reason)
+      await expect(localWorkspaceHost().files.read(`${root}/README.md`, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("binds Workspace command directory variables to the active root", async () => {
     const cwd = new URL("fixtures/workspace-source-root", import.meta.url).pathname
     const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ INIT_CWD: process.env.INIT_CWD, OLDPWD: process.env.OLDPWD, PWD: process.env.PWD, cwd: process.cwd() }))"], {
@@ -1140,7 +1157,7 @@ describe("Provider Agent Driver", () => {
 
     expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ paths: undefined, target: expect.any(String) }))
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
-    expect(session.commit).toHaveBeenCalledWith({ message: "chore: save provider work" })
+    expect(session.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "chore: save provider work" }))
     expect(session.close).toHaveBeenCalledOnce()
   })
 
@@ -1289,7 +1306,7 @@ describe("Provider Agent Driver", () => {
       if (item.type === "finish") break
     }
 
-    expect(session.commit).toHaveBeenCalledWith({ message: "chore: save provider work" })
+    expect(session.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "chore: save provider work" }))
     expect(session.close).toHaveBeenCalledOnce()
   })
 
@@ -1478,19 +1495,99 @@ describe("Provider Agent Driver", () => {
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
-  it("settles when provider cleanup stalls after a completed turn", async () => {
-    const threadId = "thread-cleanup-timeout"
-    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    provider.close.mockImplementationOnce(() => new Promise(() => {}))
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
-    }) as never)
-    const rejection = expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
+  it("keeps a completed turn successful when provider cleanup stalls", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-cleanup-timeout"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const stream = await adapter.stream!(context(threadId) as never)
+      const result = collect(stream)
 
-    await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
-    await rejection
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      await expect(result).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ recoverable: true, type: "error" }),
+      ]))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("aborts Workspace close before removing the provider root", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-workspace-cleanup-timeout"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      let observedSignal: AbortSignal | undefined
+      const session = {
+        async close(options?: { abortSignal?: AbortSignal }) {
+          observedSignal = options?.abortSignal
+          if (!observedSignal) throw new Error("Expected bounded Workspace cleanup signal.")
+          await new Promise<void>((_resolve, reject) => {
+            const abort = () => reject(observedSignal!.reason)
+            observedSignal!.addEventListener("abort", abort, { once: true })
+            if (observedSignal!.aborted) abort()
+          })
+        },
+        commit: vi.fn(async () => undefined),
+        diff: vi.fn(async () => ({ entries: [] })),
+        exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+        readFile: vi.fn(async () => new Uint8Array()),
+      }
+      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const stream = await adapter.stream!(context(threadId, {
+        workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
+      }) as never)
+      const result = collect(stream)
+
+      await vi.waitFor(() => expect(observedSignal).toBeDefined())
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      await expect(result).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ recoverable: true, type: "error" }),
+      ]))
+      expect(observedSignal?.aborted).toBe(true)
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
+      const root = (runtimeCall![0] as { cwd: string }).cwd
+      await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("removes provider roots in a child process", async () => {
+    if (process.platform === "win32") return
+    const fixture = await mkdtemp("/tmp/vitehub-provider-rm-test-")
+    const marker = `${fixture}/started`
+    const executable = `${fixture}/rm`
+    const previousPath = process.env.PATH
+    await writeFile(executable, `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(marker)}\nexec /bin/rm "$@"\n`)
+    await chmod(executable, 0o755)
+    process.env.PATH = `${fixture}:${previousPath || ""}`
+    try {
+      const threadId = "thread-external-root-cleanup"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+      const args = (await readFile(marker, "utf8")).trim().split("\n")
+      expect(args.slice(0, 2)).toEqual(["-rf", "--"])
+      expect(args[2]).toMatch(/^\/tmp\/vitehub-provider-/)
+    }
+    finally {
+      process.env.PATH = previousPath
+      await rm(fixture, { force: true, recursive: true })
+    }
   })
 
   it("bounds retained provider cleanup before releasing its Workspace root", async () => {
@@ -1513,8 +1610,8 @@ describe("Provider Agent Driver", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const result = createProviderAgentAdapter({ provider: "codex" }).generate(invocation as never)
 
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       await vi.advanceTimersByTimeAsync(50)
-      await expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
       if (!runtimeCall) throw new Error("Expected the Provider runtime to be created.")
@@ -1522,9 +1619,10 @@ describe("Provider Agent Driver", () => {
       const root = (runtimeCall[0] as { cwd: string }).cwd
       await expect(access(root)).resolves.toBeUndefined()
 
-      await vi.advanceTimersByTimeAsync(10_000)
+      await vi.advanceTimersByTimeAsync(9_950)
+      await expect(result).resolves.toBeDefined()
       await expect(Promise.all(retained)).resolves.toBeDefined()
-      await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
+      await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
     }
     finally {
       vi.useRealTimers()
