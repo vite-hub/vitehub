@@ -411,6 +411,10 @@ function optionalDurationMs(durationMs: number | undefined): { durationMs?: numb
   return durationMs === undefined ? {} : { durationMs }
 }
 
+function optionalTitle(title: unknown): { title?: string } {
+  return hasRuntimeType(title, "string") ? { title } : {}
+}
+
 function agentActivity(value: unknown): AgentActivity | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
   // SAFETY: Agent output normalization establishes the asserted stream result contract.
@@ -479,18 +483,18 @@ export function toAgentStreamEvent(
     const id = String(value.id || value.toolCallId)
     const name = String(value.toolName || value.name || toolNames?.get(id) || "tool")
     toolNames?.set(id, name)
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), id, input: value.input, ...optionalMessageId(messageId), name, type: "tool-input-start" }
+    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), id, input: value.input, ...optionalMessageId(messageId), name, ...optionalTitle(value.title), type: "tool-input-start" }
   }
   if (type === "tool-call" || type === "tool-input-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
     toolNames?.set(id, name)
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, type: "tool-call" }
+    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, ...optionalTitle(value.title), type: "tool-call" }
   }
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: hasRuntimeType(value.error, "string") ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, type: "tool-result" }
+    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: hasRuntimeType(value.error, "string") ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...optionalTitle(value.title), type: "tool-result" }
   }
   if (type === "tool-error" || type === "tool-output-error") {
     const id = String(value.toolCallId ?? value.id)
@@ -500,7 +504,7 @@ export function toAgentStreamEvent(
         ? value.errorText
         : String(value.error || "Unknown tool error")
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, type: "tool-result" }
+    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...optionalTitle(value.title), type: "tool-result" }
   }
   if (type === "approval-request") {
     return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, type: "approval-request" }
