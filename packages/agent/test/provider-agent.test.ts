@@ -327,18 +327,37 @@ describe("Provider Agent Driver", () => {
         status: "completed",
         title: "MCP tool call",
       }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.started", threadId, {
+        data: { input: { query: "denied" }, toolName: "mcp__airtable__search_records" },
+        itemType: "mcp_tool_call",
+        title: "MCP tool call",
+      }, { itemId: "mcp-2", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: {
+          input: { query: "denied" },
+          result: { content: [{ text: "Access denied", type: "text" }], is_error: true, type: "tool_result" },
+          toolName: "mcp__airtable__search_records",
+        },
+        detail: "mcp__airtable__search_records: {\"query\":\"denied\"}",
+        itemType: "mcp_tool_call",
+        status: "failed",
+        title: "MCP tool call",
+      }, { itemId: "mcp-2", turnId: "turn-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const events = await collect(await createProviderAgentAdapter({ provider: "claude-code" }).stream!(context(threadId) as never))
+    const events = await collect(await createProviderAgentAdapter({ provider: "claude-code" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
 
     expect(events.slice(0, 2)).toEqual([
       expect.objectContaining({ input: { query: "purchase orders" }, name: "mcp__airtable__search_records", type: "tool-call" }),
       expect.objectContaining({ name: "mcp__airtable__search_records", output: { content: "12 records" }, type: "tool-result" }),
     ])
-    expect(events[0]).not.toHaveProperty("title")
-    expect(events[1]).not.toHaveProperty("title")
+    expect(events.slice(2, 4)).toEqual([
+      expect.objectContaining({ input: { query: "denied" }, type: "tool-call" }),
+      expect.objectContaining({ error: "Access denied", type: "tool-result" }),
+    ])
+    expect(events.slice(0, 4).every(event => !("title" in event))).toBe(true)
   })
 
   it("traces provider-native activity during generated runs", async () => {

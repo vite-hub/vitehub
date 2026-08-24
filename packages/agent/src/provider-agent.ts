@@ -807,6 +807,17 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && hasRuntimeType(value, "object") && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
+function providerResultError(value: unknown): string | undefined {
+  const content = record(value)?.content
+  if (hasRuntimeType(content, "string")) return content || undefined
+  if (!Array.isArray(content)) return
+  const text = content.flatMap((part) => {
+    const block = record(part)
+    return hasRuntimeType(block?.text, "string") && block.text ? [block.text] : []
+  }).join("\n")
+  return text || undefined
+}
+
 function providerToolName(event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>): string | undefined {
   const data = record(event.payload.data)
   const item = record(data?.item)
@@ -821,6 +832,7 @@ function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.
   const data = record(event.payload.data)
   const item = record(data?.item)
   const error = record(item?.error)
+  const errorMessage = hasRuntimeType(error?.message, "string") ? error.message : providerResultError(data?.result)
   const isMcpTool = event.payload.itemType === "mcp_tool_call"
   const isCodexMcpTool = isMcpTool && item?.type === "mcpToolCall"
   const failed = event.payload.status === "failed"
@@ -830,7 +842,7 @@ function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.
   return {
     durationMs: hasRuntimeType(item?.durationMs, "number") ? item.durationMs : undefined,
     error: failed
-      ? hasRuntimeType(error?.message, "string") ? error.message : event.payload.detail || "Provider tool failed."
+      ? errorMessage || event.payload.detail || "Provider tool failed."
       : undefined,
     input: isCodexMcpTool ? item.arguments : isMcpTool && data?.input !== undefined ? data.input : event.payload.data,
     output: isCodexMcpTool ? item.result : isMcpTool && data?.result !== undefined ? data.result : event.payload.data ?? event.payload.detail,
