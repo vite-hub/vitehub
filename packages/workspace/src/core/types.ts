@@ -162,9 +162,9 @@ export interface WorkspaceSessionHostFileEntry {
 
 export interface WorkspaceSessionHostFiles {
   exists(path: string): Promise<boolean>
-  list(path: string, options?: { exclude?: readonly string[], recursive?: boolean }): Promise<readonly WorkspaceSessionHostFileEntry[]>
+  list(path: string, options?: { exclude?: readonly string[], recursive?: boolean, signal?: AbortSignal }): Promise<readonly WorkspaceSessionHostFileEntry[]>
   mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
-  read(path: string): Promise<Uint8Array | null>
+  read(path: string, options?: { signal?: AbortSignal }): Promise<Uint8Array | null>
   remove(path: string, options?: { recursive?: boolean }): Promise<void>
   write(path: string, content: Uint8Array): Promise<void>
 }
@@ -209,13 +209,13 @@ export interface WorkspaceSession {
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
-  diff(): Promise<WorkspaceDiff>
-  commit(options?: { message?: string }): Promise<void>
+  diff(options?: { abortSignal?: AbortSignal }): Promise<WorkspaceDiff>
+  commit(options?: { abortSignal?: AbortSignal, message?: string }): Promise<void>
   exec(command: string, args?: string[], options?: ExecOptions): Promise<ExecResult>
   tools?: {
     aiSdk?(): Promise<Record<string, unknown>>
   }
-  close(): Promise<void>
+  close(options?: { abortSignal?: AbortSignal }): Promise<void>
 }
 
 declare global {

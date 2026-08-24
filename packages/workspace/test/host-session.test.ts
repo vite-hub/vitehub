@@ -1325,6 +1325,32 @@ describe("workspace host sessions", () => {
     expect(materializeRevision).toHaveBeenLastCalledWith(expect.objectContaining({ abortSignal: undefined }))
   })
 
+  it("cancels a deferred recursive snapshot during Session close", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const list = host.files.list.bind(host.files)
+    const session = await docs.startSession({ host })
+    let observedSignal: AbortSignal | undefined
+    host.files.list = async (path, options) => {
+      const signal = options?.signal
+      observedSignal = signal
+      if (!signal) return await list(path, options)
+      return await new Promise<never>((_resolve, reject) => {
+        const abort = () => reject(signal.reason)
+        signal.addEventListener("abort", abort, { once: true })
+        if (signal.aborted) abort()
+      })
+    }
+    const controller = new AbortController()
+    const reason = new DOMException("cleanup deadline", "TimeoutError")
+
+    const closing = session.close({ abortSignal: controller.signal })
+    await vi.waitFor(() => expect(observedSignal).toBe(controller.signal))
+    controller.abort(reason)
+
+    await expect(closing).rejects.toBe(reason)
+  })
+
   it("restores excluded state when authoritative close rematerialization fails", async () => {
     const docs = workspace()
     const host = memoryHost()
