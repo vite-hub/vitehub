@@ -999,26 +999,30 @@ function withCapturedUsage(
       while (owner) {
         const descriptor = Object.getOwnPropertyDescriptor(owner, key)
         if (descriptor) {
-          return descriptor.get
-            ? () => descriptor.get?.call(record)
-            : () => descriptor.value
+          return {
+            exists: true,
+            read: descriptor.get
+              ? () => descriptor.get?.call(record)
+              : () => descriptor.value,
+          }
         }
         // SAFETY: Prototype traversal either reaches another object in the chain or its null terminus.
         owner = Object.getPrototypeOf(owner) as object | null
       }
-      return () => undefined
+      return { exists: false, read: () => undefined }
     }
     const resultUsage = originalValue("usage")
     const totalUsage = originalValue("totalUsage")
     const hasTotalUsage = "totalUsage" in record
-    const resolvedCapturedUsage = async (fallback: () => unknown) => {
+    const resolvedCapturedUsage = async (fallback: { exists: boolean, read: () => unknown }) => {
       if (hasRuntimeType(captures, "function")) {
         const [primaryCapture] = captures()
+        if (!primaryCapture?.captured && !fallback.exists) return undefined
         await primaryCapture?.started
         await Promise.race([primaryCapture?.published, primaryCapture?.completed])
       }
       const usage = await capturedUsage()
-      return usage ?? await fallback()
+      return usage ?? await fallback.read()
     }
     Object.defineProperty(record, "usage", {
       configurable: true,
