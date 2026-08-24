@@ -166,6 +166,31 @@ describe("local workspace store", () => {
     await writing
   })
 
+  it("allows unconditional sibling writes to overlap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    const second = createLocalWorkspaceStore(root)
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const writing = first.writeFile("docs/first.md", { path: "docs/first.md", content: "first" })
+    await writingStarted
+    await second.writeFile("docs/second.md", { path: "docs/second.md", content: "second" })
+    await expect(second.readFile("docs/second.md")).resolves.toMatchObject({ path: "docs/second.md" })
+
+    release()
+    await writing
+  })
+
   it("preserves conditional-write isolation from concurrent unconditional writes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)

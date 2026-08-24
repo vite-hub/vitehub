@@ -63,6 +63,44 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
   }
 }
 
+async function withFilesystemReadLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
+  const { mkdir, open, rm } = await import("node:fs/promises")
+  const reader = `${lock}.readers/${randomUUID()}`
+  await withFilesystemLock(`${lock}.gate`, description, async () => {
+    await mkdir(`${lock}.readers`, { recursive: true })
+    const ownerFile = await open(reader, "wx")
+    await ownerFile.close()
+  })
+  try {
+    return await operation()
+  }
+  finally {
+    await rm(reader, { force: true })
+  }
+}
+
+async function withFilesystemWriteLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
+  const { readdir, rm, stat } = await import("node:fs/promises")
+  return await withFilesystemLock(`${lock}.gate`, description, async () => {
+    const readers = `${lock}.readers`
+    const deadline = Date.now() + 10_000
+    while (true) {
+      const active = await readdir(readers).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return []
+        throw error
+      })
+      if (active.length === 0) return await operation()
+      for (const owner of active) {
+        const path = `${readers}/${owner}`
+        const info = await stat(path).catch(() => undefined)
+        if (info && Date.now() - info.mtimeMs > 300_000) await rm(path, { force: true })
+      }
+      if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
+      await delay(25)
+    }
+  })
+}
+
 async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>): Promise<T> {
   const normalized = normalizeWorkspacePath(path)
   const parts = normalized.split("/").filter(Boolean)
@@ -72,11 +110,11 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     if (index === paths.length) return await operation()
     const lockedPath = paths[index]!
     const key = createHash("sha256").update(lockedPath).digest("hex")
-    return await withFilesystemLock(
-      `${root}.vitehub-locks/${key}`,
-      `path: ${lockedPath}.`,
-      () => lock(index + 1),
-    )
+    const lockPath = `${root}.vitehub-locks/${key}`
+    const next = () => lock(index + 1)
+    return index === paths.length - 1
+      ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
+      : await withFilesystemReadLock(lockPath, `path: ${lockedPath}.`, next)
   }
 
   return await lock(0)
