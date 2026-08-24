@@ -2,9 +2,9 @@
 import { AgentInvocation, AgentInvocationInspector, AgentInvocationList } from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
-import type { SplitterItem } from "@nuxt/ui";
+import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
 import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
@@ -13,8 +13,15 @@ import type {
 
 const route = useRoute();
 const router = useRouter();
-const props = defineProps<{ apiBase: string }>();
+const props = defineProps<{ agentsBase: string; apiBase: string }>();
+const initialAgentQuery = Array.isArray(route.query.agent) ? route.query.agent[0] : route.query.agent;
 const selectedInvocationId = ref<string>();
+const selectedAgentName = ref(
+  typeof initialAgentQuery === "string" && initialAgentQuery.trim() ? initialAgentQuery : undefined,
+);
+const discoveredAgentNames = ref<string[]>([]);
+const observedAgentNames = ref<string[]>([]);
+const agentsLoading = ref(true);
 const paginationRetryRevision = ref(0);
 const lastSuccessfulPollAt = ref<Date>();
 const nowMs = ref(Date.now());
@@ -24,6 +31,7 @@ const detailsOpen = ref(false);
 const isDesktop = ref(false);
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
+let agentsRequest: AbortController | undefined;
 
 const request = async (path: string, options: { signal?: AbortSignal }): Promise<unknown> => {
   const response = await fetch(path, { signal: options.signal });
@@ -40,6 +48,7 @@ const list = useAgentInvocations({
   pollInterval: 5_000,
   request,
   requestSummaries: request,
+  query: computed(() => selectedAgentName.value ? { agent: selectedAgentName.value } : undefined),
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
@@ -61,8 +70,27 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
   })),
 );
+const availableAgentNames = computed(() =>
+  [...new Set([...discoveredAgentNames.value, ...observedAgentNames.value])].sort(),
+);
+const hasMultipleAgents = computed(() => availableAgentNames.value.length > 1);
+const selectedAgentLabel = computed(() =>
+  selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
+);
+const agentMenuItems = computed<DropdownMenuItem[]>(() =>
+  availableAgentNames.value.map((name) => ({
+    icon: "i-lucide-bot",
+    label: name,
+    onSelect: () => selectAgent(name),
+    trailingIcon: selectedAgentName.value === name ? "i-lucide-check" : undefined,
+  })),
+);
 const routeInvocation = computed(() => {
   const value = route.params.invocation;
+  return Array.isArray(value) ? value[0] : value;
+});
+const routeAgent = computed(() => {
+  const value = route.query.agent;
   return Array.isArray(value) ? value[0] : value;
 });
 const selectedSummary = computed(() =>
@@ -165,11 +193,47 @@ function relativeDuration(elapsed: number): string {
 
 async function selectInvocation(id: string): Promise<void> {
   sessionsOpen.value = false;
-  await router.push({ name: "vitehub-console-agents", params: { invocation: id } });
+  await router.push({
+    name: "vitehub-console-agents",
+    params: { invocation: id },
+    query: selectedAgentName.value ? { agent: selectedAgentName.value } : {},
+  });
+}
+
+async function selectAgent(name: string): Promise<void> {
+  if (name === selectedAgentName.value) return;
+  selectedAgentName.value = name;
+  selectedInvocationId.value = undefined;
+  await router.push({
+    name: "vitehub-console-agents",
+    query: { agent: name },
+  });
+}
+
+async function loadAgents(): Promise<void> {
+  agentsRequest?.abort();
+  const controller = new AbortController();
+  agentsRequest = controller;
+  agentsLoading.value = true;
+  try {
+    const value = record(await request(props.agentsBase, { signal: controller.signal }));
+    const names = Array.isArray(value?.agents)
+      ? value.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
+      : [];
+    if (agentsRequest === controller) discoveredAgentNames.value = [...new Set(names)];
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+  } finally {
+    if (agentsRequest === controller) {
+      agentsRequest = undefined;
+      agentsLoading.value = false;
+    }
+  }
 }
 
 async function refresh(): Promise<void> {
   await Promise.all([
+    loadAgents(),
     list.refresh(),
     selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
   ]);
@@ -191,13 +255,36 @@ watch(
       await router.replace({
         name: "vitehub-console-agents",
         params: { invocation: firstInvocation },
+        query: selectedAgentName.value ? { agent: selectedAgentName.value } : {},
       });
     }
   },
   { immediate: true },
 );
 
+watch(
+  () => list.invocations.value
+    .map(invocation => invocation.agentName)
+    .filter((name): name is string => Boolean(name)),
+  (names) => {
+    observedAgentNames.value = [...new Set([...observedAgentNames.value, ...names])].sort();
+  },
+  { immediate: true },
+);
+
+watch(
+  [routeAgent, availableAgentNames],
+  ([requestedAgent, names]) => {
+    if (!names.length) return;
+    selectedAgentName.value = requestedAgent && names.includes(requestedAgent)
+      ? requestedAgent
+      : names[0];
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
+  void loadAgents();
   media = window.matchMedia("(min-width: 1024px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
@@ -207,6 +294,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  agentsRequest?.abort();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
 });
@@ -228,24 +316,40 @@ onBeforeUnmount(() => {
       resizable
     >
       <template #header="{ collapsed }">
-        <RouterLink
-          class="flex min-w-0 items-center gap-2.5 rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          :to="{ name: 'vitehub-console-agents' }"
+        <UDropdownMenu
+          :items="agentMenuItems"
+          :content="{ align: 'start', collisionPadding: 12 }"
+          :ui="{ content: collapsed ? 'w-44' : 'w-(--reka-dropdown-menu-trigger-width)' }"
         >
-          <span
-            class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5"
-            aria-hidden="true"
-            ><i class="h-2/3 bg-inverted" /><i class="h-full bg-primary" /><i
-              class="h-4/5 bg-inverted"
-          /></span>
-          <span v-if="!collapsed" class="grid min-w-0 leading-none"
-            ><small class="text-[10px] font-bold uppercase tracking-[.12em] text-muted"
-              >ViteHub</small
-            ><strong class="mt-1 truncate text-sm font-semibold text-highlighted"
-              >Console</strong
-            ></span
+          <button
+            type="button"
+            class="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 text-start outline-none data-[state=open]:bg-elevated focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
+            :class="hasMultipleAgents ? 'hover:bg-elevated/70' : ''"
+            :disabled="!hasMultipleAgents"
+            :aria-label="hasMultipleAgents ? `Switch Agent. ${selectedAgentLabel} selected.` : selectedAgentLabel"
           >
-        </RouterLink>
+            <span
+              class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5"
+              aria-hidden="true"
+              ><i class="h-2/3 bg-inverted" /><i class="h-full bg-primary" /><i
+                class="h-4/5 bg-inverted"
+            /></span>
+            <span v-if="!collapsed" class="grid min-w-0 flex-1 leading-none"
+              ><small class="truncate text-[10px] font-bold uppercase tracking-[.12em] text-muted"
+                >ViteHub Console</small
+              ><strong class="mt-1 truncate text-sm font-semibold text-highlighted">{{
+                selectedAgentLabel
+              }}</strong></span
+            >
+            <UIcon
+              v-if="!collapsed"
+              name="i-lucide-chevrons-up-down"
+              class="size-3.5 shrink-0 text-dimmed"
+              :class="hasMultipleAgents ? 'opacity-100' : 'opacity-0'"
+              aria-hidden="true"
+            />
+          </button>
+        </UDropdownMenu>
       </template>
 
       <template #default="{ collapsed }">

@@ -214,6 +214,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         filters.push(`status IN (${statuses.map(() => "?").join(", ")})`)
         args.push(...statuses)
       }
+      const agentName = listOptions.agentName?.trim()
+      if (agentName) {
+        filters.push("json_extract(record, '$.agentName') = ?")
+        args.push(agentName)
+      }
       const search = searchValue(listOptions.search)
       if (search) {
         filters.push("search LIKE ? ESCAPE '\\'")

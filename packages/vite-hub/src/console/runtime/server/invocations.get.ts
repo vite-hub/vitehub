@@ -25,6 +25,13 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     }
   }
   const cursor = query.get("cursor") || undefined
+  const agentName = query.get("agent")?.trim() || undefined
+  if (agentName && agentName.length > 256) {
+    throw Object.assign(new Error("Invalid Agent name"), {
+      statusCode: 400,
+      statusMessage: "Invalid Agent name",
+    })
+  }
   const limitValue = query.get("limit")
   const limit = limitValue === null ? undefined : Number(limitValue)
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
@@ -34,6 +41,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     })
   }
   return getConsoleInvocations().list({
+    ...(agentName ? { agentName } : {}),
     ...(cursor ? { cursor } : {}),
     ...(limit === undefined ? {} : { limit }),
   })

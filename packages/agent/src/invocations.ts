@@ -57,6 +57,7 @@ export interface AgentInvocationRecord {
 }
 
 export interface AgentInvocationListOptions {
+  agentName?: string
   cursor?: string
   limit?: number
   search?: string
@@ -488,12 +489,16 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const limit = normalizeLimit(options.limit)
       const cursor = normalizeBuiltInCursor(options.cursor)
       const search = normalizeSearch(options.search)
+      const agentName = options.agentName?.trim()
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
       const before = cursor === undefined ? Number.POSITIVE_INFINITY : Number(cursor)
       const candidates = [...records.values()]
-        .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)) && matchesInvocationSearch(record, search))
+        .filter(record => Number(record.cursor) < before
+          && (!agentName || record.agentName === agentName)
+          && (!statuses || statuses.has(record.status))
+          && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
       const page = candidates.slice(0, limit)
       return {

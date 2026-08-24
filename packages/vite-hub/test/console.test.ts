@@ -10,6 +10,8 @@ import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import agentsHandler from "../src/console/runtime/server/agents.get.ts"
+import { consoleAgentsKey, consoleAgentsRegistryKey, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -52,6 +54,9 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
+  Reflect.deleteProperty(globalThis, consoleAgentsKey)
+  Reflect.deleteProperty(process, consoleAgentsKey)
+  Reflect.deleteProperty(process, consoleAgentsRegistryKey)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -60,6 +65,9 @@ describe("Agent invocation console", () => {
   it("registers the standalone console UI and invocation API with Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "review.agent.ts"), "export default {}\n")
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin()
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -76,6 +84,7 @@ describe("Agent invocation console", () => {
       if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
 
       expect(config.nitro.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/agents",
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
         "/_vitehub",
@@ -88,10 +97,45 @@ describe("Agent invocation console", () => {
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `installConsoleInvocations(${JSON.stringify(root)})`,
       )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `installConsoleAgents(["review","support"], ${JSON.stringify(root)})`,
+      )
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("serves discovered Agent names in stable order", () => {
+    installConsoleAgents(["support", "review", "support"], process.cwd())
+
+    expect(agentsHandler(event("127.0.0.1"))).toEqual({
+      agents: ["review", "support"],
+    })
+  })
+
+  it("filters console sessions by exact Agent name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const agentName of ["review", "review-assistant"]) {
+      store.create({
+        agentName,
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: agentName,
+        observations: [],
+        status: "completed",
+        traceId: `trace-${agentName}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?agent=review"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ agentName: "review" }],
+    })
   })
 
   it("refreshes invocation summaries in one request without observations", async () => {

@@ -259,6 +259,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':retry-key="paginationRetryRevision"')
     expect(consolePage).toContain("list.loadMoreError.value")
     expect(consolePage).toContain("Retry loading older sessions")
+    expect(consolePage).toContain("Switch Agent")
+    expect(consolePage).toContain("agentMenuItems")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.js`, "utf8")).toContain("ViteHub")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8")).toContain("vitehub-console")

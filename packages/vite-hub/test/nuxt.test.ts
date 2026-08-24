@@ -313,6 +313,7 @@ describe("ViteHub Nuxt integration", () => {
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
       handlers: [
+        { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
       ],
@@ -327,6 +328,9 @@ describe("ViteHub Nuxt integration", () => {
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleInvocations("/tmp/vitehub-nuxt")`,
     )
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleAgents([], "/tmp/vitehub-nuxt")`,
+    )
 
     mocks.uiModule.mockClear()
     const production = createNuxt(false)
@@ -340,6 +344,7 @@ describe("ViteHub Nuxt integration", () => {
     ])
     expect(production.nuxt.options.nitro).toMatchObject({
       handlers: [
+        { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
       ],

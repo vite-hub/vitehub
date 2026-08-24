@@ -39,6 +39,25 @@ describe("Agent Invocations", () => {
     expect(store.list({ search: "1" })).toEqual({ invocations: [] })
   })
 
+  it("filters memory-store records by exact Agent name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const agentName of ["review", "review-assistant"]) {
+      await store.create({
+        agentName,
+        createdAt: "2026-02-02T02:02:02.000Z",
+        id: agentName,
+        observations: [],
+        status: "completed",
+        traceId: `${agentName}-trace`,
+        updatedAt: "2026-02-02T02:02:02.000Z",
+      })
+    }
+
+    expect(store.list({ agentName: "review" })).toMatchObject({
+      invocations: [{ agentName: "review" }],
+    })
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
@@ -1553,6 +1572,16 @@ describe("Agent Invocations", () => {
       })
       await runAgent(agent, runtime("durable-run", { "github.repository": "vite-hub/vitehub" }), {})
       await runAgent(agent, runtime("unicode-search", { "github.repository": "Éclair" }), {})
+      await runAgent(
+        defineAgent({
+          driver: { run: () => "reviewed" },
+          invocations,
+          name: "review",
+          runtime: false,
+        }),
+        runtime("named-review"),
+        {},
+      )
 
       const restored = defineAgentInvocations({
         store: createLibsqlAgentInvocationStore({ client: readerClient }),
@@ -1573,6 +1602,12 @@ describe("Agent Invocations", () => {
       })
       await expect(restored.list({ search: "éclair" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
+      })
+      await expect(restored.list({ agentName: "review" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ agentName: "review" })],
+      })
+      await expect(restored.list({ agentName: "review-assistant" })).resolves.toEqual({
+        invocations: [],
       })
       const localeLowercase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
         return String(this).replaceAll("I", "ı").toLowerCase()

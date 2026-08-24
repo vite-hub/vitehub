@@ -3,5 +3,15 @@ import {
   getConsoleInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
+import {
+  getConsoleAgents,
+  installConsoleAgents,
+} from "./runtime/server/agents.ts"
 
-export { createConsoleInvocations, getConsoleInvocations, installConsoleInvocations }
+export {
+  createConsoleInvocations,
+  getConsoleAgents,
+  getConsoleInvocations,
+  installConsoleAgents,
+  installConsoleInvocations,
+}
