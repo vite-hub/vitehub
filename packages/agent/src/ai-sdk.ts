@@ -1684,6 +1684,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       } as never) as StreamTextResult<ToolSet, never, never>
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const result = withResolvedModelMetadata(withCapturedStreamUsage(
+        // SAFETY: withCapturedUsage preserves the streamed result object and only replaces its usage accessors.
         withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
         usageCaptures,
       ), model) as StreamTextResult<ToolSet, never, never>
