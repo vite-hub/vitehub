@@ -828,4 +828,443 @@ describe("Agent Invocation UI", () => {
 
     expect(wrapper.get("article").classes()).toContain("vh-invocation-session--headerless");
   });
+
+  it("coalesces streamed message deltas and omits duplicate terminal payloads", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "streamed",
+      observations: [
+        { attributes: { "message.content": "Final ", "message.role": "assistant" }, name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "message.content": "answer", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" as const },
+        { attributes: { "result.text": "Final answer" }, name: "agent.stream.finish", sequence: 3, timestamp, type: "lifecycle" as const },
+        { attributes: { "result.text": "Final answer" }, name: "agent.invocation.finish", sequence: 4, timestamp, type: "lifecycle" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => [activity.name, activity.body])).toEqual([
+      ["agent.message.delta", "Final answer"],
+    ]);
+  });
+
+  it("models preparation and channel delivery observations as first-class activities", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "lifecycle",
+      observations: [
+        {
+          attributes: {
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Workspace materialized",
+          },
+          name: "vitehub.workspace.materialized",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: {
+            "channel.effect.intent": "started",
+            "channel.effect.kind": "reaction",
+          },
+          name: "vitehub.channel.delivery",
+          sequence: 2,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const activities = invocationActivities(invocation);
+    expect(activities.map(activity => activity.kind)).toEqual(["preparation", "delivery"]);
+    expect(activities.map(invocationActivityTitle)).toEqual(["Workspace materialized", "Reacted with eyes"]);
+  });
+
+  it("groups preparation, links the pull request, and emits inspector targets", async () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      annotations: {
+        "github.pullRequest": 1030,
+        "github.repository": "vite-hub/vitehub",
+        "github.url": "https://github.com/vite-hub/vitehub/pull/1030",
+      },
+      completedAt: "2026-08-24T00:02:43.000Z",
+      createdAt: timestamp,
+      id: "prepared",
+      observations: [
+        {
+          attributes: {
+            "vitehub.activity.detail": "vite-hub/vitehub · PR #1030",
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Pull request selected",
+          },
+          name: "vitehub.pull-request.selected",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: {
+            "vitehub.activity.detail": "1790 files",
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Workspace materialized",
+            "vitehub.inspect.target": "workspace",
+          },
+          name: "vitehub.workspace.materialized",
+          sequence: 2,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: {
+            "message.content": "Review this pull request. ".repeat(50),
+            "message.id": "user",
+            "message.role": "user",
+          },
+          name: "agent.message",
+          sequence: 3,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: { "vitehub.activity.kind": "reasoning", "vitehub.activity.body": "Checked the diff." },
+          name: "agent.reasoning.finish",
+          sequence: 4,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: { "message.content": "Merged after checks passed.", "message.id": "assistant", "message.role": "assistant" },
+          name: "agent.message",
+          sequence: 5,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: {
+            "channel.effect.intent": "started",
+            "channel.effect.kind": "reaction",
+            "vitehub.activity.group": "github-lifecycle",
+          },
+          name: "vitehub.channel.delivery",
+          sequence: 6,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+      ],
+      startedAt: timestamp,
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: "2026-08-24T00:02:43.000Z",
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-preparation__summary").text()).toContain("Session prepared");
+    expect(wrapper.get(".vh-invocation-preparation__summary").text()).toContain("2 steps");
+    expect(wrapper.get('.vh-invocation-preparation__context a').attributes("href")).toBe(invocation.annotations["github.url"]);
+    await wrapper.get(".vh-invocation-preparation__summary").trigger("click");
+    await wrapper.get('button[aria-label="Open Workspace"]').trigger("click");
+    expect(wrapper.emitted("inspect")).toEqual([["workspace"]]);
+
+    const prompt = wrapper.get('.vh-invocation-message[data-role="user"]');
+    expect(prompt.get(".vh-invocation-message__content").attributes("data-collapsed")).toBe("true");
+    await prompt.get(".vh-invocation-message__more").trigger("click");
+    expect(prompt.get(".vh-invocation-message__content").attributes("data-collapsed")).toBeUndefined();
+
+    expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 2m 43s");
+    expect(wrapper.get('.vh-invocation-message[data-role="assistant"]').text()).toContain("Merged after checks passed.");
+    expect(wrapper.get('.vh-invocation-lifecycle[data-activity-group="github-lifecycle"] .vh-invocation-lifecycle__emoji').text()).toBe("👀");
+  });
+
+  it("renders unsafe pull request annotations as text and failed preparation as failed", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      annotations: {
+        "github.pullRequest": 1040,
+        "github.repository": "vite-hub/vitehub",
+        "github.url": "javascript:alert(1)",
+      },
+      createdAt: timestamp,
+      id: "failed-preparation",
+      observations: [{
+        attributes: {
+          "error.message": "Workspace checkout failed",
+          "vitehub.observation.truncated": true,
+          "vitehub.activity.kind": "preparation",
+          "vitehub.activity.title": "Workspace failed",
+        },
+        name: "vitehub.workspace.error",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-preparation__summary").text()).toContain("Session preparation failed");
+    expect(wrapper.find(".vh-invocation-preparation__context a").exists()).toBe(false);
+    expect(wrapper.get(".vh-invocation-preparation__context").text()).toContain("PR #1040");
+    expect(wrapper.get(".vh-invocation-preparation__body").text()).toBe("Workspace checkout failed");
+    expect(wrapper.get(".vh-invocation-preparation__steps .vh-invocation-event__notice").text()).toContain("truncated");
+  });
+
+  it("preserves input transcript order when the latest user has no response", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "unanswered-turn",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "user-1", parts: [{ text: "First question", type: "text" }], role: "user" },
+            { id: "assistant-1", parts: [{ text: "First answer", type: "text" }], role: "assistant" },
+            { id: "user-2", parts: [{ text: "Unanswered question", type: "text" }], role: "user" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const messages = wrapper.findAll(".vh-invocation-message");
+
+    expect(messages.map(message => message.text())).toEqual(["First question", "First answer", "Unanswered question"]);
+    expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
+  });
+
+  it("renders grouped delivery outcomes, reaction intents, and truncation honestly", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const event = (sequence: number, attributes: Record<string, unknown>) => ({
+      attributes: { "vitehub.activity.group": "github-lifecycle", "vitehub.activity.kind": "delivery", ...attributes },
+      name: "vitehub.channel.delivery",
+      sequence,
+      timestamp,
+      type: "lifecycle" as const,
+    });
+    const invocation = {
+      createdAt: timestamp,
+      id: "delivery-outcomes",
+      observations: [
+        event(1, { "channel.effect.kind": "reply", "channel.effect.supported": false }),
+        event(2, { "channel.effect.kind": "status", "channel.effect.skipped": "missing target" }),
+        event(3, { "channel.effect.intent": "completed", "channel.effect.kind": "reaction" }),
+        event(4, { "channel.effect.intent": "failed", "channel.effect.kind": "reaction" }),
+      ],
+      observationsTruncated: true,
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.findAll(".vh-invocation-lifecycle__title").map(title => title.text())).toEqual([
+      "Reply not supported",
+      "Status skipped",
+      "Reacted with hooray",
+      "Reacted with confused",
+    ]);
+    expect(wrapper.findAll(".vh-invocation-lifecycle__emoji").map(emoji => [emoji.text(), emoji.attributes("aria-label")])).toEqual([
+      ["🎉", "hooray"],
+      ["😕", "confused"],
+    ]);
+    expect(wrapper.get(".vh-invocation-event__notice").text()).toContain("truncated");
+  });
+
+  it("exposes grouped lifecycle failures", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "lifecycle-failures",
+      observations: [{
+        attributes: {
+          "error.message": "GitHub rejected the label update",
+          "github.label.name": "Agent: Working",
+          "github.label.operation": "add",
+          "vitehub.activity.group": "github-lifecycle",
+          "vitehub.activity.kind": "action",
+          "vitehub.activity.title": "Added label",
+        },
+        name: "vitehub.github.label.error",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const row = wrapper.get('[data-activity-group="github-lifecycle"] [data-status="failed"]');
+
+    expect(row.get('[data-icon="error"]').attributes("data-icon")).toBe("error");
+    expect(row.get(".vh-invocation-lifecycle__title").text()).toBe("Failed to add label");
+    expect(row.get(".vh-invocation-lifecycle__failure").text()).toBe("GitHub rejected the label update");
+    expect(row.get(".vh-invocation-lifecycle__label").text()).toBe("Agent: Working");
+  });
+
+  it("groups adjacent lifecycle activities after their observations collapse", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const observation = (sequence: number, step: string, phase: "started" | "completed") => ({
+      attributes: {
+        "step.id": step,
+        "vitehub.activity.group": "github-lifecycle",
+        "vitehub.activity.kind": "action",
+        "vitehub.activity.title": step,
+      },
+      name: `vitehub.github.${step}.${phase}`,
+      sequence,
+      timestamp,
+      type: "lifecycle" as const,
+    });
+    const invocation = {
+      createdAt: timestamp,
+      id: "collapsed-lifecycle",
+      observations: [
+        observation(1, "first", "started"),
+        observation(2, "first", "completed"),
+        observation(3, "second", "started"),
+        observation(4, "second", "completed"),
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.findAll('[data-activity-group="github-lifecycle"]')).toHaveLength(1);
+    expect(wrapper.findAll('[data-activity-group="github-lifecycle"] .vh-invocation-lifecycle__row')).toHaveLength(2);
+  });
+
+  it("groups consecutive lifecycle rows and renders structured GitHub labels", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const event = (sequence: number, attributes: Record<string, unknown>, name: string) => ({
+      attributes: { "vitehub.activity.group": "github-lifecycle", ...attributes },
+      name,
+      sequence,
+      timestamp,
+      type: "lifecycle" as const,
+    });
+    const invocation = {
+      createdAt: timestamp,
+      id: "github-lifecycle",
+      observations: [
+        event(1, {
+          "github.label.color": "d0d7de",
+          "github.label.name": "Agent: Queued",
+          "github.label.operation": "add",
+          "vitehub.activity.kind": "action",
+          "vitehub.activity.title": "Queued label added",
+        }, "vitehub.github.label.queued"),
+        event(2, {
+          "github.label.color": "54aeff",
+          "github.label.name": "Agent: Working",
+          "github.label.operation": "add",
+          "vitehub.activity.kind": "action",
+          "vitehub.activity.title": "Working label added",
+        }, "vitehub.github.label.working"),
+        event(3, {
+          "channel.effect.intent": "started",
+          "channel.effect.kind": "status",
+          "vitehub.activity.kind": "delivery",
+          "vitehub.activity.title": "Working status posted",
+        }, "vitehub.github.status.started"),
+        event(4, {
+          "channel.effect.intent": "started",
+          "channel.effect.kind": "reaction",
+          "vitehub.activity.kind": "delivery",
+          "vitehub.activity.title": "Reacted with eyes",
+        }, "vitehub.github.reaction.started"),
+        {
+          ...event(5, {
+            "vitehub.activity.kind": "action",
+            "vitehub.activity.title": "Working label removed",
+          }, "vitehub.github.label.removed"),
+          attributes: {
+            "github.label.color": "54aeff",
+            "github.label.name": "Agent: Working",
+            "github.label.operation": "remove",
+            "vitehub.activity.group": "github-completion",
+            "vitehub.activity.kind": "action",
+            "vitehub.activity.title": "Working label removed",
+          },
+        },
+        {
+          attributes: {
+            "channel.effect.intent": "completed",
+            "channel.effect.kind": "update",
+            "vitehub.activity.group": "github-completion",
+            "vitehub.activity.kind": "delivery",
+            "vitehub.activity.title": "GitHub result posted",
+          },
+          name: "vitehub.github.status.finished",
+          sequence: 6,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const groups = wrapper.findAll(".vh-invocation-lifecycle");
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.findAll(".vh-invocation-lifecycle__row")).toHaveLength(4);
+    expect(groups[1]!.findAll(".vh-invocation-lifecycle__row")).toHaveLength(2);
+    expect(groups[0]!.findAll(".vh-invocation-lifecycle__label").map(chip => chip.text())).toEqual([
+      "Agent: Queued",
+      "Agent: Working",
+    ]);
+    expect(groups[0]!.findAll(".vh-invocation-lifecycle__title").slice(0, 2).map(title => title.text())).toEqual([
+      "Added label",
+      "Added label",
+    ]);
+    expect(groups[0]!.get(".vh-invocation-lifecycle__label").attributes("style")).toContain("#d0d7de");
+    expect(groups[0]!.get(".vh-invocation-lifecycle__emoji").text()).toBe("👀");
+    expect(groups[1]!.get(".vh-invocation-lifecycle__title").text()).toBe("Removed label");
+    expect(groups[1]!.get(".vh-invocation-lifecycle__label").attributes("data-operation")).toBe("remove");
+  });
+
+  it("shows recorded Agent Definition details in one inspector section", () => {
+    const invocation: AgentInvocationView = {
+      configuration: {
+        agent: { name: "babysitter" },
+        capabilities: [{ id: "github" }],
+        driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "openai" } },
+        instructions: ["Follow repository instructions."],
+        runtime: { name: "node" },
+        tools: [{ name: "exec" }],
+        workspace: { mode: "write", name: "babysitter", sources: ["github:vite-hub/vitehub"] },
+      },
+      createdAt: "2026-08-24T00:00:00.000Z",
+      id: "configured",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-08-24T00:00:01.000Z",
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("gpt-5.6-sol");
+    expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("openai");
+    expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
+    expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Agent definition");
+    expect(wrapper.get(".vh-invocation-inspector__configuration").text()).toContain("System instructions");
+  });
 });

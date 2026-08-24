@@ -36,6 +36,7 @@ export interface InvocationActivity {
   preview?: string;
   reasoningTokens?: number;
   role?: "assistant" | "system" | "tool" | "user";
+  sequence: number;
   status: "running" | "completed" | "failed";
   totalTokens?: number;
   truncated?: boolean;
@@ -169,7 +170,7 @@ function commandDetails(
   };
 }
 
-function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
+export function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = attributes[key];
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -257,11 +258,13 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   const groups = new Map<string, TraceEventLogEntry[]>();
   const traceTruncated = invocation.observationsTruncated === true
     || (invocation.observations?.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true) ?? false);
+  const hasAgentMessages = (invocation.observations ?? []).some(observation =>
+    observation.name === "agent.message" || observation.name.startsWith("agent.message."),
+  );
   let anonymousMessage = 0;
   let anonymousMessageKey: string | undefined;
   let anonymousMessagePhase: string | undefined;
   let assistantDeltaText = "";
-  const hasAgentMessages = (invocation.observations ?? []).some(observation => observation.name.startsWith("agent.message"));
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded") continue;
     const originalAttributes = observation.attributes ?? {};
@@ -352,6 +355,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         name: first.name,
         patches,
         paths,
+        sequence: first.sequence,
         ...(numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") !== undefined
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
@@ -370,14 +374,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ...(activityPreview(attributes, command, paths, title) ? { preview: activityPreview(attributes, command, paths, title) } : {}),
       };
     })
-    .sort((left, right) => {
-      const leftSequence = groups.get(left.id)?.[0]?.sequence ?? 0;
-      const rightSequence = groups.get(right.id)?.[0]?.sequence ?? 0;
-      return leftSequence - rightSequence;
-    });
+    .sort((left, right) => left.sequence - right.sequence);
   if (traceTruncated && !activities.some(activity => activity.truncated)) {
     if (activities.length > 0) activities[activities.length - 1] = { ...activities[activities.length - 1]!, truncated: true };
-    else activities.push({ attributes: {}, id: "trace-truncated", kind: "run", name: "vitehub.observation.truncated", patches: [], paths: [], status: "completed", truncated: true });
+    else activities.push({ attributes: {}, id: "trace-truncated", kind: "run", name: "vitehub.observation.truncated", patches: [], paths: [], sequence: 0, status: "completed", truncated: true });
   }
   return activities;
 }
@@ -394,7 +394,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.name === "vitehub.agent.configured") return "Agent configured";
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";
-  if (activity.kind === "delivery") return String(activity.attributes["channel.effect.kind"] ?? "Channel delivery");
+  if (activity.kind === "delivery") return channelDeliveryTitle(activity);
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
@@ -424,6 +424,36 @@ export function agentConfigurationSummary(activity: InvocationActivity): string 
     capabilities ? `${capabilities} ${capabilities === 1 ? "capability" : "capabilities"}` : undefined,
     tools ? `${tools} ${tools === 1 ? "tool" : "tools"}` : undefined,
   ].filter(Boolean).join(" · ") || undefined;
+}
+
+function channelDeliveryTitle(activity: InvocationActivity): string {
+  const rawKind = String(activity.attributes["channel.effect.kind"] ?? "").trim();
+  const kind = rawKind.toLocaleLowerCase();
+  const intent = String(activity.attributes["channel.effect.intent"] ?? "").trim().toLocaleLowerCase();
+  const delivery = rawKind.includes(".") ? rawKind : kind ? normalizedTitle(kind) : "Channel delivery";
+  if (activity.attributes["channel.effect.supported"] === false) return `${delivery} not supported`;
+  if (stringAttribute(activity.attributes, "channel.effect.skipped")) return `${delivery} skipped`;
+  if (kind === "reaction") {
+    const reaction: Record<string, string> = { completed: "hooray", failed: "confused", started: "eyes" };
+    return reaction[intent] ? `Reacted with ${reaction[intent]}` : "Reaction sent";
+  }
+  if (kind === "reply") return "Reply sent";
+  if (kind === "status") return "Status updated";
+  if (kind === "title") return "Title updated";
+  if (kind === "update") return "Message updated";
+  if (rawKind.includes(".")) return rawKind;
+  return kind ? `${normalizedTitle(kind)} delivered` : "Channel delivery";
+}
+
+export function channelDeliverySummary(activity: InvocationActivity): string | undefined {
+  if (activity.kind !== "delivery") return;
+  if (activity.attributes["channel.effect.supported"] === false) return "Not supported";
+  const skipped = stringAttribute(activity.attributes, "channel.effect.skipped");
+  if (skipped) return normalizedTitle(skipped);
+  const kind = String(activity.attributes["channel.effect.kind"] ?? "").trim().toLocaleLowerCase();
+  const intent = String(activity.attributes["channel.effect.intent"] ?? "").trim();
+  if (!intent || (kind === "reaction" && ["completed", "failed", "started"].includes(intent.toLocaleLowerCase()))) return;
+  return normalizedTitle(intent);
 }
 
 export function terminalText(value: string | undefined): string {
