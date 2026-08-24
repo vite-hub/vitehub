@@ -676,12 +676,14 @@ describe("AI SDK recovery", () => {
         }
       },
     }
+    // SAFETY: This fixture implements the trace log methods exercised by streamAgentInline.
+    const traceLog = {
+      append: vi.fn(async event => event),
+      entries: () => [],
+    } as never
     const stream = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), {
       ...runtime,
-      traceLog: {
-        append: vi.fn(async event => event),
-        entries: () => [],
-      } as never,
+      traceLog,
     }, { prompt: "Search" }, { output: "ui-message-stream" })
     // SAFETY: UI-message output is a ReadableStream under the selected output contract.
     const reader = (stream as ReadableStream<unknown>).getReader()
