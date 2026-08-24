@@ -1,0 +1,27 @@
+diff --git a/dist/worker/WorkerPoolManager.d.ts b/dist/worker/WorkerPoolManager.d.ts
+index 74bdec106a3072fd31ddfdd494187efadcd2f355..bb83aeed7ccfa93ac9f4766564e465e8d9e9279d 100644
+--- a/dist/worker/WorkerPoolManager.d.ts
++++ b/dist/worker/WorkerPoolManager.d.ts
+@@ -1,3 +1,3 @@
+ import { FileContents, FileDiffMetadata, HighlighterTypes, HunkExpansionRegion, RenderDiffOptions, RenderDiffResult, RenderFileOptions, RenderFileResult, SupportedLanguages, ThemedDiffResult, ThemedFileResult } from "../types.js";
+ import { DiffRendererInstance, FileRendererInstance, WorkerInitializationRenderOptions, WorkerPoolOptions, WorkerRenderingOptions, WorkerStats } from "./types.js";
+-import LRUMapPkg from "lru_map";
++import * as LRUMapPkg from "lru_map";
+diff --git a/package.json b/package.json
+index a0f8bca71f80f61e1e17612ce07403fd1667f6b4..ad05dd1fb362052ec687f9c143128c99af1ed996 100644
+--- a/package.json
++++ b/package.json
+@@ -96,5 +96,13 @@
+     "react": "^18.3.1 || ^19.0.0",
+     "react-dom": "^18.3.1 || ^19.0.0"
+   },
++  "peerDependenciesMeta": {
++    "react": {
++      "optional": true
++    },
++    "react-dom": {
++      "optional": true
++    }
++  },
+   "scripts": {}
+ }

@@ -1740,6 +1740,30 @@ export function createAgentInspectionMetadata<
   }
 }
 
+export function createInvocationInspectionMetadata<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  capabilities: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[],
+  tools: readonly string[],
+  resolvedModel?: AgentModelInput,
+  resolvedInstructions?: string,
+): AgentInspectionMetadata {
+  const capabilityMetadata = new Map(capabilityInspectionMetadata(capabilities).map(capability => [capability.id, capability]))
+  const inspection = createAgentInspectionMetadata(definition)
+  const driver = inspection.config?.driver
+  return {
+    ...inspection,
+    capabilities: normalizeCapabilities(capabilities).map(capability => capabilityMetadata.get(capability.id) || { id: capability.id, metadata: {} }),
+    ...(driver && resolvedModel !== undefined
+      ? { config: { ...inspection.config, driver: { ...driver, model: modelMetadata(resolvedModel, true) } } }
+      : {}),
+    ...(resolvedInstructions !== undefined ? { instructions: resolvedInstructions ? [resolvedInstructions] : [] } : {}),
+    tools: tools.map(name => ({ name })),
+  }
+}
+
 export async function resolveAgentInspectionMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,

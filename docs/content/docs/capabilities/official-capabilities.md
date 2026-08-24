@@ -80,7 +80,7 @@ import {
 | Email | [`email()`](/docs/capabilities/email) | Send authorized plain-text messages through the configured Email primitive. |
 | Sandbox execution | [`sandbox()`](/docs/capabilities/sandbox) | The Agent may run an allowlisted executable in an isolated runtime. |
 | Schedules | [`schedule()`](/docs/capabilities/schedule) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
-| OTLP traces | [`otlp()`](/docs/capabilities/otlp) | Completed Agent Invocation traces should be exported to an OpenTelemetry receiver. |
+| OTLP telemetry | [`otlp()`](/docs/capabilities/otlp) | Live Agent Invocation events and completed traces should be exported to an OpenTelemetry receiver. |
 | Operational diagnostics | [`diagnostics()`](/docs/capabilities/diagnostics) | Invocation outcomes and scoped runtime resource observations should go to an application-owned reporter. |
 
 ### External context

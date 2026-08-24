@@ -73,6 +73,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
+  "@vite-hub/ui": true,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>
@@ -187,6 +188,7 @@ export interface ViteHubOptions {
   blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
   channels?: boolean | ChannelsVitePluginOptions
+  console?: boolean
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -642,10 +644,12 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   if (options.auth) {
-    plugins.push(hubAuth({
-      ...(options.auth === true ? {} : options.auth),
+    plugins.push(hubAuth(
+      options.auth === true ? {} : options.auth,
+      {
       importBase: "vite-hub/auth",
-    } as unknown as AuthModuleOptions))
+      },
+    ))
   }
   if (sandboxEnabled) {
     const sandboxPolicy = plan.services.sandbox
@@ -678,11 +682,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(hubBlob({
-      ...presetBlobOptions(plan, options.blob),
+    plugins.push(hubBlob(
+      presetBlobOptions(plan, options.blob),
+      {
       importBase: `${generatedImportBase}/blob`,
       nitroOwned: true,
-    } as unknown as BlobModuleOptions))
+      },
+    ))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -693,7 +699,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       hosting: plan.nitroPreset,
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
-    } as unknown as EmailVitePluginOptions))
+    } as EmailVitePluginOptions))
   }
   else plugins.push(hubEmailOptionalPeerResolver())
   if (options.kv) {
@@ -729,8 +735,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as ScheduleVitePluginOptions))
   }
   if (workflowEnabled) {
-    plugins.push(hubWorkflow({
-      ...(options.workflow && options.workflow !== true ? options.workflow : {}),
+    plugins.push(hubWorkflow(
+      options.workflow && options.workflow !== true ? options.workflow : {},
+      {
       agentImportBase: `${generatedImportBase}/agent`,
       hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workflow`,
@@ -739,7 +746,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
-    } as unknown as WorkflowModuleOptions))
+      },
+    ))
   }
   if (options.workspace) {
     plugins.push(hubWorkspace({

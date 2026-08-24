@@ -1,17 +1,17 @@
 ---
 title: OTLP
-description: Export Agent Invocation traces to an OpenTelemetry receiver.
+description: Export live Agent Invocation events and completed traces to an OpenTelemetry receiver.
 navigation.title: OTLP
 navigation.order: 125
 navigation.group: External context
 icon: i-lucide-activity
 ---
 
-`otlp()` exports completed Agent Invocation traces using OTLP/HTTP JSON by default. Set `live: true` only for receivers that can update repeated snapshots of a running span. It is a transport Capability, so the same Agent Definition works with a ViteHub session viewer, a general OpenTelemetry backend, or another product that understands the OpenTelemetry generative-AI conventions.
+`otlp()` exports Agent Invocation telemetry using OTLP/HTTP JSON. It is a transport Capability, so the same Agent Definition works with any receiver that accepts ordinary OpenTelemetry logs and traces.
 
 ## Configuration
 
-Import the Capability from `@vite-hub/agent/capabilities` and pass the receiver's complete traces endpoint.
+Import the Capability from `@vite-hub/agent/capabilities` and pass the receiver's OTLP base endpoint. ViteHub appends the conventional `/v1/logs` and `/v1/traces` signal paths.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -20,13 +20,14 @@ import { otlp } from '@vite-hub/agent/capabilities'
 export default defineAgent({
   capabilities: [
     otlp({
-      endpoint: process.env.OTLP_TRACES_ENDPOINT!,
+      endpoint: process.env.OTLP_ENDPOINT!,
       headers: {
         authorization: `Bearer ${process.env.OTLP_TOKEN!}`,
       },
       resource: {
         'service.namespace': 'support',
       },
+      live: true,
     }),
   ],
   driver: { model: 'openai/gpt-5.1-mini' },
@@ -36,7 +37,11 @@ export default defineAgent({
 
 ## Trace contract
 
-ViteHub exports ordinary OTLP spans and `gen_ai.*` attributes. It adds one `vitehub.agent.configured` event to the root span. That event carries sanitized Agent Definition metadata: Agent identity, Capability metadata, Driver and model identity when resolved, tool names, runtime, and Workspace name, mode, and Sources.
+ViteHub always exports one completed trace. Its ordinary OTLP spans carry structural timing and `gen_ai.*` attributes. Without `live`, the root span also contains the invocation's Trace Events, including one `vitehub.agent.configured` event with sanitized Agent Definition metadata: Agent identity, Capability metadata, Driver and model identity when resolved, tool names, runtime, and Workspace name, mode, and Sources.
+
+With `live: true`, each Trace Event is exported once as a correlated OTLP LogRecord while the invocation runs. LogRecords use the same trace and span IDs as the completed trace and carry `agent.invocation.id` plus `vitehub.event.sequence` for deduplication. ViteHub batches for up to five seconds or 512 new Trace Events, whichever comes first, and flushes immediately when the invocation ends. After all records are delivered, the completed trace omits span events because those events were already sent as logs. If a live batch fails, the completed trace retains its span events so the terminal export does not lose that evidence.
+
+This is append-only export, not polling: ViteHub never resends an evolving in-progress span snapshot. OTLP's HTTP and gRPC exports are request/response protocols, so ViteHub does not add a receiver-specific SSE or WebSocket channel.
 
 The configuration event is not a user message. User prompts and model or tool content remain governed by trace content policy and are metadata-only in this exporter.
 
@@ -44,7 +49,7 @@ Agent instructions are prompt content, so they are excluded by default. Opt in e
 
 ```ts
 otlp({
-  endpoint: process.env.OTLP_TRACES_ENDPOINT!,
+  endpoint: process.env.OTLP_ENDPOINT!,
   content: {
     inputs: true,
     instructions: true,
@@ -76,9 +81,7 @@ This contribution belongs to the Capability's entry in the configuration event. 
 
 ## Delivery behavior
 
-The exporter retries transient HTTP failures and honors `Retry-After`. Export is best effort and runs through the host's `waitUntil()` boundary; an unavailable receiver does not change Agent output. Receiver failures produce a bounded structured local error with the Capability ID, invocation ID, run ID, and export phase.
-
-Set `live: true` when the receiver should see trace state while the invocation runs. Live delivery reuses stable trace and span IDs for repeated running-span snapshots, so the collector must upsert evolving spans instead of treating each snapshot as a new span. ViteHub permits one request in flight and coalesces additional changes into one latest snapshot. It cannot build an unbounded request or memory backlog when the receiver is slow. The ordered terminal snapshot supersedes stale live work and is attempted after the active request settles. Receivers should deduplicate by trace ID and span ID because retries can repeat a snapshot.
+The exporter retries transient HTTP failures and honors `Retry-After`. Export is best effort and runs through the host's `waitUntil()` boundary; an unavailable receiver does not change Agent output. Receiver failures produce a bounded structured local error with the Capability ID, invocation ID, run ID, and export phase. Receivers should deduplicate spans by trace and span ID, and live records by `agent.invocation.id` plus `vitehub.event.sequence`, because a retry can repeat a request.
 
 Streaming command output remains trace activity, not a log drain. Provider command start, output deltas, and completion use the same tool-call ID so a session UI can group them without inspecting terminal escape sequences.
 
@@ -86,10 +89,10 @@ Streaming command output remains trace activity, not a log drain. Provider comma
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `endpoint` | `string` | Required | Complete OTLP traces endpoint, commonly ending in `/v1/traces`. |
+| `endpoint` | `string` | Required | Absolute OTLP base endpoint. ViteHub appends `/v1/logs` and `/v1/traces`. |
 | `headers` | `Record<string, string>` or resolver | None | Request headers resolved for each export. |
 | `resource` | OTLP resource attributes or resolver | Agent and runtime defaults | Additional resource attributes. |
-| `live` | `boolean` | `false` | Exports coalesced trace snapshots while the invocation runs, followed by the terminal snapshot. |
-| `content.inputs` | `boolean` | `false` | Includes user and tool input content in invocation spans. |
-| `content.instructions` | `boolean` | `false` | Includes resolved Agent instructions in the configuration event. |
-| `content.outputs` | `boolean` | `false` | Includes assistant, tool, and result output content in invocation spans. |
+| `content.inputs` | `boolean` | `false` | Includes user and tool input content in exported telemetry. |
+| `content.instructions` | `boolean` | `false` | Includes resolved Agent instructions in the configuration telemetry. |
+| `content.outputs` | `boolean` | `false` | Includes assistant, tool, and result output content in exported telemetry. |
+| `live` | `boolean` | `false` | Sends append-only Trace Events as correlated OTLP logs while the invocation runs. |

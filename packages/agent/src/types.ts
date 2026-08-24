@@ -16,6 +16,7 @@ import type {
   RuntimeDiagnosticError,
   RuntimeHostContext,
   RuntimeWaitUntil,
+  OpenTelemetryLogRecordView,
   OpenTelemetrySpanView,
 } from "@vite-hub/runtime"
 import type {
@@ -134,6 +135,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
   actor: AgentActor
   "agent.errorHook": boolean
   "agent.finishHook": boolean
+  "agent.inspection.configurationUpdated": () => Promise<void>
   "chat.sessionId": string
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
@@ -224,15 +226,28 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
   threadId?: string
 }
 
-export interface AgentTelemetryExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+interface AgentTelemetryExportContextBase<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   agent: {
     name?: string
     version?: string
   }
   run?: AgentRunMetadata
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+}
+
+export interface AgentTelemetryLogsExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentTelemetryExportContextBase<TRuntimeConfig> {
+  records: readonly OpenTelemetryLogRecordView[]
+  signal: "logs"
+}
+
+export interface AgentTelemetryTracesExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentTelemetryExportContextBase<TRuntimeConfig> {
+  signal: "traces"
   spans: readonly OpenTelemetrySpanView[]
 }
+
+export type AgentTelemetryExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  | AgentTelemetryLogsExportContext<TRuntimeConfig>
+  | AgentTelemetryTracesExportContext<TRuntimeConfig>
 
 export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
   bivarianceHack(context: AgentTelemetryExportContext<TRuntimeConfig>): MaybePromise<void>
@@ -247,7 +262,7 @@ export interface AgentTelemetryContentOptions {
 export interface AgentTelemetryRegistration<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   content?: AgentTelemetryContentOptions
   exporter: AgentTelemetry<TRuntimeConfig>
-  /** Export throttled snapshots while the invocation is still running. */
+  /** Export append-only LogRecords while the invocation is still running. */
   live?: boolean
 }
 

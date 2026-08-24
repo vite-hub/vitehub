@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./runtime-type.ts"
+import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
   AgentInspectionValue,
   AgentInvocationContextStore,
@@ -69,12 +70,12 @@ export function setAgentTelemetryConfiguration(
   configurationByContext.set(context, { value })
 }
 
-export function updateAgentTelemetryConfiguration(
+export async function updateAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   patch: Partial<Pick<AgentTelemetryConfiguration, "instructions" | "tools">> & {
     driver?: Partial<AgentTelemetryConfiguration["driver"]>
   },
-): void {
+): Promise<void> {
   const current = configurationByContext.get(context)
   if (!current) return
   const { driver, ...valuePatch } = patch
@@ -97,6 +98,7 @@ export function updateAgentTelemetryConfiguration(
         : {}),
     },
   })
+  await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 
 export function getAgentTelemetryConfiguration(

@@ -153,7 +153,7 @@ describe("framework package contract", () => {
   })
 
   it("forwards feature APIs from their owner packages", () => {
-    expect(frameworkAgent.defineAgent).toBe(ownerAgent.defineAgent)
+    expect(frameworkAgent.defineAgent).not.toBe(ownerAgent.defineAgent)
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
@@ -197,6 +197,9 @@ describe("framework package contract", () => {
       ".",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
+      "./agent",
+      "./console",
+      "./console/server",
       "./database/drizzle",
       "./nuxt",
       "./source",
@@ -251,6 +254,8 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(/^#!\/usr\/bin\/env node/)
     expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain('import "@vite-hub/env/vite"')
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain("@cloudflare/workers-types")
+    expect(existsSync(`${packageRoot}/dist/console/runtime/request.ts`)).toBe(true)
+    expect(readFileSync(`${packageRoot}/dist/console/runtime/pages/agents.vue`, "utf8")).toContain('from "../request.ts"')
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
 

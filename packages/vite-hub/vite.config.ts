@@ -1,17 +1,17 @@
 import { defineConfig } from "vite-plus"
+import * as v from "valibot"
 
 import frameworkPackageManifest from "./package.json" with { type: "json" }
 
-function manifestStringLeaves(value: unknown): string[] {
-  if (typeof value === "string") return [value]
-  if (Array.isArray(value)) return value.flatMap(manifestStringLeaves)
-  if (!value || typeof value !== "object") return []
-  return Object.values(value).flatMap(manifestStringLeaves)
-}
+const manifestStringLeavesSchema: v.GenericSchema<unknown, string[]> = v.lazy(() => v.union([
+  v.pipe(v.string(), v.transform(value => [value])),
+  v.pipe(v.array(manifestStringLeavesSchema), v.transform(values => values.flat())),
+  v.pipe(v.record(v.string(), manifestStringLeavesSchema), v.transform(value => Object.values(value).flat())),
+]))
 
 export function distributionEntriesFromManifest(value: unknown): string[] {
   return [...new Set(
-    manifestStringLeaves(value)
+    v.parse(manifestStringLeavesSchema, value)
       .filter(target => target.startsWith("./dist/") && target.endsWith(".js"))
       .map(target => target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")),
   )].sort()
@@ -35,6 +35,10 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
+      { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/request.ts", to: "dist/console/runtime" },
+      { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
     deps: {
@@ -51,12 +55,22 @@ export default defineConfig({
         }
       },
     }],
-    entry: distributionEntries,
+    entry: [
+      ...distributionEntries,
+      "src/console/runtime/server/invocation.get.ts",
+      "src/console/runtime/server/invocations.get.ts",
+    ],
     exports: {
       exclude: ["bin"],
       bin: distributionBinEntries,
-      customExports: {
-        "./tsconfig": "./tsconfig.json",
+      customExports(exports) {
+        delete exports["./console/runtime/server/invocation.get"]
+        delete exports["./console/runtime/server/invocations.get"]
+        return {
+          ...exports,
+          "./ui/styles.css": "./dist/ui/styles.css",
+          "./tsconfig": "./tsconfig.json",
+        }
       },
       inlinedDependencies: false,
     },

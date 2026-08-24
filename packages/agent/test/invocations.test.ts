@@ -1,11 +1,12 @@
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
+import { createTraceEventLog } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, defineCapability, runAgent, runAgentInline } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
 import { bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -24,6 +25,20 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("excludes generated cursors from memory-store search", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-02-02T02:02:02.000Z",
+      id: "alpha",
+      observations: [],
+      status: "pending",
+      traceId: "alpha-trace",
+      updatedAt: "2026-02-02T02:02:02.000Z",
+    })
+
+    expect(store.list({ search: "1" })).toEqual({ invocations: [] })
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
@@ -68,6 +83,48 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
   }, 5_000)
 
+  it("persists truncation when a running invocation reaches observation capacity", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    for (let index = 0; index < 257; index++) {
+      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+    }
+
+    await vi.waitFor(async () => {
+      const record = await invocations.getByRunId("running-observation-capacity")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "running" })
+      expect(record?.observations).toHaveLength(256)
+    })
+  })
+
+  it("persists truncation after a synchronous observation-store failure", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let rejectObservation = true
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        update(id, input, claimId) {
+          if (rejectObservation && input.observation) {
+            rejectObservation = false
+            throw new Error("synchronous observation failure")
+          }
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("synchronous-observation-failure"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({ name: "ordinary", type: "run" })
+
+    await vi.waitFor(async () => {
+      await expect(invocations.getByRunId("synchronous-observation-failure"))
+        .resolves.toMatchObject({ observationsTruncated: true, status: "running" })
+    })
+  })
+
   it("does not let malformed custom trace entries fail Agent execution", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const traceLog = {
@@ -86,6 +143,125 @@ describe("Agent Invocations", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(runAgent(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it("isolates invocation persistence from a rejecting caller trace log", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const traceLog = {
+      append: vi.fn(async () => { throw new Error("trace sink unavailable") }),
+      entries: () => [],
+    }
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({ name: "resolved.configuration", type: "run" })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    // SAFETY: This fixture supplies the runtime trace-log contract and intentionally makes append reject.
+    await expect(runAgent(agent, { ...runtime("rejecting-trace"), traceLog } as never, {})).resolves.toBe("done")
+    const persisted = await invocations.getByRunId("rejecting-trace")
+    expect(persisted).toMatchObject({ status: "completed" })
+    expect(persisted?.observations.map(entry => entry.name)).toEqual(expect.arrayContaining([
+      "vitehub.agent.configured",
+      "resolved.configuration",
+      "agent.invocation.finish",
+    ]))
+  })
+
+  it("marks bounded Agent configuration as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-configuration"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: { "vitehub.agent.configuration": { instructions: ["x".repeat(100_000)] } },
+      name: "vitehub.agent.configured",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const configured = (await invocations.getByRunId("bounded-configuration"))?.observations
+      .find(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
+  })
+
+  it("marks bounded ordinary observations as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-ordinary-observation"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: { metadata: "x".repeat(10_000) },
+      name: "tool.finish",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-ordinary-observation"))?.observations
+      .find(entry => entry.name === "tool.finish")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+  })
+
+  it("keeps resolved instructions out of metadata-only invocation journals", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: {
+        instructions: "Sensitive resolved instructions",
+        model: new MockLanguageModelV3({
+          doGenerate: {
+            content: [{ text: "done", type: "text" }],
+            finishReason: { raw: "stop", unified: "stop" },
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+            warnings: [],
+          },
+        }),
+      },
+      invocations,
+    })
+
+    await runAgent(agent, runtime("metadata-only-instructions"), { prompt: "hello" })
+
+    const configured = (await invocations.getByRunId("metadata-only-instructions"))?.observations
+      .findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
+  })
+
+  it("persists resolved instructions when invocation content is enabled", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: {
+        instructions: "Inspectable resolved instructions",
+        model: new MockLanguageModelV3({
+          doGenerate: {
+            content: [{ text: "done", type: "text" }],
+            finishReason: { raw: "stop", unified: "stop" },
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+            warnings: [],
+          },
+        }),
+      },
+      invocations,
+    })
+
+    await runAgent(agent, runtime("content-instructions"), { prompt: "hello" })
+
+    const configured = (await invocations.getByRunId("content-instructions"))?.observations
+      .findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      instructions: ["Inspectable resolved instructions"],
+    })
   })
 
   it("does not reacquire journal ownership for observations appended after finish", async () => {
@@ -323,6 +499,145 @@ describe("Agent Invocations", () => {
       expect(record).toMatchObject({ status: "failed" })
       expect(record?.observations).toContainEqual(expect.objectContaining({ name: "agent.stream.error" }))
       expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("marks truncation when a queued ordinary observation reaches the finish deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseFirst!: () => void
+      let reportFirstStarted!: () => void
+      let reportQueuedStarted!: () => void
+      const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve })
+      const firstStarted = new Promise<void>((resolve) => { reportFirstStarted = resolve })
+      const queuedStarted = new Promise<void>((resolve) => { reportQueuedStarted = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "first") {
+              reportFirstStarted()
+              await firstGate
+            }
+            if (input.observation?.name === "queued") {
+              reportQueuedStarted()
+              return await new Promise(() => {})
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-deadline-queued-ordinary"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "first", type: "run" })
+      await firstStarted
+      await journal.context.traceLog?.append({ name: "queued", type: "run" })
+
+      const finishing = journal.finish("completed")
+      releaseFirst()
+      await queuedStarted
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+
+      const record = await invocations.getByRunId("finish-deadline-queued-ordinary")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations.map(observation => observation.name)).toEqual(["first"])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not mark truncation when a late observation persists before terminalization", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseObservation!: () => void
+      let reportObservationStarted!: () => void
+      const observationGate = new Promise<void>((resolve) => { releaseObservation = resolve })
+      const observationStarted = new Promise<void>((resolve) => { reportObservationStarted = resolve })
+      let writes = Promise.resolve()
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            const update = writes.then(async () => {
+              if (input.observation?.name === "late") {
+                reportObservationStarted()
+                await observationGate
+              }
+              return await memory.update(id, input, claimId)
+            })
+            writes = update.then(() => undefined)
+            return update
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-deadline-late-success"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "late", type: "run" })
+      await observationStarted
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      releaseObservation()
+      await finishing
+
+      const record = await invocations.getByRunId("finish-deadline-late-success")
+      expect(record).toMatchObject({ status: "completed" })
+      expect(record?.observations.map(observation => observation.name)).toEqual(["late"])
+      expect(record?.observationsTruncated).toBeUndefined()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("marks truncation when terminalization overtakes a late observation no-op", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseObservation!: () => void
+      let reportObservationStarted!: () => void
+      let reportTerminalPersisted!: () => void
+      const observationGate = new Promise<void>((resolve) => { releaseObservation = resolve })
+      const observationStarted = new Promise<void>((resolve) => { reportObservationStarted = resolve })
+      const terminalPersisted = new Promise<void>((resolve) => { reportTerminalPersisted = resolve })
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "late") {
+              reportObservationStarted()
+              await observationGate
+            }
+            const updated = await memory.update(id, input, claimId)
+            if (input.status === "completed") reportTerminalPersisted()
+            return updated
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("finish-overtakes-late-observation"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "late", type: "run" })
+      await observationStarted
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      await terminalPersisted
+      releaseObservation()
+      await finishing
+
+      const record = await invocations.getByRunId("finish-overtakes-late-observation")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations).toEqual([])
     }
     finally {
       vi.useRealTimers()
@@ -650,6 +965,7 @@ describe("Agent Invocations", () => {
     })
     expect(record?.annotations).not.toHaveProperty("secret key")
     expect(record?.observations.map(event => event.name)).toEqual([
+      "vitehub.agent.configured",
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
@@ -660,91 +976,113 @@ describe("Agent Invocations", () => {
     const listed = await invocations.list()
     expect(listed.invocations).toHaveLength(1)
     expect(listed.invocations[0]).not.toHaveProperty("observations")
+    await expect(invocations.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
+      invocations: [expect.objectContaining({ status: "completed" })],
+    })
+    await expect(invocations.list({ search: "observation-only content" })).resolves.toEqual({ invocations: [] })
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
-  it("persists invocation content only when explicitly enabled", async () => {
-    const metadataInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const contentInvocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+  it("preserves the configured trace content policy and coalesces message deltas", async () => {
+    const run = async (
+      runId: string,
+      content: "content" | "metadata",
+      traceLog = createTraceEventLog(),
+    ) => {
+      const invocations = defineAgentInvocations({ content, store: createMemoryAgentInvocationStore() })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (let index = 0; index < 300; index++) {
+            await context.traceLog?.append({
+              attributes: {
+                "message.content": String(index % 10).repeat(20),
+                "message.id": "answer",
+                "message.role": "assistant",
+              },
+              name: "agent.message.delta",
+              type: "run",
+            })
+          }
+          await context.traceLog?.append({ name: "after-message", type: "run" })
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
 
-    await runAgent(defineAgent({ driver: { run: ({ input }) => `Reply to ${input.prompt}` }, invocations: metadataInvocations, runtime: false }), runtime("metadata-content"), { prompt: "private prompt" })
-    await runAgent(defineAgent({ driver: { run: ({ input }) => `Reply to ${input.prompt}` }, invocations: contentInvocations, runtime: false }), runtime("stored-content"), { prompt: "private prompt" })
+      await runAgent(agent, { ...runtime(runId), traceLog }, {})
+      return (await invocations.getByRunId(runId))?.observations || []
+    }
 
-    const metadata = await metadataInvocations.getByRunId("metadata-content")
-    const stored = await contentInvocations.getByRunId("stored-content")
-    expect(metadata?.observations[0]?.attributes).not.toHaveProperty("input.prompt")
-    expect(metadata?.observations.at(-1)?.attributes).not.toHaveProperty("result.text")
-    expect(stored?.observations[0]?.attributes?.["input.prompt"]).toBe("private prompt")
-    expect(stored?.observations[0]?.attributes).not.toHaveProperty("input.messages")
-    expect(stored?.observations.at(-1)?.attributes?.["result.text"]).toBe("Reply to private prompt")
+    const metadata = await run("metadata-content", "metadata", createTraceEventLog({ content: "content" }))
+    const metadataDeltas = metadata.filter(entry => entry.name === "agent.message.delta")
+    expect(metadata.map(entry => entry.name)).toEqual([
+      "vitehub.agent.configured",
+      "agent.invocation.start",
+      ...Array.from({ length: 10 }, () => "agent.message.delta"),
+      "after-message",
+      "agent.invocation.finish",
+    ])
+    expect(metadataDeltas.every(entry => entry.attributes?.["message.content"] === undefined)).toBe(true)
+    expect(metadataDeltas.every(entry => String(entry.attributes?.["content.omitted"]).includes("message.content"))).toBe(true)
+
+    const full = await run("full-content", "content")
+    const fullDeltas = full.filter(entry => entry.name === "agent.message.delta")
+    expect(fullDeltas.map(entry => entry.attributes?.["message.content"]).join(""))
+      .toBe(Array.from({ length: 300 }, (_, index) => String(index % 10).repeat(20)).join(""))
+    expect(fullDeltas.every(entry => String(entry.attributes?.["message.content"]).length <= 512)).toBe(true)
+    expect(fullDeltas.every(entry => !entry.attributes?.["content.omitted"])).toBe(true)
   })
 
-  it("retains useful tool content beyond the metadata string limit", async () => {
-    const output = "x".repeat(2_000)
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+  it("persists bounded message chunks while an invocation is still running", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    let runningObservations: string[] = []
     const agent = defineAgent({
       driver: { async run(context) {
-        await context.traceLog?.append({ attributes: { "tool.output": { stdout: output } }, name: "agent.tool.finish", type: "run" })
+        for (let index = 0; index < 32; index++) {
+          await context.traceLog?.append({
+            attributes: { "message.content": ".", "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        await Promise.resolve()
+        runningObservations = (await invocations.getByRunId("live-deltas"))?.observations.map(entry => entry.name) ?? []
         return "done"
       } },
       invocations,
       runtime: false,
     })
 
-    await runAgent(agent, runtime("long-tool-output"), {})
+    await runAgent(agent, runtime("live-deltas"), {})
 
-    const observation = (await invocations.getByRunId("long-tool-output"))?.observations
-      .find(event => event.name === "agent.tool.finish")
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect((observation?.attributes?.["tool.output"] as { stdout?: string })?.stdout).toBe(output)
+    expect(runningObservations).toContain("agent.message.delta")
   })
 
-  it("bounds nested observation content in aggregate", async () => {
+  it("preserves message phases and approval inputs through invocation tracing", async () => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
-      driver: { async run(context) {
-        await context.traceLog?.append({
-          attributes: { "tool.output": Array.from({ length: 32 }, () => Array.from({ length: 32 }, () => "x".repeat(64 * 1024))) },
-          name: "agent.tool.finish",
-          type: "run",
-        })
-        return "done"
+      driver: { async *run() {
+        yield { id: "reply", phase: "commentary" as const, text: "Checking.", type: "text-delta" as const }
+        yield { id: "reply", phase: "final" as const, text: "Done.", type: "text-delta" as const }
+        yield { id: "approval", input: { command: "pnpm test" }, name: "Run command", type: "approval-request" as const }
       } },
       invocations,
       runtime: false,
     })
 
-    await runAgent(agent, runtime("bounded-tool-output"), {})
+    const stream = await streamAgent(agent, {
+      ...runtime("phased-trace"),
+      traceLog: createTraceEventLog({ content: "content" }),
+    }, {})
+    // SAFETY: this driver is an async generator, so streamAgent returns its async iterable.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
 
-    const observation = (await invocations.getByRunId("bounded-tool-output"))?.observations
-      .find(event => event.name === "agent.tool.finish")
-    expect(JSON.stringify(observation).length).toBeLessThan(70 * 1024)
-  })
-
-  it("preserves metadata after exhausting the observation content budget", async () => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
-    const agent = defineAgent({
-      driver: { async run(context) {
-        await context.traceLog?.append({
-          attributes: {
-            "message.content": "x".repeat(64 * 1024),
-            "result.ok": true,
-            "usage.totalTokens": 42,
-          },
-          name: "agent.message",
-          type: "run",
-        })
-        return "done"
-      } },
-      invocations,
-      runtime: false,
-    })
-
-    await runAgent(agent, runtime("content-budget-metadata"), {})
-
-    const attributes = (await invocations.getByRunId("content-budget-metadata"))?.observations
-      .find(event => event.name === "agent.message")?.attributes
-    expect(attributes).toMatchObject({ "result.ok": true, "usage.totalTokens": 42 })
+    const observations = (await invocations.getByRunId("phased-trace"))?.observations ?? []
+    expect(observations.filter(event => event.name === "agent.message.delta").map(event => event.attributes?.["message.phase"]))
+      .toEqual(["commentary", "final"])
+    expect(observations.find(event => event.name === "agent.approval.request")?.attributes)
+      .toMatchObject({ "approval.input": { command: "pnpm test" } })
   })
 
   it("normalizes non-finite observation numbers across stores", async () => {
@@ -804,7 +1142,7 @@ describe("Agent Invocations", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await runAgent(agent, { ...runtime("custom-sequence"), traceLog } as never, {})
     const observations = (await invocations.getByRunId("custom-sequence"))?.observations || []
-    expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3])
+    expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3, 4])
     expect(observations.every(observation => Number.isSafeInteger(observation.sequence))).toBe(true)
   })
 
@@ -851,7 +1189,7 @@ describe("Agent Invocations", () => {
     })
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(updates).toBeLessThanOrEqual(260)
+    expect(updates).toBeLessThanOrEqual(261)
   })
 
   it("retains fatal stream evidence and the lifecycle terminal beyond the durable cap", async () => {
@@ -1030,10 +1368,11 @@ describe("Agent Invocations", () => {
     }
     const invocations = defineAgentInvocations({ store })
 
-    await expect(invocations.list({ cursor: "opaque/token", limit: 1000 })).resolves.toMatchObject({
+    await expect(invocations.list({ cursor: "opaque/token", limit: 1000, search: "  ViteHub  " })).resolves.toMatchObject({
       cursor: "next/token",
     })
-    expect(list).toHaveBeenCalledWith({ cursor: "opaque/token", limit: 100 })
+    expect(list).toHaveBeenCalledWith({ cursor: "opaque/token", limit: 100, search: "ViteHub" })
+    await expect(invocations.list({ search: "x".repeat(257) })).rejects.toThrow("at most 256 characters")
   })
 
   it("keeps terminal records immutable when an invocation id is reused", async () => {
@@ -1071,6 +1410,7 @@ describe("Agent Invocations", () => {
     release()
     await expect(first).resolves.toBe("done")
     expect((await invocations.getByRunId("delivery-1"))?.observations.map(event => event.name)).toEqual([
+      "vitehub.agent.configured",
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
@@ -1211,7 +1551,8 @@ describe("Agent Invocations", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, runtime("durable-run"), {})
+      await runAgent(agent, runtime("durable-run", { "github.repository": "vite-hub/vitehub" }), {})
+      await runAgent(agent, runtime("unicode-search", { "github.repository": "Éclair" }), {})
 
       const restored = defineAgentInvocations({
         store: createLibsqlAgentInvocationStore({ client: readerClient }),
@@ -1221,11 +1562,31 @@ describe("Agent Invocations", () => {
         status: "completed",
       })
       expect((await restored.getByRunId("durable-run"))?.observations.map(event => event.name)).toEqual([
+        "vitehub.agent.configured",
         "agent.invocation.start",
         "numbers",
         "agent.invocation.finish",
       ])
-      expect((await restored.getByRunId("durable-run"))?.observations[1]?.attributes).toMatchObject({ nan: null })
+      expect((await restored.getByRunId("durable-run"))?.observations[2]?.attributes).toMatchObject({ nan: null })
+      await expect(restored.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ status: "completed" })],
+      })
+      await expect(restored.list({ search: "éclair" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ status: "completed" })],
+      })
+      const localeLowercase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
+        return String(this).replaceAll("I", "ı").toLowerCase()
+      })
+      try {
+        await runAgent(agent, runtime("locale-search", { "github.repository": "INDIGO" }), {})
+        await expect(restored.list({ search: "indigo" })).resolves.toMatchObject({
+          invocations: [expect.objectContaining({ status: "completed" })],
+        })
+      }
+      finally {
+        localeLowercase.mockRestore()
+      }
+      await expect(restored.list({ search: "missing repository" })).resolves.toEqual({ invocations: [] })
       for (const cursor of ["invalid", "01", "1.0", " 1", String(Number.MAX_SAFE_INTEGER + 1)]) {
         await expect(restored.list({ cursor })).rejects.toThrow("cursor is invalid")
       }
@@ -1256,6 +1617,140 @@ describe("Agent Invocations", () => {
 
       const records = await Promise.all(ids.map(id => store.get(id)))
       expect(records.every(record => record?.status === "completed")).toBe(true)
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("initializes the libSQL search column concurrently", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-migration-"))
+    const url = `file:${join(directory, "invocations.sqlite")}`
+    const setupClient = createClient({ url })
+    const firstClient = createClient({ url })
+    const secondClient = createClient({ url })
+    try {
+      await setupClient.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        record TEXT NOT NULL
+      )`)
+      await setupClient.execute({
+        args: [JSON.stringify({
+          annotations: { repository: "Éclair" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "legacy",
+          observations: [{ attributes: { secret: "observation-only" }, name: "legacy", timestamp: "2026-01-01T00:00:00.000Z", type: "run" }],
+          status: "completed",
+          traceId: "legacy-trace",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })],
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'completed', ?)",
+      })
+
+      let inspections = 0
+      let releaseInspections!: () => void
+      const inspectionsComplete = new Promise<void>((resolve) => {
+        releaseInspections = resolve
+      })
+      // SAFETY: the proxy forwards every Client member and only wraps execute with the same call contract.
+      const synchronizeInspection = (client: Client): Client => new Proxy(client, {
+        get(target, property) {
+          const value = Reflect.get(target, property)
+          if (property !== "execute") return value instanceof Function ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            // SAFETY: the proxy receives the arguments of Client.execute and forwards them unchanged.
+            const result = await (client.execute as (...executeArgs: unknown[]) => Promise<unknown>)(...args)
+            const statement = Object.prototype.toString.call(args[0]) === "[object String]" ? String(args[0]) : undefined
+            if (statement?.startsWith("PRAGMA table_info") && inspections < 2) {
+              inspections++
+              if (inspections === 2) releaseInspections()
+              await inspectionsComplete
+            }
+            return result
+          }
+        },
+      }) as Client
+
+      await expect(Promise.all([
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(firstClient) }).list({ search: "éclair" }),
+        createLibsqlAgentInvocationStore({ client: synchronizeInspection(secondClient) }).list({ search: "éclair" }),
+      ])).resolves.toEqual([
+        { invocations: [expect.objectContaining({ id: "legacy" })] },
+        { invocations: [expect.objectContaining({ id: "legacy" })] },
+      ])
+      await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
+        .resolves.toEqual({ invocations: [] })
+    }
+    finally {
+      setupClient.close()
+      firstClient.close()
+      secondClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("backfills libSQL search in retryable bounded pages", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-paged-migration-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    try {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        search TEXT,
+        record TEXT NOT NULL
+      )`)
+      const timestamp = "2026-01-01T00:00:00.000Z"
+      await client.batch(Array.from({ length: 205 }, (_, index) => ({
+        args: [`legacy-${index}`, JSON.stringify({
+          annotations: { repository: `repository-${index}` },
+          createdAt: timestamp,
+          id: `legacy-${index}`,
+          observations: [],
+          status: "completed",
+          traceId: `trace-${index}`,
+          updatedAt: timestamp,
+        })],
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES (?, 'completed', ?)",
+      })), "write")
+
+      const pageSizes: number[] = []
+      let failPage = 2
+      const flakyClient = new Proxy(client, {
+        get(target, property) {
+          if (property === "batch") {
+            return async (...args: Parameters<Client["batch"]>) => {
+              const statements = args[0]
+              const firstStatement = statements[0]
+              if (hasRuntimeType(firstStatement, "object")
+                && "sql" in firstStatement && hasRuntimeType(firstStatement.sql, "string")
+                && firstStatement.sql.includes("SET search")) {
+                pageSizes.push(statements.length)
+                if (--failPage === 0) throw new Error("migration interrupted")
+              }
+              return target.batch(...args)
+            }
+          }
+          const value = Reflect.get(target, property)
+          return hasRuntimeType(value, "function") ? value.bind(target) : value
+        },
+      })
+      const store = createLibsqlAgentInvocationStore({ client: flakyClient })
+
+      await expect(store.list()).rejects.toThrow("migration interrupted")
+      const committed = await client.execute("SELECT count(*) AS count FROM vitehub_agent_invocations WHERE search IS NOT NULL")
+      expect(Number(committed.rows[0]?.count)).toBe(100)
+
+      failPage = -1
+      await expect(store.list({ search: "repository-204" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "legacy-204" })],
+      })
+      expect(pageSizes).toEqual([100, 100, 100, 5])
+      const remaining = await client.execute("SELECT count(*) AS count FROM vitehub_agent_invocations WHERE search IS NULL")
+      expect(Number(remaining.rows[0]?.count)).toBe(0)
     }
     finally {
       client.close()

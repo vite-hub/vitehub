@@ -1,4 +1,3 @@
-import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { effectScope, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -20,27 +19,37 @@ interface RequestCall {
 
 function controlledRequester() {
   const calls: RequestCall[] = [];
-  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-  const request = (<T>(path: string, options: Parameters<AgentInvocationRequester>[1]) =>
-    new Promise<T>((resolve, reject) => {
+  const request: AgentInvocationRequester = (path, options) =>
+    new Promise<unknown>((resolve, reject) => {
       options.signal?.addEventListener(
         "abort",
         () => reject(new DOMException("Aborted", "AbortError")),
         { once: true },
       );
       calls.push({ options, path, reject, resolve });
-    })) as AgentInvocationRequester;
+    });
   return { calls, request };
 }
 
 function record(id: string): AgentInvocationRecord {
-  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-  return { id } as AgentInvocationRecord;
+  return {
+    createdAt: "2026-08-22T12:00:00.000Z",
+    cursor: id,
+    id,
+    observations: [],
+    status: "running",
+    traceId: `trace-${id}`,
+    updatedAt: "2026-08-22T12:00:00.000Z",
+  };
 }
 
 function observation(sequence: number): TraceEventLogEntry {
-  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-  return { sequence } as TraceEventLogEntry;
+  return {
+    name: "agent.invocation.running",
+    sequence,
+    timestamp: "2026-08-22T12:00:00.000Z",
+    type: "lifecycle",
+  };
 }
 
 async function settle() {
@@ -55,6 +64,26 @@ afterEach(() => {
 });
 
 describe("Agent Invocation Vue composables", () => {
+  it("reports successful list and detail refreshes", async () => {
+    const listSuccess = vi.fn();
+    const detailSuccess = vi.fn();
+    const request = vi.fn(async (path: string) => path.endsWith("/inv-1")
+      ? { invocation: record("inv-1"), observations: [observation(1)] }
+      : { invocations: [record("inv-1")] });
+    const scope = effectScope();
+    const resources = scope.run(() => ({
+      detail: useAgentInvocation("inv-1", { immediate: false, onSuccess: detailSuccess, request }),
+      list: useAgentInvocations({ immediate: false, onSuccess: listSuccess, request }),
+    }))!;
+
+    await resources.list.refresh();
+    await resources.detail.refresh();
+
+    expect(listSuccess).toHaveBeenCalledOnce();
+    expect(detailSuccess).toHaveBeenCalledOnce();
+    scope.stop();
+  });
+
   it("uses the same-origin endpoint with an application requester", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invocations: [] }), {
       headers: { "content-type": "application/json" },
@@ -160,7 +189,333 @@ describe("Agent Invocation Vue composables", () => {
 
     calls[1]!.resolve({ invocations: [record("inv-2")] } satisfies AgentInvocationListResult);
     await refresh;
-    expect(resource.invocations.value).toEqual([record("inv-2")]);
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-2", "inv-1"]);
+    scope.stop();
+  });
+
+  it("keeps lazy-loaded pages when polling refreshes the first page", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-0")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "new-page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await refresh;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
+    expect(resource.cursor.value).toBe("page-3");
+    scope.stop();
+  });
+
+  it("reconciles retained pages while filters are active", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({
+      query: { status: "running" },
+      request,
+    }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-0")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await settle();
+    calls[3]!.resolve({ invocation: record("inv-1"), observations: [] });
+    await settle();
+    calls[4]!.resolve({
+      invocation: { ...record("inv-0"), completedAt: "2026-08-22T12:01:00.000Z", status: "completed" },
+      observations: [],
+    });
+    await refresh;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1"]);
+    expect(calls).toHaveLength(5);
+    scope.stop();
+  });
+
+  it("refreshes retained summaries without a filter", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries: request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3")] });
+    await settle();
+    calls[3]!.resolve({
+      invocations: [{
+        ...record("inv-2"),
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      }, record("inv-1")],
+    });
+    await refresh;
+
+    expect(resource.invocations.value.map(invocation => ({
+      id: invocation.id,
+      status: invocation.status,
+      updatedAt: invocation.updatedAt,
+    }))).toEqual([
+      { id: "inv-3", status: "running", updatedAt: "2026-08-22T12:00:00.000Z" },
+      { id: "inv-2", status: "completed", updatedAt: "2026-08-22T12:01:00.000Z" },
+      { id: "inv-1", status: "running", updatedAt: "2026-08-22T12:00:00.000Z" },
+    ]);
+    scope.stop();
+  });
+
+  it("bounds retained reconciliation work across polls", async () => {
+    const request = vi.fn<AgentInvocationRequester>();
+    const retained = Array.from({ length: 25 }, (_, index) => record(`inv-${index}`));
+    request.mockResolvedValueOnce({ invocations: retained });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+    await settle();
+
+    request.mockResolvedValueOnce({ invocations: [record("new")] });
+    for (const invocation of retained.slice(0, 20)) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+    expect(request).toHaveBeenCalledTimes(22);
+
+    request.mockResolvedValueOnce({ invocations: [record("newer")] });
+    for (const invocation of [...retained.slice(20), ...retained.slice(0, 15)]) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+    expect(request).toHaveBeenCalledTimes(43);
+    scope.stop();
+  });
+
+  it("rotates retained reconciliation after a full batch fails", async () => {
+    const request = vi.fn<AgentInvocationRequester>();
+    const retained = Array.from({ length: 25 }, (_, index) => record(`inv-${index}`));
+    request.mockResolvedValueOnce({ invocations: retained });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+    await settle();
+
+    request.mockResolvedValueOnce({ invocations: [record("new")] });
+    for (let index = 0; index < 20; index++) request.mockRejectedValueOnce(new Error("failed"));
+    await resource.refresh();
+
+    request.mockResolvedValueOnce({ invocations: [record("newer")] });
+    for (const invocation of [...retained.slice(20), ...retained.slice(0, 15)]) {
+      request.mockResolvedValueOnce({ invocation, observations: [] });
+    }
+    await resource.refresh();
+
+    const secondBatchPaths = request.mock.calls.slice(22).map(([path]) => path);
+    expect(secondBatchPaths.slice(1, 6)).toEqual(
+      retained.slice(19, 24).map(invocation => `/api/invocations/${invocation.id}`),
+    );
+    scope.stop();
+  });
+
+  it("refreshes retained summaries during filtered reconciliation", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { search: "inv" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [record("inv-2")] });
+    await settle();
+    calls[2]!.resolve({
+      invocation: {
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      },
+      observations: [],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([
+      record("inv-2"),
+      expect.objectContaining({ id: "inv-1", status: "completed", updatedAt: "2026-08-22T12:01:00.000Z" }),
+    ]);
+    scope.stop();
+  });
+
+  it("refreshes retained summaries for unfiltered loaded pages", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries: request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await loadMore;
+
+    const refresh = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await settle();
+    expect(calls[3]!.path).toContain("id=inv-1");
+    calls[3]!.resolve({
+      invocations: [{
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      }],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([
+      record("inv-3"),
+      record("inv-2"),
+      expect.objectContaining({ id: "inv-1", status: "completed" }),
+    ]);
+    scope.stop();
+  });
+
+  it("ignores retained-summary reconciliation from a superseded refresh", async () => {
+    const { calls, request } = controlledRequester();
+    const summaryCalls: RequestCall[] = [];
+    const requestSummaries: AgentInvocationRequester = (path, options) =>
+      new Promise<unknown>((resolve, reject) => {
+        summaryCalls.push({ options, path, reject, resolve });
+      });
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request, requestSummaries }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2")] });
+    await settle();
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ invocations: [record("inv-1")] });
+    await loadMore;
+
+    const superseded = resource.refresh();
+    calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
+    await settle();
+    const current = resource.refresh();
+    calls[3]!.resolve({ cursor: "page-2", invocations: [record("inv-4"), record("inv-3")] });
+    await settle();
+
+    expect(summaryCalls[0]!.options.signal?.aborted).toBe(true);
+    summaryCalls[0]!.resolve({ invocations: [] });
+    await superseded;
+    summaryCalls[1]!.resolve({ invocations: [record("inv-2"), record("inv-1")] });
+    await current;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual([
+      "inv-4",
+      "inv-3",
+      "inv-2",
+      "inv-1",
+    ]);
+    scope.stop();
+  });
+
+  it("removes first-page records that leave a search filter", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { search: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [] });
+    await settle();
+    calls[2]!.resolve({
+      invocation: { ...record("inv-1"), completedAt: "2026-08-22T12:01:00.000Z", status: "completed" },
+      observations: [],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([]);
+    scope.stop();
+  });
+
+  it("excludes observations when reconciling search departures", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { search: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [] });
+    await settle();
+    calls[2]!.resolve({
+      invocation: {
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        observations: [{ value: "running" }],
+        status: "completed",
+      },
+      observations: [{ name: "output", sequence: 1, timestamp: "2026-08-22T12:00:30.000Z", type: "run", value: "running" }],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([]);
+    scope.stop();
+  });
+
+  it("retries failed filtered departure checks", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const firstRefresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [] });
+    await settle();
+    calls[2]!.reject(new Error("temporary failure"));
+    await firstRefresh;
+    expect(resource.invocations.value).toEqual([record("inv-1")]);
+
+    const secondRefresh = resource.refresh();
+    calls[3]!.resolve({ invocations: [] });
+    await settle();
+    calls[4]!.resolve({
+      invocation: { ...record("inv-1"), completedAt: "2026-08-22T12:01:00.000Z", status: "completed" },
+      observations: [],
+    });
+    await secondRefresh;
+
+    expect(resource.invocations.value).toEqual([]);
+    expect(calls).toHaveLength(5);
+    scope.stop();
+  });
+
+  it("removes displaced records that no longer match the status filter", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ query: { status: "running" }, request }))!;
+
+    calls[0]!.resolve({ invocations: [record("inv-1")] });
+    await settle();
+    const refresh = resource.refresh();
+    calls[1]!.resolve({ invocations: [] });
+    await settle();
+    calls[2]!.resolve({
+      invocation: { ...record("inv-1"), completedAt: "2026-08-22T12:01:00.000Z", status: "completed" },
+      observations: [],
+    });
+    await refresh;
+
+    expect(resource.invocations.value).toEqual([]);
     scope.stop();
   });
 
@@ -171,8 +526,7 @@ describe("Agent Invocation Vue composables", () => {
       cursor: "next",
       invocations: [record("inv-1")],
     }) as AgentInvocationListResult);
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const request = asUnknownBoundary(requestMock) as AgentInvocationRequester;
+    const request: AgentInvocationRequester = (_path, _options) => requestMock();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
 

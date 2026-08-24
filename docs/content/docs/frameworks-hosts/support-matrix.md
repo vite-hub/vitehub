@@ -6,56 +6,51 @@ navigation.order: 41
 icon: i-lucide-table-properties
 ---
 
-ViteHub portability is a set of separate contracts. A package can expose an app-facing Runtime Helper without generating a complete deployment bundle, and Provider Output can exist for one primitive without existing for every ViteHub package.
+`Package-specific` means support belongs to the named package or generated output, not the host as a whole.
 
-Use this matrix to choose a runtime boundary. **Package-specific** always means that the named package contract, rather than the host alone, determines support.
+## Server primitives
 
-## Status vocabulary
+| Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify              | Deno           | Nitro and UnJS | Node and self-hosted  |
+| ---------- | ---------------- | --------------------- | --------------------- | -------------------- | -------------- | -------------- | --------------------- |
+| Browser    | Local provider   | Browser Run           | —                     | —                    | —                    | —              | Local provider        |
+| Blob       | `fs`             | R2                    | Vercel Blob           | Netlify Blobs        | S3-compatible  | Host driver    | `fs` or S3-compatible |
+| Database   | SQLite           | D1                    | libSQL or D1 HTTP     | libSQL               | libSQL         | Nuxt D1        | SQLite or libSQL      |
+| Email      | Unemail driver   | Cloudflare Email      | Unemail driver        | Unemail driver       | Unemail driver | Host driver    | Unemail driver        |
+| KV         | `fs-lite`        | Workers KV            | Upstash Redis         | Upstash Redis        | Deno KV        | Host driver    | `fs-lite` or Upstash  |
+| Queue      | Discovery only   | Cloudflare Queues     | Vercel Queues         | Cloudflare or Vercel | —              | Cloudflare or Vercel | —                     |
+| Rate Limit | `memory`         | Rate Limiting binding | —                     | —                    | —              | Cloudflare     | `memory`              |
+| Realtime   | `memory`         | Durable Objects       | —                     | —                    | —              | Host authority | `memory`              |
+| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | Vercel Sandbox       | —              | Cloudflare or Vercel | Box provider          |
+| Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions  | Standalone `Deno.cron` | Provider Wake  | Process runtime       |
+| Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow   | Host provider  | OpenWorkflow          |
+| Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub         | Host store     | Local or GitHub       |
 
-| Status | Meaning |
-| --- | --- |
-| **Available** | ViteHub exposes the contract as a current public surface. |
-| **Package-specific** | Only the packages or outputs named in the cell provide the contract. |
-| **Local-only** | The provider is suitable for development or one local process, but it does not promise distributed durability. |
-| **Not provided** | ViteHub does not provide this contract for the host. |
+Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires an explicit compatible Unemail driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
 
-Proof labels describe repository coverage, not a blanket production guarantee. **Contract-tested** means source tests assert the generated or runtime contract. A Local Provider Run executes built output without a cloud account. A Live Smoke deploys the shared primitive playground to a real provider.
+Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one. Netlify can use an explicit Vercel Sandbox provider when Vercel credentials are configured; the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
 
-## Current support
+## Deployment and proof
 
-| Host | App-facing Runtime Helpers | Local providers | Generated Provider Output | Provision support | Production proof |
-| --- | --- | --- | --- | --- | --- |
-| Local Vite | **Available.** Active package integrations expose their package imports and generated registries. | **Available.** Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` cover common local state. | **Not provided** as a Local Vite target. An explicit or inferred hosted provider can still generate that provider's output during a local build. | **Not provided** | **Contract-tested** through package and docs CI; this row makes no hosted-runtime claim. |
-| Cloudflare | **Package-specific.** The live primitive playground covers Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace. Browser adds Cloudflare Browser Run support; Agent routes have separate package output. | **Package-specific.** Pull requests build Cloudflare output and run the primitive playground locally. Browser also has provider-output contract tests. | **Package-specific.** Enabled integrations compose a Worker, `wrangler.json`, Browser Run bindings, Rate Limiting bindings, callbacks, and runtime modules. | **Package-specific.** R2 buckets, D1 databases, and Cloudflare Queues. Browser Run and Rate Limiting bindings require no separate provisioned resource. | **Contract-tested**, followed by a Local Provider Run in CI. A nightly Live Smoke deploys the nine named primitives; it does not currently prove Browser or Agent routes. |
-| Vercel | **Package-specific.** The live primitive playground covers Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace. Agent routes have separate package output. | **Package-specific.** Pull requests build Vercel output and run the primitive playground against local service adapters. | **Package-specific.** Enabled integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. | **Package-specific.** Vercel Blob store creation and project environment setup, with `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`. | **Contract-tested**, followed by a Local Provider Run in CI. A nightly Live Smoke deploys the eight named primitives; it does not currently prove Agent routes. |
-| Netlify | **Package-specific.** Blob uses `netlify-blobs`; Agent HTTP routes and static Schedules have generated function output. | **Package-specific.** CI runs the real-project fixture through Netlify CLI. | **Package-specific.** Agent and Schedule packages write functions under `.netlify/v1/functions`. | **Not provided** | **Contract-tested** with Netlify CLI E2E. **Live proof not published**. |
-| Deno | **Package-specific.** Agent chat and webhook routes, static Schedule wake output, and KV with `deno-kv`. | **Package-specific.** `deno-kv` and the generated Agent or Schedule output can run locally with their documented Deno permissions. | **Package-specific.** `.vitehub/agent/deno-server.ts` and `.vitehub/schedule/deno-cron.mjs`; no general ViteHub Deno bundle. | **Not provided** | **Contract-tested** in Agent and Schedule package tests. **Live proof not published**. |
-| Nitro and UnJS | **Package-specific.** Auth and Agent handlers, the Schedule Nitro bridge, Workspace runtime setup, and Database Nuxt D1 wiring. | **Not provided.** Nitro is host integration glue, not a ViteHub storage or execution provider. | **Package-specific.** Package integrations generate Nitro handlers, plugins, or configuration only where listed. | **Not provided** | **Contract-tested** at the owning package boundaries. **Live proof not published** as one unified Nitro matrix. |
-| Node and self-hosted | **Package-specific.** Server APIs and handlers run when their selected driver supports Node. | **Local-only.** Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` do not provide cross-instance durability; configure a durable provider for production state. | **Not provided.** ViteHub does not emit one unified Node deployment bundle. | **Not provided** | **Contract-tested** per package. **Live proof not published** as one self-hosted deployment suite. |
+| Contract                  | Local Vite          | Cloudflare           | Vercel               | Netlify                      | Deno                         | Nitro and UnJS               | Node and self-hosted         |
+| ------------------------- | ------------------- | -------------------- | -------------------- | ---------------------------- | ---------------------------- | ---------------------------- | ---------------------------- |
+| Runtime helpers           | **Available**       | **Package-specific** | **Package-specific** | **Package-specific**         | **Package-specific**         | **Package-specific**         | **Package-specific**         |
+| Local providers           | **Available**       | **Package-specific** | **Package-specific** | **Package-specific**         | **Package-specific**         | **Not provided**             | **Local-only**               |
+| Generated Provider Output | **Not provided**    | **Package-specific** | **Package-specific** | **Package-specific**         | **Package-specific**         | **Package-specific**         | **Not provided**             |
+| Provision support         | **Not provided**    | **Package-specific** | **Package-specific** | **Not provided**             | **Not provided**             | **Not provided**             | **Not provided**             |
+| Contract tests            | **Contract-tested** | **Contract-tested**  | **Contract-tested**  | **Contract-tested**          | **Contract-tested**          | **Contract-tested**          | **Contract-tested**          |
+| Local Provider Run        | —                   | ✓                    | ✓                    | ✓                            | —                            | —                            | —                            |
+| Live Smoke                | —                   | ✓                    | ✓                    | **Live proof not published** | **Live proof not published** | **Live proof not published** | **Live proof not published** |
 
-## Evidence behind the matrix
+Cloudflare's nightly run covers nine primitives, including Rate Limit. Vercel covers eight because ViteHub has no native Vercel Rate Limit driver. Browser and Agent routes have contract tests but are outside those deployed runs.
 
-The matrix follows source and executable proof rather than provider marketing:
+## Qualifications
 
-- Preset composition and Queue opt-in: [`packages/vite-hub/src/index.ts`](https://github.com/vite-hub/vitehub/blob/main/packages/vite-hub/src/index.ts) and [`packages/vite-hub/test/vite.test.ts`](https://github.com/vite-hub/vitehub/blob/main/packages/vite-hub/test/vite.test.ts).
-- Cloudflare and Vercel pull-request proof: [`.github/workflows/ci.yml`](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/ci.yml).
-- Cloudflare and Vercel deployed primitive proof: [`.github/workflows/live-smoke.yml`](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml).
-- Netlify local proof: the `verify-netlify` job in [`.github/workflows/ci.yml`](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/ci.yml).
-- Provider Output contracts: the `vite-output` or `provider-output` tests in the Blob, Browser, Database, KV, Queue, Rate Limit, Schedule, and Workflow packages, plus Agent provider tests.
-- Provision boundaries: `packages/blob/src/provision.ts`, `packages/database/src/provision.ts`, and `packages/queue/src/provision.ts`. The CLI accepts only Cloudflare and Vercel provider plans.
+- **Local Vite:** Active integrations expose their package imports and generated registries. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` provide local state. A local build can still generate output for an explicit or inferred hosted provider.
+- **Cloudflare:** Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent have package-owned output outside the nightly run. Enabled integrations compose the Worker, `wrangler.json`, bindings, callbacks, and runtime modules. ViteHub can provision R2 buckets, D1 databases, and Cloudflare Queues.
+- **Vercel:** Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have separate package output outside the nightly run. Enabled integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. ViteHub can create a Blob store and configure the project environment.
+- **Netlify:** Blob uses `netlify-blobs`. Agent HTTP routes and static Schedules write functions under `.netlify/v1/functions`. CI runs the real-project fixture through Netlify CLI. ViteHub does not provide Netlify provisioning or published live proof.
+- **Deno:** Agent chat and webhook routes and KV with `deno-kv` are supported with their documented permissions. The standalone Schedule integration writes a `Deno.cron` entrypoint, but `vitehub({ preset: "deno", schedule: true })` rejects Schedule because that output is outside the deployed Nitro entrypoint. ViteHub does not generate a general Deno bundle or publish live proof.
+- **Nitro and UnJS:** Auth and Agent handlers, the Schedule Nitro bridge, Workspace runtime setup, and Database Nuxt D1 wiring are package-owned integrations. Nitro is integration glue rather than a storage or execution provider. ViteHub does not provide Nitro provisioning or one unified live matrix.
+- **Node and self-hosted:** Server APIs and handlers run when their selected driver supports Node. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` are single-process providers. ViteHub does not emit one Node deployment bundle, provision a self-hosted plan, or publish one live suite.
 
-## Limits
-
-- A host row does not imply that every primitive supports that host.
-- Generated output remains package-owned. Do not import `.vitehub/**`, `.vercel/output/**`, `.netlify/v1/**`, or generated Worker files from application code.
-- Rate Limit `memory` is local and single-process. Cloudflare native enforcement is best-effort, supports only the provider periods accepted by the Rate Limit integration, and does not promise complete quota metadata.
-- Realtime `memory` is development or explicit single-process state. Cloudflare Realtime routes use one Durable Object authority and persist Yjs room identities in its SQLite storage; Vercel and Netlify have no built-in Realtime authority.
-- Memory and filesystem defaults do not become production-durable because the surrounding application is deployed.
-- The Cloudflare Live Smoke exercises nine primitives, including Rate Limit. Vercel exercises the other eight because ViteHub does not provide a native Vercel Rate Limit driver. Agent route output has contract tests, but it is outside that deployed matrix.
-- Vercel Agent Definitions currently use inline Workflow execution. Their invocation journal recovery is bounded and best-effort; Workflow inspection remains authoritative until ViteHub can generate a native Vercel Agent Workflow.
-
-## Related pages
-
-- [Provider output](/docs/reference/provider-output)
-- [Config options](/docs/reference/config-options)
-- [Verification](/docs/development/verification)
+Local memory and filesystem providers stay single-process after deployment. Generated files remain package-owned and must not be imported by application code.

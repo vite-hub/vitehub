@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
@@ -22,6 +22,7 @@ const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_OBSERVATION_VALUE_ITEMS = 256
+export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
@@ -45,6 +46,8 @@ export interface AgentInvocationRecord {
   failedAt?: string
   id: string
   observations: readonly TraceEventLogEntry[]
+  /** True when the journal dropped one or more observations. */
+  observationsTruncated?: boolean
   origin?: string
   startedAt?: string
   status: AgentInvocationRecordStatus
@@ -56,6 +59,7 @@ export interface AgentInvocationRecord {
 export interface AgentInvocationListOptions {
   cursor?: string
   limit?: number
+  search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
 }
 
@@ -76,6 +80,7 @@ export interface AgentInvocationStoreCreateResult {
 export interface AgentInvocationStoreUpdateInput {
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
+  observationsTruncated?: boolean
   status?: AgentInvocationRecordStatus
   timestamp: string
 }
@@ -177,6 +182,25 @@ function normalizeLimit(limit: number | undefined): number {
   return Math.min(limit, MAX_LIST_LIMIT)
 }
 
+function normalizeSearch(search: string | undefined): string | undefined {
+  if (search === undefined) return
+  if (typeof search !== "string") {
+    throw new TypeError("[vitehub] Agent Invocation search must be a string.")
+  }
+  const value = search.trim()
+  if (!value) return
+  if (value.length > 256) {
+    throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.")
+  }
+  return value
+}
+
+function matchesInvocationSearch(record: AgentInvocationRecord, search: string | undefined): boolean {
+  if (!search) return true
+  const { cursor: _cursor, observations: _observations, ...summary } = record
+  return JSON.stringify(summary).toLowerCase().includes(search.toLowerCase())
+}
+
 function normalizeBuiltInCursor(cursor: string | undefined): string | undefined {
   if (cursor === undefined) return
   const value = Number(cursor)
@@ -198,42 +222,85 @@ function normalizedTimestamp(value: Date | string): string {
 interface ObservationBudget {
   items: number
   stringLength: number
+  truncated: boolean
 }
 
 function boundedObservationValue(value: unknown, budget: ObservationBudget, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
-  if (budget.items <= 0) return "[truncated]"
+  if (budget.items <= 0) {
+    budget.truncated = true
+    return "[truncated]"
+  }
   budget.items--
   if (value === undefined) return undefined
   if (hasRuntimeType(value, "string")) {
-    if (budget.stringLength <= 0) return "[truncated]"
+    if (budget.stringLength <= 0) {
+      budget.truncated = true
+      return "[truncated]"
+    }
     const length = Math.min(value.length, maxStringLength, budget.stringLength)
+    if (length < value.length) budget.truncated = true
     budget.stringLength -= length
     return value.slice(0, length)
   }
   if (value === null || hasRuntimeType(value, "boolean")) return value
   if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : null
-  if (hasRuntimeType(value, "bigint")) return boundedString(String(value))
-  if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
-  if (Array.isArray(value)) {
-    return value.slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
+  if (hasRuntimeType(value, "bigint")) {
+    const string = String(value)
+    if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+    return boundedString(string)
   }
-  if (!value || !hasRuntimeType(value, "object")) return boundedString(String(value))
+  if (depth >= MAX_OBSERVATION_DEPTH) {
+    budget.truncated = true
+    return "[truncated]"
+  }
+  if (Array.isArray(value)) {
+    const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    if (length < value.length) budget.truncated = true
+    return value.slice(0, length).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
+  }
+  if (!value || !hasRuntimeType(value, "object")) {
+    const string = String(value)
+    if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+    return boundedString(string)
+  }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .slice(0, Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items))
-    .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]))
+  const entries = Object.entries(value as Record<string, unknown>)
+  const length = Math.min(entries.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+  if (length < entries.length) budget.truncated = true
+  return Object.fromEntries(entries
+    .slice(0, length)
+    .flatMap(([key, child]) => {
+      if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+      return child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]
+    }))
 }
 
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   const budget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
     stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+    truncated: false,
   }
-  const attributes = observation.attributes
+  if (observation.attributes && Object.keys(observation.attributes).length > MAX_OBSERVATION_ATTRIBUTES) {
+    budget.truncated = true
+  }
+  let attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)
         .slice(0, MAX_OBSERVATION_ATTRIBUTES)
-        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
+        .flatMap(([key, value]) => {
+          if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+          return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]
+        }))
     : undefined
+  if (budget.truncated) {
+    attributes ||= {}
+    if (observation.name === "vitehub.agent.configured") {
+      attributes["vitehub.agent.configurationTruncated"] = true
+    }
+    else {
+      attributes[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] = true
+    }
+  }
   return {
     ...observation,
     name: boundedString(observation.name)!,
@@ -333,11 +400,17 @@ function prioritizePendingOutcomes(
   pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
 
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  // SAFETY: Node timers expose optional unref; browser timers are numbers and therefore have no method.
+  const unref = (timer as { unref?: () => void }).unref
+  if (unref) unref.call(timer)
+}
+
 export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
-  if (terminalStatus(record.status)) return record
+  if (terminalStatus(record.status) && !input.observationsTruncated) return record
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
@@ -379,6 +452,7 @@ export function applyAgentInvocationStoreUpdate(
     ...record,
     ...(input.error ? { error: input.error } : {}),
     observations,
+    ...(input.observationsTruncated ? { observationsTruncated: true } : {}),
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
     ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
@@ -413,12 +487,13 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     list(options = {}) {
       const limit = normalizeLimit(options.limit)
       const cursor = normalizeBuiltInCursor(options.cursor)
+      const search = normalizeSearch(options.search)
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
       const before = cursor === undefined ? Number.POSITIVE_INFINITY : Number(cursor)
       const candidates = [...records.values()]
-        .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)))
+        .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)) && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
       const page = candidates.slice(0, limit)
       return {
@@ -452,22 +527,102 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
 ): TraceEventLog {
+  const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
+  const messageDeltaChunkEvents = 32
+  let pendingMessageDelta: TraceEventLogEntry | undefined
+  let pendingMessageDeltaEvents = 0
+  const emit = (entry: TraceEventLogEntry) => {
+    void observe({ ...entry, sequence: nextSequence() })
+  }
+  const flushMessageDelta = () => {
+    if (!pendingMessageDelta) return
+    emit(pendingMessageDelta)
+    pendingMessageDelta = undefined
+    pendingMessageDeltaEvents = 0
+  }
+  const queueMessageDelta = (entry: TraceEventLogEntry) => {
+    const rawContent = entry.attributes?.["message.content"]
+    const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
+    if (content && content.length > messageDeltaChunkCharacters) {
+      for (let offset = 0; offset < content.length; offset += messageDeltaChunkCharacters) {
+        queueMessageDelta({
+          ...entry,
+          attributes: {
+            ...entry.attributes,
+            "message.content": content.slice(offset, offset + messageDeltaChunkCharacters),
+          },
+        })
+      }
+      return
+    }
+    const pending = pendingMessageDelta
+    const rawPreviousContent = pending?.attributes?.["message.content"]
+    const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
+      ? String(rawPreviousContent)
+      : undefined
+    const sameMessage = pending
+      && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
+      && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
+      && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
+    if (sameMessage && (previousContent === undefined) === (content === undefined)) {
+      if (previousContent !== undefined && content !== undefined
+        && previousContent.length + content.length > messageDeltaChunkCharacters) {
+        const available = messageDeltaChunkCharacters - previousContent.length
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(0, available) },
+        })
+        queueMessageDelta({
+          ...entry,
+          attributes: { ...entry.attributes, "message.content": content.slice(available) },
+        })
+        return
+      }
+      const attributes = { ...pending.attributes, ...entry.attributes }
+      if (previousContent !== undefined && content !== undefined) {
+        attributes["message.content"] = `${previousContent}${content}`
+      }
+      pendingMessageDelta = { ...entry, attributes }
+    }
+    else {
+      flushMessageDelta()
+      pendingMessageDelta = entry
+    }
+    pendingMessageDeltaEvents++
+    const pendingContent = pendingMessageDelta.attributes?.["message.content"]
+    if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
+      || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
+      flushMessageDelta()
+    }
+  }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
-      const entry = await traceLog.append(event)
+      let entry: TraceEventLogEntry
       try {
-        const safeEntry = {
-          ...await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp }),
-          sequence: nextSequence(),
+        entry = await traceLog.append(event)
+      }
+      catch {
+        entry = await createTraceEventLog({ content }).append(event)
+      }
+      try {
+        const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
+        if (safeEntry.name === "agent.message.delta") {
+          queueMessageDelta(safeEntry)
         }
-        void observe(safeEntry)
+        else {
+          flushMessageDelta()
+          emit(safeEntry)
+        }
       }
       catch {}
       return entry
     },
-    entries: () => traceLog.entries(),
+    entries() {
+      flushMessageDelta()
+      return traceLog.entries()
+    },
   } as TraceEventLog
   if (content === "content") {
     Object.defineProperty(journal, agentInvocationJournalContentTraceLogSymbol, { value: true })
@@ -500,6 +655,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let ownsRecord = false
       let observationCount = 0
       let observationsTruncated = false
+      let truncationPersisted = false
       let observationSequence = 0
       let created = false
       let creationTimedOut = false
@@ -528,13 +684,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
         if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
-        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-        const unref = (asUnknownBoundary(heartbeat) as { unref?: () => void }).unref
-        if (unref) unref.call(heartbeat)
+        unrefTimer(heartbeat)
         heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
-        // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-        const unrefTimeout = (asUnknownBoundary(heartbeatTimeout) as { unref?: () => void }).unref
-        if (unrefTimeout) unrefTimeout.call(heartbeatTimeout)
+        unrefTimer(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
         if (created || creationTimedOut) return created
@@ -542,8 +694,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
               observationCount = result.record.observations.length
-              observationsTruncated = result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+              observationsTruncated = result.record.observationsTruncated === true
+                || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+              truncationPersisted = result.record.observationsTruncated === true
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+              finished = terminalStatus(result.record.status)
               created = true
             }
             else if (creationTask === task) {
@@ -611,12 +766,17 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         return updated
       }
+      const markTruncated = async (force = false) => {
+        if (truncationPersisted) return
+        truncationPersisted = await update({ observationsTruncated: true, timestamp: new Date().toISOString() }, force)
+      }
       const writeNextObservation = () => {
         if (finished || observationWrite) return
         const observation = pendingObservations.shift()
         if (!observation) return
         activeObservation = observation
         const task = (async () => {
+          let failed = false
           let persisted = false
           try {
             if (finished || !await renew()) return
@@ -626,17 +786,27 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               timestamp,
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             })
-            const updated = await boundedStoreOperation(() => store.update(recordId, {
+            const persistence = Promise.resolve().then(() => store.update(recordId, {
               observation: persistedObservation,
               timestamp,
-            }, claimId))
+            }, claimId)).then((updated) => {
+              if (updated?.observations.some(candidate => candidate.sequence === observation.sequence)) {
+                persistedObservationSequences.add(observation.sequence)
+              }
+              return updated
+            })
+            const updated = await boundedStoreOperation(() => persistence)
             if (updated && updated !== storeOperationTimedOut) {
               observationCount = updated.observations.length
               persisted = true
-              persistedObservationSequences.add(observation.sequence)
             }
+            else if (updated === undefined) failed = true
           }
           finally {
+            if (failed && !finished) {
+              observationsTruncated = true
+              void markTruncated()
+            }
             if (!persisted
               && !finished
               && !finishing
@@ -666,7 +836,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ? truncatedObservation(observation)
           : observation
         if (atCapacity) {
+          const persistTruncation = !observationsTruncated
           observationsTruncated = true
+          if (persistTruncation) void markTruncated()
           if (priority === undefined) return
           prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
           writeNextObservation()
@@ -685,12 +857,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         async finish(status, error) {
           if (finished || finishing) return
           finishing = true
-          const finishingActiveObservation = activeObservation
+          const finishingObservations = [activeObservation, ...pendingObservations]
           const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
           while (observationWrite && Date.now() < observationDeadline) {
             await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
-          const outcomeObservations = [finishingActiveObservation, activeObservation, ...pendingObservations]
+          const outcomeObservations = [...finishingObservations, activeObservation, ...pendingObservations]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
             .filter((observation, index, observations) => observations.findIndex(candidate => candidate.sequence === observation.sequence) === index)
           const unpersistedOutcomes = outcomeObservations.filter(observation => !persistedObservationSequences.has(observation.sequence))
@@ -704,6 +876,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               timestamp: normalizedTimestamp(observation.timestamp),
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             }))
+          const pendingOutcomeSequences = new Set(pendingOutcomes.map(observation => observation.sequence))
+          const discardedObservationSequences = unpersistedOutcomes
+            .filter(observation => !pendingOutcomeSequences.has(observation.sequence))
+            .map(observation => observation.sequence)
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
@@ -728,6 +904,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
             if (!updated) return false
+            if (discardedObservationSequences.some(sequence => !persistedObservationSequences.has(sequence))) {
+              await markTruncated(bindOptions.terminalTakeover)
+            }
             finished = true
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
@@ -740,9 +919,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
-                if (unref) unref.call(timer)
+                unrefTimer(timer)
               })
               await finishOnce()
             }
@@ -773,9 +950,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
-                // SAFETY: Invocation event normalization establishes the asserted invocation contract.
-                const unref = (asUnknownBoundary(timer) as { unref?: () => void }).unref
-                if (unref) unref.call(timer)
+                unrefTimer(timer)
               })
               if (finished) return
               if (await markRunning()) return
@@ -794,7 +969,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       return await store.get(await boundedIdentity(invocationIdentity(runId, agentName)))
     },
     async list(options = {}) {
-      return await store.list({ ...options, limit: normalizeLimit(options.limit) })
+      const search = normalizeSearch(options.search)
+      const normalized = { ...options, limit: normalizeLimit(options.limit) }
+      if (search) normalized.search = search
+      else delete normalized.search
+      return await store.list(normalized)
     },
   }
   return invocations

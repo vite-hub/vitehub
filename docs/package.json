@@ -8,7 +8,7 @@
   },
   "scripts": {
     "clean": "rm -rf .nuxt .output node_modules/.cache .generated",
-    "postinstall": "nuxi prepare",
+    "postinstall": "vp run -t @vite-hub/ui#build && nuxi prepare",
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS='--max-old-space-size=8192' nuxi build",
@@ -22,7 +22,9 @@
   "dependencies": {
     "@nuxt/content": "catalog:nuxt",
     "@nuxt/ui": "catalog:nuxt",
+    "@vite-hub/ui": "workspace:*",
     "@vueuse/core": "catalog:ui",
+    "ai": "catalog:ai",
     "agents": "catalog:ai",
     "docus": "catalog:nuxt",
     "h3": "catalog:h3-v1-compat",
@@ -35,6 +37,7 @@
     "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
+    "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue-tsc": "catalog:tooling"

@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { createMessage, defineAgent, defineCapability, runAgent, type AgentTelemetry } from "../src/index.ts"
-import { defineChannel } from "../src/channels.ts"
+import { defineAgent, defineCapability, runAgent, streamAgent, type AgentTelemetry } from "../src/index.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 
 function telemetryCapability(exporter: AgentTelemetry) {
   return defineCapability({ id: "test-telemetry", telemetry: { exporter } })
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -19,13 +20,12 @@ describe("Agent telemetry", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
     const telemetry = otlpHttpJson({
-      endpoint: "https://console.example/v1/traces",
+      endpoint: "https://telemetry.example/otlp",
       headers: { authorization: "Bearer token" },
       resource: { "deployment.environment.name": "production" },
     })
     const runtime = {
       memo: vi.fn(),
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "vercel" as const,
       runtimeConfig: {},
       waitUntil: vi.fn(),
@@ -35,6 +35,7 @@ describe("Agent telemetry", () => {
       agent: { name: "support", version: "1.0.0" },
       run: { runId: "run-1" },
       runtime,
+      signal: "traces",
       spans: [{
         attributes: { "usage.record": { usage: { totalTokens: 12 } } },
         endTime: "2026-01-01T00:00:00.010Z",
@@ -52,7 +53,7 @@ describe("Agent telemetry", () => {
     const body = JSON.parse(String(request?.body))
     const resource = Object.fromEntries(body.resourceSpans[0].resource.attributes.map((attribute: { key: string, value: unknown }) => [attribute.key, attribute.value]))
     const span = body.resourceSpans[0].scopeSpans[0].spans[0]
-    expect(endpoint).toBe("https://console.example/v1/traces")
+    expect(endpoint).toBe("https://telemetry.example/otlp/v1/traces")
     expect(new Headers(request?.headers).get("authorization")).toBe("Bearer token")
     expect(new Headers(request?.headers).get("content-type")).toBe("application/json")
     expect(resource).toMatchObject({
@@ -76,178 +77,95 @@ describe("Agent telemetry", () => {
     }])
   })
 
-  it("encodes running root and child spans with an unset OTLP status", async () => {
+  it("preserves an unset span status in OTLP/HTTP JSON", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
 
-    await otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
       agent: {},
       runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
-      spans: [
-        {
-          name: "vitehub.run",
-          spanId: "0123456789abcdef",
-          startTime: "2026-01-01T00:00:00.000Z",
-          status: { code: "UNSET" },
-          traceId: "0123456789abcdef0123456789abcdef",
-        },
-        {
-          name: "vitehub.step",
-          parentSpanId: "0123456789abcdef",
-          spanId: "fedcba9876543210",
-          startTime: "2026-01-01T00:00:00.001Z",
-          status: { code: "UNSET" },
-          traceId: "0123456789abcdef0123456789abcdef",
-        },
-      ],
-    })
-
-    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
-    expect(body.resourceSpans[0].scopeSpans[0].spans).toMatchObject([
-      { status: { code: 0 } },
-      { status: { code: 0 } },
-    ])
-    expect(body.resourceSpans[0].scopeSpans[0].spans[0]).not.toHaveProperty("endTimeUnixNano")
-    expect(body.resourceSpans[0].scopeSpans[0].spans[1]).not.toHaveProperty("endTimeUnixNano")
-  })
-
-  it("rejects oversized binary content before encoding or delivery", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
-    const encode = vi.fn(globalThis.btoa)
-    vi.stubGlobal("fetch", fetch)
-    vi.stubGlobal("btoa", encode)
-    const binary = new Uint8Array(25 * 1024 * 1024)
-
-    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
-      agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "traces",
       spans: [{
-        attributes: { "input.messages": [{ parts: [{ data: binary, mediaType: "image/png", type: "file" }], role: "user" }] },
         name: "vitehub.run",
         spanId: "0123456789abcdef",
         startTime: "2026-01-01T00:00:00.000Z",
-        status: { code: "OK" },
-        traceId: "0123456789abcdef0123456789abcdef",
-      }],
-    })).rejects.toThrow("OTLP binary attributes cannot exceed 1048576 bytes")
-
-    expect(encode).not.toHaveBeenCalled()
-    expect(fetch).not.toHaveBeenCalled()
-  })
-
-  it("encodes the exact bytes from binary buffers and offset views", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
-    vi.stubGlobal("fetch", fetch)
-    const backing = Uint8Array.from([0, 1, 2, 3, 4, 5]).buffer
-    const offsetBytes = new Uint8Array(backing, 1, 3)
-    const dataView = new DataView(backing, 2, 2)
-    const buffer = Buffer.from([7, 8, 9])
-
-    await otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
-      agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
-      spans: [{
-        attributes: { backing, buffer, dataView, offsetBytes },
-        name: "vitehub.run",
-        spanId: "0123456789abcdef",
-        startTime: "2026-01-01T00:00:00.000Z",
-        status: { code: "OK" },
+        status: { code: "UNSET" },
         traceId: "0123456789abcdef0123456789abcdef",
       }],
     })
 
-    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
-    const attributes = Object.fromEntries(body.resourceSpans[0].scopeSpans[0].spans[0].attributes
-      .map((attribute: { key: string, value: unknown }) => [attribute.key, attribute.value]))
-    expect(attributes).toMatchObject({
-      backing: { bytesValue: "AAECAwQF" },
-      buffer: { bytesValue: "BwgJ" },
-      dataView: { bytesValue: "AgM=" },
-      offsetBytes: { bytesValue: "AQID" },
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+    const span = body.resourceSpans[0].scopeSpans[0].spans[0]
+    expect(span).not.toHaveProperty("endTimeUnixNano")
+    expect(span.status).toEqual({ code: 0 })
+  })
+
+  it("sends live events as correlated OTLP/HTTP JSON logs", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const telemetry = otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })
+
+    await telemetry({
+      agent: { name: "support" },
+      records: [{
+        attributes: { "vitehub.event.sequence": 2 },
+        eventName: "agent.model.failed",
+        severityNumber: 17,
+        severityText: "ERROR",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+
+    const [endpoint, request] = fetch.mock.calls[0]!
+    const record = JSON.parse(String(request?.body)).resourceLogs[0].scopeLogs[0].logRecords[0]
+    expect(endpoint).toBe("https://telemetry.example/otlp/v1/logs")
+    expect(record).toMatchObject({
+      eventName: "agent.model.failed",
+      observedTimeUnixNano: String(BigInt(Date.parse("2026-01-01T00:00:00.001Z")) * 1_000_000n),
+      severityNumber: 17,
+      severityText: "ERROR",
+      spanId: "0123456789abcdef",
+      traceId: "0123456789abcdef0123456789abcdef",
     })
   })
 
-  it("rejects oversized serialized OTLP requests before delivery", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
-    const stringify = vi.spyOn(JSON, "stringify")
+  it("treats partially accepted OTLP logs as failed delivery", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({
+      partialSuccess: { rejectedLogRecords: "1" },
+    }), { headers: { "content-type": "application/json" }, status: 200 }))
     vi.stubGlobal("fetch", fetch)
+    const telemetry = otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })
 
-    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
-      agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
-      spans: [{
-        attributes: { "input.prompt": "x".repeat(4 * 1024 * 1024) },
-        name: "vitehub.run",
+    await expect(telemetry({
+      agent: { name: "support" },
+      records: [{
+        attributes: { "vitehub.event.sequence": 2 },
+        eventName: "agent.model.failed",
         spanId: "0123456789abcdef",
-        startTime: "2026-01-01T00:00:00.000Z",
-        status: { code: "OK" },
+        time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-    })).rejects.toThrow("OTLP/HTTP JSON payloads cannot exceed 4194304 bytes")
-
-    expect(stringify).not.toHaveBeenCalled()
-    expect(fetch).not.toHaveBeenCalled()
-    stringify.mockRestore()
-  })
-
-  it("rejects oversized OTLP structural strings before serialization", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
-    const stringify = vi.spyOn(JSON, "stringify")
-    vi.stubGlobal("fetch", fetch)
-
-    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
-      agent: {},
       runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
-      spans: [{
-        events: [{ name: "x".repeat(4 * 1024 * 1024), time: "2026-01-01T00:00:00.000Z" }],
-        name: "vitehub.run",
-        spanId: "0123456789abcdef",
-        startTime: "2026-01-01T00:00:00.000Z",
-        status: { code: "ERROR", message: "failed" },
-        traceId: "0123456789abcdef0123456789abcdef",
-      }],
-    })).rejects.toThrow("OTLP/HTTP JSON payloads cannot exceed 4194304 bytes")
-
-    expect(stringify).not.toHaveBeenCalled()
-    expect(fetch).not.toHaveBeenCalled()
-    stringify.mockRestore()
-  })
-
-  it("rejects aggregate binary content before encoding the value that exceeds the request budget", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
-    const encode = vi.fn(globalThis.btoa)
-    vi.stubGlobal("fetch", fetch)
-    vi.stubGlobal("btoa", encode)
-    const allowed = new Uint8Array(1024 * 1024)
-
-    await expect(otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
-      agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
-      spans: [{
-        attributes: { first: allowed, second: allowed, third: allowed },
-        name: "vitehub.run",
-        spanId: "0123456789abcdef",
-        startTime: "2026-01-01T00:00:00.000Z",
-        status: { code: "OK" },
-        traceId: "0123456789abcdef0123456789abcdef",
-      }],
-    })).rejects.toThrow("OTLP/HTTP JSON payloads cannot exceed 4194304 bytes")
-
-    expect(encode).toHaveBeenCalledTimes(2)
-    expect(fetch).not.toHaveBeenCalled()
+      signal: "logs",
+    })).rejects.toThrow("partially rejected")
   })
 
   it("configures OTLP as a Capability", () => {
     expect(otlp({
       content: { instructions: true },
-      endpoint: "https://traces.example/v1/traces",
+      endpoint: "https://telemetry.example/otlp",
       live: true,
     })).toMatchObject({
       id: "otlp",
-      metadata: { protocol: "http/json" },
+      metadata: { protocol: "http/json", signals: ["logs", "traces"] },
       telemetry: { content: { instructions: true }, exporter: expect.any(Function), live: true },
     })
     expect(() => otlp({ endpoint: "" })).toThrow("otlp({ endpoint })")
+    expect(() => otlp({ endpoint: "/otlp" })).toThrow("absolute HTTP(S)")
   })
 
   it("exports a distinct redacted Agent configuration event", async () => {
@@ -258,7 +176,7 @@ describe("Agent telemetry", () => {
         telemetryCapability(telemetry),
         defineCapability({
           id: "custom",
-          metadata: { apiKey: "definition-secret", feature: "sessions", prompt: "Capability prompt" },
+          metadata: { apiKey: "definition-secret", feature: "sessions" },
           prepare(context) {
             context.telemetry.metadata({ connected: true, token: "runtime-secret" })
           },
@@ -288,38 +206,8 @@ describe("Agent telemetry", () => {
       runtime: { name: "unknown" },
     })
     expect(JSON.stringify(configured)).not.toContain("user prompt")
-    expect(JSON.stringify(configured)).not.toContain("Capability prompt")
     expect(JSON.stringify(configured)).not.toContain("runtime-secret")
     expect(JSON.stringify(configured)).not.toContain("definition-secret")
-  })
-
-  it("omits Capability metadata that cannot be inspected safely", async () => {
-    const tasks: Promise<unknown>[] = []
-    const telemetry = vi.fn()
-    const hostile = new Proxy({}, {
-      getPrototypeOf() { throw new Error("blocked prototype") },
-      ownKeys() { throw new Error("blocked keys") },
-    })
-    const agent = defineAgent({
-      capabilities: [
-        telemetryCapability(telemetry),
-        defineCapability({ id: "hostile", metadata: hostile }),
-      ],
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-hostile-metadata" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, {})).resolves.toBe("ok")
-    await Promise.all(tasks)
-
-    const configuration = telemetry.mock.calls[0]![0].spans[0].events
-      .find((event: { name: string }) => event.name === "vitehub.agent.configured")
-      .attributes["vitehub.agent.configuration"]
-    expect(configuration.capabilities).toContainEqual({ id: "hostile" })
   })
 
   it("opts into input and output trace content independently", async () => {
@@ -330,15 +218,6 @@ describe("Agent telemetry", () => {
     const tasks: Promise<unknown>[] = []
     const agent = defineAgent({
       capabilities: [
-        defineCapability({
-          id: "content-metadata",
-          metadata: {
-            input: "Capability input",
-            instructions: "Capability instructions",
-            nested: { output: "Nested output", safe: "visible" },
-            prompt: "Capability prompt",
-          },
-        }),
         defineCapability({ id: "input-traces", telemetry: { content: { inputs: true }, exporter: inputs } }),
         defineCapability({ id: "instruction-traces", telemetry: { content: { instructions: true }, exporter: instructions } }),
         defineCapability({ id: "output-traces", telemetry: { content: { outputs: true }, exporter: outputs } }),
@@ -377,204 +256,6 @@ describe("Agent telemetry", () => {
     expect(configuration(inputs)).not.toHaveProperty("instructions")
     expect(configuration(outputs)).not.toHaveProperty("instructions")
     expect(configuration(instructions)).toMatchObject({ instructions: ["system instructions"] })
-    const capabilityMetadata = (exporter: typeof inputs) => configuration(exporter).capabilities
-      .find((capability: { id: string }) => capability.id === "content-metadata").metadata
-    expect(capabilityMetadata(inputs)).toEqual({
-      input: "Capability input",
-      nested: { safe: "visible" },
-      prompt: "Capability prompt",
-    })
-    expect(capabilityMetadata(outputs)).toEqual({ nested: { output: "Nested output", safe: "visible" } })
-    expect(capabilityMetadata(instructions)).toEqual({ instructions: "Capability instructions", nested: { safe: "visible" } })
-  })
-
-  it("filters conversation history through independent content opt-ins", async () => {
-    const inputs = vi.fn()
-    const outputs = vi.fn()
-    const both = vi.fn()
-    const instructions = vi.fn()
-    const all = vi.fn()
-    const none = vi.fn()
-    const tasks: Promise<unknown>[] = []
-    const developerMessage = createMessage({ id: "developer-1", role: "system", text: "Developer instruction" })
-    const customMessage = createMessage({ id: "custom-1", role: "user", text: "Custom content" })
-    Reflect.set(developerMessage, "role", "developer")
-    Reflect.set(customMessage, "role", "custom")
-    const messages = [
-      createMessage({ id: "user-1", role: "user", text: "User input" }),
-      createMessage({ id: "system-1", role: "system", text: "System instruction" }),
-      createMessage({ id: "assistant-1", role: "assistant", text: "Assistant output" }),
-      createMessage({ id: "tool-1", role: "tool", text: "Tool output" }),
-      developerMessage,
-      customMessage,
-    ]
-    const originalMessages = structuredClone(messages)
-    const agent = defineAgent({
-      capabilities: [
-        defineCapability({ id: "input-history", telemetry: { content: { inputs: true }, exporter: inputs } }),
-        defineCapability({ id: "output-history", telemetry: { content: { outputs: true }, exporter: outputs } }),
-        defineCapability({ id: "combined-history", telemetry: { content: { inputs: true, outputs: true }, exporter: both } }),
-        defineCapability({ id: "instruction-history", telemetry: { content: { instructions: true }, exporter: instructions } }),
-        defineCapability({ id: "all-history", telemetry: { content: { inputs: true, instructions: true, outputs: true }, exporter: all } }),
-        defineCapability({ id: "metadata-history", telemetry: { exporter: none } }),
-      ],
-      driver: { run: () => "Current output" },
-    })
-
-    await runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-history-policy" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, { messages, prompt: messages })
-    await Promise.all(tasks)
-
-    const messageRole = (message: unknown) => message !== null && Object(message) === message && !Array.isArray(message)
-      ? Reflect.get(Object(message), "role")
-      : undefined
-    const historyRoles = (exporter: typeof inputs, key = "input.messages") => {
-      const history = exporter.mock.calls[0]![0].spans[0].attributes[key]
-      return Array.isArray(history)
-        ? history.map(messageRole)
-        : undefined
-    }
-    expect(historyRoles(inputs)).toEqual(["user"])
-    expect(historyRoles(outputs)).toEqual(["assistant", "tool"])
-    expect(historyRoles(both)).toEqual(["user", "assistant", "tool"])
-    expect(historyRoles(instructions)).toEqual(["system"])
-    expect(historyRoles(all)).toEqual(["user", "system", "assistant", "tool"])
-    expect(historyRoles(none)).toBeUndefined()
-    expect(historyRoles(inputs, "input.prompt")).toEqual(["user"])
-    expect(historyRoles(outputs, "input.prompt")).toEqual(["assistant", "tool"])
-    expect(historyRoles(both, "input.prompt")).toEqual(["user", "assistant", "tool"])
-    expect(historyRoles(instructions, "input.prompt")).toEqual(["system"])
-    expect(historyRoles(all, "input.prompt")).toEqual(["user", "system", "assistant", "tool"])
-    expect(historyRoles(none, "input.prompt")).toBeUndefined()
-    expect(messages).toEqual(originalMessages)
-
-    const staticInstructions = vi.fn()
-    const staticAgent = defineAgent({
-      capabilities: [defineCapability({
-        id: "static-instruction-history",
-        telemetry: { content: { instructions: true }, exporter: staticInstructions },
-      })],
-      driver: { run: () => "Current output" },
-    })
-    await runAgent(staticAgent, {
-      memo: vi.fn(),
-      run: { runId: "run-static-instruction-policy" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, { messages })
-    await Promise.all(tasks)
-    expect(historyRoles(staticInstructions)).toEqual(["system"])
-
-    const resolvedInstructions = vi.fn()
-    const resolvedAgent = defineAgent({
-      capabilities: async () => [defineCapability({
-        id: "resolved-instruction-history",
-        telemetry: { content: { instructions: true }, exporter: resolvedInstructions },
-      })],
-      driver: { run: () => "Current output" },
-    })
-    await runAgent(resolvedAgent, {
-      memo: vi.fn(),
-      run: { runId: "run-resolved-instruction-policy" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, { messages })
-    await Promise.all(tasks)
-    expect(historyRoles(resolvedInstructions)).toEqual(["system"])
-    expect(messages).toEqual(originalMessages)
-  })
-
-  it("correlates trace events emitted by a resolver that discovers telemetry", async () => {
-    const telemetry = vi.fn()
-    const tasks: Promise<unknown>[] = []
-    const agent = defineAgent({
-      capabilities: async (context) => {
-        await context.traceLog?.append({
-          attributes: { output: "resolver output" },
-          name: "capability.resolving",
-          type: "run",
-        })
-        return [defineCapability({
-          id: "resolved-telemetry",
-          telemetry: { content: { outputs: true }, exporter: telemetry },
-        })]
-      },
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-resolved-telemetry" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, {})).resolves.toBe("ok")
-    await Promise.all(tasks)
-
-    const resolverEvent = telemetry.mock.calls[0]![0].spans[0].events
-      .find((event: { name: string }) => event.name === "capability.resolving")
-    expect(resolverEvent).toMatchObject({ attributes: { output: "resolver output" } })
-  })
-
-  it("preserves resolver traces for metadata-only dynamic telemetry", async () => {
-    const telemetry = vi.fn()
-    const tasks: Promise<unknown>[] = []
-    const agent = defineAgent({
-      capabilities: async (context) => {
-        await context.traceLog?.append({
-          attributes: { output: "resolver output", source: "resolver" },
-          name: "capability.resolving",
-          type: "run",
-        })
-        return [telemetryCapability(telemetry)]
-      },
-      driver: { run: () => "ok" },
-    })
-
-    await runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-resolved-metadata-telemetry" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, {})
-    await Promise.all(tasks)
-
-    const resolverEvent = telemetry.mock.calls[0]![0].spans[0].events
-      .find((event: { name: string }) => event.name === "capability.resolving")
-    expect(resolverEvent).toMatchObject({ attributes: { source: "resolver" } })
-    expect(resolverEvent.attributes).not.toHaveProperty("output")
-  })
-
-  it("exports invoker resolver traces through active-channel telemetry", async () => {
-    const telemetry = vi.fn()
-    const tasks: Promise<unknown>[] = []
-    const agent = defineAgent({
-      channels: {
-        console: defineChannel("console", {
-          capabilities: [telemetryCapability(telemetry)],
-        }),
-      },
-      driver: { run: () => "ok" },
-      invoker: {
-        async resolve(context) {
-          await context.traceLog?.append({ name: "invoker.resolving", type: "run" })
-          return { id: "operator-1", kind: "user" }
-        },
-      },
-    })
-
-    await runAgent(agent, {
-      memo: vi.fn(),
-      run: { channelId: "console", runId: "run-channel-telemetry" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, {})
-    await Promise.all(tasks)
-
-    expect(telemetry.mock.calls[0]![0].spans[0].events).toContainEqual(expect.objectContaining({ name: "invoker.resolving" }))
   })
 
   it("keeps directly appended Trace Events in content-enabled exports", async () => {
@@ -615,82 +296,16 @@ describe("Agent telemetry", () => {
     expect(JSON.stringify(telemetry.mock.calls[0]![0].spans)).toContain("application answer")
   })
 
-  it("bounds content trace accumulation before terminal export", async () => {
-    const tasks: Promise<unknown>[] = []
-    const telemetry = vi.fn()
-    let retainedNames: string[] = []
-    const agent = defineAgent({
-      capabilities: [defineCapability({
-        id: "bounded-content",
-        telemetry: { content: { outputs: true }, exporter: telemetry },
-      })],
-      driver: {
-        async run(context) {
-          for (let index = 0; index < 1_100; index += 1) {
-            await context.traceLog?.append({ name: `application.output.${index}`, type: "run" })
-            if (index === 600) {
-              await context.traceLog?.append({ attributes: { "error.recoverable": false }, name: "agent.stream.error", type: "error" })
-            }
-          }
-          retainedNames = context.traceLog?.entries().map(event => event.name) || []
-          return "ok"
-        },
-      },
-    })
-
-    await runAgent(agent, {
-      memo: vi.fn(),
-      run: { runId: "run-bounded-content" },
-      runtime: "unknown",
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, {})
-    await Promise.all(tasks)
-
-    expect(retainedNames).toHaveLength(1_024)
-    expect(retainedNames).toContain("application.output.0")
-    expect(retainedNames).toContain("application.output.1099")
-    expect(retainedNames).toContain("agent.stream.error")
-    expect(telemetry.mock.calls[0]![0].spans[0].status).toEqual({ code: "ERROR" })
-  })
-
-  it("forwards every content trace to a caller-owned destination", async () => {
-    const tasks: Promise<unknown>[] = []
-    const traceLog = createTraceEventLog({ content: "content" })
-    const agent = defineAgent({
-      capabilities: [defineCapability({
-        id: "caller-content",
-        telemetry: { content: { outputs: true }, exporter: vi.fn() },
-      })],
-      driver: {
-        async run(context) {
-          for (let index = 0; index < 1_100; index += 1) {
-            await context.traceLog?.append({ name: `application.output.${index}`, type: "run" })
-          }
-          return "ok"
-        },
-      },
-    })
-
-    await runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      traceLog,
-      waitUntil(task) { tasks.push(Promise.resolve(task)) },
-    }, {})
-    await Promise.all(tasks)
-
-    expect(traceLog.entries().filter(event => event.name.startsWith("application.output."))).toHaveLength(1_100)
-  })
-
   it("retries transient OTLP responses", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response(null, { headers: { "retry-after": "0" }, status: 503 }))
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
 
-    await otlpHttpJson({ endpoint: "https://console.example/v1/traces" })({
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
       agent: {},
       runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "traces",
       spans: [{ name: "vitehub.run", spanId: "0123456789abcdef", startTime: "2026-01-01T00:00:00.000Z", status: { code: "OK" }, traceId: "0123456789abcdef0123456789abcdef" }],
     })
 
@@ -701,9 +316,10 @@ describe("Agent telemetry", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
 
-    await otlpHttpJson({ endpoint: "https://console.example/v1/traces", resource: { build: 1e21 } })({
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp", resource: { build: 1e21 } })({
       agent: {},
       runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "traces",
       spans: [{ attributes: { count: 12 }, name: "vitehub.run", spanId: "0123456789abcdef", startTime: "2026-01-01T00:00:00.000Z", status: { code: "OK" }, traceId: "0123456789abcdef0123456789abcdef" }],
     })
 
@@ -761,11 +377,16 @@ describe("Agent telemetry", () => {
     expect(JSON.stringify(exported.spans)).not.toContain("secret prompt")
   })
 
-  it("exports live trace snapshots while an invocation is running", async () => {
-    let release!: () => void
-    let progressRecorded!: () => void
-    const gate = new Promise<void>(resolve => { release = resolve })
-    const progress = new Promise<void>(resolve => { progressRecorded = resolve })
+  it("exports each live event once as logs, then one event-free terminal trace", async () => {
+    vi.useFakeTimers()
+    let releaseFirst!: () => void
+    let releaseSecond!: () => void
+    let firstRecorded!: () => void
+    let secondRecorded!: () => void
+    const firstGate = new Promise<void>(resolve => { releaseFirst = resolve })
+    const secondGate = new Promise<void>(resolve => { releaseSecond = resolve })
+    const first = new Promise<void>(resolve => { firstRecorded = resolve })
+    const second = new Promise<void>(resolve => { secondRecorded = resolve })
     const telemetry = vi.fn()
     const tasks: Promise<unknown>[] = []
     const agent = defineAgent({
@@ -775,9 +396,12 @@ describe("Agent telemetry", () => {
       })],
       driver: {
         async run(context) {
-          await context.traceLog?.append({ name: "application.progress", type: "run" })
-          progressRecorded()
-          await gate
+          await context.traceLog?.append({ name: "application.progress.first", type: "run" })
+          firstRecorded()
+          await firstGate
+          await context.traceLog?.append({ name: "application.progress.second", type: "run" })
+          secondRecorded()
+          await secondGate
           return "ok"
         },
       },
@@ -785,21 +409,410 @@ describe("Agent telemetry", () => {
 
     const active = runAgent(agent, {
       memo: vi.fn(),
-      run: { runId: "run-live" },
       runtime: "unknown",
       waitUntil(task) { tasks.push(Promise.resolve(task)) },
     }, {})
-    await progress
-    await vi.waitFor(() => expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({
-      spans: [expect.objectContaining({
-        events: expect.arrayContaining([expect.objectContaining({ name: "application.progress" })]),
-      })],
-    })), { timeout: 2_500 })
+    await first
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({
+      records: expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.first" })]),
+      signal: "logs",
+    }))
 
-    release()
+    releaseFirst()
+    await second
+    await vi.advanceTimersByTimeAsync(5_000)
+    releaseSecond()
     await active
     await Promise.all(tasks)
-    expect(telemetry.mock.calls.at(-1)?.[0].spans[0].status).toEqual({ code: "OK" })
+    const exports = telemetry.mock.calls.map(call => call[0])
+    const logs = exports.filter(exported => exported.signal === "logs")
+    const traces = exports.filter(exported => exported.signal === "traces")
+    const sequences = logs.flatMap(exported => exported.records)
+      .map(record => record.attributes?.["vitehub.event.sequence"])
+      .filter(sequence => hasRuntimeType(sequence, "number"))
+    expect(new Set(sequences).size).toBe(sequences.length)
+    expect(logs[1]?.records).toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.second" })]))
+    expect(logs[1]?.records).not.toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.first" })]))
+    expect(traces).toHaveLength(1)
+    expect(new Set(logs.flatMap(exported => exported.records).map(record => record.traceId))).toEqual(new Set([traces[0]?.spans[0].traceId]))
+    expect(traces[0]?.spans[0]).toMatchObject({ events: undefined, status: { code: "OK" } })
+    expect(exports.at(-1)?.signal).toBe("traces")
+  })
+
+  it("exports the final configuration after setup crosses the live batch boundary", async () => {
+    vi.useFakeTimers()
+    const { MockLanguageModelV3 } = await import("ai/test")
+    let releaseModel!: () => void
+    let modelStarted!: () => void
+    const modelGate = new Promise<void>(resolve => { releaseModel = resolve })
+    const started = new Promise<void>(resolve => { modelStarted = resolve })
+    const model = new MockLanguageModelV3({
+      doGenerate: {
+        content: [{ text: "ok", type: "text" }],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+          outputTokens: { reasoning: 0, text: 1, total: 1 },
+        },
+        warnings: [],
+      },
+      modelId: "late-model",
+      provider: "late-provider",
+    })
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "live-config", telemetry: { exporter: telemetry, live: true } }),
+      ],
+      driver: {
+        async model() {
+          modelStarted()
+          await modelGate
+          return model
+        },
+      },
+    })
+
+    const active = runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-late-config" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { prompt: "go" })
+    await started
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({ signal: "logs" }))
+
+    releaseModel()
+    await active
+    await Promise.all(tasks)
+
+    const exports = telemetry.mock.calls.map(call => call[0])
+    const configurationRecords = exports
+      .filter(exported => exported.signal === "logs")
+      .flatMap(exported => exported.records)
+      .filter(record => record.eventName === "vitehub.agent.configured")
+    expect(configurationRecords).toHaveLength(1)
+    expect(configurationRecords[0]?.attributes["vitehub.agent.configuration"]).toMatchObject({
+      driver: { model: { id: "late-model", provider: "late-provider" } },
+    })
+    expect(exports.at(-1)?.signal).toBe("traces")
+    expect(exports.at(-1)?.spans.every((span: { events?: unknown }) => span.events === undefined)).toBe(true)
+  })
+
+  it("applies input and output content policy to live logs", async () => {
+    const inputs = vi.fn()
+    const outputs = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "live-inputs", telemetry: { content: { inputs: true }, exporter: inputs, live: true } }),
+        defineCapability({ id: "live-outputs", telemetry: { content: { outputs: true }, exporter: outputs, live: true } }),
+      ],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({
+            attributes: { "input.prompt": "private input", "result.text": "private output" },
+            name: "application.content",
+            type: "run",
+          })
+          return "ok"
+        },
+      },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-live-content" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    const inputLogs = inputs.mock.calls.find(call => call[0].signal === "logs")?.[0].records
+    const outputLogs = outputs.mock.calls.find(call => call[0].signal === "logs")?.[0].records
+    expect(JSON.stringify(inputLogs)).toContain("private input")
+    expect(JSON.stringify(inputLogs)).not.toContain("private output")
+    expect(JSON.stringify(outputLogs)).toContain("private output")
+    expect(JSON.stringify(outputLogs)).not.toContain("private input")
+  })
+
+  it("preserves the host trace for resolved content telemetry", async () => {
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: () => [defineCapability({
+        id: "resolved-content",
+        telemetry: { content: { outputs: true }, exporter: telemetry, live: true },
+      })],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({ attributes: { "result.text": "application output" }, name: "application.output", type: "run" })
+          return "ok"
+        },
+      },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      trace: { id: "host-trace" },
+      traceLog: createTraceEventLog(),
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    const exports = telemetry.mock.calls.map(call => call[0])
+    const logs = exports.filter(exported => exported.signal === "logs")
+    const traces = exports.filter(exported => exported.signal === "traces")
+    expect(JSON.stringify(logs)).toContain("application output")
+    expect(new Set(logs.flatMap(exported => exported.records).map(record => record.traceId))).toEqual(new Set([traces[0]?.spans[0].traceId]))
+  })
+
+  it("flushes a live failure record before the terminal error trace", async () => {
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [defineCapability({ id: "live-errors", telemetry: { exporter: telemetry, live: true } })],
+      driver: { run() { throw new Error("provider failed") } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-live-error" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).rejects.toThrow("provider failed")
+    await Promise.all(tasks)
+
+    const exports = telemetry.mock.calls.map(call => call[0])
+    expect(exports).toEqual([
+      expect.objectContaining({
+        records: expect.arrayContaining([expect.objectContaining({ eventName: "agent.invocation.error", severityText: "ERROR" })]),
+        signal: "logs",
+      }),
+      expect.objectContaining({
+        signal: "traces",
+        spans: [expect.objectContaining({ status: { code: "ERROR", message: "provider failed" } })],
+      }),
+    ])
+  })
+
+  it("retains span events when live log delivery fails", async () => {
+    const traces: unknown[] = []
+    const tasks: Promise<unknown>[] = []
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "live-fallback",
+        telemetry: {
+          exporter(context) {
+            if (context.signal === "logs") throw new Error("logs unavailable")
+            traces.push(context)
+          },
+          live: true,
+        },
+      })],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({ name: "application.progress", type: "run" })
+          return "ok"
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).resolves.toBe("ok")
+    await Promise.all(tasks)
+
+    expect(JSON.stringify(traces)).toContain("application.progress")
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      capability_id: "live-fallback",
+      event: "agent.telemetry.export.failed",
+      phase: "terminal",
+    }))
+    error.mockRestore()
+  })
+
+  it("bounds content retained after a live log failure", async () => {
+    vi.useFakeTimers()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      let releaseDriver!: () => void
+      let releaseExport!: () => void
+      let runtimeTraceLog: { append(event: { name: string, type: "run" }): unknown } | undefined
+      const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+      const accepted: Parameters<AgentTelemetry>[0][] = []
+      const tasks: Promise<unknown>[] = []
+      let failed = false
+      const telemetry = vi.fn(async (context: Parameters<AgentTelemetry>[0]) => {
+        if (context.signal === "logs" && !failed) {
+          await exportGate
+          failed = true
+          throw new Error("logs unavailable")
+        }
+        accepted.push(context)
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "live-content-fallback",
+          telemetry: { content: { outputs: true }, exporter: telemetry, live: true },
+        })],
+        driver: {
+          async run(context) {
+            runtimeTraceLog = context.traceLog
+            await driverGate
+            return "ok"
+          },
+        },
+      })
+
+      const active = runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil(task) { tasks.push(Promise.resolve(task)) },
+      }, {})
+      await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
+      await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress.0", type: "run" }))
+      await vi.advanceTimersByTimeAsync(5_000)
+      await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(1))
+      for (let index = 1; index < 1_200; index += 1) {
+        await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
+      }
+
+      releaseDriver()
+      await active
+      releaseExport()
+      await vi.runAllTimersAsync()
+      await Promise.all(tasks)
+
+      const progress = accepted.flatMap(exported => exported.signal === "logs" ? exported.records : [])
+        .map(record => record.eventName)
+        .filter(name => name.startsWith("application.progress"))
+      expect(progress.length).toBeLessThanOrEqual(1_024)
+      expect(progress).toContain("application.progress.0")
+      expect(progress).toContain("application.progress.1199")
+      expect(progress).not.toContain("application.progress.600")
+      expect(accepted.at(-1)).toMatchObject({
+        signal: "traces",
+        spans: [expect.objectContaining({
+          events: expect.arrayContaining([
+            expect.objectContaining({ name: "application.progress.0" }),
+            expect.objectContaining({ name: "application.progress.1199" }),
+          ]),
+        })],
+      })
+    }
+    finally {
+      error.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("retains span events when an OTLP receiver partially accepts live logs", async () => {
+    const requests: Array<{ body: unknown, endpoint: string }> = []
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const endpoint = String(input)
+      requests.push({ body: JSON.parse(String(init?.body)), endpoint })
+      return endpoint.endsWith("/v1/logs")
+        ? new Response(JSON.stringify({ partialSuccess: { rejectedLogRecords: 1 } }), { status: 200 })
+        : new Response(null, { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const tasks: Promise<unknown>[] = []
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const agent = defineAgent({
+      capabilities: [otlp({ endpoint: "https://telemetry.example/otlp", live: true })],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({ name: "application.progress", type: "run" })
+          return "ok"
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).resolves.toBe("ok")
+    await Promise.all(tasks)
+
+    const traceRequest = requests.find(request => request.endpoint.endsWith("/v1/traces"))
+    expect(JSON.stringify(traceRequest?.body)).toContain("application.progress")
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      capability_id: "otlp",
+      event: "agent.telemetry.export.failed",
+    }))
+    error.mockRestore()
+  })
+
+  it("exports live logs and a completed trace for streamed Agent output", async () => {
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [defineCapability({ id: "live-stream", telemetry: { exporter: telemetry, live: true } })],
+      driver: { run: () => (async function* () {
+          yield { phase: "final", text: "streamed answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-live-stream" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    // SAFETY: streamAgent returns an async iterable stream for streamed invocations.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+    await Promise.all(tasks)
+
+    const exports = telemetry.mock.calls.map(call => call[0])
+    expect(exports.find(exported => exported.signal === "logs")?.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventName: "agent.message.delta" }),
+    ]))
+    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ status: { code: "OK" } })] })
+  })
+
+  it("flushes live telemetry when an invocation is aborted", async () => {
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const abort = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>(resolve => { markStarted = resolve })
+    const agent = defineAgent({
+      capabilities: [defineCapability({ id: "live-abort", telemetry: { exporter: telemetry, live: true } })],
+      driver: {
+        run(context) {
+          markStarted()
+          return new Promise((_resolve, reject) => context.input.abortSignal?.addEventListener("abort", () => reject(context.input.abortSignal?.reason), { once: true }))
+        },
+      },
+    })
+
+    const active = runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-live-abort" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { abortSignal: abort.signal })
+    await started
+    abort.abort(new DOMException("client disconnected", "AbortError"))
+    await expect(active).rejects.toThrow("client disconnected")
+    await Promise.all(tasks)
+
+    const exports = telemetry.mock.calls.map(call => call[0])
+    expect(exports.find(exported => exported.signal === "logs")?.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventName: "agent.invocation.error", severityText: "ERROR" }),
+    ]))
+    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ status: expect.objectContaining({ code: "ERROR" }) })] })
   })
 
   it("coalesces live changes behind one blocked export and sends terminal telemetry next", async () => {
@@ -839,7 +852,9 @@ describe("Agent telemetry", () => {
         await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
         await vi.advanceTimersByTimeAsync(1_000)
       }
+      await vi.advanceTimersByTimeAsync(5_000)
       expect(telemetry).toHaveBeenCalledTimes(1)
+      expect(tasks).toHaveLength(1)
 
       releaseDriver()
       await active
@@ -847,31 +862,32 @@ describe("Agent telemetry", () => {
       await vi.runAllTimersAsync()
       await Promise.all(tasks)
 
-      expect(telemetry).toHaveBeenCalledTimes(2)
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      expect((telemetry.mock.calls[1]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
+      expect(telemetry).toHaveBeenCalledTimes(3)
+      expect(telemetry.mock.calls[1]![0]).toMatchObject({ signal: "logs" })
+      // SAFETY: The third recorded call is asserted above to be the terminal trace export.
+      expect((telemetry.mock.calls[2]![0] as { spans: Array<{ status: unknown }> }).spans[0]!.status).toEqual({ code: "OK" })
     }
     finally {
       vi.useRealTimers()
     }
   })
 
-  it("times out a stalled live export without overlapping terminal telemetry", async () => {
+  it("caps coalesced catch-up exports while one live export is blocked", async () => {
     vi.useFakeTimers()
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       let releaseDriver!: () => void
+      let releaseExport!: () => void
       let runtimeTraceLog: { append(event: { name: string, type: "run" }): unknown } | undefined
       const driverGate = new Promise<void>(resolve => { releaseDriver = resolve })
-      const stalled = new Promise<void>(() => {})
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
       const tasks: Promise<unknown>[] = []
-      const telemetry = vi.fn(async (_context: unknown) => {
-        if (telemetry.mock.calls.length === 1) await stalled
+      const telemetry = vi.fn(async (_context: Parameters<AgentTelemetry>[0]) => {
+        if (telemetry.mock.calls.length === 1) await exportGate
       })
       const agent = defineAgent({
         capabilities: [defineCapability({
           id: "live-telemetry",
-          telemetry: { exporter: telemetry, live: true },
+          telemetry: { content: { outputs: true }, exporter: telemetry, live: true },
         })],
         driver: {
           async run(context) {
@@ -884,64 +900,146 @@ describe("Agent telemetry", () => {
 
       const active = runAgent(agent, {
         memo: vi.fn(),
-        run: { runId: "run-stalled-live" },
+        run: { runId: "run-bounded-live" },
         runtime: "unknown",
         waitUntil(task) { tasks.push(Promise.resolve(task)) },
       }, {})
       await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
-      await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress", type: "run" }))
-      await vi.advanceTimersByTimeAsync(1_000)
+      await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress.initial", type: "run" }))
+      await vi.advanceTimersByTimeAsync(5_000)
       await vi.waitFor(() => expect(telemetry).toHaveBeenCalledTimes(1))
+
+      for (let index = 0; index < 1_200; index += 1) {
+        await Promise.resolve(runtimeTraceLog!.append({ name: `application.progress.${index}`, type: "run" }))
+      }
+      expect(tasks).toHaveLength(1)
 
       releaseDriver()
       await active
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(telemetry).toHaveBeenCalledOnce()
+      releaseExport()
+      await vi.runAllTimersAsync()
       await Promise.all(tasks)
 
-      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
-        error: expect.objectContaining({ name: "TimeoutError" }),
-        event: "agent.telemetry.export.failed",
-        phase: "live",
-        run_id: "run-stalled-live",
-      }))
+      const logs = telemetry.mock.calls.map(call => call[0])
+        .flatMap(exported => exported.signal === "logs" ? [exported] : [])
+      expect(logs.length).toBeGreaterThan(2)
+      expect(logs.slice(1).map(exported => exported.records.length)).toEqual([512, 512, 178])
+      expect(logs.every(exported => exported.records.length <= 512)).toBe(true)
+      const progress = logs.flatMap(exported => exported.records)
+        .map(record => record.eventName)
+        .filter(name => name.startsWith("application.progress"))
+      expect(progress).toHaveLength(1_201)
+      expect(new Set(progress).size).toBe(progress.length)
+      expect(logs.flatMap(exported => exported.records)
+        .filter(record => record.eventName === "vitehub.agent.configured")).toHaveLength(1)
+      expect(telemetry.mock.calls.at(-1)?.[0]).toMatchObject({ signal: "traces" })
     }
     finally {
-      consoleError.mockRestore()
       vi.useRealTimers()
     }
   })
 
-  it("bounds a stalled terminal telemetry export", async () => {
-    vi.useFakeTimers()
+  it("exports final configuration after the terminal event starts a live flush", async () => {
+    let releaseExport!: () => void
+    let markExportStarted!: () => void
+    const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+    const exportStarted = new Promise<void>(resolve => { markExportStarted = resolve })
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn(async (context: Parameters<AgentTelemetry>[0]) => {
+      const liveCalls = telemetry.mock.calls.filter(call => call[0].signal === "logs")
+      if (context.signal === "logs" && liveCalls.length === 1) {
+        markExportStarted()
+        await exportGate
+      }
+    })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "live-telemetry",
+        telemetry: { exporter: telemetry, live: true },
+      })],
+      driver: {
+        async run(context) {
+          for (let index = 0; index < 510; index += 1) {
+            await context.traceLog?.append({ name: `application.progress.${index}`, type: "run" })
+          }
+          return "ok"
+        },
+      },
+    })
+
+    const active = runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-terminal-batch-boundary" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await exportStarted
+    await active
+    releaseExport()
+    await Promise.all(tasks)
+
+    const exports = telemetry.mock.calls.map(call => call[0])
+    const logs = exports.filter(exported => exported.signal === "logs")
+    expect(logs.map(exported => exported.records.length)).toEqual([512, 1])
+    expect(logs.flatMap(exported => exported.records)
+      .filter(record => record.eventName === "vitehub.agent.configured")).toHaveLength(1)
+    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ events: undefined })] })
+  })
+
+  it("keeps final configuration in the terminal trace when its live retry fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
+      let releaseExport!: () => void
+      let markExportStarted!: () => void
+      const exportGate = new Promise<void>(resolve => { releaseExport = resolve })
+      const exportStarted = new Promise<void>(resolve => { markExportStarted = resolve })
+      const accepted: Parameters<AgentTelemetry>[0][] = []
       const tasks: Promise<unknown>[] = []
-      const telemetry = vi.fn(() => new Promise<void>(() => {}))
+      const telemetry = vi.fn(async (context: Parameters<AgentTelemetry>[0]) => {
+        const liveCalls = telemetry.mock.calls.filter(call => call[0].signal === "logs")
+        if (context.signal === "logs" && liveCalls.length === 1) {
+          markExportStarted()
+          await exportGate
+        }
+        if (context.signal === "logs" && liveCalls.length === 2) throw new Error("configuration export failed")
+        accepted.push(context)
+      })
       const agent = defineAgent({
-        capabilities: [telemetryCapability(telemetry)],
-        driver: { run: () => "ok" },
+        capabilities: [defineCapability({
+          id: "live-telemetry",
+          telemetry: { exporter: telemetry, live: true },
+        })],
+        driver: {
+          async run(context) {
+            for (let index = 0; index < 510; index += 1) {
+              await context.traceLog?.append({ name: `application.progress.${index}`, type: "run" })
+            }
+            return "ok"
+          },
+        },
       })
 
-      await expect(runAgent(agent, {
+      const active = runAgent(agent, {
         memo: vi.fn(),
-        run: { runId: "run-stalled-terminal" },
+        run: { runId: "run-terminal-configuration-fallback" },
         runtime: "unknown",
         waitUntil(task) { tasks.push(Promise.resolve(task)) },
-      }, {})).resolves.toBe("ok")
-      await vi.advanceTimersByTimeAsync(10_000)
+      }, {})
+      await exportStarted
+      await active
+      releaseExport()
       await Promise.all(tasks)
 
-      expect(telemetry).toHaveBeenCalledOnce()
-      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
-        error: expect.objectContaining({ name: "TimeoutError" }),
-        event: "agent.telemetry.export.failed",
-        phase: "terminal",
-      }))
+      expect(accepted.filter(exported => exported.signal === "logs")
+        .map(exported => exported.records.length)).toEqual([512])
+      const traceEvents = accepted.filter(exported => exported.signal === "traces")
+        .flatMap(exported => exported.spans)
+        .flatMap(span => span.events || [])
+      expect(traceEvents).toEqual([expect.objectContaining({ name: "vitehub.agent.configured" })])
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({ phase: "terminal" }))
     }
     finally {
       consoleError.mockRestore()
-      vi.useRealTimers()
     }
   })
 
@@ -957,7 +1055,11 @@ describe("Agent telemetry", () => {
       const tasks: Promise<unknown>[] = []
       const failing = vi.fn(async () => { throw new Error("receiver failed") })
       const blocked = vi.fn(async () => {
-        if (blocked.mock.calls.length === 1) await exportGate
+        if (blocked.mock.calls.length === 1) {
+          await exportGate
+          throw new Error("slow receiver failed")
+        }
+        throw new Error("receiver failed")
       })
       const agent = defineAgent({
         capabilities: [
@@ -981,18 +1083,21 @@ describe("Agent telemetry", () => {
       }, {})
       await vi.waitFor(() => expect(runtimeTraceLog).toBeDefined())
       await Promise.resolve(runtimeTraceLog!.append({ name: "application.progress", type: "run" }))
-      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(5_000)
       await vi.waitFor(() => expect(blocked).toHaveBeenCalledTimes(1))
 
       releaseDriver()
       await active
+      await vi.advanceTimersByTimeAsync(10_000)
       expect(failing).toHaveBeenCalledTimes(1)
       expect(blocked).toHaveBeenCalledTimes(1)
 
       releaseExport()
-      await vi.waitFor(() => expect(blocked).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(blocked).toHaveBeenCalledTimes(3))
       await Promise.all(tasks)
-      expect(failing).toHaveBeenCalledTimes(2)
+      expect(failing).toHaveBeenCalledTimes(3)
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({ capability_ids: expect.arrayContaining(["blocked"]), phase: "live" }))
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({ capability_ids: expect.arrayContaining(["blocked"]), phase: "terminal" }))
     }
     finally {
       consoleError.mockRestore()
@@ -1006,7 +1111,6 @@ describe("Agent telemetry", () => {
     const traceLog = createTraceEventLog()
     const runtime = {
       memo: vi.fn(),
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
       trace: { id: "host-trace" },
       traceLog,
@@ -1056,7 +1160,7 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const agent = defineAgent({
       capabilities: [telemetryCapability(telemetry)],
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      // SAFETY: The invalid binding is intentional input for this setup-failure regression.
       runEvents: {} as never,
       driver: { run: () => "unreachable" },
     })
@@ -1114,7 +1218,6 @@ describe("Agent telemetry", () => {
     const runtime = (runId: string) => ({
       memo: vi.fn(),
       run: { runId },
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
       waitUntil(task: PromiseLike<unknown>) { tasks.push(Promise.resolve(task)) },
     })

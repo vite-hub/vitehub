@@ -159,8 +159,9 @@ export default defineAgent({
   name: 'support',
   capabilities: [
     otlp({
-      endpoint: 'https://traces.example/v1/traces',
+      endpoint: 'https://telemetry.example/otlp',
       headers: { authorization: `Bearer ${process.env.OTLP_TOKEN!}` },
+      live: true,
       resource: { 'service.namespace': 'quiver' },
     }),
   ],
@@ -168,9 +169,9 @@ export default defineAgent({
 })
 ```
 
-Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports standard OTLP spans with `gen_ai.*` attributes and a `vitehub.agent.configured` root-span event for Agent, Capability, Driver, tool, runtime, and Workspace metadata. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently; the configuration event remains distinct from user prompt events.
+Pass the OTLP base endpoint; ViteHub appends `/v1/logs` and `/v1/traces`. With `live: true`, new Trace Events are batched as correlated OTLP LogRecords while the invocation runs, then ViteHub exports one completed trace. Without `live`, it exports only the completed trace and retains Trace Events as span events. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently.
 
-Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Receivers should deduplicate spans by trace and span id because retries can deliver the same invocation more than once. See [`otlp()`](/docs/capabilities/otlp) for privacy and Capability-contribution details.
+Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. See [`otlp()`](/docs/capabilities/otlp) for batching, deduplication, privacy, and Capability-contribution details.
 
 To persist a queryable invocation journal, attach Agent Invocations to the Agent Definition. Storage durability and recovery guarantees still depend on the selected store and host lifecycle. The SQLite adapter accepts a local SQLite or remote libSQL URL:
 
@@ -206,6 +207,30 @@ The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VIT
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch and reconcile failures after the generated Agent module loads but before the Agent handler starts. If that module cannot be evaluated, use Workflow inspection because the Agent-owned invocation store is unavailable.
 
 Vercel Agent Definitions currently run through the inline Workflow adapter because arbitrary Agent handlers cannot be embedded in Vercel's deterministic native Workflow bundle. An accepted run starts its journal in that Agent worker, and ViteHub keeps bounded journal recovery work inside the active execution. Vercel does not expose a lifecycle hook that can guarantee arbitrary Agent recovery after that execution settles, so treat its journal as best-effort and use Workflow inspection as the authority for accepted runs. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation. The run inspection metadata reports `mode: "inline"` for this path.
+
+## Inspect local invocations
+
+Enable the read-only invocation console in a Nuxt project:
+
+```bash
+pnpm add @nuxt/ui
+```
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  vitehub: {
+    agent: true,
+    console: true,
+    preset: 'cloudflare',
+  },
+})
+```
+
+During `nuxt dev`, open `/_vitehub` to inspect local Agent sessions and trace observations. ViteHub stores the console journal in `.vitehub/data/console.sqlite`. The console is not installed in production builds, even when the option remains enabled in shared configuration.
+
+The console accepts direct loopback requests only. It rejects forwarded requests, so do not place it behind a reverse proxy or tunnel.
+
+The fallback applies to Agent Definitions imported from `vite-hub/agent`. An explicit `defineAgent({ invocations })` store, including one assigned later by an integration, remains authoritative. Imports directly from `@vite-hub/agent` do not receive the framework console fallback.
 
 ## Control child work
 

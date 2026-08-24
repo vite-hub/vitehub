@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 export default defineNuxtConfig({
   extends: ["docus"],
-  modules: ["./modules/vitehub-docs", "nuxt-schema-org"],
+  modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org"],
   site: {
     description: "Portable Agents and Server Primitives for any Vite host.",
     name: "ViteHub",
@@ -102,16 +102,22 @@ export default defineNuxtConfig({
       scan: true,
       icons: [
         "lucide:brain",
+        "lucide:check",
         "lucide:chevron-down",
         "lucide:chevron-right",
+        "lucide:chevron-up",
+        "lucide:code-2",
+        "lucide:copy",
         "lucide:hash",
         "lucide:lightbulb",
         "lucide:menu",
+        "lucide:paperclip",
         "lucide:moon",
         "lucide:search",
         "lucide:sun",
         "lucide:terminal",
         "lucide:text-align-start",
+        "lucide:x",
         "ph:activity-light",
         "ph:arrows-split-light",
         "ph:book-bookmark-light",
