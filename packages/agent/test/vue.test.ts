@@ -329,8 +329,47 @@ describe("Agent Vue clients", () => {
 
     await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
     id.value = "chat-b"
+    // SAFETY: Each table case provides UIMessage-shaped history; the tuple only widens the role property.
     messages.value = nextMessages as UIMessage[]
     shouldResume.value = resume
+    await nextTick()
+
+    expect(chat.status.value).toBe("ready")
+    finishReconnect(new Response(null, { status: 204 }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(chat.status.value).toBe("ready")
+    scope.stop()
+  })
+
+  it("releases pending status after changing to a chat that omits messages", async () => {
+    vi.stubGlobal("window", {})
+    let finishReconnect!: (response: Response) => void
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => await new Promise<Response>((resolve) => {
+      finishReconnect = resolve
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const id = ref("chat-a")
+    const omitMessages = ref(false)
+    const messages: UIMessage[] = [
+      { id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" },
+    ]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), () => {
+      const next = {
+        id: id.value,
+        resume: true,
+      }
+      if (omitMessages.value) return next
+      return {
+        id: next.id,
+        messages,
+        resume: next.resume,
+      }
+    }))!
+
+    await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
+    omitMessages.value = true
+    id.value = "chat-b"
     await nextTick()
 
     expect(chat.status.value).toBe("ready")
