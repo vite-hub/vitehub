@@ -123,12 +123,14 @@
     "./shell/workspace": "./dist/shell/workspace.js",
     "./source": "./dist/source.js",
     "./source/client": "./dist/source/client.js",
+    "./source/content": "./dist/source/content.js",
     "./source/file": "./dist/source/file.js",
     "./source/github": "./dist/source/github.js",
     "./source/glob": "./dist/source/glob.js",
     "./source/markdown": "./dist/source/markdown.js",
     "./source/mcp": "./dist/source/mcp.js",
     "./source/server": "./dist/source/server.js",
+    "./source/unstorage": "./dist/source/unstorage.js",
     "./ui": "./dist/ui.js",
     "./ui/headless": "./dist/ui/headless.js",
     "./ui/nuxt": "./dist/ui/nuxt.js",
@@ -222,10 +224,14 @@
   },
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",
+    "comark-content": "catalog:markdown",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@nuxt/ui": {
+      "optional": true
+    },
+    "comark-content": {
       "optional": true
     },
     "vite": {

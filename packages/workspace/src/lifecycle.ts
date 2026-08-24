@@ -2,11 +2,11 @@ import { useWorkspaceAssets } from "./asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
-import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./sources/config.ts"
+import { createSourceContext, normalizeWorkspaceSources, prepareWorkspaceSource, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
-import type { LoaderContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceLoaderSource, WorkspacePublishOptions, WorkspaceSnapshot, WorkspaceStore } from "./core/types.ts"
+import type { LoaderContext, SourceContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceLoaderSource, WorkspacePublishOptions, WorkspaceSnapshot, WorkspaceStore } from "./core/types.ts"
 
 const buildSourcesMetaKey = "workspace:build-sources"
 
@@ -166,7 +166,7 @@ async function tryListBuildSourcePaths(
 ): Promise<string[] | undefined> {
   const ctx = createSourceContext(definition, { key: source.key, mountPath: source.mountPath }, store)
   try {
-    await source.source.prepare?.(ctx)
+    await prepareWorkspaceSource(source.source, ctx)
     return (await source.source.getKeys(ctx))
       .map(key => normalizeWorkspacePath(`${source.mountPath}/${key}`))
   }
@@ -204,19 +204,28 @@ function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
 }
 
 function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoaderSource {
+  const sourceContexts = new WeakMap<SourceContext, SourceContext>()
+
   function getSourceContext(ctx: Parameters<WorkspaceLoaderSource["getKeys"]>[0]) {
-    return {
+    let sourceContext = sourceContexts.get(ctx)
+    if (sourceContext) return sourceContext
+    sourceContext = {
       ...ctx,
       mountPath: source.mountPath,
       source: source.key,
     }
+    sourceContexts.set(ctx, sourceContext)
+    return sourceContext
   }
 
   return {
     ...source.source,
     key: source.key,
+    async resolveRevision(ctx) {
+      return await source.source.resolveRevision?.(getSourceContext(ctx))
+    },
     async prepare(ctx) {
-      await source.source.prepare?.(getSourceContext(ctx))
+      await prepareWorkspaceSource(source.source, getSourceContext(ctx))
     },
     async getKeys(ctx) {
       return await source.source.getKeys(getSourceContext(ctx))

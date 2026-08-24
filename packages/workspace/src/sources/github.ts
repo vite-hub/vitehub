@@ -1,6 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 
+import { prepareWorkspaceSource } from "./config.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { resolveWorkspaceEnv } from "../env.ts"
 import { processEnv, resolveGitHubTokenOption } from "../providers/github/shared.ts"
@@ -56,9 +57,13 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       repo: resolvedOptions.repo,
       root: resolvedOptions.root,
     },
+    async resolveRevision(ctx) {
+      const source = await getSourceForRoot(ctx.rootDir)
+      return await source.resolveRevision?.(ctx)
+    },
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
-      await source.prepare?.(ctx)
+      await prepareWorkspaceSource(source, ctx)
     },
     async getKeys(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
@@ -76,10 +81,6 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.getMeta?.(key, ctx)
     },
-    async search(query, ctx) {
-      const source = await getSourceForRoot(ctx.rootDir)
-      return await source.search?.(query, ctx) ?? []
-    },
   }, resolvedOptions)
 }
 
@@ -96,9 +97,6 @@ function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource 
       throw new Error(`[vitehub] github() resolver did not resolve before reading ${JSON.stringify(key)}.`)
     },
     async getItems() {
-      return []
-    },
-    async search() {
       return []
     },
     async resolve(ctx) {

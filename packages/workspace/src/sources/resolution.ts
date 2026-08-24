@@ -6,7 +6,7 @@ import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
-import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, prepareWorkspaceSource, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
@@ -709,7 +709,7 @@ function scopedWorkspaceSource(
     ...(scopedLivePaths
       ? {
           async prepare(ctx) {
-            await source.source.prepare?.(ctx)
+            await prepareWorkspaceSource(source.source, ctx)
             syncScopedLivePaths(scopedLivePaths, source.livePaths, scope)
           },
         }
@@ -737,16 +737,6 @@ function scopedWorkspaceSource(
           },
         }
       : {}),
-    ...(source.source.search
-      ? {
-          search: async (query, ctx) => {
-            const paths = selectedScopeQueryPaths(scope, query)
-              .filter(path => pathIntersects(source.mountPath, path))
-            if (!paths.length) return []
-            return filterScopedHits(scope, await source.source.search!({ ...query, paths }, ctx))
-          },
-        }
-      : {}),
   }
   if (!source.requestDescriptor || selectedScopeCanRead(scope, workspaceSourceRequestDescriptorPath(source.key))) {
     copyWorkspaceSourceMetadata(source.source, scoped)
@@ -769,19 +759,6 @@ function sourceItemWorkspacePath(
 ): string {
   const normalized = normalizeWorkspacePath(sourcePath)
   return normalizeWorkspacePath(source.mountPath ? `${source.mountPath}/${normalized}` : normalized)
-}
-
-function selectedScopeQueryPaths(scope: WorkspaceSelectedScope, query: WorkspaceSearchQuery): string[] {
-  const requestedPaths = (query.paths?.length ? query.paths : [query.cwd || ""]).map(path => normalizeWorkspacePath(path))
-  const scopedPaths = (scope.paths || []).map(path => normalizeWorkspacePath(path))
-  const paths = new Set<string>()
-  for (const scopedPath of scopedPaths) {
-    for (const requestedPath of requestedPaths) {
-      if (pathContains(scopedPath, requestedPath)) paths.add(requestedPath)
-      else if (pathContains(requestedPath, scopedPath)) paths.add(scopedPath)
-    }
-  }
-  return [...paths]
 }
 
 function selectedScopeCanRead(scope: WorkspaceSelectedScope | undefined, path: string): boolean {

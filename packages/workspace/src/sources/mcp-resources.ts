@@ -1,6 +1,7 @@
 import { mcpResources as createMcpResourcesSource, type McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/mcp"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { prepareWorkspaceSource } from "./config.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { registerMcpResourcesSourceLoader } from "./mcp-resources-loader.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
@@ -21,7 +22,7 @@ export function mcpResources<const TKey extends string = string, const TOptions 
   const source = withWorkspaceRuntimeOptions({
     ...baseSource,
     async prepare(ctx) {
-      await baseSource.prepare?.(ctx)
+      await prepareWorkspaceSource(baseSource, ctx)
       const mountPath = resolveMountPath(options.mount, ctx)
       const keys = await baseSource.getKeys(ctx)
       resetLivePaths(livePaths, mountPath, keys)

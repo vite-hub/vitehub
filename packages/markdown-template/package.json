@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "character-entities-legacy": "3.0.0",
-    "comark": "catalog:ui"
+    "comark": "catalog:markdown"
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",

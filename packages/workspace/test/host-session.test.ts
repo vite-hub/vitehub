@@ -878,7 +878,10 @@ describe("workspace host sessions", () => {
     ;(firstWorkspace as typeof firstWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
     ;(secondWorkspace as typeof secondWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
     const snapshot = firstWorkspace.snapshot.bind(firstWorkspace)
+    let markSnapshotStarted!: () => void
+    const snapshotStarted = new Promise<void>((resolve) => { markSnapshotStarted = resolve })
     firstWorkspace.snapshot = async (options) => {
+      markSnapshotStarted()
       await new Promise(resolve => setTimeout(resolve, 20))
       const result = await snapshot(options)
       revision = result.id
@@ -893,7 +896,7 @@ describe("workspace host sessions", () => {
       await second.writeFile("README.md", "second")
 
       const firstPublication = first.commit({ message: "first" })
-      await new Promise(resolve => setTimeout(resolve, 1))
+      await snapshotStarted
       const publications = await Promise.allSettled([
         firstPublication,
         second.commit({ message: "second" }),

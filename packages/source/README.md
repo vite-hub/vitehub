@@ -30,9 +30,73 @@ registerSources(defineSources({
 }))
 
 const docs = useSource("docs", { rootDir: process.cwd() })
+const revision = await docs.revision()
 const keys = await docs.keys()
 const first = await docs.read(keys[0]!)
 ```
+
+`revision()` resolves an origin snapshot once per reader. Revision-aware loaders
+then use the same immutable identity for preparation, keys, and item reads.
+
+## Runtime content with Comark Content
+
+Source owns origin retrieval. [Comark Content](https://docs-template.comark.dev/concepts/architecture)
+can own the derived content system: Markdown parsing, manifests, navigation,
+cache artifacts, runtime HTTP handling, SQL queries, and ranked full-text
+search. Adapt any registered ViteHub Source instead of recreating those
+features in its loader:
+
+```sh
+pnpm add @vite-hub/source comark-content
+```
+
+```ts
+import { comarkContent } from "comark-content"
+import sqlite from "comark-content/database/sqlite-node"
+import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
+import { contentSource } from "@vite-hub/source/content"
+
+export const content = comarkContent({
+  basePath: "/api/content",
+  plugins: [sqliteFullTextSearch({ database: sqlite() })],
+  sources: {
+    docs: contentSource("docs"),
+  },
+})
+
+await content.get("/guide")
+await content.navigation(["docs"])
+await content.search(["docs"], "runtime")
+
+export function fetch(request: Request) {
+  return content.handler(request)
+}
+```
+
+Each Comark cache refresh gets a new ViteHub Source Reader and origin revision,
+while every individual load remains pinned to one revision.
+
+Use `sqlite-wasm` instead of `sqlite-node` on runtimes without Node's SQLite
+module. Comark's cache accepts an unstorage driver and exposes
+`refresh(source)`, `invalidate(key)`, and `expire(key)`, so applications do not
+need a second parsed-content cache in ViteHub.
+
+If an unstorage driver is the origin rather than the derived cache, expose it as
+a ViteHub Source:
+
+```ts
+import fsDriver from "unstorage/drivers/fs"
+import { unstorage } from "@vite-hub/source/unstorage"
+
+const assets = unstorage({
+  driver: fsDriver({ base: ".data/assets" }),
+  prefix: "public",
+})
+```
+
+Workspace search remains filesystem search over the visible Workspace tree.
+Comark search is semantic content search over parsed documents. They deliberately
+have different owners and result contracts.
 
 Structured sources preserve record and metadata types through `useSource()`:
 

@@ -43,6 +43,9 @@ catalogs:
     effect: 4.0.0-beta.99
   email:
     unemail: 0.5.0
+  markdown:
+    comark: 0.6.2
+    comark-content: 0.3.0
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:
@@ -119,7 +122,6 @@ catalogs:
     "@iconify-json/simple-icons": ^1.2.90
     "@iconify-json/vscode-icons": ^1.2.67
     "@vueuse/core": ^14.3.0
-    comark: 0.5.1
     motion-v: ^2.2.1
     vue: ^3.5.0
   unjs:

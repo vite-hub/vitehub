@@ -53,10 +53,11 @@ export default defineEventHandler(() => {
 | `defineCollection`, `table` from `vite-hub/source`, `useCollection` from `vite-hub/source/client` | Turn a table or custom loader into a typed, paginated HTTP read model and consume it from Vue. |
 | `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `unstorage` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
+| `contentSource` from `vite-hub/source/content` | Let Comark Content parse, index, cache, query, search, and serve a ViteHub Source. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
-Source, Source Reader, Source Item, cache, search, and error types are exported from `vite-hub/source`. Loader option types live beside their implementation subpath. Libraries that install the package directly can use the matching `@vite-hub/source` paths.
+Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Loader option types live beside their implementation subpath. Libraries that install the package directly can use the matching `@vite-hub/source` paths.
 
 ## Register Sources
 
@@ -112,15 +113,15 @@ A custom `Source` implements the retrieval behavior directly.
 | `name` | `string` | Loader name used in errors and metadata. |
 | `cache` | `false or SourceCacheOptions` | Optional cache policy. |
 | `fingerprint` | `unknown` | Cache identity for origin state. |
+| `resolveRevision(ctx)` | `function` | Optionally pins a mutable origin ref to one revision before any other operation. |
 | `prepare(ctx)` | `function` | Optional prefetch or validation hook. |
 | `getKeys(ctx)` | `function` | Returns all addressable Source keys. |
 | `getItem(key, ctx)` | `function` | Returns a `SourceItem` for one key. |
 | `getItems(ctx)` | `function` | Optional bulk item reader. |
 | `getMeta(key, ctx)` | `function` | Optional metadata reader. |
-| `search(query, ctx)` | `function` | Optional Source search implementation. |
 | `watch` | `unknown[]` | Optional watch descriptors for the consuming integration. Source does not start a watcher by itself. |
 
-`getKeys()` and `getItem()` are required. `prepare()` runs at most once for each `useSource()` reader before its first operation. `getItems()` lets a consumer load all items in one call; `getMeta()` can return origin metadata without loading content.
+`getKeys()` and `getItem()` are required. `resolveRevision()` and `prepare()` each run at most once for every `useSource()` reader before its first operation. The resolved revision is added to the shared context, so preparation, keys, items, and metadata observe the same origin snapshot. `getItems()` lets a consumer load all items in one call; `getMeta()` can return origin metadata without loading content.
 
 ### Source context
 
@@ -133,26 +134,7 @@ The caller supplies `SourceContext` to every custom Source method.
 | `source` | `string` | Registered Source name | Identifies the active Source. |
 | `workspace` | `string` | None | Identifies the Workspace consuming the Source. |
 | `abortSignal` | `AbortSignal` | None | Cancels in-flight work. Custom loaders must forward it to fetches and other abortable operations. |
-
-### Custom search
-
-A custom `search(query, ctx)` returns `SourceSearchHit[]`. Workspace can call this hook when it searches Source-backed paths; `SourceReader` itself exposes keys, item reads, metadata, existence checks, and listing.
-
-| Query field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `pattern` | `string` | Yes | Text or regular-expression pattern to find. |
-| `cwd` | `string` | No | Narrows search to a Source-relative directory. |
-| `paths` | `string[]` | No | Restricts search to explicit Source paths. |
-| `regex` | `boolean` | No | Interprets `pattern` as a regular expression. |
-| `caseSensitive` | `boolean` | No | Enables case-sensitive matching. |
-| `limit` | `number` | No | Caps the number of returned hits. |
-
-| Result field | Type | Description |
-| --- | --- | --- |
-| `path` | `string` | Source-relative path containing the match. |
-| `line` | `number` | Match line number. |
-| `column` | `number` | Match column number. |
-| `text` | `string` | Matching line or excerpt. |
+| `revision` | `SourceRevision` | None | The revision pinned by `resolveRevision()` for every later operation in this reader or Workspace lifecycle. |
 
 ## Use it at runtime
 
@@ -175,6 +157,7 @@ export default defineEventHandler(async () => {
 
 | Method | Returns |
 | --- | --- |
+| `source.revision()` | The pinned origin revision, when supported. |
 | `source.keys()` | All Source keys. |
 | `source.get(key)` | A `SourceItem` with content, data, media type, and metadata. |
 | `source.read(key, options?)` | Text by default, or `Uint8Array` with `{ encoding: 'binary' }`. |
@@ -195,6 +178,51 @@ export default defineEventHandler(async () => {
   }
 })
 ```
+
+## Parse, search, and serve content at runtime
+
+Install `comark-content` when Source output is documentation or application
+content that should become a parsed runtime API:
+
+```bash [Terminal]
+pnpm add vite-hub comark-content
+```
+
+```ts [server/content.ts]
+import { comarkContent } from 'comark-content'
+import sqlite from 'comark-content/database/sqlite-node'
+import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
+import { contentSource } from 'vite-hub/source/content'
+
+export const content = comarkContent({
+  basePath: '/api/content',
+  plugins: [sqliteFullTextSearch({ database: sqlite() })],
+  sources: {
+    docs: contentSource('docs'),
+  },
+})
+
+await content.get('/guide')
+await content.navigation(['docs'])
+await content.search(['docs'], 'runtime')
+
+export function fetch(request: Request) {
+  return content.handler(request)
+}
+```
+
+The adapter gives each Comark cache refresh a new Source Reader. That lets a
+runtime discover a newer origin revision without mixing revisions within one load.
+
+Use `sqlite-wasm` where Node SQLite is unavailable. Comark Content owns parsed
+document cache entries and exposes `refresh(source)`, `invalidate(key)`, and
+`expire(key)`. ViteHub therefore does not duplicate content parsing or ranked
+search inside Source.
+
+Workspace keeps its filesystem search because it searches every visible file,
+including generated and non-content files. Collections also remain distinct:
+they are typed, paginated application read models over records, while Comark
+Content exposes parsed document manifests and content APIs.
 
 ## Combine keyed Source readers
 

@@ -5,11 +5,11 @@ import { isSourceError, sourceError } from "../../core/errors.ts"
 import { normalizeSourcePath } from "../../core/path.ts"
 import { matchesAny } from "../path.ts"
 import { parseGitHubArchive } from "./archive.ts"
-import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
+import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache } from "./cache.ts"
 import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
-import type { Source, SourceContext } from "../../core/types.ts"
+import type { Source, SourceContext, SourceRevision } from "../../core/types.ts"
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
 
 function normalizeGitHubRoot(path = "") {
@@ -35,6 +35,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)
   let auth: string | undefined
+  const authByContext = new WeakMap<SourceContext, string | undefined>()
   const providerCache = normalizeGitHubCache(options)
 
   function resolveAuth(): string | undefined {
@@ -48,6 +49,10 @@ export function github<const TKey extends string = string>(options: GitHubSource
       auth = nextAuth
     }
     return auth
+  }
+
+  function contextAuth(ctx: SourceContext) {
+    return authByContext.has(ctx) ? authByContext.get(ctx) : refreshAuth()
   }
 
   function keyForRepoPath(path: string) {
@@ -74,27 +79,47 @@ export function github<const TKey extends string = string>(options: GitHubSource
 
   async function resolveRef(token = auth, signal?: AbortSignal) {
     if (configuredRef) return configuredRef
+    return (await resolveSourceRevision(token, signal)).id
+  }
+
+  async function resolveSourceRevision(token = auth, signal?: AbortSignal): Promise<SourceRevision> {
+    if (!configuredRef) {
+      try {
+        const repo = await requestGitHubJson<GitHubRepositoryResponse>({
+          ref: "default",
+          repo: options.repo,
+          signal,
+          token,
+          url: `https://api.github.com/repos/${options.repo}`,
+        })
+        const ref = repo.default_branch || "main"
+        const commit = await requestGitHubJson<GitHubCommitResponse>({
+          ref,
+          repo: options.repo,
+          signal,
+          token,
+          url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(ref)}`,
+        })
+        return { id: commit.sha || ref, immutable: Boolean(commit.sha), ref }
+      }
+      catch (error) {
+        if (shouldResolveMainFallback(error)) return { id: "main", immutable: false, ref: "main" }
+        throw error
+      }
+    }
 
     try {
-      const repo = await requestGitHubJson<GitHubRepositoryResponse>({
-        ref: "default",
-        repo: options.repo,
-        signal,
-        token,
-        url: `https://api.github.com/repos/${options.repo}`,
-      })
-      const defaultBranch = repo.default_branch || "main"
       const commit = await requestGitHubJson<GitHubCommitResponse>({
-        ref: defaultBranch,
+        ref: configuredRef,
         repo: options.repo,
         signal,
         token,
-        url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(defaultBranch)}`,
+        url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(configuredRef)}`,
       })
-      return commit.sha || defaultBranch
+      return { id: commit.sha || configuredRef, immutable: Boolean(commit.sha), ref: configuredRef }
     }
     catch (error) {
-      if (shouldResolveMainFallback(error)) return "main"
+      if (shouldResolveMainFallback(error)) return { id: configuredRef, immutable: false, ref: configuredRef }
       throw error
     }
   }
@@ -152,8 +177,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
       .filter((file): file is GitHubFile<TKey> => Boolean(file))
   }
 
-  async function loadFiles(token = auth, signal?: AbortSignal) {
-    const ref = await getRef(token, signal)
+  async function loadFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
+    const ref = resolvedRef ?? await getRef(token, signal)
     if (sparsePatterns) {
       try {
         return await loadGitArchiveFiles({
@@ -176,27 +201,27 @@ export function github<const TKey extends string = string>(options: GitHubSource
   const loadedFiles = new Map<string, Promise<GitHubFile<TKey>[]>>()
   const cachedLoadFiles = providerCache
     ? defineCachedFunction(
-        async (token: string | undefined) => await loadFiles(token),
+        async (resolvedRef: string | undefined, token: string | undefined) => await loadFiles(token, undefined, resolvedRef),
         {
           ...providerCache,
-          getKey: token => cacheKey("archive", token || ""),
+          getKey: (resolvedRef, token) => cacheKey("archive", token, "", resolvedRef),
           name: "github-source-archive",
         },
       )
-    : (token: string | undefined) => dedupeProviderPromise(
+    : (resolvedRef: string | undefined, token: string | undefined) => dedupeProviderPromise(
         loadedFiles,
-        cacheKey("archive", token || ""),
-        () => loadFiles(token),
+        cacheKey("archive", token, "", resolvedRef),
+        () => loadFiles(token, undefined, resolvedRef),
       )
 
-  function getFiles(token = refreshAuth(), signal?: AbortSignal) {
-    return signal ? loadFiles(token, signal) : cachedLoadFiles(token)
+  function getFiles(token = refreshAuth(), signal?: AbortSignal, resolvedRef?: string) {
+    return signal ? loadFiles(token, signal, resolvedRef) : cachedLoadFiles(resolvedRef, token)
   }
 
-  async function loadFileMetadata(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey> | undefined> {
+  async function loadFileMetadata(key: TKey, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<TKey> | undefined> {
     const normalizedKey = normalizeSourcePath(key) as TKey
     if (!normalizedKey || !shouldInclude(normalizedKey)) return
-    const ref = await getRef(token, signal)
+    const ref = resolvedRef ?? await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
     let file: GitHubContentResponse | GitHubContentResponse[] | undefined
     try {
@@ -214,7 +239,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         return
       }
       if (shouldResolveMainFallback(error)) {
-        const files = signal ? await loadArchiveFiles(token, signal, ref) : await getFiles(token)
+        const files = signal ? await loadArchiveFiles(token, signal, ref) : await getFiles(token, undefined, ref)
         return files.find(file => file.key === normalizedKey)
       }
       throw error
@@ -232,29 +257,29 @@ export function github<const TKey extends string = string>(options: GitHubSource
   const loadedFileMetadata = new Map<string, Promise<GitHubFile<TKey> | undefined>>()
   const cachedLoadFileMetadata = providerCache
     ? defineCachedFunction(
-        async (key: TKey, token: string | undefined) => await loadFileMetadata(key, token),
+        async (key: TKey, resolvedRef: string | undefined, token: string | undefined) => await loadFileMetadata(key, token, undefined, resolvedRef),
         {
           ...providerCache,
-          getKey: (key, token) => cacheKey("metadata", token || "", key),
+          getKey: (key, resolvedRef, token) => cacheKey("metadata", token, key, resolvedRef),
           name: "github-source-metadata",
         },
       )
-    : (key: TKey, token: string | undefined) => dedupeProviderPromise(
+    : (key: TKey, resolvedRef: string | undefined, token: string | undefined) => dedupeProviderPromise(
         loadedFileMetadata,
-        cacheKey("metadata", token || "", key),
-        () => loadFileMetadata(key, token),
+        cacheKey("metadata", token, key, resolvedRef),
+        () => loadFileMetadata(key, token, undefined, resolvedRef),
       )
 
   function isGitHubAccessError(error: unknown) {
     return isSourceError(error) && error instanceof Error && error.message.includes(" could not access the repository or ref ")
   }
 
-  async function loadFile(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey>> {
+  async function loadFile(key: TKey, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<TKey>> {
     const normalizedKey = normalizeSourcePath(key) as TKey
     if (!normalizedKey || !shouldInclude(normalizedKey)) {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
-    const ref = await getRef(token, signal)
+    const ref = resolvedRef ?? await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
     const file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
       ref,
@@ -279,8 +304,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   async function getFile(key: TKey, ctx?: SourceContext, token = refreshAuth()) {
-    if (ctx?.abortSignal) return await loadFile(key, token, ctx.abortSignal)
-    const file = (await getFiles(token)).find(file => file.key === key)
+    if (ctx?.abortSignal) return await loadFile(key, token, ctx.abortSignal, ctx.revision?.id)
+    const file = (await getFiles(token, undefined, ctx?.revision?.id)).find(file => file.key === key)
     if (!file) {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
@@ -292,16 +317,16 @@ export function github<const TKey extends string = string>(options: GitHubSource
     throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
   }
 
-  function cacheKey(kind: string, token: string, key = "") {
+  function cacheKey(kind: string, token: string | undefined, key = "", resolvedRef?: string) {
     return createGitHubCacheKey({
+      authScope: githubAuthenticationScope(token),
       exclude: options.exclude,
       include: options.include,
       key,
       kind,
-      ref: configuredRef || "default",
+      ref: resolvedRef || configuredRef || "default",
       repo: options.repo,
       root,
-      token,
     })
   }
 
@@ -315,12 +340,17 @@ export function github<const TKey extends string = string>(options: GitHubSource
       root,
     },
     name: "github",
+    async resolveRevision(ctx) {
+      const token = refreshAuth()
+      authByContext.set(ctx, token)
+      return await resolveSourceRevision(token, ctx.abortSignal)
+    },
     async getKeys(ctx) {
-      return (await getFiles(refreshAuth(), ctx.abortSignal)).map(file => file.key)
+      return (await getFiles(contextAuth(ctx), ctx.abortSignal, ctx.revision?.id)).map(file => file.key)
     },
     async getItems(ctx) {
-      const token = refreshAuth()
-      return await Promise.all((await getFiles(token, ctx.abortSignal)).map(async file => ({
+      const token = contextAuth(ctx)
+      return await Promise.all((await getFiles(token, ctx.abortSignal, ctx.revision?.id)).map(async file => ({
         key: file.key,
         path: file.path,
         content: await fetchContent(file.key, file),
@@ -331,10 +361,10 @@ export function github<const TKey extends string = string>(options: GitHubSource
       })))
     },
     async getMeta(key, ctx) {
-      const token = refreshAuth()
+      const token = contextAuth(ctx)
       const file = ctx?.abortSignal
-        ? await loadFileMetadata(key, token, ctx.abortSignal)
-        : await cachedLoadFileMetadata(key, token)
+        ? await loadFileMetadata(key, token, ctx.abortSignal, ctx.revision?.id)
+        : await cachedLoadFileMetadata(key, ctx.revision?.id, token)
       if (!file) return
       return {
         ref: file.ref,
@@ -342,7 +372,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       }
     },
     async getItem(key, ctx) {
-      const token = refreshAuth()
+      const token = contextAuth(ctx)
       const file = await getFile(key, ctx, token)
       return {
         key: file.key,

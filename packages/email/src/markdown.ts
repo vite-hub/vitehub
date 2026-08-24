@@ -1,5 +1,5 @@
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
-import { parse } from "comark/parse"
+import { parseMarkdown } from "comark/parse"
 import { render } from "comark/render"
 
 import type { RenderMarkdownTemplateOptions } from "@vite-hub/markdown-template"
@@ -20,7 +20,7 @@ export async function renderEmailMarkdown(
   options: RenderEmailMarkdownOptions = {},
 ): Promise<RenderedEmailMarkdown> {
   const markdown = await renderMarkdownTemplate(template, options)
-  const tree = await parse(markdown)
+  const tree = await parseMarkdown(markdown)
   const html = await render(tree, { blockSeparator: "\n", format: "text/html" })
   return {
     html: removeFinalNewline(html),

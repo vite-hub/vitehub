@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import type { GitHubSourceOptions } from "./types.ts"
 import type { SourceCacheOptions } from "../../core/types.ts"
 
@@ -9,6 +11,7 @@ export function normalizeGitHubCache(options: Pick<GitHubSourceOptions, "cache">
 }
 
 export function createGitHubCacheKey(input: {
+  authScope: string
   exclude?: string | string[]
   include?: string | string[]
   key?: string
@@ -16,7 +19,6 @@ export function createGitHubCacheKey(input: {
   ref: string
   repo: string
   root: string
-  token: string
 }) {
   return [
     input.kind,
@@ -25,9 +27,13 @@ export function createGitHubCacheKey(input: {
     input.root,
     normalizePatternCacheKey(input.include),
     normalizePatternCacheKey(input.exclude),
-    input.token,
+    input.authScope,
     input.key || "",
   ].join(":")
+}
+
+export function githubAuthenticationScope(token: string | undefined) {
+  return token ? createHash("sha256").update(token).digest("hex") : "anonymous"
 }
 
 function normalizePatternCacheKey(value: string | string[] | undefined) {

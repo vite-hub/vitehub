@@ -32,6 +32,8 @@ import type {
 
 type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
 
+const revisionResolutionByContext = new WeakMap<SourceContext, Promise<void>>()
+
 export interface ResolvedWorkspaceSource {
   key: string
   source: WorkspaceSource
@@ -86,6 +88,21 @@ export function createSourceContext(
     workspace: definition.name,
     workspaceFiles: store ? createSourceContextWorkspaceFiles(store) : undefined,
   }
+}
+
+export async function prepareWorkspaceSource(source: WorkspaceSource, ctx: SourceContext): Promise<void> {
+  let revisionResolution = revisionResolutionByContext.get(ctx)
+  if (!revisionResolution) {
+    revisionResolution = ctx.revision
+      ? Promise.resolve()
+      : (async () => {
+          const revision = await source.resolveRevision?.(ctx)
+          if (revision) ctx.revision = revision
+        })()
+    revisionResolutionByContext.set(ctx, revisionResolution)
+  }
+  await revisionResolution
+  await source.prepare?.(ctx)
 }
 
 function createSourceContextWorkspaceFiles(store: WorkspaceStore): SourceContextWorkspaceFiles {
@@ -296,7 +313,7 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     },
     async prepare(ctx) {
       const loaded = await loadSource()
-      await loaded.prepare?.(ctx)
+      await prepareWorkspaceSource(loaded, ctx)
       copyLivePaths(livePaths, getLiveWorkspaceSourcePaths(loaded))
     },
     async getKeys(ctx) {
@@ -312,8 +329,8 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     async getMeta(key, ctx) {
       return await (await loadSource()).getMeta?.(key, ctx)
     },
-    async search(query, ctx) {
-      return await (await loadSource()).search?.(query, ctx) ?? []
+    async resolveRevision(ctx) {
+      return await (await loadSource()).resolveRevision?.(ctx)
     },
   }
 
