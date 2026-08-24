@@ -8,7 +8,7 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: unknown) => providerRuntimes.shift()))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string> }) => providerRuntimes.shift()))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 
@@ -111,8 +111,8 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
       environment: expect.objectContaining({ PROVIDER_SELECTED: "selected" }),
     }))
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect((createProviderRuntime.mock.lastCall?.[0] as { environment: Record<string, string> }).environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    expect(createProviderRuntime).toHaveBeenCalled()
+    expect(createProviderRuntime.mock.calls.at(-1)![0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
   })
 
@@ -204,6 +204,199 @@ describe("Provider Agent Driver", () => {
       expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-call" }),
       expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-result" }),
     ])
+  })
+
+  it("preserves MCP tool identity, duration, and failures in invocation traces", async () => {
+    const threadId = "thread-mcp-trace"
+    const runId = "run-mcp-trace"
+    runtime(threadId, [
+      event("item.started", threadId, {
+        data: { item: { arguments: { query: "purchase orders" }, server: "airtable", tool: "search_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        title: "airtable · search_records",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.started", threadId, {
+        data: { item: { arguments: { query: "purchase orders" }, server: "airtable", tool: "search_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: { item: { durationMs: 42, result: { content: [{ text: "12 records", type: "text" }] }, server: "airtable", status: "completed", tool: "search_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        status: "completed",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.started", threadId, {
+        data: { item: { arguments: { query: "errors" }, server: "posthog", tool: "query", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        title: "posthog · query",
+      }, { itemId: "mcp-2", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: { item: { durationMs: 17, error: { message: "Access denied" }, server: "posthog", status: "failed", tool: "query", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: "posthog · query",
+      }, { itemId: "mcp-2", turnId: "turn-1" }),
+      event("item.started", threadId, {
+        data: { item: { arguments: { table: "orders" }, server: "airtable", tool: "list_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        title: " ",
+      }, { itemId: "mcp-3", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: { item: { durationMs: 9, result: { content: "2 records" }, server: "airtable", status: "completed", tool: "list_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: " ",
+      }, { itemId: "mcp-3", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({ driver: codexDriver(), invocations, runtime: false })
+
+    await runAgent(agent, {
+      memo: <T>(_key: string, create: () => T) => create(),
+      run: { runId, threadId },
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, { prompt: "inspect MCP calls" })
+
+    const observations = (await invocations.getByRunId(runId))?.observations ?? []
+    expect(observations.filter(observation => observation.name.startsWith("agent.tool"))).toEqual([
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.input": { query: "purchase orders" },
+          "tool.name": "search_records",
+          "tool.title": "airtable · search_records",
+        }),
+        name: "agent.tool.start",
+      }),
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.input": { query: "purchase orders" },
+          "tool.name": "search_records",
+        }),
+        name: "agent.tool.start",
+      }),
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.durationMs": 42,
+          "tool.name": "search_records",
+        }),
+        name: "agent.tool.finish",
+      }),
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.input": { query: "errors" },
+          "tool.name": "query",
+          "tool.title": "posthog · query",
+        }),
+        name: "agent.tool.start",
+      }),
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.durationMs": 17,
+          "tool.error": "Access denied",
+          "tool.name": "query",
+          "tool.title": "posthog · query",
+        }),
+        name: "agent.tool.error",
+        type: "error",
+      }),
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.input": { table: "orders" },
+          "tool.name": "list_records",
+        }),
+        name: "agent.tool.start",
+      }),
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          "tool.durationMs": 9,
+          "tool.name": "list_records",
+        }),
+        name: "agent.tool.finish",
+      }),
+    ])
+    const firstToolObservations = observations.filter(observation => observation.attributes?.["tool.id"] === "mcp-1")
+    expect(firstToolObservations).toHaveLength(3)
+    expect(firstToolObservations[0]?.attributes).toHaveProperty("tool.title", "airtable · search_records")
+    expect(firstToolObservations.slice(1).every(observation => !("tool.title" in (observation.attributes ?? {})))).toBe(true)
+    expect(observations.filter(observation => observation.attributes?.["tool.id"] === "mcp-3").every(observation => !("tool.title" in (observation.attributes ?? {})))).toBe(true)
+    expect(observations.find(observation => observation.name === "agent.tool.error")?.attributes).not.toHaveProperty("tool.output")
+  })
+
+  it("preserves MCP titles through streamed provider output", async () => {
+    const threadId = "thread-streamed-mcp-title"
+    runtime(threadId, [
+      event("item.started", threadId, {
+        data: { item: { arguments: { query: "purchase orders" }, tool: "search_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        title: "airtable · search_records",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: { item: { result: { content: "12 records" }, status: "completed", tool: "search_records", type: "mcpToolCall" } },
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: "airtable · search_records",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never))
+
+    expect(events.slice(0, 2)).toEqual([
+      expect.objectContaining({ title: "airtable · search_records", type: "tool-call" }),
+      expect.objectContaining({ title: "airtable · search_records", type: "tool-result" }),
+    ])
+  })
+
+  it("preserves Claude MCP tool inputs and results without a generic title", async () => {
+    const threadId = "thread-claude-mcp-trace"
+    runtime(threadId, [
+      event("item.started", threadId, {
+        data: { input: { query: "purchase orders" }, toolName: "mcp__airtable__search_records" },
+        itemType: "mcp_tool_call",
+        title: "MCP tool call",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: { input: { query: "purchase orders" }, result: { content: "12 records" }, toolName: "mcp__airtable__search_records" },
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: "MCP tool call",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.started", threadId, {
+        data: { input: { query: "denied" }, toolName: "mcp__airtable__search_records" },
+        itemType: "mcp_tool_call",
+        title: "MCP tool call",
+      }, { itemId: "mcp-2", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: {
+          input: { query: "denied" },
+          result: { content: [{ text: "Access denied", type: "text" }], is_error: true, type: "tool_result" },
+          toolName: "mcp__airtable__search_records",
+        },
+        detail: "mcp__airtable__search_records: {\"query\":\"denied\"}",
+        itemType: "mcp_tool_call",
+        status: "failed",
+        title: "MCP tool call",
+      }, { itemId: "mcp-2", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const events = await collect(await createProviderAgentAdapter({ provider: "claude-code" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+
+    expect(events.slice(0, 2)).toEqual([
+      expect.objectContaining({ input: { query: "purchase orders" }, name: "mcp__airtable__search_records", type: "tool-call" }),
+      expect.objectContaining({ name: "mcp__airtable__search_records", output: { content: "12 records" }, type: "tool-result" }),
+    ])
+    expect(events.slice(2, 4)).toEqual([
+      expect.objectContaining({ input: { query: "denied" }, type: "tool-call" }),
+      expect.objectContaining({ error: "Access denied", type: "tool-result" }),
+    ])
+    expect(events.slice(0, 4).every(event => !("title" in event))).toBe(true)
   })
 
   it("traces provider-native activity during generated runs", async () => {
@@ -1321,8 +1514,9 @@ describe("Provider Agent Driver", () => {
       readFile: vi.fn(async () => new Uint8Array()),
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
     const runContext = context(threadId, {
-      workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
+      workspace,
       workspaceAutoCommit: true,
       workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
       workspaceMode: "read",
@@ -1333,6 +1527,7 @@ describe("Provider Agent Driver", () => {
 
     expect(session.diff).not.toHaveBeenCalled()
     expect(session.commit).not.toHaveBeenCalled()
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ writeBack: false }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
     expect(session.close).toHaveBeenCalledOnce()

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { github } from "../../src/github.ts"
 import { clearSources, registerSources, useSource } from "../../src/index.ts"
+import { createGitHubCacheKey, githubAuthenticationScope } from "../../src/sources/github/cache.ts"
 import { createTarGz, jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
 
 const loadGitArchiveFiles = vi.hoisted(() => vi.fn())
@@ -24,6 +25,38 @@ afterEach(() => {
 })
 
 describe("@vite-hub/source GitHub source", () => {
+  it("keeps credentials out of GitHub cache keys", () => {
+    const key = createGitHubCacheKey({
+      authScope: githubAuthenticationScope("github-secret"),
+      kind: "archive",
+      ref: "main",
+      repo: "acme/private",
+      root: "",
+    })
+    expect(key).not.toContain("github-secret")
+    expect(key).not.toBe(createGitHubCacheKey({
+      authScope: githubAuthenticationScope("another-secret"),
+      kind: "archive",
+      ref: "main",
+      repo: "acme/private",
+      root: "",
+    }))
+  })
+
+  it("pins a configured branch to one inspected revision", async () => {
+    stubGitHubSource({ "README.md": "# Readme\n" })
+    registerSources({ docs: github({ ref: "main", repo: "acme/app" }) })
+
+    const docs = useSource("docs")
+    await expect(docs.revision()).resolves.toEqual({
+      id: "latest-commit-sha",
+      immutable: true,
+      ref: "main",
+    })
+    await expect(docs.read("README.md")).resolves.toBe("# Readme\n")
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/tar.gz/latest-commit-sha"))).toBe(true)
+  })
+
   it("materializes simple GitHub source paths with git", async () => {
     vi.stubGlobal("fetch", vi.fn())
     loadGitArchiveFiles.mockResolvedValueOnce([
@@ -60,24 +93,41 @@ describe("@vite-hub/source GitHub source", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("passes bulk Source abort signals to git materialization", async () => {
+  it("shares git materialization while callers cancel independently", async () => {
     vi.stubGlobal("fetch", vi.fn())
-    const controller = new AbortController()
-    loadGitArchiveFiles.mockResolvedValue([{
-      content: new TextEncoder().encode("# Docs\n"),
-      key: "docs/README.md",
-      path: "docs/README.md",
-      ref: "main",
-      sha: "checkout-sha",
-    }])
+    let finishMaterialization!: () => void
+    loadGitArchiveFiles.mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        finishMaterialization = resolve
+      })
+      return [{
+        content: new TextEncoder().encode("# Docs\n"),
+        key: "docs/README.md",
+        path: "docs/README.md",
+        ref: "main",
+        sha: "checkout-sha",
+      }]
+    })
     const docs = github({ include: ["docs/**"], ref: "main", repo: "acme/app" })
-    const ctx = { abortSignal: controller.signal, rootDir: process.cwd() }
+    const alreadyCanceled = new AbortController()
+    const canceled = new AbortController()
+    const active = new AbortController()
 
-    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
-    await expect(docs.getItems?.(ctx)).resolves.toHaveLength(1)
+    alreadyCanceled.abort()
+    await expect(docs.getKeys({ abortSignal: alreadyCanceled.signal, rootDir: process.cwd() })).rejects.toMatchObject({ name: "AbortError" })
+    expect(loadGitArchiveFiles).not.toHaveBeenCalled()
 
-    expect(loadGitArchiveFiles).toHaveBeenCalledTimes(2)
-    expect(loadGitArchiveFiles.mock.calls.every(([input]) => input.signal === controller.signal)).toBe(true)
+    const canceledKeys = docs.getKeys({ abortSignal: canceled.signal, rootDir: process.cwd() })
+    const activeKeys = docs.getKeys({ abortSignal: active.signal, rootDir: process.cwd() })
+    await vi.waitFor(() => expect(finishMaterialization).toBeTypeOf("function"))
+    canceled.abort()
+
+    await expect(canceledKeys).rejects.toMatchObject({ name: "AbortError" })
+    finishMaterialization()
+    await expect(activeKeys).resolves.toEqual(["docs/README.md"])
+
+    expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
+    expect(loadGitArchiveFiles).toHaveBeenCalledWith(expect.objectContaining({ signal: undefined }))
   })
 
   it("pins cached default-ref git materialization to the resolved commit", async () => {
@@ -105,8 +155,8 @@ describe("@vite-hub/source GitHub source", () => {
       repo: "acme/app",
     })
 
-    await expect(source.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["README.md"])
-    await expect(source.getItems?.({ rootDir: process.cwd() })).resolves.toEqual([{
+    await expect(source.getKeys({ abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual(["README.md"])
+    await expect(source.getItems?.({ abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual([{
       content: new TextEncoder().encode("first\n"),
       key: "README.md",
       metadata: { ref: "first-commit", sha: "first-commit" },
@@ -249,7 +299,7 @@ describe("@vite-hub/source GitHub source", () => {
 
     const docs = github({ repo: "acme/app", root: "docs" })
 
-    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+    await expect(docs.getMeta?.("README.md", { abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual({
       ref: "latest-commit-sha",
       sha: "sha-docs/README.md",
     })
@@ -268,11 +318,11 @@ describe("@vite-hub/source GitHub source", () => {
 
     const docs = github({ cache: { maxAge: 3600 }, repo: "acme/app", root: "docs" })
 
-    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+    await expect(docs.getMeta?.("README.md", { abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual({
       ref: "latest-commit-sha",
       sha: "sha-docs/README.md",
     })
-    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+    await expect(docs.getMeta?.("README.md", { abortSignal: new AbortController().signal, rootDir: process.cwd() })).resolves.toEqual({
       ref: "latest-commit-sha",
       sha: "sha-docs/README.md",
     })
@@ -538,6 +588,7 @@ describe("@vite-hub/source GitHub source", () => {
         if (!archive) throw new Error("Unexpected extra GitHub archive request")
         return new Response(archive)
       }
+      if (requestUrl.endsWith("/commits/main")) return jsonResponse({ sha: "revision-1" })
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
     }))
 

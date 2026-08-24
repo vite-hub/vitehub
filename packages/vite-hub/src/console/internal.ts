@@ -1,8 +1,8 @@
 import type { AgentInvocations } from "@vite-hub/agent"
 
-export const consoleInvocationsKey = Symbol.for("vitehub.console.invocations")
-export const consoleInvocationsRootKey = Symbol.for("vitehub.console.invocations.root")
-export const consoleInvocationsRegistryKey = Symbol.for("vitehub.console.invocations.registry")
+export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
+export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
+export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 
 type ConsoleInvocationsByRoot = {
   get(key: string): AgentInvocations | undefined

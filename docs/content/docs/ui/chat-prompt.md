@@ -18,6 +18,7 @@ icon: i-ph-paper-plane-tilt-light
   accept="image/*,.pdf"
   :status
   @submit="({ text, files }) => sendMessage({ text, files })"
+  @reload="reload"
   @stop="stop"
 />
 ```
@@ -29,6 +30,7 @@ icon: i-ph-paper-plane-tilt-light
 | `update:modelValue` | Current prompt text.                                        |
 | `update:files`      | Current `FileUIPart[]`.                                     |
 | `submit`            | `{ text, files }`. Empty text is accepted when files exist. |
+| `reload`            | No payload. Connect it to the AI SDK `reload()` helper.     |
 | `stop`              | No payload. Connect it to the AI SDK `stop()` helper.       |
 
-Use `#files`, `#actions`, and `#submit` to replace each built-in section without rebuilding keyboard behavior.
+Use `#files`, `#actions`, and `#submit` to replace each built-in section without rebuilding keyboard behavior. The composer, attachment picker, and status-aware submit action have default accessible names; pass `aria-label` to override the composer name.

@@ -3,6 +3,7 @@ import { posix } from "node:path"
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
@@ -61,12 +62,15 @@ async function sourceConfigHash(source: ResolvedWorkspaceSource) {
 
 function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
   if (!meta || meta.status !== "ready" || meta.configHash !== configHash) return false
-  if (!source.cache || typeof source.cache.maxAge !== "number") return false
+  if (!source.cache) return false
+  const maxAge = source.cache.maxAge ?? Number.NaN
+  if (!Number.isFinite(maxAge)) return false
   if (!meta.materializedAt) return false
-  return Date.now() - Date.parse(meta.materializedAt) <= source.cache.maxAge * 1000
+  return Date.now() - Date.parse(meta.materializedAt) <= maxAge * 1000
 }
 
 async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: string) {
+  // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
   return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
 }
 
@@ -95,7 +99,7 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 }
 
 function contentSize(content: string | Uint8Array) {
-  return typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength
+  return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
 }
 
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
@@ -235,12 +239,12 @@ function createMaterializationEntry(
 
 function sourceItemContent(item: WorkspaceSourceItem): Pick<MaterializationEntry, "content" | "contentStream"> {
   if (item.contentStream) {
-    if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
+    if (item.content !== undefined || item.data !== undefined) {
       throw workspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
     }
     return { contentStream: item.contentStream }
   }
-  return { content: item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)) }
+  return { content: item.content ?? (item.data === undefined ? "" : JSON.stringify(item.data, null, 2)) }
 }
 
 async function* iterateMaterializationEntries(
@@ -311,7 +315,7 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "ready",
-        commit: existing?.commit,
+        revision: existing?.revision,
         materializedAt: existing?.materializedAt,
         files: existing?.files,
         bytes: existing?.bytes,
@@ -327,8 +331,9 @@ export async function materializeWorkspaceSources(
       continue
     }
 
+    let revision = existing?.revision
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
-      ? { ...(existing.items || {}) }
+      ? { ...existing.items }
       : {}
     if (completeSource) {
       await writeSourceSnapshotMetadata(store, {
@@ -336,6 +341,7 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "updating",
+        revision,
         items: checkpointItems(itemMetadata),
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       })
@@ -347,13 +353,13 @@ export async function materializeWorkspaceSources(
     try {
       const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
       throwIfAborted(options.abortSignal)
-      await source.source.prepare?.(ctx)
+      await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
         await store.mkdir(source.mountPath, { recursive: true })
       }
 
-      let commit: string | undefined
+      revision = ctx.revision
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
       for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options)) {
@@ -362,24 +368,10 @@ export async function materializeWorkspaceSources(
         nextPaths.add(path)
         const parts = path.split("/")
         for (let index = 1; index < parts.length; index++) directorySet.add(parts.slice(0, index).join("/"))
-        itemMetadata[path] = entry.metadata
         if (entry.reused) {
-          commit ||= entry.metadata.ref || entry.metadata.sha
+          itemMetadata[path] = entry.metadata
           sourceFiles++
           sourceBytes += entry.reused.size || 0
-          if (completeSource) {
-            await writeSourceSnapshotMetadata(store, {
-              configHash,
-              source: source.key,
-              mountPath: source.mountPath,
-              status: "updating",
-              commit,
-              files: sourceFiles,
-              bytes: sourceBytes,
-              items: checkpointItems(itemMetadata),
-              cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-            })
-          }
           if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
             lastProgressAt = Date.now()
             await reportMaterializationProgress(options, source, {
@@ -392,7 +384,6 @@ export async function materializeWorkspaceSources(
         }
         const item = entry.item!
         const metadata = item.metadata || {}
-        commit ||= readStringMeta(metadata, "ref") || readStringMeta(metadata, "sha") || entry.metadata.ref || entry.metadata.sha
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
@@ -404,21 +395,9 @@ export async function materializeWorkspaceSources(
             source: source.key,
           },
         })
+        itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
-        if (completeSource) {
-          await writeSourceSnapshotMetadata(store, {
-            configHash,
-            source: source.key,
-            mountPath: source.mountPath,
-            status: "updating",
-            commit,
-            files: sourceFiles,
-            bytes: sourceBytes,
-            items: checkpointItems(itemMetadata),
-            cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-          })
-        }
         if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
           lastProgressAt = Date.now()
           await reportMaterializationProgress(options, source, {
@@ -440,7 +419,7 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "ready",
-        commit,
+        revision,
         materializedAt: new Date().toISOString(),
         files: sourceFiles,
         bytes: sourceBytes,
@@ -472,13 +451,21 @@ export async function materializeWorkspaceSources(
         source: source.key,
         mountPath: source.mountPath,
         status: "error",
+        revision,
         error: error instanceof Error ? error.message : String(error),
         files: sourceFiles,
         bytes: sourceBytes,
         items: checkpointItems(itemMetadata),
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
-      if (!options.abortSignal?.aborted) await writeSourceSnapshotMetadata(store, failed)
+      const checkpoint = options.abortSignal?.aborted
+        ? completeSource
+          ? { ...failed, status: "updating" as const, error: undefined }
+          : existing?.configHash === configHash
+            ? { ...existing, items: checkpointItems(itemMetadata) }
+            : undefined
+        : failed
+      if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint)
       resultSources.push(failed)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,
@@ -589,7 +576,7 @@ export async function searchMaterializedStore(store: WorkspaceStore, query: Work
     if (entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     if (!file) continue
-    const text = typeof file.content === "string" ? file.content : new TextDecoder().decode(file.content)
+    const text = file.content instanceof Uint8Array ? new TextDecoder().decode(file.content) : file.content
     result.push(...searchText(entry.path, text, { ...query, limit: limit - result.length }))
     if (result.length >= limit) break
   }
@@ -636,7 +623,8 @@ function normalizeSourcePath(source: ResolvedWorkspaceSource, workspacePath: str
 }
 
 function readStringMeta(meta: Record<string, unknown> | undefined, key: string) {
-  return typeof meta?.[key] === "string" ? meta[key] as string : undefined
+  const value = meta?.[key]
+  return Object.prototype.toString.call(value) === "[object String]" ? String(value) : undefined
 }
 
 function readDigest(meta: Record<string, unknown> | undefined) {

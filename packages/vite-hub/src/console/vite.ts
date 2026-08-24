@@ -1,10 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
+import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { Plugin } from "vite"
+
+import { serializeConsoleRefresh } from "./refresh.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 const consoleRuntimeRoot = fileURLToPath(new URL("./runtime", import.meta.url))
@@ -18,48 +21,79 @@ type ConsoleNitroConfig = {
   [key: string]: unknown
 }
 
-function renderConsoleNitroPlugin(projectRoot: string): string {
+type ConsoleAgentEntry = { handler: string, name: string }
+
+function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[]): string {
   return [
-    `import { installConsoleInvocations } from "vite-hub/console/server"`,
-    `installConsoleInvocations(${JSON.stringify(projectRoot)})`,
+    `import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`,
+    ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
+    `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
+    `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
 }
 
-async function writeConsoleNitroPlugin(file: string, projectRoot: string): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot)
+async function writeConsoleNitroPlugin(
+  file: string,
+  projectRoot: string,
+  agents: readonly ConsoleAgentEntry[],
+): Promise<void> {
+  const contents = renderConsoleNitroPlugin(projectRoot, agents)
   if (await readFile(file, "utf8").catch(() => undefined) === contents) return
   await mkdir(resolve(file, ".."), { recursive: true })
   await writeFile(file, contents, "utf8")
 }
 
-function generatedRegistration(value: unknown, path: string): boolean {
-  return typeof value === "string"
-    && (value === path || value.replaceAll("\\", "/").endsWith(`/${path}`))
+export function discoverConsoleAgentNames(
+  root: string,
+  serverDirs = [join(root, "server")],
+): string[] {
+  return discoverAgentDefinitionEntries(root, serverDirs).map(agent => agent.name)
+}
+
+function generatedRegistration(value: string, path: string): boolean {
+  return value === path || value.replaceAll("\\", "/").endsWith(`/${path}`)
 }
 
 export function consoleVitePlugin(): Plugin {
+  let generatedPlugin: string | undefined
+  let projectRoot: string | undefined
+  let root: string | undefined
+  let serverDirs: string[] | undefined
+
+  const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
+    if (!generatedPlugin || !projectRoot || !root) return
+    await writeConsoleNitroPlugin(
+      generatedPlugin,
+      projectRoot,
+      discoverAgentDefinitionEntries(root, serverDirs),
+    )
+  })
+
   return {
     name: "vite-hub/console",
     async config(config) {
-      const root = resolve(config.root || process.cwd())
-      const projectRoot = resolveViteHubProjectRoot(root)
-      const plugin = resolve(root, generatedConsolePlugin)
-      await writeConsoleNitroPlugin(plugin, projectRoot)
+      root = resolve(config.root || process.cwd())
+      projectRoot = resolveViteHubProjectRoot(root)
+      generatedPlugin = resolve(root, generatedConsolePlugin)
+      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root))
 
+      // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
       const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
-      const nitro: ConsoleNitroConfig = viteConfig.nitro && typeof viteConfig.nitro === "object"
+      const nitro: ConsoleNitroConfig = viteConfig.nitro
         ? { ...viteConfig.nitro }
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
             join(consoleRuntimeRoot, "server/invocation.get.js"),
             join(consoleRuntimeRoot, "server/invocations.get.js"),
+            join(consoleRuntimeRoot, "server/agents.get.js"),
             join(consoleRuntimeRoot, "server/page.get.js"),
           ].includes(handler?.handler))
         : []
       handlers.push(
+        { handler: join(consoleRuntimeRoot, "server/agents.get.js"), route: "/api/_vitehub/console/agents" },
         { handler: join(consoleRuntimeRoot, "server/invocations.get.js"), route: "/api/_vitehub/console/invocations" },
         { handler: join(consoleRuntimeRoot, "server/invocation.get.js"), route: "/api/_vitehub/console/invocations/:id" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
@@ -68,13 +102,27 @@ export function consoleVitePlugin(): Plugin {
       const plugins = Array.isArray(nitro.plugins)
         ? nitro.plugins.filter(candidate => !generatedRegistration(candidate, generatedConsolePlugin))
         : []
-      plugins.push(plugin)
+      plugins.push(generatedPlugin)
       const publicAssets = Array.isArray(nitro.publicAssets)
         ? nitro.publicAssets.filter(asset => asset?.baseURL !== "/_vitehub/assets")
         : []
       publicAssets.push({ baseURL: "/_vitehub/assets", dir: consolePublicRoot, fallthrough: false })
 
       viteConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
+    },
+    async configResolved(config) {
+      root = config.root
+      projectRoot ||= resolveViteHubProjectRoot(config.root)
+      generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
+      // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      await refreshAgentDefinitions()
+    },
+    configureServer(server) {
+      const refresh = async () => await refreshAgentDefinitions()
+      server.watcher.on("add", refresh)
+      server.watcher.on("change", refresh)
+      server.watcher.on("unlink", refresh)
     },
   }
 }

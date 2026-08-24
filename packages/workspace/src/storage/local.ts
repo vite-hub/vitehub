@@ -23,10 +23,9 @@ import type {
   WorkspaceStore,
 } from "../core/types.ts"
 
-async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
+async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
   const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
   const { dirname } = await import("node:path")
-  const lock = `${root}.vitehub-lock`
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
   await mkdir(dirname(lock), { recursive: true })
@@ -40,7 +39,7 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
       break
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
       const info = await stat(lock).catch(() => undefined)
       // ponytail: local locks expire after five minutes; use a provider lease if writes can legitimately run longer.
       if (info && Date.now() - info.mtimeMs > 300_000) {
@@ -51,7 +50,7 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
         })
         if (reclaimed) await rm(stale, { force: true, recursive: true })
       }
-      else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace root: ${root}.`)
+      else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
       else await delay(25)
     }
   }
@@ -64,7 +63,70 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
   }
 }
 
-async function walk(root: string, current = root, excluded: readonly string[] = [], recursive = true): Promise<WorkspaceEntry[]> {
+async function withFilesystemReadLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
+  const { mkdir, open, rm } = await import("node:fs/promises")
+  const reader = `${lock}.readers/${randomUUID()}`
+  await withFilesystemLock(`${lock}.gate`, description, async () => {
+    await mkdir(`${lock}.readers`, { recursive: true })
+    const ownerFile = await open(reader, "wx")
+    await ownerFile.close()
+  })
+  try {
+    return await operation()
+  }
+  finally {
+    await rm(reader, { force: true })
+  }
+}
+
+async function withFilesystemWriteLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
+  const { readdir, rm, stat } = await import("node:fs/promises")
+  return await withFilesystemLock(`${lock}.gate`, description, async () => {
+    const readers = `${lock}.readers`
+    const deadline = Date.now() + 10_000
+    while (true) {
+      const active = await readdir(readers).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return []
+        throw error
+      })
+      if (active.length === 0) return await operation()
+      for (const owner of active) {
+        const path = `${readers}/${owner}`
+        const info = await stat(path).catch(() => undefined)
+        if (info && Date.now() - info.mtimeMs > 300_000) await rm(path, { force: true })
+      }
+      if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
+      await delay(25)
+    }
+  })
+}
+
+async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>): Promise<T> {
+  const normalized = normalizeWorkspacePath(path)
+  const parts = normalized.split("/").filter(Boolean)
+  const paths = parts.map((_, index) => parts.slice(0, index + 1).join("/"))
+
+  const lock = async (index: number): Promise<T> => {
+    if (index === paths.length) return await operation()
+    const lockedPath = paths[index]!
+    const key = createHash("sha256").update(lockedPath).digest("hex")
+    const lockPath = `${root}.vitehub-locks/${key}`
+    const next = () => lock(index + 1)
+    return index === paths.length - 1
+      ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
+      : await withFilesystemReadLock(lockPath, `path: ${lockedPath}.`, next)
+  }
+
+  return await lock(0)
+}
+
+async function walk(
+  root: string,
+  current = root,
+  excluded: readonly string[] = [],
+  recursive = true,
+  includeDigest = false,
+): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
   const entries: WorkspaceEntry[] = []
@@ -76,6 +138,7 @@ async function walk(root: string, current = root, excluded: readonly string[] = 
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
+    if (path === ".vitehub" || path.startsWith(".vitehub/")) continue
     if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -85,17 +148,18 @@ async function walk(root: string, current = root, excluded: readonly string[] = 
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      if (recursive) entries.push(...await walk(root, absolute, excluded))
+      if (recursive) entries.push(...await walk(root, absolute, excluded, true, includeDigest))
       continue
     }
     if (dirent.isFile()) {
-      entries.push({
+      const entry: WorkspaceEntry = {
         path,
         type: "file",
         size: info.size,
         mtime: info.mtimeMs,
-        digest: await fileDigest(absolute),
-      })
+      }
+      if (includeDigest) entry.digest = await fileDigest(absolute)
+      entries.push(entry)
     }
   }
   return entries
@@ -141,11 +205,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    await withWorkspaceLock(this.root, () => this.#writeFile(path, file))
+    await withWorkspacePathLock(this.root, path, () => this.#writeFile(path, file))
   }
 
   async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
-    await withWorkspaceLock(this.root, async () => {
+    await withWorkspacePathLock(this.root, path, async () => {
       const normalized = normalizeWorkspacePath(path)
       const current = await this.stat(normalized)
       assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
@@ -155,8 +219,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
-    const { mkdir, writeFile } = await import("node:fs/promises")
+    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
+    const tempRoot = `${this.root}/.vitehub/tmp`
+    const temp = `${tempRoot}/${randomUUID()}.tmp`
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
@@ -168,8 +234,18 @@ class LocalWorkspaceStore implements WorkspaceStore {
       })
       return
     }
-    await mkdir(dirname(absolute), { recursive: true })
-    await writeFile(absolute, bytes)
+    await Promise.all([
+      mkdir(dirname(absolute), { recursive: true }),
+      mkdir(tempRoot, { recursive: true }),
+    ])
+    try {
+      await writeFile(temp, bytes)
+      await rename(temp, absolute)
+    }
+    catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
     this.#files.set(normalized, {
       mediaType: file.mediaType,
       metadata: file.metadata,
@@ -177,7 +253,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
-    return await withWorkspaceLock(this.root, () => this.#writeFileStream(path, file))
+    return await withWorkspacePathLock(this.root, path, () => this.#writeFileStream(path, file))
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
@@ -185,11 +261,15 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
-    const temp = `${absolute}.${process.pid}.${Date.now()}.tmp`
+    const tempRoot = `${this.root}/.vitehub/tmp`
+    const temp = `${tempRoot}/${randomUUID()}.tmp`
     const hash = createHash("sha256")
     let size = 0
 
-    await mkdir(dirname(absolute), { recursive: true })
+    await Promise.all([
+      mkdir(dirname(absolute), { recursive: true }),
+      mkdir(tempRoot, { recursive: true }),
+    ])
     try {
       const hashing = new Transform({
         transform(chunk: Uint8Array, _encoding, callback) {
@@ -241,9 +321,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
+    return await this.#list(prefix, options, false)
+  }
+
+  async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const all = await walk(this.root, current, options.exclude, options.recursive === true)
+    const all = await walk(this.root, current, options.exclude, options.recursive === true, includeDigest)
     return all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
@@ -292,7 +376,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    await withWorkspaceLock(this.root, () => this.#rm(path, options))
+    await withWorkspacePathLock(this.root, path, () => this.#rm(path, options))
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
@@ -348,7 +432,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {
     const entries: WorkspaceSnapshot["entries"] = {}
-    for (const entry of await this.list("", { recursive: true })) {
+    for (const entry of await this.#list("", { recursive: true }, true)) {
       entries[entry.path] = {
         type: entry.type,
         digest: entry.digest,
@@ -373,9 +457,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!content) return
-    const value = JSON.parse(content) as unknown
-    if (!value || typeof value !== "object" || Array.isArray(value)) return
-    this.#meta = new Map(Object.entries(value))
+    const value: unknown = JSON.parse(content)
+    if (!value || Object(value) !== value || Array.isArray(value)) return
+    this.#meta = new Map(Object.entries(Object(value)))
   }
 
   async #writeMeta() {

@@ -17,6 +17,7 @@ export const AgentChatMessage = defineComponent({
         UChatMessage,
         {
           ...attrs,
+          "aria-label": attrs["aria-label"] ?? `${props.message.role === "user" ? "User" : props.message.role === "assistant" ? "Assistant" : "System"} message`,
           id: props.message.id,
           metadata: props.message.metadata,
           parts: props.message.parts,

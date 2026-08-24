@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
-import type { LanguageModel, TranscriptionModel } from "ai"
+import type { LanguageModel } from "ai"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
@@ -770,6 +770,17 @@ describe("agent public types", () => {
             },
           },
         }),
+        resumableWeb: webChat({
+          route: {
+            admission: {
+              authenticate: () => ({ subject: "customer:acme" }),
+            },
+            resumable: {
+              owner: ({ auth }) => auth.subject,
+              scope: "process",
+            },
+          },
+        }),
         web: webChat({
           route: {
             admission: {
@@ -825,6 +836,13 @@ describe("agent public types", () => {
       driver: { run: () => "ok" },
     })
 
+    webChat({
+      route: {
+        // @ts-expect-error Resumable web chat must acknowledge its process-local boundary.
+        resumable: { owner: () => "customer:acme" },
+      },
+    })
+
     defineAgent({
       // @ts-expect-error custom-run-backed Agent Drivers do not receive model-facing instructions
       driver: { instructions: "ignored", run: () => "ok" },
@@ -850,6 +868,9 @@ describe("agent public types", () => {
 
     type ServerExports = typeof import("../src/server.ts")
     type _PublicDiscordGatewayRouteHandler = ServerExports["createDiscordGatewayRouteHandler"]
+    type _PublicResumableChatRouteContext = import("../src/server.ts").AgentChannelChatRouteResumableContext
+    type _PublicResumableChatRouteOptions = import("../src/server.ts").AgentChannelChatRouteResumableOptions
+    type _PublicResumableChatRouteRequestBody = import("../src/server.ts").AgentChannelChatRouteResumableRequestBody
     // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
     type _PublicChannelChatRouteHandler = ServerExports["createChannelChatRouteHandler"]
     // @ts-expect-error generated route handler factories are internal Provider Output plumbing.

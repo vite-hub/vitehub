@@ -598,9 +598,28 @@ async function materializeWorkspace(
   host: WorkspaceSessionHost,
   root: string,
   options?: WorkspaceSessionOptions,
+  useRevisionMaterializer?: boolean,
+  onHostMutation?: () => void,
+  captureSnapshot?: true,
+): Promise<{ revision?: string, snapshot: WorkspaceSnapshot }>
+async function materializeWorkspace(
+  workspace: Workspace,
+  host: WorkspaceSessionHost,
+  root: string,
+  options: WorkspaceSessionOptions | undefined,
+  useRevisionMaterializer: boolean,
+  onHostMutation: (() => void) | undefined,
+  captureSnapshot: false,
+): Promise<{ revision?: string, snapshot: undefined }>
+async function materializeWorkspace(
+  workspace: Workspace,
+  host: WorkspaceSessionHost,
+  root: string,
+  options?: WorkspaceSessionOptions,
   useRevisionMaterializer = true,
   onHostMutation?: () => void,
-) {
+  captureSnapshot = true,
+): Promise<{ revision?: string, snapshot: WorkspaceSnapshot | undefined }> {
   const abortSignal = options?.abortSignal
   abortSignal?.throwIfAborted()
   const paths = normalizeSessionPaths(options)
@@ -639,7 +658,11 @@ async function materializeWorkspace(
     abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root, abortSignal)
     abortSignal?.throwIfAborted()
-    const snapshot = await snapshotHost(host, root, "host-open", abortSignal)
+    const snapshot = captureSnapshot
+      ? options?.writeBack === false
+        ? await createSnapshotFromEntries(await listHostEntries(host, root, "", true, undefined, false, [], abortSignal), "host-open")
+        : await snapshotHost(host, root, "host-open", abortSignal)
+      : undefined
     abortSignal?.throwIfAborted()
     return { revision: revision.revision, snapshot }
   }
@@ -690,7 +713,10 @@ async function materializeWorkspace(
   if (revision && await materializer?.currentRevision({ abortSignal: options?.abortSignal }) !== revision.revision) {
     throw workspaceConflict(`[vitehub] Workspace revision changed while this Session materialized: ${revision.revision}.`)
   }
-  return { revision: revision?.revision, snapshot: await snapshotHost(host, root, "host-open", abortSignal) }
+  const snapshot = options?.writeBack === false
+    ? await createSnapshotFromEntries(entries, "host-open")
+    : await snapshotHost(host, root, "host-open", abortSignal)
+  return { revision: revision?.revision, snapshot }
 }
 
 async function commitHostChanges(
@@ -742,7 +768,7 @@ export async function createHostedWorkspaceSession(
   const sessionPaths = normalizeSessionPaths(options)
   const excludedWriteBackPaths = [
     ...defaultExcludedSessionPaths,
-    ...(options.writeBack?.exclude || []).map(path => normalizeSafeWorkspacePath(path, { allowReserved: true })),
+    ...(options.writeBack && options.writeBack.exclude || []).map(path => normalizeSafeWorkspacePath(path, { allowReserved: true })),
   ]
   let closed = false
   const existingExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths, options.abortSignal)
@@ -880,10 +906,16 @@ export async function createHostedWorkspaceSession(
       return hits
     },
     async diff(diffOptions) {
+      if (options.writeBack === false) {
+        throw workspaceError("[vitehub] Workspace Session diff is unavailable when writeBack is false.")
+      }
       return filterSessionDiff(await currentDiff(diffOptions?.abortSignal), sessionPaths)
     },
     async commit(commitOptions) {
       assertOpen()
+      if (options.writeBack === false) {
+        throw workspaceError("[vitehub] Workspace Session commit is unavailable when writeBack is false.")
+      }
       const abortSignal = commitOptions?.abortSignal ?? options.abortSignal
       abortSignal?.throwIfAborted()
       const capturedState = await captureHostState(host, root, commitOptions?.message || "host-commit", abortSignal)
@@ -977,6 +1009,16 @@ export async function createHostedWorkspaceSession(
       abortSignal?.throwIfAborted()
       host.detachAbortSignal?.()
       await ensureHostWorkspaceRoot(host, root, abortSignal)
+      if (options.writeBack === false && !options.attach) {
+        await materializeWorkspace(workspace, host, root, {
+          ...options,
+          abortSignal,
+          onProgress: undefined,
+        }, true, undefined, false)
+        await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState, abortSignal)
+        closed = true
+        return
+      }
       let diff: WorkspaceDiff | undefined
       let restoreError: unknown
       let revisionChanged = false

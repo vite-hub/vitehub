@@ -5,6 +5,7 @@ import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import { loadMcpResourcesSource } from "./mcp-resources-loader.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   copyWorkspaceSourceRequestMetadata,
   assertWorkspaceSourceRequestDescriptorKey,
@@ -296,7 +297,7 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     },
     async prepare(ctx) {
       const loaded = await loadSource()
-      await loaded.prepare?.(ctx)
+      await prepareWorkspaceSource(loaded, ctx)
       copyLivePaths(livePaths, getLiveWorkspaceSourcePaths(loaded))
     },
     async getKeys(ctx) {
@@ -312,8 +313,8 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     async getMeta(key, ctx) {
       return await (await loadSource()).getMeta?.(key, ctx)
     },
-    async search(query, ctx) {
-      return await (await loadSource()).search?.(query, ctx) ?? []
+    async resolveRevision(ctx) {
+      return await (await loadSource()).resolveRevision?.(ctx)
     },
   }
 
@@ -383,7 +384,7 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
 
 function inferredFileSourceKey(input: WorkspaceSourceInput): string {
   if (typeof input === "string") return normalizeSafeWorkspacePath(input)
-  const options = input as unknown as Record<string, unknown>
+  const options = input as Record<string, unknown>
   if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
   if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
   throw new TypeError("[vitehub] file requires a path or workspacePath.")

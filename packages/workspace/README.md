@@ -146,6 +146,13 @@ export default defineConfig({
 
 Use named Workspace Source Binding helpers such as `file()` and `github()`. The lower-level Source registry lives in `@vite-hub/source`; install and import it directly only when you use that package's registry APIs.
 
+Workspace resolves a Source revision once before preparation and materialization.
+`materializeSources()` reports that generic revision in each Source status, and
+every key and item read in the lifecycle observes the same identity. Workspace
+search remains literal or regular-expression filesystem search over the visible
+tree; use Comark Content through `@vite-hub/source/content` for parsed-document
+navigation, query, cache, and ranked full-text search.
+
 ## Box sessions
 
 Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/box`](../box/README.md) session and pass it to `workspace.startSession({ host: boxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Box owns execution and the host lifecycle.
@@ -153,6 +160,8 @@ Workspace definitions are runtime-free. To run generated code, open a [`@vite-hu
 GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
+
+Use `startSession({ host, writeBack: false })` for a private writable runtime that must never publish its changes. `diff()` and `commit()` are unavailable in this mode, and `close()` restores the authoritative Workspace without first scanning the runtime tree. Agent Definitions select this mode automatically for read-only Workspaces.
 
 ## MountX projection
 

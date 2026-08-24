@@ -4,6 +4,7 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { isPlainObject } from "@vite-hub/internal/object"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { browserProviderError } from "../errors.ts"
 
@@ -18,6 +19,24 @@ export interface LocalBrowserOptions {
   startupTimeout?: number
 }
 
+function isString(value: unknown): value is string {
+  try {
+    return String(value) === value
+  }
+  catch {
+    return false
+  }
+}
+
+function isNumber(value: unknown): value is number {
+  try {
+    return Number(value) === value
+  }
+  catch {
+    return false
+  }
+}
+
 async function openPort(): Promise<number> {
   return await new Promise((resolve, reject) => {
     const server = createServer()
@@ -25,19 +44,31 @@ async function openPort(): Promise<number> {
     server.once("error", reject)
     server.listen(0, "127.0.0.1", () => {
       const address = server.address()
-      const port = typeof address === "object" && address ? address.port : undefined
-      server.close(error => error ? reject(error) : resolve(port!))
+      const port = isPlainObject(address) && isNumber(address.port) ? address.port : undefined
+      server.close((error) => {
+        if (error) reject(error)
+        else if (port === undefined) reject(new Error("Failed to reserve a local browser port."))
+        else resolve(port)
+      })
     })
   })
 }
 
 async function waitForEndpoint(port: number, child: ChildProcess, timeout: number): Promise<string> {
   let rejectSpawn!: (error: unknown) => void
+  let timer: ReturnType<typeof setTimeout> | undefined
   const spawnError = new Promise<never>((_resolve, reject) => { rejectSpawn = reject })
   const onError = (error: Error) => rejectSpawn(error)
+  const controller = new AbortController()
   child.once("error", onError)
   try {
-    return await Promise.race([spawnError, (async () => {
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort()
+        reject(browserProviderError("local", "start Chromium"))
+      }, timeout)
+    })
+    return await Promise.race([spawnError, timedOut, (async () => {
       const startedAt = Date.now()
       let lastError: unknown
       while (Date.now() - startedAt < timeout) {
@@ -47,10 +78,12 @@ async function waitForEndpoint(port: number, child: ChildProcess, timeout: numbe
           })
         }
         try {
-          const response = await fetch(`http://127.0.0.1:${port}/json/version`)
+          const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+            signal: controller.signal,
+          })
           if (response.ok) {
-            const value = await response.json() as { webSocketDebuggerUrl?: unknown }
-            if (typeof value.webSocketDebuggerUrl === "string") return value.webSocketDebuggerUrl
+            const value: unknown = await response.json()
+            if (isPlainObject(value) && isString(value.webSocketDebuggerUrl)) return value.webSocketDebuggerUrl
           }
         }
         catch (error) {
@@ -62,6 +95,8 @@ async function waitForEndpoint(port: number, child: ChildProcess, timeout: numbe
     })()])
   }
   finally {
+    controller.abort()
+    if (timer) clearTimeout(timer)
     child.off("error", onError)
   }
 }
@@ -81,10 +116,13 @@ async function stopProcess(child: ChildProcess): Promise<void> {
 }
 
 export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPBrowserConnection> {
-  if (!options?.executablePath || typeof options.executablePath !== "string") {
+  if (!options?.executablePath || !isString(options.executablePath)) {
     throw new TypeError("[vitehub:browser] localBrowser() requires an executablePath.")
   }
   const startupTimeout = options.startupTimeout ?? 15_000
+  if (!Number.isFinite(startupTimeout) || startupTimeout <= 0 || startupTimeout > 2_147_483_647) {
+    throw new TypeError("[vitehub:browser] localBrowser() startupTimeout must be greater than zero and no greater than 2147483647ms.")
+  }
   return {
     features: {
       liveHandoff: true,

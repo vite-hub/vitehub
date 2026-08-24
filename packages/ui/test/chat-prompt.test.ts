@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ChatStatus } from "ai";
 import { mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h } from "vue";
 import { describe, expect, it } from "vitest";
@@ -11,7 +12,7 @@ import { useAgentAttachments } from "../src/composables/attachments.ts";
 const TrimGuardPrompt = defineComponent({
   props: { modelValue: { default: "", type: String } },
   emits: ["submit", "update:modelValue"],
-  setup(props, { emit, slots }) {
+  setup(props, { attrs, emit, slots }) {
     const submit = (event: Event) => {
       event.preventDefault();
       if (props.modelValue.trim()) emit("submit", event);
@@ -19,6 +20,7 @@ const TrimGuardPrompt = defineComponent({
     return () =>
       h("form", { onSubmit: submit }, [
         h("textarea", {
+          "aria-label": attrs["aria-label"],
           onInput: (event: Event) =>
             emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
           onKeydown: (event: KeyboardEvent) => {
@@ -69,21 +71,68 @@ describe("AgentSession", () => {
   });
 });
 
-const EmptyStub = defineComponent({
-  setup(_props, { slots }) {
-    return () => h("span", slots.default?.());
+const ButtonStub = defineComponent({
+  setup(_props, { attrs, slots }) {
+    return () => h("button", { ...attrs, type: "button" }, slots.default?.());
+  },
+});
+
+const ChatPromptSubmitStub = defineComponent({
+  inheritAttrs: false,
+  props: { status: { default: "ready", type: String } },
+  emits: ["reload", "stop"],
+  setup(props, { attrs, emit }) {
+    return () => h("button", {
+      ...attrs,
+      "data-submit": "",
+      onClick: props.status === "error"
+        ? () => emit("reload")
+        : props.status === "ready"
+          ? undefined
+          : () => emit("stop"),
+      type: "button",
+    });
   },
 });
 
 const global = {
   components: {
-    UButton: EmptyStub,
+    UButton: ButtonStub,
     UChatPrompt: TrimGuardPrompt,
-    UChatPromptSubmit: EmptyStub,
+    UChatPromptSubmit: ChatPromptSubmitStub,
   },
 };
 
 describe("AgentChatPrompt", () => {
+  it("names the composer and keeps the programmatic picker out of the tab order", () => {
+    const wrapper = mount(AgentChatPrompt, { global });
+
+    expect(wrapper.get("textarea").attributes("aria-label")).toBe("Message");
+    expect(wrapper.get('input[type="file"]').attributes()).toMatchObject({
+      "aria-label": "Add attachment",
+      tabindex: "-1",
+    });
+    expect(wrapper.get('button[aria-label="Add attachment"]')).toBeDefined();
+  });
+
+  it.each([
+    ["ready", "Send prompt", undefined],
+    ["submitted", "Stop response", "stop"],
+    ["streaming", "Stop response", "stop"],
+    ["error", "Retry prompt", "reload"],
+  ] satisfies readonly [ChatStatus, string, "reload" | "stop" | undefined][])(
+    "names and handles the %s submit state",
+    async (status, label, emitted) => {
+      const wrapper = mount(AgentChatPrompt, { global, props: { status } });
+      const submit = wrapper.get("[data-submit]");
+
+      expect(submit.attributes("aria-label")).toBe(label);
+      await submit.trigger("click");
+      if (emitted) expect(wrapper.emitted(emitted)).toHaveLength(1);
+      else expect(wrapper.emitted("stop")).toBeUndefined();
+    },
+  );
+
   it("accepts multiple attachments by default", () => {
     const scope = effectScope();
     const attachments = scope.run(() => useAgentAttachments());

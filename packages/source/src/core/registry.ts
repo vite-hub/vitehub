@@ -13,6 +13,7 @@ import type {
   SourceMetadata,
   SourceName,
   SourceReader,
+  SourceRevision,
 } from "./types.ts"
 
 const sourceRegistry = new Map<string, Source>()
@@ -47,6 +48,7 @@ export function clearSources(): void {
 function createSourceContext(name: string, context: Partial<SourceContext> = {}): SourceContext {
   return {
     abortSignal: context.abortSignal,
+    revision: context.revision,
     rootDir: context.rootDir || process.cwd(),
     source: context.source || name,
     sourceRootDir: context.sourceRootDir,
@@ -81,9 +83,19 @@ export function useSource<TName extends SourceName>(
 ): SourceReader<TName> {
   const source = getRegisteredSource(name)
   const ctx = createSourceContext(name, context)
+  let revisionPromise: Promise<SourceRevision | undefined> | undefined
   let preparePromise: Promise<void> | undefined
 
+  async function revision() {
+    if (ctx.revision) return ctx.revision
+    revisionPromise ||= source.resolveRevision?.(ctx) ?? Promise.resolve(undefined)
+    const resolved = await revisionPromise
+    if (resolved) ctx.revision = resolved
+    return resolved
+  }
+
   async function ensurePrepared() {
+    await revision()
     if (!source.prepare) return
     preparePromise ||= source.prepare(ctx)
     await preparePromise
@@ -102,6 +114,7 @@ export function useSource<TName extends SourceName>(
   }
 
   return {
+    revision,
     keys,
     get,
     async items() {

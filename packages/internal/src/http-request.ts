@@ -64,6 +64,12 @@ export interface RedactedHttpRequestSummary {
 
 type FetchBody = Exclude<NonNullable<Parameters<typeof fetch>[1]>["body"], null | undefined>
 
+function primitiveRuntimeTag(value: unknown): string | undefined {
+  return value !== null && value !== undefined && Object(value) !== value
+    ? Object.prototype.toString.call(value)
+    : undefined
+}
+
 const httpEffectBoundary = createEffectBoundary({
   aggregateMessage: "[vitehub] HTTP request failed.",
   interruptionMessage: "[vitehub] HTTP request was interrupted.",
@@ -91,6 +97,7 @@ export async function executeHttpRequest<TOutput = unknown>(
     { signal: options.signal },
   )
   return {
+    // SAFETY: A supplied schema validates TOutput; without one, TOutput is the caller-selected decoded response contract.
     data: data as TOutput,
     mediaType: response.headers.get("content-type") || undefined,
     status: response.status,
@@ -191,17 +198,18 @@ function applyCookies(headers: Headers, cookies: Record<string, string> | undefi
 }
 
 function serializeRequestBody(body: unknown, headers: Headers): FetchBody | undefined {
-  if (typeof body === "undefined") return undefined
+  if (body === undefined) return undefined
   if (
-    typeof body === "string"
+    primitiveRuntimeTag(body) === "[object String]"
     || body instanceof Uint8Array
     || body instanceof ArrayBuffer
     || ArrayBuffer.isView(body)
-    || typeof Blob !== "undefined" && body instanceof Blob
-    || typeof FormData !== "undefined" && body instanceof FormData
-    || typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams
-    || typeof ReadableStream !== "undefined" && body instanceof ReadableStream
+    || body instanceof Blob
+    || body instanceof FormData
+    || body instanceof URLSearchParams
+    || body instanceof ReadableStream
   ) {
+    // SAFETY: Each branch above is a Fetch BodyInit representation; the DOM types disagree only on ArrayBuffer backing width.
     return body as FetchBody
   }
   if (!headers.has("content-type")) {
@@ -214,10 +222,10 @@ function urlWithQuery(definition: NormalizedHttpRequest): URL {
   const url = new URL(definition.url)
   if (!definition.query) return url
   for (const [key, value] of Object.entries(definition.query)) {
-    if (typeof value === "undefined") continue
+    if (value === undefined) continue
     if (Array.isArray(value)) {
       for (const item of value) {
-        if (typeof item !== "undefined") url.searchParams.append(key, queryValue(item))
+        if (item !== undefined) url.searchParams.append(key, queryValue(item))
       }
       continue
     }
@@ -228,8 +236,8 @@ function urlWithQuery(definition: NormalizedHttpRequest): URL {
 
 function queryValue(value: unknown): string {
   if (value === null) return ""
-  if (typeof value === "string") return value
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value)
+  const tag = primitiveRuntimeTag(value)
+  if (tag === "[object String]" || tag === "[object Number]" || tag === "[object Boolean]" || tag === "[object BigInt]") return String(value)
   return JSON.stringify(value)
 }
 
@@ -246,6 +254,10 @@ export function normalizeHttpRequest(definition: HttpRequestDefinition): Normali
   const method = (definition.method || "GET").toUpperCase()
   if (method !== "GET" && method !== "HEAD" && method !== "POST") {
     throw new TypeError(`[vitehub] HTTP request method "${method}" is not supported. Use GET, HEAD, or POST.`)
+  }
+  if (definition.timeout !== undefined
+    && (!Number.isFinite(definition.timeout) || definition.timeout <= 0 || definition.timeout > 2_147_483_647)) {
+    throw new TypeError("[vitehub] HTTP request timeout must be a positive finite number no greater than 2147483647.")
   }
   return {
     ...definition,
@@ -271,7 +283,7 @@ export function redactedHttpRequestSummary(
 ): RedactedHttpRequestSummary {
   return {
     cookies: definition.cookies && Object.keys(definition.cookies).length ? "redacted" : "none",
-    hasBody: typeof definition.body !== "undefined",
+    hasBody: definition.body !== undefined,
     hasQuery: Boolean(definition.query && Object.keys(definition.query).length),
     headers: definition.headers && Object.keys(definition.headers).length ? "redacted" : "none",
     method: definition.method,
@@ -282,7 +294,7 @@ export function redactedHttpRequestSummary(
 
 function formatIssues(issues: unknown): string {
   if (Array.isArray(issues)) {
-    return issues.map(issue => typeof issue === "string" ? issue : JSON.stringify(issue)).join("; ")
+    return issues.map(issue => primitiveRuntimeTag(issue) === "[object String]" ? String(issue) : JSON.stringify(issue)).join("; ")
   }
-  return typeof issues === "string" ? issues : JSON.stringify(issues)
+  return primitiveRuntimeTag(issues) === "[object String]" ? String(issues) : JSON.stringify(issues)
 }

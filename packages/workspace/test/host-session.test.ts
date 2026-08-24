@@ -375,6 +375,45 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("restores an archive-backed non-publishing Session without reading runtime files", async () => {
+    const docs = workspace()
+    const archive = await revisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    const target = join(targetParent, "workspace")
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: archive.bytes,
+          files: 6,
+          revision: "0123456789012345678901234567890123456789",
+          root: ".vitehub/workspaces/docs",
+        }
+      },
+    }
+    const host = localHost()
+    const read = vi.spyOn(host.files, "read")
+    const list = vi.spyOn(host.files, "list")
+
+    try {
+      const session = await docs.startSession({ host, target, writeBack: false })
+      const recursiveRootListsAfterOpen = list.mock.calls.filter(([path, options]) => path === target && options?.recursive).length
+      await session.writeFile("README.md", "changed")
+      await session.close()
+
+      expect(read).not.toHaveBeenCalled()
+      const recursiveRootLists = list.mock.calls.filter(([path, options]) => path === target && options?.recursive)
+      expect(recursiveRootLists).toHaveLength(recursiveRootListsAfterOpen + 3)
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("# Docs\n")
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
   it("rejects a pinned revision archive whose declared root is missing", async () => {
     const docs = workspace()
     const archive = await revisionArchive()
@@ -839,7 +878,10 @@ describe("workspace host sessions", () => {
     ;(firstWorkspace as typeof firstWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
     ;(secondWorkspace as typeof secondWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
     const snapshot = firstWorkspace.snapshot.bind(firstWorkspace)
+    let markSnapshotStarted!: () => void
+    const snapshotStarted = new Promise<void>((resolve) => { markSnapshotStarted = resolve })
     firstWorkspace.snapshot = async (options) => {
+      markSnapshotStarted()
       await new Promise(resolve => setTimeout(resolve, 20))
       const result = await snapshot(options)
       revision = result.id
@@ -854,7 +896,7 @@ describe("workspace host sessions", () => {
       await second.writeFile("README.md", "second")
 
       const firstPublication = first.commit({ message: "first" })
-      await new Promise(resolve => setTimeout(resolve, 1))
+      await snapshotStarted
       const publications = await Promise.allSettled([
         firstPublication,
         second.commit({ message: "second" }),
@@ -1281,6 +1323,26 @@ describe("workspace host sessions", () => {
     await expect(docs.exists("partial.txt")).resolves.toBe(false)
     expect(host.readText("/workspace/README.md")).toBe("before")
     expect(host.readText("/workspace/partial.txt")).toBeUndefined()
+  })
+
+  it("restores a non-publishing Session without reading runtime files", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "# Docs\n")
+    await docs.snapshot({ name: "baseline" })
+    const host = memoryHost()
+    const read = vi.spyOn(host.files, "read")
+    const session = await docs.startSession({ host, writeBack: false })
+
+    expect(read).not.toHaveBeenCalled()
+    await session.writeFile("README.md", "changed")
+    await session.writeFile("generated.md", "generated")
+    await expect(session.diff()).rejects.toThrow("writeBack is false")
+    await expect(session.commit()).rejects.toThrow("writeBack is false")
+    await session.close()
+
+    expect(read).not.toHaveBeenCalled()
+    expect(host.readText("/workspace/README.md")).toBe("# Docs\n")
+    expect(host.readText("/workspace/generated.md")).toBeUndefined()
   })
 
   it("refreshes an unchanged host when the authoritative revision advances", async () => {

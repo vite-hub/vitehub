@@ -2,7 +2,7 @@ import { createEffectBoundary } from "@vite-hub/internal/effect"
 import { Effect } from "effect"
 
 import { sourceError } from "../core/errors.ts"
-import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
+import { normalizeSafeSourcePath } from "../core/path.ts"
 import { matchesAny } from "./path.ts"
 
 import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
@@ -153,7 +153,8 @@ function isMcpTransport(value: unknown): value is McpResourcesTransport {
 }
 
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
-  if (isMcpTransport(config)) return config as unknown as Transport
+  // SAFETY: isMcpTransport verifies the SDK transport methods before this private boundary.
+  if (isMcpTransport(config)) return config as Transport
   const { type = "http", url, ...options } = config
   if (type === "sse") {
     const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js")
@@ -209,7 +210,7 @@ async function withMcpClient<T>(
           signal => client.connect(transport, { signal }),
         ).pipe(
           Effect.andThen(mcpEffectBoundary.tryPromise(
-            signal => callback(client as unknown as McpResourcesClient, withRequestSignal(request, signal)),
+            signal => callback(client, withRequestSignal(request, signal)),
           )),
         ),
         ({ client }) => mcpEffectBoundary.tryPromise(() => client.close?.()),
@@ -433,30 +434,6 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
         const result = entry.contents ?? await readResourceContents(client, entry.resource, request)
         return createResourceItem(key, entry.resource, result)
       })
-    },
-    async search(query, ctx) {
-      const pattern = query.regex ? new RegExp(query.pattern, query.caseSensitive ? "g" : "gi") : undefined
-      const search = query.caseSensitive ? query.pattern : query.pattern.toLowerCase()
-      const results = []
-      for (const item of await getItems(ctx)) {
-        if (typeof item.content !== "string") continue
-        if (query.paths?.length && !query.paths.some(path => item.path && normalizeSourcePath(item.path).startsWith(normalizeSourcePath(path)))) continue
-        const lines = item.content.split(/\r?\n/)
-        for (const [index, line] of lines.entries()) {
-          const matchIndex = pattern
-            ? line.search(pattern)
-            : (query.caseSensitive ? line : line.toLowerCase()).indexOf(search)
-          if (matchIndex === -1) continue
-          results.push({
-            column: matchIndex + 1,
-            line: index + 1,
-            path: item.path || item.key,
-            text: line,
-          })
-          if (query.limit && results.length >= query.limit) return results
-        }
-      }
-      return results
     },
   }
 }

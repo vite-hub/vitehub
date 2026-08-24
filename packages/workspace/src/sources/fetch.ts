@@ -203,9 +203,6 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
     async getItems() {
       return []
     },
-    async search() {
-      return []
-    },
     async resolve(ctx) {
       const options = await resolve(ctx)
       return options ? createFetchSource(options) : false

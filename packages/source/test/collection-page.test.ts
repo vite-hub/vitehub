@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
@@ -85,6 +87,21 @@ describe("Collections", () => {
     expect(load).toHaveBeenLastCalledWith({ cursor: 2, limit: 2, query: {}, signal: undefined })
   })
 
+  it("accepts plain cursor objects from another realm", async () => {
+    // SAFETY: Node's VM evaluates the exact plain cursor object literal owned by this fixture.
+    const cursor = runInNewContext("({ id: 'one' })") as { id: string }
+    const collection = defineCollection(async () => [cursor, { id: "two" }], {
+      cursor: row => row,
+      cursorSchema: v.object({ id: v.string() }),
+      defaultLimit: 1,
+      maxLimit: 1,
+    })
+
+    await expect(collection.page({ query: {} })).resolves.toMatchObject({
+      nextCursor: expect.any(String),
+    })
+  })
+
   it("derives the continuation cursor before a transform mutates its source item", async () => {
     const load = vi.fn(async ({ cursor }: { cursor?: number }) =>
       cursor === undefined
@@ -148,5 +165,32 @@ describe("Collections", () => {
         maxLimit: 1,
       }),
     ).toThrow("defaultLimit cannot exceed maxLimit")
+  })
+
+  it("rejects cyclic and prototype-backed cursor values", async () => {
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    const cyclicCollection = defineCollection(async () => [cyclic, {}], {
+      cursor: row => row,
+      cursorSchema: v.any(),
+      defaultLimit: 1,
+      maxLimit: 1,
+    })
+
+    await expect(cyclicCollection.page({ query: {} })).rejects.toThrow(
+      "Collection cursor() must return a JSON-serializable value",
+    )
+
+    const prototypeCollection = defineCollection(async () => [new URL("https://vitehub.dev"), new URL("https://vitehub.dev/next")], {
+      // SAFETY: This fixture deliberately violates the cursor type contract to verify runtime rejection.
+      cursor: row => row as never,
+      cursorSchema: v.any(),
+      defaultLimit: 1,
+      maxLimit: 1,
+    })
+
+    await expect(prototypeCollection.page({ query: {} })).rejects.toThrow(
+      "Collection cursor() must return a JSON-serializable value",
+    )
   })
 })

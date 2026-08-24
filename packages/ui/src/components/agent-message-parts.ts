@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { defineComponent, h, type PropType, resolveComponent, type VNodeChild } from "vue";
+import { isSafeExternalUrl } from "../internal/url.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 
 type Part = UIMessage["parts"][number];
@@ -18,15 +19,6 @@ function toolValue(part: ToolLikePart): unknown {
 
 function isToolPart(part: Part): part is ToolLikePart {
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
-}
-
-function isSafeExternalUrl(value: string): boolean {
-  try {
-    const protocol = new URL(value).protocol;
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 function isSafeFileUrl(value: string, filename: string | undefined): boolean {
@@ -48,12 +40,13 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
       class: "vh-attachment",
       download: part.filename,
       href: part.url,
+      rel: isSafeExternalUrl(part.url) ? "noreferrer" : undefined,
       target: isSafeExternalUrl(part.url) ? "_blank" : undefined,
     },
     [
       image
         ? h("img", {
-            alt: part.filename ?? "Attachment",
+            alt: "",
             class: "vh-attachment__preview",
             src: part.url,
           })

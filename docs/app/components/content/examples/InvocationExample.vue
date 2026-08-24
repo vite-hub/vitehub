@@ -21,7 +21,10 @@ const invocation: AgentInvocationView = {
   id: "ainv_docs_preview",
   observations: [
     {
-      attributes: { "message.role": "assistant", "result.text": "I found the fixed-height virtual row and updated its offsets." },
+      attributes: {
+        "message.role": "assistant",
+        "result.text": "I found the fixed-height virtual row and updated its offsets.",
+      },
       name: "agent.message.recorded",
       sequence: 1,
       timestamp: "2026-08-23T09:00:10.000Z",
@@ -65,8 +68,7 @@ const invocation: AgentInvocationView = {
 </script>
 
 <template>
-  <div class="grid h-[34rem] min-w-0 overflow-hidden bg-default lg:grid-cols-[minmax(0,1fr)_17rem]">
-    <AgentInvocation :invocation="invocation" />
-    <AgentInvocationInspector :invocation="invocation" class="border-s border-default" />
+  <div class="h-[34rem] min-w-0 bg-default">
+    <AgentInvocation :invocation="invocation" class="h-full" />
   </div>
 </template>

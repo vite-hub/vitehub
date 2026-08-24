@@ -3,6 +3,7 @@ import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, 
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   hasCurrentSourceSnapshot,
   materializeWorkspaceSources,
@@ -53,10 +54,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
+  const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   const materializeBySource = new Map<string, Promise<void>>()
 
   function getSourceContext(source: { key: string, mountPath: string }) {
-    return createSourceContext(definition, source, store)
+    let context = sourceContexts.get(source.key)
+    if (!context) {
+      context = createSourceContext(definition, source, store)
+      sourceContexts.set(source.key, context)
+    }
+    return context
   }
 
   function isLazySourcePath(path: string) {
@@ -125,10 +132,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function ensurePrepared(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
-    if (!source?.source.prepare) return
+    if (!source) return
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
-      pending = source.source.prepare(getSourceContext(source))
+      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)
       prepareBySource.set(sourceKey, pending)
     }
     await pending

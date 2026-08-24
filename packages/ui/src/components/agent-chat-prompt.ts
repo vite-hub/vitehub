@@ -21,7 +21,7 @@ export const AgentChatPrompt = defineComponent({
     placeholder: { type: String },
     status: { default: "ready", type: String as PropType<ChatStatus> },
   },
-  emits: ["submit", "stop", "update:files", "update:modelValue"],
+  emits: ["reload", "submit", "stop", "update:files", "update:modelValue"],
   setup(props, { attrs, emit, slots }) {
     const input = ref<HTMLInputElement | null>(null);
     const UButton = resolveComponent("UButton");
@@ -37,6 +37,7 @@ export const AgentChatPrompt = defineComponent({
         UChatPrompt,
         {
           ...attrs,
+          "aria-label": attrs["aria-label"] ?? "Message",
           class: ["vh-prompt", attrs.class],
           modelValue: props.modelValue || (props.files.length > 0 ? attachmentSubmitSentinel : ""),
           placeholder: props.placeholder,
@@ -79,6 +80,7 @@ export const AgentChatPrompt = defineComponent({
             h("div", { class: "vh-prompt__footer" }, [
               h("input", {
                 accept: props.accept,
+                "aria-label": "Add attachment",
                 class: "vh-visually-hidden",
                 multiple: props.multiple,
                 onChange: async (event: Event) => {
@@ -89,6 +91,7 @@ export const AgentChatPrompt = defineComponent({
                   (event.target as HTMLInputElement).value = "";
                 },
                 ref: input,
+                tabindex: -1,
                 type: "file",
               }),
               slots.actions?.() ??
@@ -103,6 +106,13 @@ export const AgentChatPrompt = defineComponent({
               h("span", { class: "vh-prompt__spacer" }),
               slots.submit?.({ status: props.status }) ??
                 h(UChatPromptSubmit, {
+                  "aria-label": {
+                    error: "Retry prompt",
+                    ready: "Send prompt",
+                    streaming: "Stop response",
+                    submitted: "Stop response",
+                  }[props.status],
+                  onReload: () => emit("reload"),
                   status: props.status,
                   onStop: () => emit("stop"),
                 }),

@@ -313,10 +313,11 @@ describe("ViteHub Nuxt integration", () => {
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
       handlers: [
+        { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
       ],
-      plugins: ["/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs"],
+      plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(development.nuxt.options.devServerHandlers).toEqual([
       { handler: existingConsoleHandler, route: "/api/_vitehub/console" },
@@ -324,8 +325,11 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
-    await expect(readFile("/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleInvocations("/tmp/vitehub-nuxt")`,
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `const vitehubConsoleInvocations = installConsoleInvocations("/tmp/vitehub-nuxt")`,
+    )
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleAgentDefinitions([], vitehubConsoleInvocations)`,
     )
 
     mocks.uiModule.mockClear()
@@ -340,10 +344,11 @@ describe("ViteHub Nuxt integration", () => {
     ])
     expect(production.nuxt.options.nitro).toMatchObject({
       handlers: [
+        { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
       ],
-      plugins: ["/tmp/vitehub-nuxt/.nuxt/vitehub-console-plugin.mjs"],
+      plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(production.nuxt.options.devServerHandlers).toBeUndefined()
     expect(production.nuxt.options.vite.plugins).toContainEqual(
@@ -1008,7 +1013,7 @@ describe("ViteHub Nuxt integration", () => {
         scannedHandlers: Array<{ method?: string; route?: string }>
       }) => void
     }>
-    const guard = modules.find(module => module.name === "vite-hub/collection-route-guard")
+    const guard = modules.find(module => module.name === "vite-hub/generated-route-guard")
     let checkRoutes = () => {}
     guard?.setup?.({
       hooks: {

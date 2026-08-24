@@ -5,8 +5,8 @@ import { runViteHubCli } from "@vite-hub/cli"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
 
 runViteHubCli({ loadConfig: loadViteHubCliConfig }).then((exitCode) => {
-  process.exit(exitCode)
+  process.exitCode = exitCode
 }).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
+  process.exitCode = 1
 })

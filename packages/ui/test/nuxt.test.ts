@@ -46,9 +46,15 @@ describe("ViteHub UI Nuxt module", () => {
       expect(components).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ export: "AgentChat", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentCodeView", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentFile", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentFileDiff", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
           expect.objectContaining({ export: "AgentInvocationList", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentMultiFileDiff", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentPatchDiff", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
           expect.objectContaining({ export: "AgentSession", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
           expect.objectContaining({ export: "AgentTrace", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
+          expect.objectContaining({ export: "AgentUnresolvedFile", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
         ]),
       );
     } finally {

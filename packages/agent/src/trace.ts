@@ -71,6 +71,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "step.id": event.id,
       "tool.id": event.id,
       "tool.name": event.name,
+      ...(event.title !== undefined ? { "tool.title": event.title } : {}),
       "tool.hasInput": event.input !== undefined,
       ...(event.input !== undefined ? { "tool.input": event.input } : {}),
       "vitehub.activity.kind": event.activity?.kind || "tool",
@@ -85,6 +86,8 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "step.id": event.id,
       "tool.id": event.id,
       "tool.name": event.name,
+      ...(event.title !== undefined ? { "tool.title": event.title } : {}),
+      "tool.durationMs": event.durationMs,
       "tool.hasOutput": event.output !== undefined,
       ...(event.output !== undefined ? { "tool.output": event.output } : {}),
       "tool.error": event.error,
@@ -148,6 +151,33 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
   if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
+  if (event.type === "data-progress-summary") {
+    const data = record(event.data)
+    const producerId = hasRuntimeType(data?.id, "string") && data.id.trim() ? data.id.trim() : "progress-summary"
+    const revision = hasRuntimeType(data?.revision, "number") ? data.revision : undefined
+    const summary = hasRuntimeType(data?.summary, "string") ? data.summary.trim() : ""
+    if (revision === undefined || !summary) return
+    const id = `${producerId}:${revision}`
+    return {
+      attributes: {
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.call.id": id,
+        "gen_ai.tool.name": "vitehub_progress_summary",
+        "step.id": id,
+        "tool.hasOutput": true,
+        "tool.id": id,
+        "tool.name": "vitehub_progress_summary",
+        "tool.output": summary,
+        "vitehub.action.name": "progress-summary.update",
+        "vitehub.activity.body": summary,
+        "vitehub.activity.kind": "action",
+        "vitehub.activity.progress": summary,
+        "vitehub.activity.title": "Updated loading message",
+      },
+      name: "agent.tool.finish",
+      type: "run",
+    }
+  }
   if (event.type === "data-agent-plan") {
     return {
       attributes: {

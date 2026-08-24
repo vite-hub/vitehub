@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -216,6 +216,31 @@ describe("hubBlob", () => {
     finally {
       await rm(root, { force: true, recursive: true })
       await rm(staleRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("generates Nitro Blob files from the Nuxt project root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nuxt-root-"))
+    const appRoot = join(root, "app")
+    const generatedPlugin = join(root, ".vitehub", "nitro", "blob", "plugin.ts")
+    try {
+      await mkdir(appRoot)
+      await writeFile(join(root, "package.json"), JSON.stringify({ name: "blob-nuxt-app" }))
+      const plugin = hubBlob({ driver: "fs" }, { nitroOwned: true })
+      const resolvedConfig = {
+        build: { outDir: "dist" },
+        nitro: {},
+        root: appRoot,
+      }
+
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)(resolvedConfig as never)
+
+      expect(resolvedConfig).toHaveProperty("nitro.plugins", [generatedPlugin])
+      expect(existsSync(generatedPlugin)).toBe(true)
+      expect(existsSync(join(appRoot, ".vitehub"))).toBe(false)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
     }
   })
 

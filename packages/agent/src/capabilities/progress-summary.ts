@@ -6,6 +6,7 @@ import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeUiMessageStreamChunk } from "../stream-output.ts"
@@ -88,7 +89,7 @@ const defaultProgressSummaryTemplate = [
 ].join("\n")
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
+  return value !== null && hasRuntimeType(value, "object")
 }
 
 function eventType(value: unknown): string {
@@ -98,7 +99,7 @@ function eventType(value: unknown): string {
 function eventToolName(value: unknown): string {
   if (!isRecord(value)) return ""
   const name = value.toolName ?? value.name
-  return typeof name === "string"
+  return hasRuntimeType(name, "string")
     ? name.replace(/^tool[-_]/, "").replace(/[-_]+/g, " ").trim()
     : ""
 }
@@ -106,14 +107,14 @@ function eventToolName(value: unknown): string {
 function eventToolId(value: unknown): string {
   if (!isRecord(value)) return ""
   const id = value.toolCallId ?? value.id
-  return typeof id === "string" ? id : ""
+  return hasRuntimeType(id, "string") ? id : ""
 }
 
 function firstUserText(messages: Message[], input: AgentRunInput): string {
   const message = messages.findLast(message => message.role === "user")
   const text = message
     ? getMessageText(message)
-    : typeof input.prompt === "string"
+    : hasRuntimeType(input.prompt, "string")
       ? input.prompt
       : ""
   return text
@@ -122,7 +123,7 @@ function firstUserText(messages: Message[], input: AgentRunInput): string {
 }
 
 function cleanSummary(value: unknown, maxLength: number): string | undefined {
-  const raw = typeof value === "string" ? value : ""
+  const raw = hasRuntimeType(value, "string") ? value : ""
   const summary = raw
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\s+/g, " ")
@@ -140,11 +141,11 @@ async function renderProgressSummaryTemplate(
   options: ProgressSummaryOptions,
   input: ProgressSummaryTemplateInput,
 ): Promise<string> {
-  if (typeof options.template === "function") return await options.template(input)
+  if (hasRuntimeType(options.template, "function")) return await options.template(input)
   const variables: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(options.variables || {})) {
-    variables[name] = typeof value === "function"
-      ? await (value as (input: ProgressSummaryTemplateInput) => MaybePromise<unknown>)(input)
+    variables[name] = hasRuntimeType(value, "function")
+      ? await value(input)
       : value
   }
   return await renderMarkdownTemplate(options.template ?? defaultProgressSummaryTemplate, {
@@ -220,22 +221,28 @@ async function generateWithDriver(
   prompt: string,
 ): Promise<string | undefined> {
   if (!options.driver) return
+  // SAFETY: The explicit driver option satisfies the normalized Agent driver input contract.
   const driver = normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
+    // SAFETY: The progress-summary runtime context supplies the normalized run context fields.
     return await resultText(await driver.run(progressSummaryRunContext(context, input, prompt) as never))
   }
   const instructions = options.instructions ?? defaultProgressSummaryInstructions
   const runContext = progressSummaryAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
     const { createProviderAgentAdapter } = await import("../provider-agent.ts")
+    // SAFETY: The adapter run context is normalized from the active Agent Invocation.
     return await resultText(await createProviderAgentAdapter({ ...driver, instructions }).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
-  return await resultText(await createAiSdkAdapter({
+  // SAFETY: The normalized AI SDK driver fields satisfy the adapter definition contract.
+  const adapter = createAiSdkAdapter({
     execution: driver.execution,
     instructions,
     model: driver.model,
-  } as never).generate(runContext as never))
+  } as never)
+  // SAFETY: The adapter run context is normalized from the active Agent Invocation.
+  return await resultText(await adapter.generate(runContext as never))
 }
 
 async function resolveModel(
@@ -260,7 +267,14 @@ async function generateProgressSummary(
   const maxLength = options.maxLength ?? 180
   if (options.execute) {
     const result = await options.execute(input)
-    return cleanSummary(typeof result === "string" ? result : result.summary, maxLength)
+    return cleanSummary(
+      hasRuntimeType(result, "string")
+        ? result
+        : result && hasRuntimeType(result, "object")
+          ? result.summary
+          : undefined,
+      maxLength,
+    )
   }
 
   const prompt = await renderProgressSummaryTemplate(options, {
@@ -278,6 +292,7 @@ async function generateProgressSummary(
   const result = await generateText({
     abortSignal: input.input.abortSignal,
     instructions: options.instructions ?? defaultProgressSummaryInstructions,
+    // SAFETY: context.model.resolve returns a model accepted by the AI SDK generation boundary.
     model: model as never,
     prompt,
   })
@@ -323,9 +338,10 @@ function progressSummaryStreamOverrides(
   }
 }
 
-function progressData(summary: string, revision: number) {
+function progressData(id: string | undefined, summary: string, revision: number) {
   return {
     data: {
+      ...(id ? { id } : {}),
       revision,
       summary,
       type: "progress-summary",
@@ -356,7 +372,6 @@ function createProgressSummaryState(
   let reasoningActive = false
   let previous: string | undefined
   let revision = 0
-  let completedRevision = 0
   let dirty = true
   let running = false
   let closed = false
@@ -399,11 +414,9 @@ function createProgressSummaryState(
   }
 
   const startGeneration = () => {
-    if (closed || (intervalMs === 0 && running)) return
-    if (intervalMs === 0) {
-      dirty = false
-      running = true
-    }
+    if (closed || running) return
+    dirty = false
+    running = true
     const currentRevision = ++revision
     const inputValue = context.input.get()
     const generationAbort = new AbortController()
@@ -425,11 +438,10 @@ function createProgressSummaryState(
     }
     void generateProgressSummary(context, options, input)
       .then((summary) => {
-        if (closed || !summary || currentRevision <= completedRevision) return
-        completedRevision = currentRevision
+        if (closed || !summary) return
         if (summary === previous) return
         previous = summary
-        latest = progressData(summary, currentRevision)
+        latest = progressData(options.id, summary, currentRevision)
         if (intervalMs === 0 || streamStarted) {
           for (const controller of controllers) controller.enqueue(latest)
         }
@@ -439,9 +451,8 @@ function createProgressSummaryState(
       })
       .finally(() => {
         generations.delete(generationAbort)
-        if (intervalMs !== 0) return
         running = false
-        scheduleEventDriven()
+        if (intervalMs === 0) scheduleEventDriven()
       })
   }
 
@@ -562,7 +573,7 @@ function isStreamResult(value: unknown): value is {
     && (
       "fullStream" in value
       || "stream" in value
-      || typeof value.toUIMessageStream === "function"
+      || hasRuntimeType(value.toUIMessageStream, "function")
     )
 }
 
@@ -622,6 +633,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
                   toUIMessageStreamResponse: {
                     value: (...args: unknown[]) => toAgentUiMessageStreamResponse({
                       ...(isRecord(args[0]) ? args[0] : {}),
+                      // SAFETY: wrap always returns the readable async-iterable stream required by the response helper.
                       stream: wrap(toUIMessageStream(...args)) as ReadableStream<never>,
                     }),
                     writable: true,

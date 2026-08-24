@@ -8,7 +8,7 @@ afterEach(() => {
 
 describe("HTTP request", () => {
   it("applies cookies to fetch while redacting them from summaries", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+    const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ ok: true }), {
       headers: { "content-type": "application/json" },
       status: 200,
     }))
@@ -28,7 +28,7 @@ describe("HTTP request", () => {
     })
 
     expect(fetch).toHaveBeenCalledOnce()
-    const [url, init] = fetch.mock.calls[0] as [string, RequestInit]
+    const [url, init] = fetch.mock.calls[0]!
     expect(url).toBe("https://portal.example.com/inventory?cached=1&region=eu")
     expect(new Headers(init.headers).get("cookie")).toBe("locale=en; sid=secret; workspace=portal")
     expect(result.summary).toMatchObject({
@@ -129,6 +129,20 @@ describe("HTTP request", () => {
 
     expect(error).toMatchObject({ name: "AbortError" })
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch.mock.calls.every(call => (call[1] as RequestInit).signal?.aborted)).toBe(true)
+    expect(fetch.mock.calls.every(call => call[1]?.signal?.aborted)).toBe(true)
+  })
+
+  it.each([
+    0,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    2_147_483_648,
+  ])("rejects invalid timeout %s before dispatch", async (timeout) => {
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ timeout, url: "https://example.com" })).rejects.toThrow("positive finite number")
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

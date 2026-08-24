@@ -45,6 +45,7 @@ export const AgentChat = defineComponent({
                   h(
                     MessageScrollerContent,
                     {
+                      "aria-busy": props.status === "streaming" || props.status === "submitted" ? "true" : undefined,
                       class: "vh-chat__content",
                       items: props.messages.map((message) => message.id),
                     },
