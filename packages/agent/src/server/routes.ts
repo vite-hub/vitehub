@@ -6701,6 +6701,7 @@ export function createChannelChatRouteHandler(
       if (!claimedRun || !resumable) return response
 
       const headers = new Headers(response.headers)
+      headers.set("x-vitehub-message-id", resumableMessageId || "")
       headers.set("x-vitehub-run-id", triggerInput.run?.runId || "")
       headers.delete("content-length")
       claimedRun.headers = headers

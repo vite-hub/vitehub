@@ -228,15 +228,19 @@ describe("Agent Vue clients", () => {
 
   it("replaces a restored partial assistant message when replaying its stream", async () => {
     vi.stubGlobal("window", {})
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
-      stream: createUIMessageStream({
-        execute({ writer }) {
-          writer.write({ id: "answer", type: "text-start" })
-          writer.write({ delta: "Complete answer", id: "answer", type: "text-delta" })
-          writer.write({ id: "answer", type: "text-end" })
-        },
-      }),
-    }))
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 })
+      return createUIMessageStreamResponse({
+        headers: { "x-vitehub-message-id": "user-1" },
+        stream: createUIMessageStream({
+          execute({ writer }) {
+            writer.write({ id: "answer", type: "text-start" })
+            writer.write({ delta: "Complete answer", id: "answer", type: "text-delta" })
+            writer.write({ id: "answer", type: "text-end" })
+          },
+        }),
+      })
+    })
     vi.stubGlobal("fetch", fetch)
     const messages: UIMessage[] = [
       { id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" },
@@ -255,6 +259,11 @@ describe("Agent Vue clients", () => {
       role: "assistant",
     }))
     expect(chat.messages.value).toHaveLength(2)
+    await chat.stop()
+    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-1&messageId=user-1", {
+      credentials: "same-origin",
+      method: "DELETE",
+    })
     scope.stop()
   })
 

@@ -74,6 +74,13 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     const route = latestOptions.value.api ?? agentChatRoute(agent.name)
     return new DefaultChatTransport<UI_MESSAGE>({
       api: route,
+      async fetch(input, init) {
+        const response = await globalThis.fetch(input, init)
+        if (init?.method === "GET") {
+          resumableMessageId = response.headers.get("x-vitehub-message-id") || undefined
+        }
+        return response
+      },
       prepareReconnectToStreamRequest({ credentials, headers, id }) {
         return {
           api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
@@ -119,6 +126,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     if (next.id !== previous.id) {
       constructorOptions.value = next
       streamedParts.value = []
+      resumableMessageId = undefined
       if (next.resume && isBrowserRuntime()) queueMicrotask(reconnect)
       return
     }

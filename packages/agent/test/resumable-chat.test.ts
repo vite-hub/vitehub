@@ -59,6 +59,7 @@ describe("resumable Agent chat routes", () => {
     expect(otherOwner.status).toBe(204)
     expect(run).toHaveBeenCalledOnce()
     expect(duplicate.headers.get("x-vitehub-run-id")).toBeTruthy()
+    expect(replay.headers.get("x-vitehub-message-id")).toBe("message-1")
     expect(replay.headers.get("x-vitehub-run-id")).toBe(duplicate.headers.get("x-vitehub-run-id"))
 
     const duplicateBody = duplicate.text()
