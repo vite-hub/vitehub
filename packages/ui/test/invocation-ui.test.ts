@@ -995,6 +995,8 @@ describe("Agent Invocation UI", () => {
       id: "failed-preparation",
       observations: [{
         attributes: {
+          "error.message": "Workspace checkout failed",
+          "vitehub.observation.truncated": true,
           "vitehub.activity.kind": "preparation",
           "vitehub.activity.title": "Workspace failed",
         },
@@ -1012,6 +1014,8 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-preparation__summary").text()).toContain("Session preparation failed");
     expect(wrapper.find(".vh-invocation-preparation__context a").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-preparation__context").text()).toContain("PR #1040");
+    expect(wrapper.get(".vh-invocation-preparation__body").text()).toBe("Workspace checkout failed");
+    expect(wrapper.get(".vh-invocation-preparation__steps .vh-invocation-event__notice").text()).toContain("truncated");
   });
 
   it("preserves input transcript order when the latest user has no response", () => {

@@ -373,6 +373,12 @@ function renderPreparationGroup(
         h("strong", invocationActivityTitle(activity)),
         renderPreparationDetail(activity, url),
         renderPreparationAction(activity, inspect),
+        activity.body
+          ? h("p", { class: "vh-invocation-preparation__body" }, activity.body)
+          : null,
+        activity.truncated
+          ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          : null,
       ]))),
     ]),
   ]);

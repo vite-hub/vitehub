@@ -771,10 +771,23 @@
 .vh-invocation-preparation__steps > li {
   align-items: center;
   color: var(--vh-ui-muted);
-  display: flex;
+  display: grid;
   gap: 0.25rem;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   min-height: 1.5rem;
   padding: 0 0.375rem;
+}
+
+.vh-invocation-preparation__body,
+.vh-invocation-preparation__steps .vh-invocation-event__notice {
+  grid-column: 2 / -1;
+  margin: 0 0 0.375rem;
+}
+
+.vh-invocation-preparation__body {
+  color: var(--vh-ui-dimmed);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
 }
 
 .vh-invocation-preparation__steps strong {
