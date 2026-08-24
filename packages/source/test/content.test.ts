@@ -210,15 +210,14 @@ describe("contentSource", () => {
   })
 
   it("preserves native Sources without an optional raw-item handler when applying options", async () => {
-    const nativeSource: ComarkContentSource = {
-      getItemRaw: undefined,
+    const nativeSource = {
       async keys() {
         return ["index.md"]
       },
       async getItem() {
         return "# Native"
       },
-    }
+    } as unknown as ComarkContentSource
     const source = contentSource(nativeSource, { prefix: "configured" })
 
     expect(source.prefix).toBe("configured")

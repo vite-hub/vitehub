@@ -72,13 +72,12 @@ function isSourceName(input: SourceName | SourceReader | (() => SourceReader)): 
 }
 
 function configuredContentSource(input: ComarkContentSource, options: ContentSourceOptions): ComarkContentSource {
-  const source: ComarkContentSource = {
+  const source = {
     getItem: input.getItem.bind(input),
-    getItemRaw: undefined,
     keys: input.keys.bind(input),
     prefix: options.prefix ?? input.prefix,
     schema: options.schema ?? input.schema,
-  }
+  } as ComarkContentSource
   if (input.getItemRaw) source.getItemRaw = input.getItemRaw.bind(input)
   if (input.watch) source.watch = input.watch.bind(input)
   return source
