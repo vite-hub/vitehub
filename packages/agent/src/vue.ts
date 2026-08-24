@@ -67,6 +67,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
+  let resumableMessageId = initialOptions.messages?.at(-1)?.id
   let chat!: UseChatHelpers<UI_MESSAGE>
   const resolveTransport = () => {
     if (latestOptions.value.transport) return latestOptions.value.transport
@@ -91,9 +92,10 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       }
       return stream
     },
-    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => (
-      resolveTransport().sendMessages(...args)
-    ),
+    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => {
+      resumableMessageId = args[0].messageId ?? args[0].messages.at(-1)?.id
+      return resolveTransport().sendMessages(...args)
+    },
   }
   chat = useAiChat<UI_MESSAGE>(() => {
     const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
@@ -138,12 +140,11 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }, true)
 
   async function stop(): Promise<void> {
-    const messageId = chat.messages.value.findLast(message => message.role === "user")?.id
     await chat.stop()
     if (!latestOptions.value.resume || latestOptions.value.transport || !isBrowserRuntime()) return
-    if (!messageId) return
+    if (!resumableMessageId) return
     const route = latestOptions.value.api ?? agentChatRoute(agent.name)
-    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}&messageId=${encodeURIComponent(messageId)}`, {
+    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}&messageId=${encodeURIComponent(resumableMessageId)}`, {
       credentials: "same-origin",
       method: "DELETE",
     }).then(() => undefined, () => undefined)

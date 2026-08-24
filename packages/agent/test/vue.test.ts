@@ -324,6 +324,49 @@ describe("Agent Vue clients", () => {
     })
   })
 
+  it.each([
+    ["regeneration", "regenerate-message", "assistant-1"],
+    ["automatic continuation", "submit-message", "assistant-1"],
+  ])("cancels a resumable %s with its submitted message identity", async (_name, trigger, messageId) => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 })
+      const body = JSON.parse(String(init?.body)) as { messageId?: string, trigger: string }
+      expect(body).toMatchObject({ messageId, trigger })
+      return createUIMessageStreamResponse({ stream: createUIMessageStream({ execute() {} }) })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      api: "/chat/support",
+      id: "chat-1",
+      messages: [{
+        id: "assistant-1",
+        parts: trigger === "submit-message"
+          ? [{ input: {}, state: "input-available", toolCallId: "tool-1", type: "tool-weather" }]
+          : [{ text: "Hello", type: "text" }],
+        role: "assistant",
+      }] as UIMessage[],
+      resume: true,
+      ...(trigger === "submit-message"
+        ? { sendAutomaticallyWhen: vi.fn().mockReturnValueOnce(true).mockReturnValue(false) }
+        : {}),
+    }))!
+
+    const request = trigger === "regenerate-message" ? chat.regenerate({ messageId }) : undefined
+    if (trigger === "submit-message") await chat.addToolOutput({ output: "sunny", tool: "weather", toolCallId: "tool-1" })
+    await request
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/chat/support", expect.anything()))
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    await chat.stop()
+
+    expect(fetch).toHaveBeenLastCalledWith(`/chat/support?id=chat-1&messageId=${messageId}`, {
+      credentials: "same-origin",
+      method: "DELETE",
+    })
+    scope.stop()
+  })
+
   it("uses an explicit API instead of the conventional generated route", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({ execute() {} }),
