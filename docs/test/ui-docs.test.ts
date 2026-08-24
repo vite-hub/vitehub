@@ -11,12 +11,16 @@ const previews = {
   "chat-message.md": ["ChatMessageExample"],
   "chat-prompt.md": ["ChatPromptExample"],
   "chat.md": ["ChatExample"],
-  "code-views.md": ["CodeViewsExample"],
-  "invocations-and-traces.md": ["InvocationListExample", "InvocationExample", "TraceExample"],
+  "diff.md": ["DiffExample"],
+  "file-tree.md": ["FileTreeExample"],
+  "invocation-inspector.md": ["InvocationInspectorExample"],
+  "invocation-list.md": ["InvocationListExample"],
+  "invocation.md": ["InvocationExample"],
   "markdown.md": ["MarkdownExample"],
   "message-parts.md": ["MessagePartsExample"],
   "message-scroller.md": ["MessageScrollerExample"],
   "session.md": ["SessionExample"],
+  "trace.md": ["TraceExample"],
 } as const;
 
 describe("UI documentation", () => {
@@ -31,7 +35,9 @@ describe("UI documentation", () => {
     for (const [page, names] of Object.entries(previews)) {
       const source = readFileSync(resolve(uiDocsRoot, page), "utf8");
       for (const name of names) {
-        expect(source, `${page} should render ${name}`).toContain(`::component-preview{name="${name}"`);
+        expect(source, `${page} should render ${name}`).toContain(
+          `::component-preview{name="${name}"`,
+        );
         expect(existsSync(resolve(examplesRoot, `${name}.vue`)), name).toBe(true);
       }
     }
@@ -43,5 +49,29 @@ describe("UI documentation", () => {
 
     expect(config).toContain('"@vite-hub/ui/nuxt"');
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
+  });
+
+  it("uses the wide component layout without the desktop outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
+
+    expect(page).toContain('path.startsWith("/docs/ui/")');
+    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
+    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
+    expect(styles).toContain(".docs-ui-page-shell");
+    expect(styles).toContain("max-width: 68rem");
+  });
+
+  it("gives invocation previews fixed-height containing blocks", () => {
+    const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
+    const inspector = readFileSync(
+      resolve(examplesRoot, "InvocationInspectorExample.vue"),
+      "utf8",
+    );
+
+    expect(invocation).toContain('<div class="h-[34rem]');
+    expect(invocation).toContain('class="h-full"');
+    expect(inspector).toContain('<div class="mx-auto h-[36rem]');
+    expect(inspector).toContain('class="h-full border-x border-default"');
   });
 });

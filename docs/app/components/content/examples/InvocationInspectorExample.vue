@@ -23,7 +23,7 @@ const invocation: AgentInvocationView = {
     {
       attributes: {
         "message.role": "assistant",
-        "result.text": "I found the fixed-height virtual row and updated its offsets.",
+        "result.text": "The layout fix is tested and ready for review.",
       },
       name: "agent.message.recorded",
       sequence: 1,
@@ -32,28 +32,9 @@ const invocation: AgentInvocationView = {
       type: "run",
     },
     {
-      attributes: {
-        "tool.id": "tool-1",
-        "tool.name": "Ran command",
-        "tool.output": {
-          item: {
-            aggregatedOutput: "10 tests passed\n",
-            command: "pnpm test invocation-ui",
-            cwd: "/workspace/vitehub",
-            exitCode: 0,
-          },
-        },
-      },
-      name: "agent.tool.finish",
-      sequence: 2,
-      timestamp: "2026-08-23T09:03:30.000Z",
-      trace: { id: "trace_docs_preview" },
-      type: "run",
-    },
-    {
       attributes: { "usage.totalTokens": 12_400 },
       name: "agent.usage.recorded",
-      sequence: 3,
+      sequence: 2,
       timestamp: "2026-08-23T09:04:00.000Z",
       trace: { id: "trace_docs_preview" },
       type: "run",
@@ -68,7 +49,10 @@ const invocation: AgentInvocationView = {
 </script>
 
 <template>
-  <div class="h-[34rem] min-w-0 bg-default">
-    <AgentInvocation :invocation="invocation" class="h-full" />
+  <div class="mx-auto h-[36rem] max-w-md bg-default">
+    <AgentInvocationInspector
+      :invocation="invocation"
+      class="h-full border-x border-default"
+    />
   </div>
 </template>

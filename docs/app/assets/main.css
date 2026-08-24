@@ -59,6 +59,20 @@ body {
   max-width: var(--vh-content-width);
 }
 
+.docs-ui-page-shell {
+  width: 100%;
+  max-width: 68rem;
+  margin-inline: auto;
+}
+
+.docs-content.docs-ui-content {
+  max-width: 68rem;
+}
+
+.docs-ui-content > [data-content-id] > :where(p, ul, ol):not(.not-prose) {
+  max-width: 52rem;
+}
+
 .docs-content h2 {
   scroll-margin-top: calc(var(--ui-header-height, 56px) + 2rem);
 }
