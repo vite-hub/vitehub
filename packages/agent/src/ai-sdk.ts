@@ -991,7 +991,11 @@ function withCapturedUsage(
   }
 }
 
-function withCapturedStreamUsage<T extends { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> }>(
+function withCapturedStreamUsage<T extends {
+  fullStream?: AsyncIterable<unknown>
+  stream?: AsyncIterable<unknown>
+  toUIMessageStream?: (...args: never[]) => ReadableStream<unknown>
+}>(
   result: T,
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
@@ -1015,7 +1019,8 @@ function withCapturedStreamUsage<T extends { fullStream?: AsyncIterable<unknown>
   })()
   const stream = result.stream
   const fullStream = result.fullStream
-  if (!stream && !fullStream) return result
+  const toUIMessageStream = result.toUIMessageStream
+  if (!stream && !fullStream && !toUIMessageStream) return result
   const wrappedStream = stream ? wrap(stream) : undefined
   const wrappedFullStream = fullStream
     ? fullStream === stream && wrappedStream ? wrappedStream : wrap(fullStream)
@@ -1023,6 +1028,40 @@ function withCapturedStreamUsage<T extends { fullStream?: AsyncIterable<unknown>
   return cloneStreamTextResult(result, {
     ...(wrappedStream ? { stream: wrappedStream } : {}),
     ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
+    ...(toUIMessageStream
+      ? {
+          toUIMessageStream: (...args: unknown[]) => {
+            const reader = toUIMessageStream.apply(result, args as never[]).getReader()
+            return new ReadableStream({
+              async pull(controller) {
+                try {
+                  const { done, value } = await reader.read()
+                  if (done) {
+                    controller.close()
+                    return
+                  }
+                  if (value && hasRuntimeType(value, "object") && Reflect.get(value, "type") === "finish") {
+                    const captureList = captures()
+                    const usage = await combinedCapturedUsage(captureList)
+                    const usageRecord = usage === undefined
+                      ? undefined
+                      : await combinedUsageRecord(captureList.map(capture => ({ capture })), usage)
+                    controller.enqueue({ ...(value as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), ...(usage === undefined ? {} : { usage }) })
+                    return
+                  }
+                  controller.enqueue(value)
+                }
+                catch (error) {
+                  controller.error(error)
+                }
+              },
+              async cancel(reason) {
+                await reader.cancel(reason)
+              },
+            })
+          },
+        }
+      : {}),
   })
 }
 

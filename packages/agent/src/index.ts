@@ -5405,7 +5405,7 @@ async function executeAgentInvocationWithCapacityLease<
     return {
       deferFinish: shouldWrapOutput,
       finishResult: rendered,
-      value: customRun ? withStreamResultProperties(value, rendered) : value,
+      value: isAsyncIterable(value) ? withStreamResultProperties(value, rendered) : value,
     }
   }, executionFailureMessage, {
     finalizeResponse: options.output === "ui-message-stream"

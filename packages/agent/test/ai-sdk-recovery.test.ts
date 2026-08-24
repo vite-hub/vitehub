@@ -280,6 +280,28 @@ describe("AI SDK recovery", () => {
     }))
   })
 
+  it("includes tool-call repair usage in UI-message streamed invocations", async () => {
+    const fakeModel = streamingRepairModel()
+    const finish = vi.fn()
+    const agent = toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, finish)
+
+    const stream = await streamAgentInline(agent, runtime, { prompt: "Search" }, { output: "ui-message-stream" })
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: expect.arrayContaining([
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          ]),
+          cost: expect.objectContaining({ usd: "0.3" }),
+          usage: expect.objectContaining({ totalTokens: 6 }),
+        }),
+      }),
+    }))
+  })
+
   it("allows tool-call repair to be disabled", async () => {
     const executions = vi.fn(() => "found")
     const fakeModel = model([
