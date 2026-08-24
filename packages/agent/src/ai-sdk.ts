@@ -1064,32 +1064,71 @@ function withCapturedStreamUsage<T extends {
   result: T,
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
-  const wrap = (stream: AsyncIterable<unknown>) => (async function* () {
+  const wrap = (stream: AsyncIterable<unknown>): AsyncIterable<unknown> => {
+    const iterator = stream[Symbol.asyncIterator]()
     const primaryCapture = captures()[0]
-    primaryCapture?.start()
-    try {
-      for await (const event of stream) {
-        if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
-          primaryCapture?.capture(event)
-          const captureList = captures()
-          const usage = await combinedCapturedUsage(captureList)
-          if (usage !== undefined) {
-            const usageRecord = await combinedUsageRecord(
-              captureList.map(capture => ({ capture })),
-              usage,
-            )
-            // SAFETY: AI SDK stream events are records after the object guard above.
-            yield { ...(event as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), usage }
-            continue
-          }
-        }
-        yield event
-      }
-    }
-    finally {
+    let completed = false
+    const complete = () => {
+      if (completed) return
+      completed = true
       primaryCapture?.complete()
     }
-  })()
+    const wrapped: AsyncIterableIterator<unknown> = {
+      [Symbol.asyncIterator]() {
+        return wrapped
+      },
+      async next() {
+        primaryCapture?.start()
+        try {
+          const result = await iterator.next()
+          if (result.done) {
+            complete()
+            return result
+          }
+          const event = result.value
+          if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
+            primaryCapture?.capture(event)
+            const captureList = captures()
+            const usage = await combinedCapturedUsage(captureList)
+            if (usage !== undefined) {
+              const usageRecord = await combinedUsageRecord(
+                captureList.map(capture => ({ capture })),
+                usage,
+              )
+              // SAFETY: AI SDK stream events are records after the object guard above.
+              return { done: false, value: { ...(event as Record<string, unknown>), ...(usageRecord ? { usageRecord } : {}), usage } }
+            }
+          }
+          return result
+        }
+        catch (error) {
+          complete()
+          throw error
+        }
+      },
+      async return(value?: unknown) {
+        primaryCapture?.start()
+        try {
+          return iterator.return ? await iterator.return(value) : { done: true, value }
+        }
+        finally {
+          complete()
+        }
+      },
+      async throw(error?: unknown) {
+        primaryCapture?.start()
+        try {
+          if (iterator.throw) return await iterator.throw(error)
+          await iterator.return?.()
+          throw error
+        }
+        finally {
+          complete()
+        }
+      },
+    }
+    return wrapped
+  }
   const stream = result.stream
   const fullStream = result.fullStream
   const toUIMessageStream = result.toUIMessageStream

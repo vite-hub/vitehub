@@ -67,6 +67,7 @@ function streamingRepairModel() {
     inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
     outputTokens: { reasoning: 0, text: 1, total: 1 },
   }
+  let cancelCount = 0
   let pullCount = 0
   let streamCall = 0
   const doGenerate = vi.fn(async () => ({
@@ -93,6 +94,9 @@ function streamingRepairModel() {
         ]
     return {
       stream: new ReadableStream({
+        cancel() {
+          cancelCount += 1
+        },
         pull(controller) {
           pullCount += 1
           const event = events.shift()
@@ -103,6 +107,9 @@ function streamingRepairModel() {
     }
   })
   return {
+    get cancelCount() {
+      return cancelCount
+    },
     doGenerate,
     doStream,
     get pullCount() {
@@ -289,6 +296,23 @@ describe("AI SDK recovery", () => {
         }),
       }),
     }))
+  })
+
+  it("cancels an unconsumed model stream and settles early usage", async () => {
+    const controller = new AbortController()
+    const fakeModel = streamingRepairModel()
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, {
+      abortSignal: controller.signal,
+      prompt: "Search",
+    })
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    const earlyUsage = (result as { usage: Promise<unknown> }).usage
+
+    controller.abort(new DOMException("stop", "AbortError"))
+
+    await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
+    await expect(earlyUsage).resolves.toBeUndefined()
+    expect(fakeModel.pullCount).toBe(0)
   })
 
   it("includes tool-call repair usage in UI-message streamed invocations", async () => {
