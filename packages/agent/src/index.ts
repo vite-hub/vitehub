@@ -5254,7 +5254,7 @@ async function executeAgentInvocationWithCapacityLease<
       let uiMessageSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
       const uiMessageSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
       let capacityRendered = rendered
-      if (options.holdCapacity === true) {
+      if (shouldHoldInvocationOutput()) {
         if (isUIMessageStreamResult(rendered)) {
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
@@ -5284,7 +5284,7 @@ async function executeAgentInvocationWithCapacityLease<
                   const stream = toUIMessageStream.apply(rendered, args)
                   uiMessageSource = uiMessageSources.get(stream) ?? cancellableAsyncIterableSource(stream)
                   uiMessageSources.set(stream, uiMessageSource)
-                  return toReadableAsyncIterableStream(uiMessageSource.stream)
+                  return toReadableAsyncIterableStream(uiMessageSource.stream, { highWaterMark: 0 })
                 }
                 catch (error) {
                   return new ReadableStream({
@@ -5342,7 +5342,7 @@ async function executeAgentInvocationWithCapacityLease<
     let isStreamResult = hasTraceableStreamResult(rendered)
     let streamResult = rendered
     const eagerStreamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
-    if (isStreamResult && options.holdCapacity === true && rendered && hasRuntimeType(rendered, "object")) {
+    if (isStreamResult && shouldHoldInvocationOutput() && rendered && hasRuntimeType(rendered, "object")) {
       const descriptors: PropertyDescriptorMap = {}
       let selectedStream = false
       try {
@@ -5385,10 +5385,22 @@ async function executeAgentInvocationWithCapacityLease<
         value,
       }
     }
-    const stream = isStreamResult
-      ? streamAgentOutputToEvents(streamResult)
+    const structuredOutput = invocation.output
+    const stream = structuredOutput
+      ? (async function* () {
+          const materialized = await materializeAgentStructuredOutput(
+            streamResult,
+            invocation.input.abortSignal,
+            invocation.context.get(agentOutputEventObserverContextKey),
+            structuredOutput,
+          )
+          const validated = await validateAgentOutput(structuredOutput, materialized, { allowMaterializedObject: materialized !== streamResult })
+          yield* streamAgentOutputToEvents(validated)
+        })()
+      : isStreamResult
+        ? streamAgentOutputToEvents(streamResult)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
+        : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
     const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.toolResults, invocation.tools)

@@ -1,6 +1,7 @@
 import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 import { toAgentRunResult } from "../agent-output.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { AgentOutputDefinition } from "../types.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -15,7 +16,7 @@ type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 export const agentOutputRepairSymbol = Symbol.for("vitehub.agent.output-repair")
 
 function agentOutputValidationError(code: AgentOutputValidationErrorCode, options?: ErrorOptions) {
-  if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
+  if (!Object.hasOwn(agentOutputErrorMessages, code)) {
     throw new TypeError("[vitehub] Agent output errors require a known code.")
   }
   return new ViteHubError(code, agentOutputErrorMessages[code], { cause: readErrorCause(options) })
@@ -31,13 +32,14 @@ export async function nativeAgentOutputValidationFailure(
   output: AgentOutputDefinition | undefined,
   error: unknown,
 ): Promise<{ error: Error, text: string } | undefined> {
-  const text = error && typeof error === "object" && "text" in error && typeof error.text === "string" && "name" in error && error.name === "AI_NoObjectGeneratedError" ? error.text : undefined
+  const text = isRuntimeRecord(error) && hasRuntimeType(error.text, "string") && error.name === "AI_NoObjectGeneratedError" ? error.text : undefined
   if (!output || text === undefined) return
   try {
     await validateAgentOutput(output, text)
   }
   catch (validationError) {
     if (isAgentOutputValidationError(validationError)) {
+      // SAFETY: ViteHub validation failures are created as Error instances by agentOutputValidationError.
       return { error: validationError as Error, text }
     }
     throw validationError
@@ -50,7 +52,7 @@ function isAgentOutputValidationError(value: unknown): boolean {
 }
 
 function readErrorCause(options: unknown): unknown {
-  if ((typeof options !== "object" || options === null) && typeof options !== "function") return undefined
+  if (!isRuntimeRecord(options) && !hasRuntimeType(options, "function")) return undefined
   try {
     return Reflect.get(options, "cause")
   }
@@ -67,10 +69,10 @@ function stripJsonFence(value: string): string {
 function jsonValueFromResult(result: unknown): unknown {
   let text: string | undefined
   try {
-    const directText = result && typeof result === "object" && Reflect.has(result, "text")
+    const directText = isRuntimeRecord(result) && Reflect.has(result, "text")
       ? Reflect.get(result, "text")
       : undefined
-    text = typeof directText === "string" && directText ? directText : toAgentRunResult(result).text
+    text = hasRuntimeType(directText, "string") && directText ? directText : toAgentRunResult(result).text
   }
   catch (cause) {
     throw agentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", { cause })
@@ -90,7 +92,7 @@ function jsonValueFromResult(result: unknown): unknown {
 
 function issuePath(issue: StandardSchemaV1.Issue): string | undefined {
   if (!issue.path?.length) return
-  return issue.path.map(segment => typeof segment === "object" ? String(segment.key) : String(segment)).join(".")
+  return issue.path.map(segment => isRuntimeRecord(segment) ? String(segment.key) : String(segment)).join(".")
 }
 
 function formatIssues(issues: readonly StandardSchemaV1.Issue[]): string {
@@ -123,7 +125,7 @@ function inspectValidation<T>(
 }
 
 function isMaterializedObject(result: unknown): boolean {
-  if (result === null || typeof result !== "object") return false
+  if (!isRuntimeRecord(result)) return false
   try {
     const prototype = Object.getPrototypeOf(result)
     return prototype === Object.prototype || prototype === null
@@ -149,10 +151,12 @@ export async function validateAgentOutput<TOutput>(
 }
 
 export function agentOutputJsonSchema(schema: StandardSchemaV1): Record<string, unknown> | undefined {
+  // SAFETY: Standard Schema exposes optional vendor metadata through its typed private namespace.
   const jsonSchema = (schema["~standard"] as { jsonSchema?: { input?: unknown } }).jsonSchema
-  if (typeof jsonSchema !== "object" || typeof jsonSchema.input !== "function") return
+  if (!isRuntimeRecord(jsonSchema) || !hasRuntimeType(jsonSchema.input, "function")) return
   try {
-    return jsonSchema.input({ target: "draft-07" }) as Record<string, unknown>
+    const value = jsonSchema.input({ target: "draft-07" })
+    return isRuntimeRecord(value) ? value : undefined
   }
   catch {
     return
