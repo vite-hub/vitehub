@@ -157,7 +157,6 @@ export const AgentInvocationList = defineComponent({
 
     return () => h("nav", {
       "aria-label": props.ariaLabel,
-      "aria-busy": props.loading ? "true" : undefined,
       class: "vh-invocation-list",
       onScroll: requestMoreIfNeeded,
       ref: viewport,
@@ -167,7 +166,7 @@ export const AgentInvocationList = defineComponent({
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
       props.items.length
-        ? h("ul", props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
+        ? h("ul", { "aria-busy": props.loading ? "true" : undefined }, props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
         : null,
       props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading", role: "status" }, "Loading sessions…") : null,
       slots.footer?.({ items: props.items }),

@@ -192,6 +192,7 @@ describe("message scroller behavior", () => {
     const inactiveButton = wrapper.get("[data-slot='message-scroller-button']");
     expect(inactiveButton.attributes()).toMatchObject({
       "data-active": "false",
+      hidden: "",
       inert: "",
       tabindex: "-1",
     });
@@ -214,6 +215,7 @@ describe("message scroller behavior", () => {
     const button = wrapper.find("[data-slot='message-scroller-button']");
     expect(button.exists()).toBe(true);
     expect(button.attributes("data-active")).toBe("true");
+    expect(button.attributes("hidden")).toBeUndefined();
     expect(button.attributes("inert")).toBeUndefined();
     if (!(button.element instanceof HTMLElement)) throw new TypeError("Expected the scroll control to be an HTML element");
     button.element.focus();

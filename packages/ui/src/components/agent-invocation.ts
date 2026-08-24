@@ -820,18 +820,17 @@ export const AgentInvocation = defineComponent({
                 ])
               : null,
             activities.value.length
-              ? h("ol", {
+              ? h("div", {
                   "aria-label": "Session thread",
                   "aria-relevant": "additions",
-                  class: "vh-invocation-activities",
                   role: "log",
-                }, renderInvocationActivities(
+                }, [h("ol", { class: "vh-invocation-activities" }, renderInvocationActivities(
                   activities.value,
                   props.invocation,
                   expandedMessages.value,
                   toggleExpanded,
                   target => emit("inspect", target),
-                ))
+                ))])
               : h("div", { class: "vh-invocation-empty", role: "status" }, [h("span", { "aria-hidden": "true" }, "○"), h("p", "Waiting for the first update…")]),
             slots.footer?.({ invocation: props.invocation }),
           ]),

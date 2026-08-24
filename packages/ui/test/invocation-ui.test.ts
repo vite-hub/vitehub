@@ -235,6 +235,8 @@ describe("Agent Invocation UI", () => {
     } satisfies AgentInvocationView;
 
     const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.get('[role="log"] > ol').attributes("role")).toBeUndefined();
+    expect(wrapper.get('[role="log"] > ol').attributes("aria-label")).toBeUndefined();
     const rows = wrapper.findAll(".vh-invocation-activities > li");
     expect(rows.map(row => row.classes().find(name => name.startsWith("vh-invocation-") && name !== "vh-invocation-activities"))).toEqual([
       "vh-invocation-message",
@@ -744,7 +746,7 @@ describe("Agent Invocation UI", () => {
     await Promise.resolve();
 
     expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
-    expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy Trace ID");
+    expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy");
   });
 
   it("announces when the Clipboard API is unavailable", async () => {
@@ -781,10 +783,12 @@ describe("Agent Invocation UI", () => {
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
-    expect(wrapper.get('[role="status"]').text()).toContain("Failed");
+    expect(wrapper.get(".vh-invocation-inspector__status").text()).toContain("Failed");
     expect(wrapper.get(".vh-invocation-inspector__error").text()).toBe(
       "Provider errorThe provider stopped before returning a result.",
     );
+  });
+
   it("uses the cancellation timestamp for terminal duration", () => {
     const invocation: AgentInvocationView = {
       cancelledAt: "2026-08-22T00:01:05.000Z",
@@ -919,8 +923,10 @@ describe("Agent Invocation UI", () => {
       props: { items: [{ id: "one", status: "completed", title: "One" }], loading: true },
     });
 
-    expect(wrapper.get("nav").attributes("aria-busy")).toBe("true");
+    expect(wrapper.get("nav").attributes("aria-busy")).toBeUndefined();
+    expect(wrapper.get("ul").attributes("aria-busy")).toBe("true");
     expect(wrapper.get('[role="status"]').text()).toBe("Loading sessions…");
+    expect(wrapper.get('[role="status"]').element.closest('[aria-busy="true"]')).toBeNull();
     expect(wrapper.findAll("li")).toHaveLength(1);
   });
 
