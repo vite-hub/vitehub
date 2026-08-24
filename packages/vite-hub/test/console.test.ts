@@ -13,7 +13,6 @@ import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocation
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertLocalConsolePeer, assertLocalConsoleRequest } from "../src/console/runtime/server/local-request.ts"
-import { CONSOLE_SESSION_LOOKUP_PAGE_LIMIT, createConsoleRequest, groupConsoleSessions, loadRequestedConsoleSessionPage, shouldLoadRequestedConsoleSession } from "../src/console/runtime/request.ts"
 import { consoleInvocationRootPlugin } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -85,72 +84,6 @@ describe("Agent invocation console", () => {
         expect.not.objectContaining({ observations: expect.anything() }),
       ],
     })
-  })
-
-  it("orders grouped sessions and runs by their latest activity", () => {
-    // SAFETY: The grouping helper only reads the summary fields provided by this focused fixture.
-    const invocations = [
-      { agentName: "first", channelId: "portal", id: "newer-created", origin: "web", threadId: "thread", updatedAt: "2026-08-23T10:00:00.000Z" },
-      { id: "other", threadId: "other", updatedAt: "2026-08-23T10:30:00.000Z" },
-      { agentName: "first", channelId: "portal", id: "older-created", origin: "web", threadId: "thread", updatedAt: "2026-08-23T11:00:00.000Z" },
-      { agentName: "second", id: "separate-agent", threadId: "thread", updatedAt: "2026-08-23T10:45:00.000Z" },
-      { agentName: "first", channelId: "portal", id: "separate-origin", origin: "scheduled", threadId: "thread", updatedAt: "2026-08-23T10:40:00.000Z" },
-      { agentName: "first", channelId: "cli", id: "separate-channel", origin: "web", threadId: "thread", updatedAt: "2026-08-23T10:35:00.000Z" },
-    ] as Parameters<typeof groupConsoleSessions>[0]
-
-    expect(groupConsoleSessions(invocations)).toMatchObject([
-      {
-        id: '["first","web","portal","thread"]',
-        invocations: [{ id: "older-created" }, { id: "newer-created" }],
-        updatedAt: "2026-08-23T11:00:00.000Z",
-      },
-      { id: '["second",null,null,"thread"]', invocations: [{ id: "separate-agent" }] },
-      { id: '["first","scheduled","portal","thread"]', invocations: [{ id: "separate-origin" }] },
-      { id: '["first","web","cli","thread"]', invocations: [{ id: "separate-channel" }] },
-      { id: '[null,null,null,"other"]', invocations: [{ id: "other" }] },
-    ])
-  })
-
-  it("returns only successful console responses", async () => {
-    const request = createConsoleRequest()
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce(new Response("failed", { status: 500 }))
-      .mockResolvedValueOnce(Response.json({ invocations: [] })))
-
-    await expect(request("/first", {})).rejects.toThrow("status 500")
-    await expect(request("/second", {})).resolves.toEqual({ invocations: [] })
-  })
-
-  it("bounds automatic lookup for a missing routed session", () => {
-    const options = {
-      cursor: "older",
-      isLoadingMore: false,
-      requestedSession: "missing",
-      sessions: [],
-    }
-
-    expect(shouldLoadRequestedConsoleSession({ ...options, loadedPages: 0 })).toBe(true)
-    expect(shouldLoadRequestedConsoleSession({
-      ...options,
-      loadedPages: CONSOLE_SESSION_LOOKUP_PAGE_LIMIT,
-    })).toBe(false)
-    expect(shouldLoadRequestedConsoleSession({
-      ...options,
-      loadedPages: 0,
-      sessions: [{ id: "missing", invocations: [], updatedAt: "2026-08-23T12:00:00.000Z" }],
-    })).toBe(false)
-  })
-
-  it("counts only successfully applied routed-session pages", async () => {
-    const lookup = { loadedPages: 0 }
-    const loadMore = vi.fn()
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({ invocations: [] })
-
-    await expect(loadRequestedConsoleSessionPage(lookup, loadMore)).resolves.toBe(false)
-    expect(lookup.loadedPages).toBe(0)
-    await expect(loadRequestedConsoleSessionPage(lookup, loadMore)).resolves.toBe(true)
-    expect(lookup.loadedPages).toBe(1)
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {

@@ -254,8 +254,9 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(/^#!\/usr\/bin\/env node/)
     expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain('import "@vite-hub/env/vite"')
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain("@cloudflare/workers-types")
-    expect(existsSync(`${packageRoot}/dist/console/runtime/request.ts`)).toBe(true)
-    expect(readFileSync(`${packageRoot}/dist/console/runtime/pages/agents.vue`, "utf8")).toContain('from "../request.ts"')
+    const consolePage = readFileSync(`${packageRoot}/dist/console/runtime/pages/agents.vue`, "utf8")
+    expect(consolePage).toContain("AgentInvocationList")
+    expect(consolePage).not.toContain("groupConsoleSessions")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
 
