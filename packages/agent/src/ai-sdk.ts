@@ -1385,6 +1385,7 @@ async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
+  streamUsageCapture?: ReturnType<typeof createUsageCapture>,
 ) {
   const aiSdk = await loadAiSdk()
   const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
@@ -1469,6 +1470,14 @@ async function createAgent(
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
   const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context), context)
+  // SAFETY: AI SDK call settings expose the stream chunk callback with this event shape.
+  const configuredOnChunk = (commonSettings as { onChunk?: (event: unknown) => unknown }).onChunk
+  const onChunk = streamUsageCapture
+    ? async (event: unknown) => {
+        await configuredOnChunk?.(event)
+        if (event && hasRuntimeType(event, "object")) streamUsageCapture.capture(Reflect.get(event, "chunk"))
+      }
+    : configuredOnChunk
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
   const prepareRepairCall = hasRuntimeType(prepareCall, "function")
@@ -1577,6 +1586,7 @@ async function createAgent(
   return {
     agent: new ToolLoopAgent({
       ...commonSettings,
+      ...(onChunk ? { onChunk } : {}),
       instructions,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       model: instrumentedModel as never,
@@ -1784,7 +1794,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
-      const { agent, model, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
