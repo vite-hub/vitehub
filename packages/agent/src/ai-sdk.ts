@@ -39,6 +39,7 @@ import type {
   StreamTextResult,
   ToolContent,
   ToolLoopAgentSettings,
+  ToolCallRepairFunction,
   ToolResultPart,
   ToolSet,
   UserContent,
@@ -1198,6 +1199,24 @@ function outputRepairPrompt(text: string, error: Error, evidence: string[] = [])
   ].join("\n\n")
 }
 
+function toolCallRepairPrompt(toolCall: { input: unknown, toolName: string }, schema: JSONSchema7, error: Error): string {
+  return [
+    `Correct the invalid arguments for the tool "${toolCall.toolName}".`,
+    "Return only arguments that match the tool schema. Do not choose another tool.",
+    `Validation error: ${error.message}`,
+    `Invalid arguments: ${JSON.stringify(toolCall.input)}`,
+    `Tool schema: ${JSON.stringify(schema)}`,
+  ].join("\n\n")
+}
+
+function outputMaxAttempts(output: AgentAdapterRunContext["output"]): number {
+  const maxAttempts = output?.maxAttempts ?? 3
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new TypeError("[vitehub] Agent output maxAttempts must be a positive integer.")
+  }
+  return maxAttempts
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -1295,7 +1314,46 @@ async function createAgent(
         ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
       })
     : undefined
-  const repairAgent = context.output && context.nativeStructuredOutput !== false
+  const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
+  const builtInRepairToolCall: ToolCallRepairFunction<ToolSet> | undefined = Object.keys(toolSet).length
+    ? async ({ error, inputSchema, toolCall, tools }) => {
+        if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
+        try {
+          const schema = await inputSchema({ toolName: toolCall.toolName })
+          const usageCapture = createUsageCapture()
+          toolRepairUsageCaptures.push(usageCapture)
+          const toolRepairAgent = new ToolLoopAgent({
+            ...repairSettings,
+            instructions,
+            // SAFETY: AI SDK adapter normalization establishes the asserted model contract.
+            model: instrumentedModel as never,
+            output: aiSdk.Output.object({ schema: jsonSchema(schema) }),
+            ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
+            stopWhen: isStepCount(1),
+          } as never)
+          const result = await toolRepairAgent.generate({
+            onEnd: usageCapture.onEnd,
+            onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+            onStepEnd: usageCapture.onStepEnd,
+            prompt: toolCallRepairPrompt(toolCall, schema, error),
+          } as never)
+          return { ...toolCall, input: JSON.stringify(result.output) }
+        }
+        catch {
+          return null
+        }
+      }
+    : undefined
+  const configuredRepairToolCall = commonSettings.repairToolCall ?? commonSettings.experimental_repairToolCall
+  const repairToolCall = execution?.repairToolCall === false
+    ? undefined
+    : hasRuntimeType(execution?.repairToolCall, "function")
+      ? execution.repairToolCall
+      : configuredRepairToolCall ?? builtInRepairToolCall
+  const maxOutputAttempts = context.output && context.nativeStructuredOutput !== false
+    ? outputMaxAttempts(context.output)
+    : 1
+  const repairAgent = maxOutputAttempts > 1
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? new ToolLoopAgent({
         ...repairSettings,
@@ -1307,20 +1365,41 @@ async function createAgent(
         stopWhen: isStepCount(1),
       } as never)
     : undefined
-  const repairOutput = context.output && context.nativeStructuredOutput !== false
-    ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown>): Promise<AgentAdapterResult> => {
-        const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = callInput
-        try {
-          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-          return asUnknownBoundary(await repairAgent!.generate({
-            ...repairCallInput,
-            ...("options" in callInput ? { options: callInput.options } : {}),
-            prompt: outputRepairPrompt(failure.text, failure.error, failure.evidence),
-          } as never)) as AgentAdapterResult
+  const repairOutput = repairAgent
+    ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown> | (() => Record<string, unknown>)): Promise<AgentAdapterResult> => {
+        let latestFailure = failure
+        for (let attempt = 1; attempt < maxOutputAttempts; attempt += 1) {
+          const resolvedCallInput = hasRuntimeType(callInput, "function") ? callInput() : callInput
+          const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = resolvedCallInput
+          let repairResult: AgentAdapterResult | undefined
+          try {
+            // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+            repairResult = asUnknownBoundary(await repairAgent.generate({
+              ...repairCallInput,
+              ...("options" in resolvedCallInput ? { options: resolvedCallInput.options } : {}),
+              prompt: outputRepairPrompt(latestFailure.text, latestFailure.error, latestFailure.evidence),
+            } as never)) as AgentAdapterResult
+            await validateAgentOutput(context.output!, repairResult)
+            return repairResult
+          }
+          catch (repairError) {
+            const repairedFailure = await nativeAgentOutputValidationFailure(context.output, repairError)
+            const code = hasRuntimeType(repairError, "object")
+              ? (repairError as { code?: unknown }).code
+              : undefined
+            if (!repairedFailure && code !== "AGENT_OUTPUT_INVALID_JSON" && code !== "AGENT_OUTPUT_SCHEMA_INVALID") {
+              return await normalizeNativeAgentOutputError(context.output, repairError)
+            }
+            latestFailure = {
+              ...(repairedFailure ?? {
+                error: repairError instanceof Error ? repairError : new Error(String(repairError)),
+                text: repairResult?.text ?? latestFailure.text,
+              }),
+              evidence: latestFailure.evidence,
+            }
+          }
         }
-        catch (repairError) {
-          return await normalizeNativeAgentOutputError(context.output, repairError)
-        }
+        throw latestFailure.error
       }
     : undefined
 
@@ -1331,6 +1410,8 @@ async function createAgent(
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       model: instrumentedModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
+      experimental_repairToolCall: undefined,
+      repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1338,6 +1419,7 @@ async function createAgent(
     }),
     model: instrumentedModel,
     repairOutput,
+    toolRepairUsageCaptures,
     tools: Object.keys(toolSet).length ? toolSet : undefined,
   }
 }
@@ -1356,19 +1438,23 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, tools } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, repairOutput, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
       const usageCapture = createUsageCapture()
-      const repairUsageCapture = createUsageCapture()
+      const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
       const fallbackUsageCapture = createUsageCapture()
-      const repairCallInput = {
-        ...callInput,
-        onEnd: repairUsageCapture.onEnd,
-        onLanguageModelCallEnd: repairUsageCapture.onLanguageModelCallEnd,
-        onStepEnd: repairUsageCapture.onStepEnd,
+      const repairCallInput = () => {
+        const usageCapture = createUsageCapture()
+        repairUsageCaptures.push(usageCapture)
+        return {
+          ...callInput,
+          onEnd: usageCapture.onEnd,
+          onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+          onStepEnd: usageCapture.onStepEnd,
+        }
       }
       const captureOriginalStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
@@ -1384,13 +1470,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       let originalGenerated: GenerateTextResult<ToolSet, never, never> | undefined
       let repaired = false
       const synthesizedOutput = async (synthesized: { result: unknown, text: string }, original?: unknown, repairResult?: unknown) => {
-        const captures = [usageCapture, repairUsageCapture, fallbackUsageCapture]
+        const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
         let usageRecord: AgentUsageRecord | undefined
         if (fallbackUsageCapture.captured) {
           const calls = [
             { capture: usageCapture, result: originalGenerated ?? original },
+            ...toolRepairUsageCaptures.map(capture => ({ capture })),
             { capture: fallbackUsageCapture, result: synthesized.result },
-            ...(repairUsageCapture.captured ? [{ capture: repairUsageCapture, result: repairResult }] : []),
+            ...repairUsageCaptures.map((capture, index) => ({
+              capture,
+              ...(index === repairUsageCaptures.length - 1 ? { result: repairResult } : {}),
+            })),
           ]
           usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
         }
@@ -1468,14 +1558,18 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
         }
       }
-      const usageRecord = repairUsageCapture.captured
+      const auxiliaryUsageCaptures = [...toolRepairUsageCaptures, ...repairUsageCaptures]
+      const usageRecord = auxiliaryUsageCaptures.some(capture => capture.captured)
         ? await combinedUsageRecord([
             { capture: usageCapture, result: originalGenerated },
-            { capture: repairUsageCapture, result: generated },
-          ], combinedCapturedUsage([usageCapture, repairUsageCapture]))
+            ...auxiliaryUsageCaptures.map((capture, index) => ({
+              capture,
+              ...(index === auxiliaryUsageCaptures.length - 1 ? { result: generated } : {}),
+            })),
+          ], combinedCapturedUsage([usageCapture, ...auxiliaryUsageCaptures]))
         : undefined
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const result = withResolvedModelMetadata(withCapturedUsage(generated, [usageCapture, repairUsageCapture]), model) as GenerateTextResult<ToolSet, never, never>
+      const result = withResolvedModelMetadata(withCapturedUsage(generated, [usageCapture, ...auxiliaryUsageCaptures]), model) as GenerateTextResult<ToolSet, never, never>
       if (usageRecord) {
         Object.defineProperty(result, "usageRecord", {
           configurable: true,

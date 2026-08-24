@@ -1158,6 +1158,7 @@ export interface AgentModelExecutionOptions<
   attachments?: AgentAttachmentExecutionOptions
   callSettings?: Record<string, unknown>
   instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
+  repairToolCall?: boolean
   stepLimit?: number
   workspaceFallback?: boolean | {
     enabled?: boolean
@@ -1264,6 +1265,7 @@ export interface AgentDefinitionCliOptions {
 }
 
 export interface AgentOutputDefinition<TOutput = unknown> {
+  maxAttempts?: number
   schema: StandardSchemaV1<unknown, TOutput>
 }
 
