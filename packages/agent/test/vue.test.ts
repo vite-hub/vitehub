@@ -1,5 +1,6 @@
 import { effectScope, nextTick, ref } from "vue"
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai"
+import { array, object, parse, string } from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { updateAgentChatStreamedParts } from "../src/internal/chat-data.ts"
@@ -284,7 +285,7 @@ describe("Agent Vue clients", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
       if (init?.method === "GET") return await reconnectResponse
       if (init?.method === "DELETE") return new Response(null, { status: 204 })
-      const body = JSON.parse(String(init?.body)) as { messages: UIMessage[] }
+      const body = parse(object({ messages: array(object({ id: string() })) }), JSON.parse(String(init?.body)))
       submittedMessageId = body.messages.at(-1)?.id
       return createUIMessageStreamResponse({
         stream: createUIMessageStream({
