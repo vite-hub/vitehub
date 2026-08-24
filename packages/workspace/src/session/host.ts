@@ -936,7 +936,7 @@ export async function createHostedWorkspaceSession(
           if (content === undefined) continue
           const target = toHostPath(root, entry.path)
           await removeHostPath(host, root, target, false)
-          await host.files.write(target, contentToBytes(content), { signal: abortSignal })
+          await host.files.write(target, contentToBytes(content))
         }
         try {
           await commitHostChanges(workspace, publicationDiff, capturedState.contents, mediaTypes, commitOptions?.message)

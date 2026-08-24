@@ -1515,6 +1515,25 @@ describe("workspace host sessions", () => {
     await expect(session.commit({ message: "too late" })).rejects.toThrow("already closed")
   })
 
+  it("finishes replacing an escaping host symlink when cancellation follows removal", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    const remove = host.files.remove.bind(host.files)
+    host.files.remove = async (path, options) => {
+      await remove(path, options)
+      if (path === "/workspace/escape") abort.abort(new Error("cleanup expired"))
+    }
+    const session = await docs.startSession({ host })
+
+    await expect(session.exec("ln", ["-s", "../../outside", "escape"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(session.commit({ abortSignal: abort.signal, message: "capture unsafe link" })).resolves.toBeUndefined()
+
+    expect(host.readText("/workspace/escape")).toBe("../../outside")
+    await expect(docs.readFile("escape")).resolves.toBe("../../outside")
+    await expect(docs.stat("escape")).resolves.toMatchObject({ metadata: undefined })
+  })
+
   it("keeps an attached escaping host symlink inert after publication and close", async () => {
     const docs = workspace()
     const host = memoryHost()
