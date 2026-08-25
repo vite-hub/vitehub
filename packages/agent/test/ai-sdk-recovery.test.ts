@@ -675,8 +675,8 @@ describe("AI SDK recovery", () => {
 
     controller.abort(new DOMException("stop", "AbortError"))
 
-    await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
     await expect(earlyUsage).resolves.toBeUndefined()
+    await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
     expect(fakeModel.pullCount).toBe(0)
   })
 

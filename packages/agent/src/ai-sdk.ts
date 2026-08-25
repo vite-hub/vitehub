@@ -2016,6 +2016,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
         finally {
           detachAbortListener()
+          resolveUsageReady()
         }
       }
       if (abortSignal?.aborted) void cancelStarted()
