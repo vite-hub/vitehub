@@ -1148,8 +1148,8 @@ function withCapturedStreamUsage<T extends {
     ...(toUIMessageStream
       ? {
           toUIMessageStream(this: typeof result, ...args: unknown[]) {
-            // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
             let reader: ReadableStreamDefaultReader<unknown> | undefined
+            // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
             const getReader = () => reader ??= toUIMessageStream.apply(this, args as never[]).getReader()
             return new ReadableStream({
               async pull(controller) {
