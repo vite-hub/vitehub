@@ -104,7 +104,7 @@ function renderAuthRouteHandler(): string {
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
   return [
-    `import { requireAuth } from ${JSON.stringify(AUTH_SERVER_ID)}`,
+    `import { requireAuthAccessRoute } from ${JSON.stringify(AUTH_SERVER_ID)}`,
     "",
     `const routes = ${routes}`,
     "",
@@ -116,15 +116,16 @@ function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | unde
     "  return pathname === pattern",
     "}",
     "",
-    "function matchesAccessRoute(event) {",
+    "function matchAccessRoute(event) {",
     "  const method = event.req.method",
     "  const pathname = event.url.pathname",
-    "  return routes.some(route => (!route.method || route.method.toUpperCase() === method) && routeMatches(route.route, pathname))",
+    "  return routes.findIndex(route => (!route.method || route.method.toUpperCase() === method) && routeMatches(route.route, pathname))",
     "}",
     "",
     "export default function viteHubAuthAccessMiddleware(event) {",
-    "  if (!matchesAccessRoute(event)) return",
-    "  return requireAuth(event)",
+    "  const routeIndex = matchAccessRoute(event)",
+    "  if (routeIndex === -1) return",
+    "  return requireAuthAccessRoute(event, routeIndex)",
     "}",
     "",
   ].join("\n")

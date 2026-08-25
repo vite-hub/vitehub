@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuth } from "../src/server.ts"
+import { handleAuthRequest, requireAuth, requireAuthAccessRoute } from "../src/server.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -120,5 +120,49 @@ describe("server authentication provider boundaries", () => {
     providerMocks.handler.mockRejectedValueOnce(providerError)
 
     await expect(handleAuthRequest(definition, request)).rejects.toBe(providerError)
+  })
+
+  it("runs route authorization with the authenticated request context", async () => {
+    let allowed = true
+    const authorize = vi.fn(({ request, session, user }) => {
+      expect(request.url).toBe("https://example.com/api/private")
+      expect(session).toEqual({ id: "session-1" })
+      expect(user).toEqual({ id: "user-1", isAdmin: true })
+      return allowed
+    })
+    const accessDefinition = defineAuth({
+      access: {
+        routes: [{ authorize, route: "/api/private" }],
+      },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1", isAdmin: true },
+    })
+
+    await expect(requireAuthAccessRoute(request, 0, accessDefinition)).resolves.toBeUndefined()
+
+    allowed = false
+    const forbidden = await requireAuthAccessRoute(request, 0, accessDefinition)
+    expect(forbidden?.status).toBe(403)
+    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+    expect(authorize).toHaveBeenCalledTimes(2)
+  })
+
+  it("passes through custom route authorization responses", async () => {
+    const denied = new Response("Admin access required", { status: 403 })
+    const accessDefinition = defineAuth({
+      access: {
+        routes: [{ authorize: () => denied, route: "/api/private" }],
+      },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1" },
+    })
+
+    await expect(requireAuthAccessRoute(request, 0, accessDefinition)).resolves.toBe(denied)
   })
 })

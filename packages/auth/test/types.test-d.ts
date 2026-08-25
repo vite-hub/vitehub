@@ -36,6 +36,15 @@ describe("types", () => {
   it("exposes the intended Auth Definition surface", () => {
     const definition = defineAuth({
       access: {
+        routes: [{
+          authorize: ({ request, session, user }) => {
+            expectTypeOf(request.url).toEqualTypeOf<string>()
+            expectTypeOf(session).toEqualTypeOf<Record<string, unknown>>()
+            expectTypeOf(user.id).toEqualTypeOf<string>()
+            return user.isAdmin === true
+          },
+          route: "/_vitehub/**",
+        }],
         signIn: {
           callbackURL: "/app",
           provider: "github",

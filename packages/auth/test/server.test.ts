@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuth, resetAuth, setAuthRuntimeEnvResolver } from "../src/server.ts"
+import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuth, requireAuthAccessRoute, resetAuth, setAuthRuntimeEnvResolver } from "../src/server.ts"
 
 describe("server auth helpers", () => {
   afterEach(() => {
@@ -242,5 +242,33 @@ describe("server auth helpers", () => {
 
     expect(response?.status).toBe(401)
     expect(await response?.json()).toEqual({ error: "Unauthorized." })
+  })
+
+  it("does not run route authorization without an Auth Session", async () => {
+    let called = false
+    const definition = defineAuth({
+      access: {
+        routes: [{
+          authorize: () => {
+            called = true
+            return true
+          },
+          route: "/_vitehub/**",
+        }],
+      },
+      appName: "ViteHub",
+    })
+
+    const response = await requireAuthAccessRoute(new Request("https://app.example.com/_vitehub/usage"), 0, definition)
+
+    expect(response?.status).toBe(401)
+    expect(called).toBe(false)
+  })
+
+  it("rejects invalid route indexes", async () => {
+    const definition = defineAuth({ appName: "ViteHub" })
+
+    await expect(requireAuthAccessRoute(new Request("https://app.example.com/app"), -1, definition))
+      .rejects.toThrow(/non-negative integer/)
   })
 })

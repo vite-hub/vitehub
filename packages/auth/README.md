@@ -92,7 +92,26 @@ export default defineAuth(({ env, requestOrigin }) => ({
 
 When `@vite-hub/env` is installed, the Auth Definition callback receives the typed server env. It also receives `requestOrigin`, so same-origin apps do not need a separate auth URL environment variable.
 
-The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect.
+The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
+
+```ts
+export default defineAuth({
+  access: {
+    routes: [
+      {
+        route: "/_vitehub/**",
+        authorize: ({ user }) => user.isAdmin === true,
+      },
+      {
+        route: "/api/_vitehub/console/**",
+        authorize: ({ user }) => user.isAdmin === true,
+      },
+    ],
+  },
+})
+```
+
+ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host.
 
 ## Vite Integration
 
@@ -108,7 +127,7 @@ export default defineAuth({
 
 Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
 
-Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `route`, and `runtime`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ method, route }` objects so the Vite Integration can register Nitro middleware.
+Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `route`, and `runtime`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
 
 ```ts
 export default defineAuth({
