@@ -56,7 +56,7 @@ function generatedRegistration(value: string, path: string): boolean {
   return value === path || value.replaceAll("\\", "/").endsWith(`/${path}`)
 }
 
-export function consoleVitePlugin(): Plugin {
+export function consoleVitePlugin(options: { preset?: string } = {}): Plugin {
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
   let root: string | undefined
@@ -73,7 +73,12 @@ export function consoleVitePlugin(): Plugin {
 
   return {
     name: "vite-hub/console",
-    async config(config) {
+    async config(config, environment) {
+      if (environment.command === "build" && options.preset && options.preset !== "node") {
+        throw new Error(
+          `[vitehub] console: true currently requires preset: "node" for production because its fallback journal uses durable local SQLite. Disable Console for the ${JSON.stringify(options.preset)} production build or deploy it with the Node preset.`,
+        )
+      }
       root = resolve(config.root || process.cwd())
       projectRoot = resolveViteHubProjectRoot(root)
       generatedPlugin = resolve(root, generatedConsolePlugin)

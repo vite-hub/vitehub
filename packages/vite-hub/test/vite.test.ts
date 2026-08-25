@@ -179,6 +179,16 @@ describe("vitehub", () => {
     ]))
   })
 
+  it("passes the deployment storage contract to the console plugin", async () => {
+    const plugin = dependencyPluginByName(
+      vitehub({ console: true, preset: "cloudflare" }),
+      "vite-hub/console",
+    )
+
+    await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
+      .rejects.toThrow('console: true currently requires preset: "node" for production')
+  })
+
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/deployment-preset",

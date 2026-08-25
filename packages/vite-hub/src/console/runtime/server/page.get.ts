@@ -23,7 +23,7 @@ export default function consolePageHandler(event: ConsoleRequestEvent): Response
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:",
+      "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",

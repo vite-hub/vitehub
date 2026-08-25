@@ -645,7 +645,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   if (options.console) {
-    plugins.push(consoleVitePlugin(), consoleInvocationRootPlugin())
+    plugins.push(consoleVitePlugin({ preset: plan.preset }), consoleInvocationRootPlugin())
   }
 
   if (options.auth) {

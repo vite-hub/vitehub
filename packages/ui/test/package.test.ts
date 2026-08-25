@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
 
@@ -16,7 +16,9 @@ function parsePackageManifest(source: string): PackageManifest {
   }
   const dependencies = stringRecord("dependencies" in value ? value.dependencies : undefined);
   const exports = unknownRecord("exports" in value ? value.exports : undefined);
-  const peerDependencies = stringRecord("peerDependencies" in value ? value.peerDependencies : undefined);
+  const peerDependencies = stringRecord(
+    "peerDependencies" in value ? value.peerDependencies : undefined,
+  );
   const peerDependenciesMeta = optionalPeerRecord(
     "peerDependenciesMeta" in value ? value.peerDependenciesMeta : undefined,
   );
@@ -33,13 +35,11 @@ function unknownRecord(value: unknown): Record<string, unknown> | undefined {
 
 function stringRecord(value: unknown): Record<string, string> | undefined {
   const record = unknownRecord(value);
-  if (!record || Object.values(record).some(entry => typeof entry !== "string")) return;
+  if (!record || Object.values(record).some((entry) => typeof entry !== "string")) return;
   return Object.fromEntries(Object.entries(record).map(([key, entry]) => [key, String(entry)]));
 }
 
-function optionalPeerRecord(
-  value: unknown,
-): Record<string, { optional?: boolean }> | undefined {
+function optionalPeerRecord(value: unknown): Record<string, { optional?: boolean }> | undefined {
   const record = unknownRecord(value);
   if (!record) return;
   const entries: Array<[string, { optional?: boolean }]> = [];
@@ -104,5 +104,14 @@ describe("@vite-hub/ui package contract", () => {
     expect(stylesheet).toMatch(/\.vh-invocation-session\s*\{[^}]*container-type: inline-size;/);
     expect(stylesheet).toContain(`@container (max-width: 600px) {\n${compactInvocationRules}\n}`);
     expect(stylesheet).toContain(`@media (max-width: 600px) {\n${compactInvocationRules}\n}`);
+  });
+
+  it("keeps the Pierre renderer behind an on-demand chunk", () => {
+    const indexUrl = new URL("../dist/index.js", import.meta.url);
+    const source = readFileSync(indexUrl, "utf8");
+    const rendererImport = source.match(/import\("\.\/(pierre-code-view-[^"]+\.js)"\)/);
+
+    expect(rendererImport?.[1]).toBeDefined();
+    expect(existsSync(new URL(`../dist/${rendererImport![1]}`, import.meta.url))).toBe(true);
   });
 });

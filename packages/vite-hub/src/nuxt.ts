@@ -219,6 +219,7 @@ async function installConsole(
     { handler: join(consoleRuntimeRoot, "server/agents.get.js"), route: "/api/_vitehub/console/agents" },
     { handler: join(consoleRuntimeRoot, "server/invocations.get.js"), route: "/api/_vitehub/console/invocations" },
     { handler: join(consoleRuntimeRoot, "server/invocation.get.js"), route: "/api/_vitehub/console/invocations/:id" },
+    { handler: join(consoleRuntimeRoot, "server/search.get.js"), route: "/api/_vitehub/console/search" },
   ]
   for (const handler of additions) {
     if (!handlers.some(candidate => candidate.route === handler.route)) handlers.push(handler)
@@ -457,6 +458,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
   if (options.console) {
+    if (!nuxt.options.dev && plan.preset !== "node") {
+      throw new Error(
+        `[vitehub] console: true currently requires preset: "node" for production because its fallback journal uses durable local SQLite. Disable Console for the ${JSON.stringify(plan.preset)} production build or deploy it with the Node preset.`,
+      )
+    }
     await installConsole(
       nuxt,
       projectRoot,

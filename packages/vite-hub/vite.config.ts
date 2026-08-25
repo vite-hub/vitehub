@@ -37,6 +37,7 @@ export default defineConfig({
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
       { from: "src/console/runtime/components/console-app.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-provider.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "../ui/styles.css", to: "dist/ui" },
@@ -58,6 +59,7 @@ export default defineConfig({
     }],
     entry: [
       ...distributionEntries,
+      "src/console/runtime/agent-route.ts",
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
@@ -68,6 +70,7 @@ export default defineConfig({
       exclude: ["bin"],
       bin: distributionBinEntries,
       customExports(exports) {
+        delete exports["./console/runtime/agent-route"]
         delete exports["./console/runtime/server/agents.get"]
         delete exports["./console/runtime/server/invocation.get"]
         delete exports["./console/runtime/server/invocations.get"]

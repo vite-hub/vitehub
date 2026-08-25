@@ -15,6 +15,9 @@ export interface ConsoleRequestEvent {
       socket?: { remoteAddress?: string }
       url?: string
     }
+    res?: {
+      setHeader(name: string, value: string): void
+    }
   }
   req?: {
     context?: { clientAddress?: string }
@@ -23,6 +26,11 @@ export interface ConsoleRequestEvent {
     method?: string
     url?: string | URL
   }
+  res?: {
+    headers?: {
+      set(name: string, value: string): void
+    }
+  }
 }
 
 function consoleRequestError(statusCode: number, statusMessage: string): Error {
@@ -30,8 +38,20 @@ function consoleRequestError(statusCode: number, statusMessage: string): Error {
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent): void {
+  setConsoleResponseHeaders(event)
   const method = event.method ?? event.req?.method ?? event.node?.req?.method
   if (method !== "GET") throw consoleRequestError(405, "Method not allowed")
+}
+
+export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
+  const headers = {
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    event.res?.headers?.set(name, value)
+    event.node?.res?.setHeader(name, value)
+  }
 }
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
