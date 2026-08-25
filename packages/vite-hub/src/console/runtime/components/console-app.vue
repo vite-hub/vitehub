@@ -10,11 +10,12 @@ import type {
   AgentInvocationListItem,
   AgentInvocationView,
 } from "@vite-hub/ui";
+import { decodeAgentRouteParam, encodeAgentRouteParam } from "../agent-route";
 
 const route = useRoute();
 const router = useRouter();
 const props = defineProps<{ agentsBase: string; apiBase: string }>();
-const initialAgentParam = Array.isArray(route.params.agent) ? route.params.agent[0] : route.params.agent;
+const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
 const agentNames = ref<string[]>([]);
@@ -84,8 +85,7 @@ const routeInvocation = computed(() => {
   return Array.isArray(value) ? value[0] : value;
 });
 const routeAgent = computed(() => {
-  const value = route.params.agent;
-  return Array.isArray(value) ? value[0] : value;
+  return decodeAgentRouteParam(route.params.agent);
 });
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
@@ -190,7 +190,7 @@ async function selectInvocation(id: string): Promise<void> {
   sessionsOpen.value = false;
   await router.push({
     name: "vitehub-console-invocation",
-    params: { agent: selectedAgentName.value, invocation: id },
+    params: { agent: encodeAgentRouteParam(selectedAgentName.value), invocation: id },
   });
 }
 
@@ -200,7 +200,7 @@ async function selectAgent(name: string): Promise<void> {
   selectedInvocationId.value = undefined;
   await router.push({
     name: "vitehub-console-agent",
-    params: { agent: name },
+    params: { agent: encodeAgentRouteParam(name) },
   });
 }
 
@@ -250,7 +250,7 @@ watch(
     if (!requestedInvocation && firstInvocation && agentName && agentRouteReady) {
       await router.replace({
         name: "vitehub-console-invocation",
-        params: { agent: agentName, invocation: firstInvocation },
+        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation },
       });
     }
   },
@@ -266,7 +266,10 @@ watch(
       : names[0];
     selectedAgentName.value = agentName;
     if (requestedAgent !== agentName) {
-      await router.replace({ name: "vitehub-console-agent", params: { agent: agentName } });
+      await router.replace({
+        name: "vitehub-console-agent",
+        params: { agent: encodeAgentRouteParam(agentName) },
+      });
     }
   },
   { immediate: true },
@@ -282,7 +285,10 @@ watch(
       invocation.agentName === agentName
     ) return;
     selectedInvocationId.value = undefined;
-    await router.replace({ name: "vitehub-console-agent", params: { agent: agentName } });
+    await router.replace({
+      name: "vitehub-console-agent",
+      params: { agent: encodeAgentRouteParam(agentName) },
+    });
   },
 );
 
