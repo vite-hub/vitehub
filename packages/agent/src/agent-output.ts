@@ -278,7 +278,9 @@ function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undef
 
 function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | undefined {
   if (!isRecord(result)) return
-  const providerMetadata = ownValue(result, "providerMetadata")
+  const providerMetadata = hasTraceableStreamResult(result)
+    ? ownValue(result, "providerMetadata")
+    : result.providerMetadata
   if (!isRecord(providerMetadata)) return
   for (const metadata of Object.values(providerMetadata)) {
     const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined

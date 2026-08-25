@@ -203,6 +203,24 @@ describe("AI SDK recovery", () => {
     expect(normalizeUiMessageStreamChunk(null)).toBeNull()
   })
 
+  it("preserves provider cost from generated result getters", async () => {
+    const finish = vi.fn()
+    const fakeModel = model(["Finished"])
+    const doGenerate = fakeModel.doGenerate.bind(fakeModel)
+    fakeModel.doGenerate = async options => ({
+      ...await doGenerate(options),
+      providerMetadata: { test: { usage: { cost: 0.1 } } },
+    })
+
+    await runAgentInline(toolCallingAgent(fakeModel, vi.fn(), undefined, finish), runtime, { prompt: "Respond" })
+
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+      }),
+    }))
+  })
+
   it("repairs structured output with three total attempts by default", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":\"repaired\"}"])
     const agent = defineAgent({
