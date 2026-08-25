@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { useCollection } from "vite-hub/source/client"
 import { computed, onBeforeUnmount, ref, watch } from "vue"
-import { useRouter } from "vue-router"
+import { useRoute, useRouter } from "vue-router"
 
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
-import { encodeAgentRouteParam } from "../agent-route"
+import { encodeAgentRouteParam, resolveAgentRouteName } from "../agent-route"
 import { requestConsole } from "../client/request"
 import { relativeDuration } from "../client/time"
 
@@ -30,6 +30,7 @@ declare global {
 }
 
 const props = defineProps<{ agentNames: string[], searchBase: string }>()
+const route = useRoute()
 const router = useRouter()
 const open = ref(false)
 const searchTerm = ref("")
@@ -94,7 +95,7 @@ function itemDescription(item: ConsoleSearchItem): string {
 async function selectAgent(name: string): Promise<void> {
   open.value = false
   await router.push({
-    name: "vitehub-console-agent",
+    name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
   })
 }
@@ -103,7 +104,7 @@ async function selectSession(item: ConsoleSearchItem): Promise<void> {
   if (!item.agentName) return
   open.value = false
   await router.push({
-    name: "vitehub-console-invocation",
+    name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(item.agentName), invocation: item.id },
   })
 }

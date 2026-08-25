@@ -1,6 +1,7 @@
 import type { AgentInvocations } from "@vite-hub/agent"
 
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
+export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 

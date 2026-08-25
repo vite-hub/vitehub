@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useHead, useRuntimeConfig } from "#imports";
+
 import ConsoleApp from "../components/console-app.vue";
 import ConsoleProvider from "../components/console-provider.vue";
 

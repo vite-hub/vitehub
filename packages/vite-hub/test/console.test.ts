@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
+import { resolveAgentRouteName } from "../src/console/runtime/agent-route.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
@@ -64,6 +65,17 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
+  it("preserves host-decorated route names across console navigation", () => {
+    expect(resolveAgentRouteName("vitehub-console-agent___en", "vitehub-console-invocation"))
+      .toBe("vitehub-console-invocation___en")
+    expect(resolveAgentRouteName("vitehub-console-invocation___da", "vitehub-console-agent"))
+      .toBe("vitehub-console-agent___da")
+    expect(resolveAgentRouteName("vitehub-console-agent", "vitehub-console-invocation"))
+      .toBe("vitehub-console-invocation")
+    expect(resolveAgentRouteName(Symbol("vitehub-console-agent"), "vitehub-console-invocation"))
+      .toBe("vitehub-console-invocation")
+  })
+
   it("serializes generated Agent registry refreshes", async () => {
     const releases: Array<() => void> = []
     const started: number[] = []
@@ -198,13 +210,45 @@ describe("Agent invocation console", () => {
   it("uses explicit Agent Definition names instead of discovered route names", async () => {
     const definition = defineAgent({ driver: { run: () => "ok" }, name: " support " })
     expect(definition.name).toBe("support")
+    expect(Object.getOwnPropertyDescriptor(definition, "invocations"))
+      .toMatchObject({ enumerable: false, get: expect.any(Function), set: expect.any(Function) })
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
     ], invocations)
 
+    expect(definition.invocations).toBe(invocations)
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+  })
+
+  it("preserves an explicitly configured Agent invocation journal", () => {
+    const explicitInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const consoleInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const definition = defineAgent({
+      driver: { run: () => "ok" },
+      invocations: explicitInvocations,
+      name: "support",
+    })
+
+    installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], consoleInvocations)
+
+    expect(definition.invocations).toBe(explicitInvocations)
+  })
+
+  it("preserves an Agent invocation journal assigned after definition", () => {
+    const explicitInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const consoleInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const definition = defineAgent({ driver: { run: () => "ok" }, name: "support" })
+    definition.invocations = explicitInvocations
+
+    installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], consoleInvocations)
+
+    expect(definition.invocations).toBe(explicitInvocations)
   })
 
   it("uses the discovered name when an explicit Agent Definition name is blank", async () => {
