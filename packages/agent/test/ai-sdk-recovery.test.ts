@@ -170,7 +170,7 @@ async function rawStreamingResult() {
   }
   const invoker = { id: "recovery-test", kind: "user" }
   // SAFETY: The fake model implements the AI SDK streaming model contract exercised by this test.
-  return await createAiSdkAdapter({ model: fakeModel as never }).stream({
+  return await createAiSdkAdapter({ model: fakeModel as never }).stream!({
     actor: invoker,
     context: { get: () => undefined },
     input: {},
