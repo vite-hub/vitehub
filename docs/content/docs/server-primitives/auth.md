@@ -174,6 +174,8 @@ export default defineAuth({
 
 The callback receives the authenticated `user`, `session`, and request. ViteHub does not define an admin role. The host maps its own role or permission model here.
 
+Read [Console](/docs/development/console#protect-both-route-groups) for its page and API routes, plus the behavior when Console is disabled.
+
 ## Storage placement metadata
 
 The `database` and `secondaryStorage` fields describe intended ViteHub primitive placement. ViteHub removes these metadata values before it calls `betterAuth()`, so they do not connect Better Auth to `@vite-hub/database` or `@vite-hub/kv`.
@@ -262,5 +264,6 @@ When a default Better Auth request or session operation fails, the boundary thro
 ## Next steps
 
 - Configure typed secrets with [Env](/docs/server-primitives/env).
+- Protect the [ViteHub Console](/docs/development/console) before enabling it in production.
 - Use [Database](/docs/server-primitives/database) and [KV](/docs/server-primitives/kv) as application primitives; Auth placement metadata does not wire them into Better Auth.
 - Learn shared identity boundaries in [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers).
