@@ -5540,8 +5540,12 @@ async function executeAgentInvocationWithCapacityLease<
       const uiMessageRendered = uiMessageMaterialization
         ? (async function* () {
             const materialization = uiMessageMaterialization
+            let observedUsageEvent: Extract<StreamEvent, { type: "usage" }> | undefined
             try {
-              for await (const event of materialization.events) yield event
+              for await (const event of materialization.events) {
+                if (event.type === "usage") observedUsageEvent = event
+                yield event
+              }
               const materialized = await materialization.result
               uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
               // SAFETY: uiMessageMaterialization is created only when structuredOutput is defined.
@@ -5555,7 +5559,8 @@ async function executeAgentInvocationWithCapacityLease<
               yield materialization.finishEvent ?? { type: "finish" }
             }
             catch (error) {
-              uiMessageStructuredUsageRecord = await resolveAgentUsageRecord(rendered, invocation.run)
+              uiMessageStructuredUsageRecord = observedUsageEvent?.usageRecord
+                ?? await resolveAgentUsageRecord(rendered, invocation.run)
                 ?? uiMessageStructuredUsageRecord
               throw error
             }
