@@ -118,7 +118,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         status TEXT NOT NULL,
         agent_name TEXT NOT NULL DEFAULT '',
         search TEXT,
-        search_version INTEGER NOT NULL DEFAULT ${searchVersion},
+        search_version INTEGER NOT NULL DEFAULT 0,
         record TEXT NOT NULL
       )`)
       const columns = await client.execute(`PRAGMA table_info(${table})`)

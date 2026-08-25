@@ -43,15 +43,16 @@ const querySchema: StandardSchemaV1<ConsoleSearchQuery, ConsoleSearchQuery> = {
       if (Object(value) !== value || Array.isArray(value)) {
         return { issues: [{ message: "Console search query must be an object." }] }
       }
-      const query = value as Record<string, unknown>
+      const query = Object(value)
       if (Reflect.ownKeys(query).some(key => key !== "search")) {
         return { issues: [{ message: "Console search only accepts a search query." }] }
       }
-      if (query.search === undefined) return { value: {} }
-      if (String(query.search) !== query.search) {
+      const rawSearch = Reflect.get(query, "search")
+      if (rawSearch === undefined) return { value: {} }
+      if (String(rawSearch) !== rawSearch) {
         return { issues: [{ message: "Console search must have one string value." }] }
       }
-      const search = query.search.trim()
+      const search = String(rawSearch).trim()
       if (search.length > 256) {
         return { issues: [{ message: "Console search must be at most 256 characters." }] }
       }
@@ -61,11 +62,11 @@ const querySchema: StandardSchemaV1<ConsoleSearchQuery, ConsoleSearchQuery> = {
 }
 
 function searchableStrings(value: unknown, values: string[], ancestors = new WeakSet<object>()): void {
-  if (typeof value === "string") {
-    values.push(value)
+  if (Object.prototype.toString.call(value) === "[object String]") {
+    values.push(String(value))
     return
   }
-  if (!value || typeof value !== "object" || ancestors.has(value)) return
+  if (!(value instanceof Object) || ancestors.has(value)) return
   ancestors.add(value)
   try {
     for (const child of Array.isArray(value) ? value : Object.values(value)) {
@@ -101,17 +102,15 @@ export const consoleSearch = defineCollection(
   async ({ cursor, limit, query, signal }): Promise<ConsoleSearchRow[]> => {
     signal?.throwIfAborted()
     const invocations = getConsoleInvocations()
-    const page = await invocations.list({
-      ...(cursor ? { cursor } : {}),
-      limit,
-      ...(query.search ? { search: query.search } : {}),
-    })
+    const listQuery: Parameters<typeof invocations.list>[0] = { limit }
+    if (cursor) listQuery.cursor = cursor
+    if (query.search) listQuery.search = query.search
+    const page = await invocations.list(listQuery)
     const rows = await Promise.all(page.invocations.map(async (summary) => {
       const record = query.search ? await invocations.get(summary.id) : undefined
-      return {
-        ...(record ? { excerpt: consoleSearchExcerpt(record, query.search) } : {}),
-        summary,
-      }
+      const row: ConsoleSearchRow = { summary }
+      if (record) row.excerpt = consoleSearchExcerpt(record, query.search)
+      return row
     }))
     signal?.throwIfAborted()
     return rows
@@ -123,14 +122,15 @@ export const consoleSearch = defineCollection(
     maxLimit: 24,
     querySchema,
     transform(row): ConsoleSearchItem {
-      return {
-        ...(row.summary.agentName ? { agentName: row.summary.agentName } : {}),
+      const item: ConsoleSearchItem = {
         context: row.summary.threadId || row.summary.origin || row.summary.channelId || row.summary.id,
-        ...(row.excerpt ? { excerpt: row.excerpt } : {}),
         id: row.summary.id,
         status: row.summary.status,
         updatedAt: row.summary.updatedAt || row.summary.startedAt || row.summary.createdAt,
       }
+      if (row.summary.agentName) item.agentName = row.summary.agentName
+      if (row.excerpt) item.excerpt = row.excerpt
+      return item
     },
   },
 )

@@ -327,6 +327,7 @@ describe("Agent invocation console", () => {
       nextCursor: null,
     })
 
+    // SAFETY: the test mounts the generated Nitro handler on the equivalent H3 route contract.
     const app = new H3().get("/search", searchHandler as never)
     const response = await app.request("/search?limit=12&search=merged%20via")
     expect(response.status).toBe(200)
