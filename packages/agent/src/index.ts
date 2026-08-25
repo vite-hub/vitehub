@@ -5602,7 +5602,9 @@ async function executeAgentInvocationWithCapacityLease<
       ? (async function* () {
           const materialization = structuredMaterialization
           try {
-            for await (const event of materialization.events) yield event
+            for await (const event of materialization.events) {
+              if (event.type !== "usage") yield event
+            }
           }
           finally {
             materialization.cancel()
