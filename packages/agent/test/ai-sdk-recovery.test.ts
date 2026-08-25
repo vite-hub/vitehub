@@ -1084,9 +1084,22 @@ describe("AI SDK recovery", () => {
     const usage = streamed.usage
     releaseFirstEvent()
 
-    await expect(firstRead).resolves.toMatchObject({ done: false })
+    const first = await firstRead
+    expect(first).toMatchObject({ done: false })
     await expect(usage).resolves.toMatchObject({ totalTokens: 2 })
-    await iterator.return?.()
+    const events = [first.value]
+    while (true) {
+      const item = await iterator.next()
+      if (item.done) break
+      events.push(item.value)
+    }
+    expect(events.map(event => (event as { type: string }).type)).toEqual([
+      "stream-start",
+      "text-start",
+      "text-delta",
+      "text-end",
+      "finish",
+    ])
   })
 
   it("settles usage after partially consuming a UI-message stream", async () => {
