@@ -472,10 +472,14 @@ async function writeEventsToUiMessageStream(
     }
     if (type === "approval-request") {
       // SAFETY: The approval-request event tag establishes the ViteHub approval wire representation.
-      const approval = event as { id?: unknown, toolCallId?: unknown }
+      const approval = event as { id?: unknown, input?: unknown, name?: unknown, toolCallId?: unknown }
+      const toolCallId = hasRuntimeType(approval.toolCallId, "string") ? approval.toolCallId : approval.id
+      if (!hasRuntimeType(approval.toolCallId, "string")) {
+        writer.write({ type: "tool-input-available", toolCallId, toolName: approval.name, input: approval.input })
+      }
       writer.write({
         approvalId: approval.id,
-        toolCallId: hasRuntimeType(approval.toolCallId, "string") ? approval.toolCallId : approval.id,
+        toolCallId,
         type: "tool-approval-request",
       })
       continue

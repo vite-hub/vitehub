@@ -1636,15 +1636,29 @@ describe("Provider Agent Driver", () => {
   it("preserves approval requests in normalized UI streams", async () => {
     const events = (async function* () {
       yield { id: "approval-1", name: "workspace_write", toolCallId: "call-1", type: "approval-request" }
+      yield { id: "approval-2", input: { path: "README.md" }, name: "workspace_write", type: "approval-request" }
       yield { type: "finish" }
     })()
     const output = await finalizeUiMessageStreamOutput(events, true, () => undefined)
 
-    await expect(collect(output.value)).resolves.toContainEqual({
-      approvalId: "approval-1",
-      toolCallId: "call-1",
-      type: "tool-approval-request",
-    })
+    await expect(collect(output.value)).resolves.toEqual(expect.arrayContaining([
+      {
+        approvalId: "approval-1",
+        toolCallId: "call-1",
+        type: "tool-approval-request",
+      },
+      {
+        input: { path: "README.md" },
+        toolCallId: "approval-2",
+        toolName: "workspace_write",
+        type: "tool-input-available",
+      },
+      {
+        approvalId: "approval-2",
+        toolCallId: "approval-2",
+        type: "tool-approval-request",
+      },
+    ]))
   })
 
   it("cancels when the provider emits no terminal event", async () => {
