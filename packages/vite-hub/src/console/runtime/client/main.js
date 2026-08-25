@@ -16,7 +16,25 @@ const router = createRouter({
     {
       component: ConsoleApp,
       name: "vitehub-console-agents",
-      path: "/agents/:invocation?",
+      path: "/agents",
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        apiBase: "/api/_vitehub/console/invocations",
+      },
+    },
+    {
+      component: ConsoleApp,
+      name: "vitehub-console-agent",
+      path: "/agents/:agent",
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        apiBase: "/api/_vitehub/console/invocations",
+      },
+    },
+    {
+      component: ConsoleApp,
+      name: "vitehub-console-invocation",
+      path: "/agents/:agent/invocations/:invocation",
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
