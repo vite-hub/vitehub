@@ -338,6 +338,36 @@ describe("Agent structured output", () => {
     }))
   })
 
+  it("preserves observed usage when structured stream validation fails", async () => {
+    const agent = defineAgent({
+      driver: {
+        output: { schema: summarySchema() },
+        run: async function* () {
+          yield { text: "{\"title\":42}", type: "text-delta" as const }
+          yield { type: "usage" as const, usageRecord: { usage: { totalTokens: 3 } } }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime(), {})
+    const events: unknown[] = []
+    const error = await (async () => {
+      try {
+        for await (const event of result as AsyncIterable<unknown>) events.push(event)
+      }
+      catch (cause) {
+        return viteHubError(cause)
+      }
+    })()
+
+    expect(events).toEqual([
+      { text: "{\"title\":42}", type: "text-delta" },
+      { type: "usage", usageRecord: { usage: { totalTokens: 3 } } },
+    ])
+    expect(error).toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+  })
+
   it("preserves structured UI-message stream usage through the finish lifecycle", async () => {
     const finish = vi.fn()
     const agent = defineAgent({

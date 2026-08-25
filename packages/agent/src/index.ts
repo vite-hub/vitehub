@@ -5601,22 +5601,29 @@ async function executeAgentInvocationWithCapacityLease<
     const stream = structuredMaterialization
       ? (async function* () {
           const materialization = structuredMaterialization
+          let observedUsageEvent: Extract<StreamEvent, { type: "usage" }> | undefined
           try {
             for await (const event of materialization.events) {
-              if (event.type !== "usage") yield event
+              if (event.type === "usage") observedUsageEvent = event
+              else yield event
             }
+            const materialized = await materialization.result
+            structuredUsageRecord = usageRecordFromStreamChunk(materialized)
+              ?? observedUsageEvent?.usageRecord
+              ?? await resolveAgentUsageRecord(streamResult, invocation.run)
+            // SAFETY: structuredMaterialization is created only when structuredOutput is defined.
+            structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized)
+            if (structuredUsageRecord) yield { type: "usage", usageRecord: structuredUsageRecord }
+            yield { data: structuredFinishResult, type: "data" }
+            yield { type: "finish" }
+          }
+          catch (error) {
+            if (observedUsageEvent) yield observedUsageEvent
+            throw error
           }
           finally {
             materialization.cancel()
           }
-          const materialized = await materialization.result
-          structuredUsageRecord = usageRecordFromStreamChunk(materialized)
-            ?? await resolveAgentUsageRecord(streamResult, invocation.run)
-          // SAFETY: structuredMaterialization is created only when structuredOutput is defined.
-          structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized)
-          if (structuredUsageRecord) yield { type: "usage", usageRecord: structuredUsageRecord }
-          yield { data: structuredFinishResult, type: "data" }
-          yield { type: "finish" }
         })()
       : isStreamResult
         ? streamAgentOutputToEvents(streamResult)
