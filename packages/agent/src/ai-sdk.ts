@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
@@ -928,14 +928,24 @@ function createUsageCapture() {
   const published = new Promise<void>((resolve) => { publish = resolve })
   const completed = new Promise<void>((resolve) => { complete = resolve })
 
+  const hasProviderCost = (value: unknown) => {
+    const providerMetadata = recordFrom(value)
+    return providerMetadata !== undefined && Object.values(providerMetadata).some((metadata) => {
+      const cost = recordFrom(recordFrom(metadata)?.usage)?.cost
+      return hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0
+    })
+  }
+
   const capture = (event: unknown) => {
-    const record = isRuntimeRecord(event) ? event : undefined
-    const usage = record?.usage ?? record?.totalUsage
+    const record = recordFrom(event)
+    if (!record) return
+    const usage = record.usage ?? record.totalUsage
     if (usage === undefined) return
     capturedUsage = usage
-    const hasProviderMetadata = hasRuntimeType(record?.providerMetadata, "object") && record.providerMetadata !== null
-    // Keep the metadata-rich finish event when later lifecycle callbacks repeat only numeric usage.
-    if (metadataSource === undefined || hasProviderMetadata) metadataSource = event
+    // Keep cost-bearing provider metadata when later lifecycle callbacks repeat only usage.
+    if (metadataSource === undefined || (!hasProviderCost(recordFrom(metadataSource)?.providerMetadata) && hasProviderCost(record.providerMetadata))) {
+      metadataSource = event
+    }
     captured = true
     publish()
   }
