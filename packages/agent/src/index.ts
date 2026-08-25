@@ -5558,8 +5558,8 @@ async function executeAgentInvocationWithCapacityLease<
               yield materialization.finishEvent ?? { type: "finish" }
             }
             catch (error) {
-              uiMessageStructuredUsageRecord = observedUsageEvent?.usageRecord
-                ?? usageRecordFromStreamChunk(enrichedRendered)
+              uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(enrichedRendered)
+                ?? observedUsageEvent?.usageRecord
                 ?? usageRecordFromStreamChunk(rendered)
                 ?? uiMessageStructuredUsageRecord
               throw error
