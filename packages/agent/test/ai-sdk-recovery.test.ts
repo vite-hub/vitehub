@@ -253,8 +253,9 @@ describe("AI SDK recovery", () => {
     const earlyUsage = (result as { usage: Promise<unknown> }).usage
     const events: unknown[] = []
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    const iterable = result as AsyncIterable<unknown>
     const consumption = (async () => {
-      for await (const event of result as AsyncIterable<unknown>) events.push(event)
+      for await (const event of iterable) events.push(event)
     })()
     await vi.waitFor(() => expect(fakeModel.calls).toHaveLength(1))
     let usageSettled = false
@@ -555,6 +556,37 @@ describe("AI SDK recovery", () => {
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.calls).toHaveLength(3)
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
+  })
+
+  it("keeps final-result metadata off tool-call repair usage", async () => {
+    const finish = vi.fn()
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "{\"query\":\"fixed\"}",
+      "Finished",
+    ])
+    const doGenerate = fakeModel.doGenerate.bind(fakeModel)
+    fakeModel.doGenerate = async (options) => {
+      const result = await doGenerate(options)
+      return {
+        ...result,
+        providerMetadata: { test: { usage: { cost: fakeModel.calls.length / 10 } } },
+      }
+    }
+
+    await runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, finish), runtime, { prompt: "Search" })
+
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: expect.arrayContaining([
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.3" }) }),
+          ]),
+          cost: expect.objectContaining({ usd: "0.5" }),
+        }),
+      }),
+    }))
   })
 
   it("does not apply final-output instructions to tool-call repair", async () => {

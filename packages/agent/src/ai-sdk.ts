@@ -1817,9 +1817,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const usageRecord = auxiliaryUsageCaptures.some(capture => capture.captured)
         ? await combinedUsageRecord([
             { capture: usageCapture, result: originalGenerated },
-            ...auxiliaryUsageCaptures.map((capture, index) => ({
+            ...toolRepairUsageCaptures.map(capture => ({ capture })),
+            ...repairUsageCaptures.map((capture, index) => ({
               capture,
-              ...(index === auxiliaryUsageCaptures.length - 1 ? { result: generated } : {}),
+              ...(index === repairUsageCaptures.length - 1 ? { result: generated } : {}),
             })),
           ], combinedCapturedUsage([usageCapture, ...auxiliaryUsageCaptures]))
         : undefined
