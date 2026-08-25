@@ -792,7 +792,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
     return cloneStreamTextResult(result as object, {
       ...(wrappedStream ? { stream: wrappedStream } : {}),
       ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
-    }) as T
+    }, false) as T
   }
   if (isAsyncIterable(result)) {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1871,6 +1871,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
       let started: Promise<StreamTextResult<ToolSet, never, never>> | undefined
+      // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
       const start = () => started ??= Promise.resolve(agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
@@ -1891,6 +1892,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           const stream = (await start())[property]
           reader = stream instanceof ReadableStream
             ? stream.getReader()
+            // SAFETY: StreamTextResult exposes these properties as ReadableStream or AsyncIterable values.
             : ReadableStream.from(stream as AsyncIterable<unknown>).getReader()
           return reader
         }
@@ -1906,7 +1908,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }, { highWaterMark: 0 })
       }
       // SAFETY: The lazy facade implements the StreamTextResult members consumed by the adapter.
-      const result = {
+      const result = asUnknownBoundary({
         fullStream: lazyStream("fullStream"),
         stream: lazyStream("stream"),
         get textStream() {
@@ -1920,8 +1922,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         },
         toUIMessageStream(...args: unknown[]) {
           let reader: ReadableStreamDefaultReader<unknown> | undefined
-          return new ReadableStream({
+          return new ReadableStream<unknown>({
             async pull(controller) {
+              // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
               reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
               const item = await reader.read()
               if (item.done) controller.close()
@@ -1932,7 +1935,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             },
           }, { highWaterMark: 0 })
         },
-      } as StreamTextResult<ToolSet, never, never>
+      }) as StreamTextResult<ToolSet, never, never>
       const cancelStarted = async () => {
         const streamed = await start()
         const candidates = [streamed.stream, streamed.fullStream]
