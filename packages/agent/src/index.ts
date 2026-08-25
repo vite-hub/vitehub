@@ -5485,7 +5485,7 @@ async function executeAgentInvocationWithCapacityLease<
               if ("get" in descriptor) continue
               const candidate = descriptor.value
               if (!isAsyncIterable(candidate)) continue
-              uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? cancellableAsyncIterableSource(candidate))
+              uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? cancellableAsyncIterableSource(candidate, { deferReader: true }))
             }
           }
           catch (error) {

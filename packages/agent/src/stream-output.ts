@@ -90,6 +90,7 @@ export function createAgentUIMessageStream(options: {
         .catch((error) => {
           try {
             controller.enqueue({
+              error,
               errorText: error instanceof Error ? error.message : "Agent stream failed.",
               type: "error",
             })
@@ -133,7 +134,7 @@ export function createAgentUIMessageStreamResponse(options: {
   })
 }
 
-export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
+export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>, options: { deferReader?: boolean } = {}): {
   cancel: (reason?: unknown) => Promise<void>
   stream: AsyncIterable<unknown>
 } {
@@ -165,6 +166,7 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
       : stream[Symbol.asyncIterator]()
     return iterator
   }
+  if (!options.deferReader) getIterator()
   let cancelTask: Promise<void> | undefined
   let completed = false
   const cancel = async (reason?: unknown) => {

@@ -1890,7 +1890,7 @@ describe("Agent Driver capacity", () => {
 
   it("does not lock a readable source until its wrapper is consumed", async () => {
     const source = new ReadableStream({})
-    const cancellable = cancellableAsyncIterableSource(source)
+    const cancellable = cancellableAsyncIterableSource(source, { deferReader: true })
 
     const reader = source.getReader()
     reader.releaseLock()
