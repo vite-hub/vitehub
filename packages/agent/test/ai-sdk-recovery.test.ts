@@ -491,6 +491,62 @@ describe("AI SDK recovery", () => {
     })
   })
 
+  it("reports all completed usage when UI-message structured-output repair fails", async () => {
+    const fakeModel = model(["{\"text\":2}", "{\"text\":3}"])
+    const doGenerate = fakeModel.doGenerate.bind(fakeModel)
+    fakeModel.doGenerate = async options => ({
+      ...await doGenerate(options),
+      providerMetadata: { test: { usage: { cost: 0.2 } } },
+    })
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: "{\"text\":1}", id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            providerMetadata: { test: { usage: { cost: 0.1 } } },
+            type: "finish",
+            usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: outputSchema },
+      },
+      hooks: { "agent:finish": finish },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" }, { output: "ui-message-stream" })
+    await expect(async () => {
+      // SAFETY: UI-message stream output implements the documented async iterable result contract.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+    }).rejects.toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: [
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          ],
+          cost: expect.objectContaining({ usd: "0.5" }),
+          usage: expect.objectContaining({ totalTokens: 6 }),
+        }),
+      }),
+    }))
+  })
+
   it("repairs streamed output when native object output is unavailable", async () => {
     const fakeModel = model(['"repaired"'])
     const doStream = vi.fn(async () => ({

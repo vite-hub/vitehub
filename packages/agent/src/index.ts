@@ -5540,18 +5540,25 @@ async function executeAgentInvocationWithCapacityLease<
       const uiMessageRendered = uiMessageMaterialization
         ? (async function* () {
             const materialization = uiMessageMaterialization
-            for await (const event of materialization.events) yield event
-            const materialized = await materialization.result
-            uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
-            // SAFETY: uiMessageMaterialization is created only when structuredOutput is defined.
-            uiMessageFinishResult = await validateAgentOutput(structuredOutput!, materialized)
-            const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
-              // SAFETY: The runtime type check above proves this property is a string.
-              ? Reflect.get(uiMessageFinishResult, "text") as string
-              : undefined
-            if (text) yield { text, type: "text-delta" }
-            yield { data: uiMessageFinishResult, type: "data" }
-            yield materialization.finishEvent ?? { type: "finish" }
+            try {
+              for await (const event of materialization.events) yield event
+              const materialized = await materialization.result
+              uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
+              // SAFETY: uiMessageMaterialization is created only when structuredOutput is defined.
+              uiMessageFinishResult = await validateAgentOutput(structuredOutput!, materialized)
+              const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
+                // SAFETY: The runtime type check above proves this property is a string.
+                ? Reflect.get(uiMessageFinishResult, "text") as string
+                : undefined
+              if (text) yield { text, type: "text-delta" }
+              yield { data: uiMessageFinishResult, type: "data" }
+              yield materialization.finishEvent ?? { type: "finish" }
+            }
+            catch (error) {
+              uiMessageStructuredUsageRecord = await resolveAgentUsageRecord(rendered, invocation.run)
+                ?? uiMessageStructuredUsageRecord
+              throw error
+            }
           })()
         : enrichedRendered
       if (uiMessageMaterialization && hasRuntimeType(uiMessageRendered, "object")) {
