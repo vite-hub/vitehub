@@ -1800,6 +1800,32 @@ describe("Agent Invocations", () => {
       await expect(store.list({ search: "fresh observation-only" })).resolves.toEqual({ invocations: [] })
       await expect(createLibsqlAgentInvocationStore({ client }).list({ search: "fresh observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
+
+      await store.update("fresh-overlapping-legacy-writer", {
+        status: "running",
+        timestamp: "2026-01-01T00:01:00.000Z",
+      })
+      await client.execute({
+        args: ["review completed", JSON.stringify({
+          agentName: "review",
+          annotations: { writer: "legacy" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "fresh-overlapping-legacy-writer",
+          observations: [{
+            attributes: { result: "updated observation-only text" },
+            name: "legacy",
+            timestamp: "2026-01-01T00:02:00.000Z",
+            type: "run",
+          }],
+          status: "completed",
+          traceId: "fresh-overlapping-legacy-trace",
+          updatedAt: "2026-01-01T00:02:00.000Z",
+        }), "fresh-overlapping-legacy-writer"],
+        sql: "UPDATE vitehub_agent_invocations SET search = ?, record = ? WHERE id = ?",
+      })
+      await expect(store.list({ search: "updated observation-only" })).resolves.toEqual({ invocations: [] })
+      await expect(createLibsqlAgentInvocationStore({ client }).list({ search: "updated observation-only" }))
+        .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
     }
     finally {
       client.close()

@@ -149,6 +149,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           if (!currentColumns.rows.some(row => row.name === "search_version")) throw error
         }
       }
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
+        AFTER UPDATE OF search, record ON ${table}
+        WHEN NEW.search_version = OLD.search_version
+        BEGIN
+          UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
+        END`)
       let backfillSequence = 0
       while (true) {
         const missingSearch = await client.execute({
@@ -315,6 +321,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           }
           const updated = applyAgentInvocationStoreUpdate(record, input)
           const stored = storedRecord(updated)
+          await transaction.execute({
+            args: [id],
+            sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
+          })
           await transaction.execute({
             args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, serialize(stored), id],
             sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
