@@ -1,11 +1,19 @@
-import { defineComponent, h } from "vue";
-import {
-  PierreCodeView,
-  PierreDiff,
-  PierreFile,
-  PierreUnresolvedFile,
-  pierrePropTypes,
-} from "../internal/pierre-code-view.ts";
+import { defineAsyncComponent, defineComponent, h } from "vue";
+import { pierrePropTypes } from "../internal/pierre-props.ts";
+
+// Keep syntax highlighting and diff rendering out of hosts that do not display code yet.
+const PierreCodeView = defineAsyncComponent(() =>
+  import("../internal/pierre-code-view.ts").then((module) => module.PierreCodeView),
+);
+const PierreDiff = defineAsyncComponent(() =>
+  import("../internal/pierre-code-view.ts").then((module) => module.PierreDiff),
+);
+const PierreFile = defineAsyncComponent(() =>
+  import("../internal/pierre-code-view.ts").then((module) => module.PierreFile),
+);
+const PierreUnresolvedFile = defineAsyncComponent(() =>
+  import("../internal/pierre-code-view.ts").then((module) => module.PierreUnresolvedFile),
+);
 
 const diffProps = {
   lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },

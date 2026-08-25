@@ -351,7 +351,7 @@
 }
 
 .vh-invocation-list__context {
-  color: var(--vh-ui-muted);
+  color: color-mix(in oklab, var(--vh-ui-muted) 88%, var(--vh-ui-text));
   gap: 0.4rem;
 }
 
@@ -380,14 +380,14 @@
 }
 
 .vh-invocation-list__state {
-  color: var(--vh-ui-muted);
+  color: color-mix(in oklab, var(--vh-ui-muted) 88%, var(--vh-ui-text));
   flex: none;
   font-size: 0.6875rem;
   gap: 0.3rem;
 }
 
 .vh-invocation-list__state time {
-  color: var(--vh-ui-dimmed);
+  color: color-mix(in oklab, currentColor 82%, var(--vh-ui-text));
 }
 
 .vh-invocation-list__state-icon svg {
@@ -398,7 +398,7 @@
 }
 
 .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state {
-  color: var(--ui-info, #0284c7);
+  color: color-mix(in oklab, var(--vh-ui-info) 42%, var(--vh-ui-text));
 }
 
 .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state-icon svg {
@@ -412,12 +412,12 @@
 }
 
 .vh-invocation-list__item[data-status="completed"] .vh-invocation-list__state {
-  color: var(--ui-success, #15803d);
+  color: color-mix(in oklab, var(--vh-ui-success) 42%, var(--vh-ui-text));
 }
 
 .vh-invocation-list__item[data-status="failed"] .vh-invocation-list__state,
 .vh-invocation-list__item[data-status="failed"] .vh-invocation-list__description {
-  color: var(--vh-ui-error);
+  color: color-mix(in oklab, var(--vh-ui-error) 42%, var(--vh-ui-text));
 }
 
 .vh-invocation-list__title {
@@ -430,7 +430,7 @@
 }
 
 .vh-invocation-list__meta {
-  color: var(--vh-ui-dimmed);
+  color: color-mix(in oklab, var(--vh-ui-muted) 88%, var(--vh-ui-text));
   font-size: 0.6875rem;
   gap: 0.5rem;
 }
@@ -1289,7 +1289,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status {
-  color: var(--ui-info, #0284c7);
+  color: color-mix(in oklab, var(--vh-ui-info) 42%, var(--vh-ui-text));
 }
 
 .vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status-icon svg {
@@ -1297,15 +1297,15 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector[data-status="completed"] .vh-invocation-inspector__status {
-  color: var(--ui-success, #15803d);
+  color: color-mix(in oklab, var(--vh-ui-success) 42%, var(--vh-ui-text));
 }
 
 .vh-invocation-inspector[data-status="failed"] .vh-invocation-inspector__status {
-  color: var(--vh-ui-error);
+  color: color-mix(in oklab, var(--vh-ui-error) 42%, var(--vh-ui-text));
 }
 
 .vh-invocation-inspector[data-status="pending"] .vh-invocation-inspector__status {
-  color: var(--ui-warning, #a16207);
+  color: color-mix(in oklab, var(--vh-ui-warning) 42%, var(--vh-ui-text));
 }
 
 .vh-invocation-inspector__identity h4 {

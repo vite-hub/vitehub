@@ -235,12 +235,14 @@ export default defineNuxtConfig({
   vitehub: {
     agent: true,
     console: true,
-    preset: 'cloudflare',
+    preset: 'node',
   },
 })
 ```
 
-Open `/_vitehub` to inspect Agent sessions and trace observations. ViteHub includes the console in development and production builds and stores its fallback journal in `.vitehub/data/console.sqlite`.
+Open `/_vitehub` to inspect Agent sessions and trace observations. With the Node preset, ViteHub includes the console in development and production builds and stores its fallback journal in `.vitehub/data/console.sqlite`.
+
+Production Console builds currently require the Node preset because the fallback journal needs a durable local filesystem. Other presets can use the Console during development, but must disable it for production until a host-owned durable Agent Invocation store is configured.
 
 The console does not add authorization. `console: true` exposes its read-only page and API through the application host, including production ingress. Protect `/_vitehub` and `/api/_vitehub/console/**` at the host boundary when invocation metadata must remain private.
 

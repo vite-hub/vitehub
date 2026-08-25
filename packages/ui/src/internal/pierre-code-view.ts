@@ -6,55 +6,20 @@ import {
   getSingularPatch,
   parseDiffFromFile,
   UnresolvedFile as PierreUnresolvedFileModel,
-  type CodeViewItem,
-  type CodeViewLineSelection,
-  type CodeViewOptions,
-  type DiffLineAnnotation,
   type FileContents,
   type FileDiffMetadata,
   type FileDiffOptions,
-  type FileOptions,
-  type LineAnnotation,
-  type SelectedLineRange,
-  type UnresolvedFileOptions,
 } from "@pierre/diffs";
 import {
   computed,
   defineComponent,
   h,
   onBeforeUnmount,
-  type PropType,
   toRaw,
   type VNodeRef,
   watchEffect,
 } from "vue";
-
-export const pierrePropTypes = {
-  // SAFETY: Vue validates the array container; Pierre validates each item while rendering.
-  codeViewItems: Array as PropType<readonly CodeViewItem<unknown>[]>,
-  // SAFETY: Vue validates the object container; Pierre owns the options schema.
-  codeViewOptions: Object as PropType<CodeViewOptions<unknown>>,
-  // SAFETY: Vue validates the object container; Pierre owns the selection schema.
-  codeViewSelection: Object as PropType<CodeViewLineSelection | null | undefined>,
-  // SAFETY: Vue validates the array container; Pierre owns the annotation schema.
-  diffLineAnnotations: Array as PropType<DiffLineAnnotation<unknown>[]>,
-  // SAFETY: Vue validates the object container; Pierre owns the file schema.
-  fileContents: Object as PropType<FileContents>,
-  // SAFETY: Vue validates the object container; Pierre owns the parsed diff schema.
-  fileDiff: Object as PropType<FileDiffMetadata>,
-  // SAFETY: Vue validates the object container; Pierre owns the options schema.
-  fileDiffOptions: Object as PropType<FileDiffOptions<unknown>>,
-  // SAFETY: Vue validates the object container; Pierre owns the options schema.
-  fileOptions: Object as PropType<FileOptions<unknown>>,
-  // SAFETY: Vue validates the array container; Pierre owns the annotation schema.
-  lineAnnotations: Array as PropType<LineAnnotation<unknown>[]>,
-  // SAFETY: Vue accepts an object or null; Pierre owns the file schema.
-  nullableFileContents: [Object, null] as PropType<FileContents | null>,
-  // SAFETY: Vue validates the object container; Pierre owns the selection schema.
-  selectedLines: Object as PropType<SelectedLineRange | null | undefined>,
-  // SAFETY: Vue validates the object container; Pierre owns the options schema.
-  unresolvedFileOptions: Object as PropType<UnresolvedFileOptions<unknown>>,
-};
+import { pierrePropTypes } from "./pierre-props.ts";
 
 const selectedLinesProp = {
   default: undefined,
@@ -69,10 +34,9 @@ function controlledOptions<T extends { controlledSelection?: boolean }>(
   return selectedLines === undefined ? rawOptions : { ...rawOptions, controlledSelection: true };
 }
 
-function accessibleOptions<T extends { controlledSelection?: boolean; enableLineSelection?: boolean }>(
-  options: T | undefined,
-  selectedLines: unknown,
-) {
+function accessibleOptions<
+  T extends { controlledSelection?: boolean; enableLineSelection?: boolean },
+>(options: T | undefined, selectedLines: unknown) {
   return {
     ...controlledOptions(options, selectedLines),
     enableLineSelection: false,
@@ -157,7 +121,8 @@ export const PierreDiff = defineComponent({
         forceRender: true,
         lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
       });
-      if (props.selectedLines !== undefined) instance.setSelectedLines(trackShallow(props.selectedLines));
+      if (props.selectedLines !== undefined)
+        instance.setSelectedLines(trackShallow(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -198,7 +163,8 @@ export const PierreFile = defineComponent({
         forceRender: true,
         lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
       });
-      if (props.selectedLines !== undefined) instance.setSelectedLines(trackShallow(props.selectedLines));
+      if (props.selectedLines !== undefined)
+        instance.setSelectedLines(trackShallow(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
@@ -246,7 +212,8 @@ export const PierreUnresolvedFile = defineComponent({
         lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
       });
       renderedFile = file.value;
-      if (props.selectedLines !== undefined) instance.setSelectedLines(trackShallow(props.selectedLines));
+      if (props.selectedLines !== undefined)
+        instance.setSelectedLines(trackShallow(props.selectedLines));
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;

@@ -16,6 +16,7 @@ import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
+import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandler from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
@@ -121,6 +122,37 @@ describe("Agent invocation console", () => {
         `fallbackName: "review"`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`from "file://`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects production console builds without durable local storage", async () => {
+    const plugin = consoleVitePlugin({ preset: "cloudflare" })
+    const configHook = plugin.config
+    if (!configHook) throw new TypeError("Expected a console config hook.")
+    const configHandler = "handler" in configHook ? configHook.handler : configHook
+
+    await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
+      command: "build",
+      mode: "production",
+    }])).rejects.toThrow('console: true currently requires preset: "node" for production')
+  })
+
+  it("keeps the local console available during development for every preset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-dev-host-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ preset: "cloudflare" })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
+
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub" }))
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -629,6 +661,31 @@ describe("Agent invocation console", () => {
   it("accepts public read-only requests", () => {
     expect(() => assertConsoleRequest(event("203.0.113.2"))).not.toThrow()
     expect(() => assertConsoleRequest(event(undefined))).not.toThrow()
+  })
+
+  it("marks every console API response as non-cacheable", () => {
+    const responseHeaders = new Map<string, string>()
+    const requestEvent = event("127.0.0.1")
+    requestEvent.node!.res = {
+      setHeader: (name, value) => responseHeaders.set(name, value),
+    }
+
+    assertConsoleRequest(requestEvent)
+
+    expect(responseHeaders).toEqual(new Map([
+      ["cache-control", "no-store"],
+      ["x-content-type-options", "nosniff"],
+    ]))
+  })
+
+  it("serves the standalone shell with a restrictive non-cacheable policy", () => {
+    const response = consolePageHandler(event("127.0.0.1"))
+
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+    expect(response.headers.get("content-security-policy")).toContain("base-uri 'none'")
+    expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
   })
 
   it("rejects non-GET console requests", () => {

@@ -318,6 +318,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
+        { route: "/api/_vitehub/console/search" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
@@ -351,6 +352,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
+        { route: "/api/_vitehub/console/search" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
@@ -358,6 +360,19 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
+  })
+
+  it("rejects non-Node production console storage while preserving development", async () => {
+    const development = createNuxt(true)
+    await expect(viteHubNuxtModule({ console: true, preset: "cloudflare" }, development.nuxt))
+      .resolves.toBeUndefined()
+    expect(development.nuxt.options.nitro?.handlers).toContainEqual(
+      expect.objectContaining({ route: "/api/_vitehub/console/search" }),
+    )
+
+    const production = createNuxt(false)
+    await expect(viteHubNuxtModule({ console: true, preset: "cloudflare" }, production.nuxt))
+      .rejects.toThrow('console: true currently requires preset: "node" for production')
   })
 
   it("does not reinstall a configured ViteHub UI module for the console", async () => {

@@ -23,6 +23,7 @@ const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
+const agentsError = ref<unknown>();
 const paginationRetryRevision = ref(0);
 const lastSuccessfulPollAt = ref<Date>();
 const nowMs = ref(Date.now());
@@ -30,25 +31,32 @@ const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
 const isDesktop = ref(false);
+const pageVisible = ref(typeof document !== "undefined" && document.visibilityState !== "hidden");
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 const recordSuccessfulPoll = () => {
   lastSuccessfulPollAt.value = new Date();
 };
+const listPollInterval = computed(() => pageVisible.value ? 5_000 : false);
+const detailPollInterval = computed(() =>
+  pageVisible.value && selectedInvocationId.value ? 3_000 : false,
+);
 
 const list = useAgentInvocations({
   baseURL: props.apiBase,
+  immediate: pageVisible.value,
   onSuccess: recordSuccessfulPoll,
-  pollInterval: 5_000,
+  pollInterval: listPollInterval,
   request: requestConsole,
   requestSummaries: requestConsole,
-  query: computed(() => selectedAgentName.value ? { agent: selectedAgentName.value } : undefined),
+  query: computed(() => selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
+  immediate: pageVisible.value,
   onSuccess: recordSuccessfulPoll,
-  pollInterval: 3_000,
+  pollInterval: detailPollInterval,
   request: requestConsole,
 });
 
@@ -177,11 +185,16 @@ function errorMessage(error: unknown): string | undefined {
       : undefined;
 }
 
-async function selectInvocation(id: string): Promise<void> {
+async function selectInvocation(
+  invocation: Pick<AgentInvocationListItem, "agent" | "id">,
+): Promise<void> {
+  const agentName = invocation.agent?.trim() || selectedAgentName.value;
+  if (!agentName) return;
   sessionsOpen.value = false;
+  selectedAgentName.value = agentName;
   await router.push({
     name: "vitehub-console-invocation",
-    params: { agent: encodeAgentRouteParam(selectedAgentName.value), invocation: id },
+    params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
   });
 }
 
@@ -206,9 +219,13 @@ async function loadAgents(): Promise<void> {
     const names = Array.isArray(value?.agents)
       ? value.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
       : [];
-    if (agentsRequest === controller) agentNames.value = [...new Set(names)];
+    if (agentsRequest === controller) {
+      agentNames.value = [...new Set(names)];
+      agentsError.value = undefined;
+    }
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return;
+    if (error instanceof Object && "name" in error && error.name === "AbortError") return;
+    if (agentsRequest === controller) agentsError.value = error;
   } finally {
     if (agentsRequest === controller) {
       agentsRequest = undefined;
@@ -231,6 +248,23 @@ function retryPagination(): void {
 
 function updateDesktop(event?: MediaQueryListEvent): void {
   isDesktop.value = event?.matches ?? media?.matches ?? false;
+}
+
+function syncClock(): void {
+  if (clock) clearInterval(clock);
+  clock = undefined;
+  if (!pageVisible.value) return;
+  nowMs.value = Date.now();
+  clock = setInterval(() => {
+    nowMs.value = Date.now();
+  }, 1_000);
+}
+
+function updatePageVisibility(): void {
+  const wasVisible = pageVisible.value;
+  pageVisible.value = document.visibilityState !== "hidden";
+  syncClock();
+  if (!wasVisible && pageVisible.value) void refresh();
 }
 
 watch(
@@ -284,24 +318,25 @@ watch(
 );
 
 onMounted(() => {
-  void loadAgents();
   media = window.matchMedia("(min-width: 1024px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
-  clock = setInterval(() => {
-    nowMs.value = Date.now();
-  }, 1_000);
+  document.addEventListener("visibilitychange", updatePageVisibility);
+  updatePageVisibility();
+  if (pageVisible.value) void loadAgents();
 });
 
 onBeforeUnmount(() => {
   agentsRequest?.abort();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
+  document.removeEventListener("visibilitychange", updatePageVisibility);
 });
 </script>
 
 <template>
-  <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-agent-console">
+  <UApp :toaster="null">
+    <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-agent-console">
     <UDashboardSidebar
       id="agent-sessions"
       v-model:open="sessionsOpen"
@@ -318,6 +353,7 @@ onBeforeUnmount(() => {
       <template #header="{ collapsed }">
         <UDropdownMenu
           :items="agentMenuItems"
+          :disabled="!hasMultipleAgents"
           :content="{ align: 'start', collisionPadding: 12 }"
           :ui="{ content: collapsed ? 'w-44' : 'w-(--reka-dropdown-menu-trigger-width)' }"
         >
@@ -360,7 +396,17 @@ onBeforeUnmount(() => {
             >
             <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Sessions</h1>
           </div>
-          <span class="text-xs text-dimmed">{{ invocationItems.length }}</span>
+          <span class="text-xs text-muted">{{ invocationItems.length }}</span>
+        </div>
+        <div v-if="!collapsed && errorMessage(agentsError)" class="px-3 pb-3">
+          <UAlert
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load agents"
+            :description="errorMessage(agentsError)"
+            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadAgents }]"
+          />
         </div>
         <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
           <UDashboardSearchButton
@@ -411,7 +457,7 @@ onBeforeUnmount(() => {
                 :variant="selectedInvocationId === invocation.id ? 'soft' : 'ghost'"
                 block
                 :aria-label="invocation.title"
-                @click="selectInvocation(invocation.id)"
+                @click="selectInvocation(invocation)"
             /></UTooltip>
           </div>
         </div>
@@ -428,7 +474,7 @@ onBeforeUnmount(() => {
           :retry-key="paginationRetryRevision"
           :selected-id="selectedInvocationId"
           @end-reached="list.loadMore()"
-          @select="selectInvocation($event.id)"
+          @select="selectInvocation($event)"
         >
           <template #empty
             ><UEmpty
@@ -444,7 +490,7 @@ onBeforeUnmount(() => {
         <template v-if="!collapsed"
           ><span class="flex items-center gap-1.5 text-xs text-muted"
             ><UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only</span
-          ><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-dimmed'">{{
+          ><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-muted'">{{
             syncLabel
           }}</span></template
         >
@@ -578,5 +624,23 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </UDashboardPanel>
-  </UDashboardGroup>
+    </UDashboardGroup>
+  </UApp>
 </template>
+
+<style>
+.vitehub-console {
+  height: 100dvh;
+  min-height: 32rem;
+  overflow: hidden;
+}
+
+.vitehub-console [data-slot="invocation"],
+.vitehub-console [data-slot="invocation-inspector"] {
+  height: 100%;
+}
+
+.vitehub-console [data-slot="invocation-inspector"] {
+  border-inline-start: 0;
+}
+</style>
