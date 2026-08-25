@@ -2009,6 +2009,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             await iterator?.return?.()
           }))
         }
+        catch {
+          // Cancellation owns startup failures after abort; there is no caller awaiting this task.
+        }
         finally {
           detachAbortListener()
         }

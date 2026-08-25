@@ -635,6 +635,27 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.pullCount).toBe(0)
   })
 
+  it("handles provider startup rejection while cancelling an unconsumed stream", async () => {
+    const controller = new AbortController()
+    const stopped = new DOMException("stop", "AbortError")
+    const doStream = vi.fn(async ({ abortSignal }: ModelCall) => {
+      abortSignal?.throwIfAborted()
+      throw new Error("Expected the invocation to be aborted before provider startup")
+    })
+    const fakeModel = {
+      ...model([]),
+      doStream,
+    }
+    await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, {
+      abortSignal: controller.signal,
+      prompt: "Search",
+    })
+
+    controller.abort(stopped)
+
+    await vi.waitFor(() => expect(doStream).toHaveBeenCalledOnce())
+  })
+
   it("removes the invocation abort listener after stream completion", async () => {
     const controller = new AbortController()
     const addEventListener = vi.spyOn(controller.signal, "addEventListener")
