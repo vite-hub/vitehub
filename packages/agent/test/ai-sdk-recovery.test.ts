@@ -706,6 +706,7 @@ describe("AI SDK recovery", () => {
     })
 
     const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    // SAFETY: Streaming agent results implement the public async iterable event contract.
     const iterator = (result as AsyncIterable<unknown>)[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     // SAFETY: The streamed result preserves the AI SDK usage accessor alongside the public event stream.
