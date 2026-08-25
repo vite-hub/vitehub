@@ -1889,9 +1889,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const whenStarted = new Promise<StreamTextResult<ToolSet, never, never>>((resolve) => {
         resolveStarted = resolve
       })
-      // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
       const start = () => {
         if (started) return started
+        // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
         started = Promise.resolve(agent.stream({
           ...callInput,
           onEnd: usageCapture.onEnd,

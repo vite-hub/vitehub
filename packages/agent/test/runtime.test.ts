@@ -9668,6 +9668,18 @@ describe("agent message protocol", () => {
                   toolName: "portal-api",
                   type: "tool-input-error",
                 } as never)
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+                writer.write({
+                  errorText: "Invalid input.",
+                  input: null,
+                  toolCallId: "cli-null",
+                  toolMetadata: {
+                    cli: "portal-api",
+                    vitehubCapabilityCli: true,
+                  },
+                  toolName: "portal-api",
+                  type: "tool-input-error",
+                } as never)
                 writer.write({
                   output: {
                     command: "portal-api purchase-orders --json",
@@ -9701,6 +9713,11 @@ describe("agent message protocol", () => {
     expect(chunks).toContainEqual(expect.objectContaining({
       input: { argv: ["list"], extra: true, json: "true" },
       toolCallId: "cli-invalid",
+      type: "tool-input-error",
+    }))
+    expect(chunks).toContainEqual(expect.objectContaining({
+      input: null,
+      toolCallId: "cli-null",
       type: "tool-input-error",
     }))
     expect(traceLog.entries()).toContainEqual(expect.objectContaining({

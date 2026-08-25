@@ -312,7 +312,7 @@ function uiMessageStreamError(event: unknown): Error | undefined {
 }
 
 function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
-  if (!hasRuntimeType(input, "object") || Array.isArray(input)) return false
+  if (!hasRuntimeType(input, "object") || input === null || Array.isArray(input)) return false
   // SAFETY: The object boundary above permits inspecting the candidate CLI record.
   const record = input as Record<string, unknown>
   const argv = record.argv
