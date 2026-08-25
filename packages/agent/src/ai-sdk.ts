@@ -920,6 +920,7 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
 
 function createUsageCapture() {
   let captured = false
+  let isStarted = false
   let capturedUsage: unknown
   let metadataSource: unknown
   let start!: () => void
@@ -967,8 +968,14 @@ function createUsageCapture() {
     get captured() {
       return captured
     },
-    start,
+    start() {
+      isStarted = true
+      start()
+    },
     started,
+    get isStarted() {
+      return isStarted
+    },
     published,
     get usage() {
       return captured ? Promise.resolve(capturedUsage) : undefined
@@ -1841,7 +1848,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       const auxiliaryUsageCaptures = [...toolRepairUsageCaptures, ...repairUsageCaptures]
-      const finalOriginalStep = originalGenerated?.steps.at(-1) ?? originalGenerated
+      const finalOriginalStep = originalGenerated?.steps?.at(-1) ?? originalGenerated
       const usageRecord = auxiliaryUsageCaptures.some(capture => capture.captured)
         ? await combinedUsageRecord([
             { capture: usageCapture, result: finalOriginalStep },
@@ -1949,6 +1956,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const driveUsage = () => {
         usageDriven ??= start().then(async (streamed) => {
           if (outputUsageLifecycle.drive) await outputUsageLifecycle.drive()
+          else if (usageCapture.isStarted) await usageCapture.completed
           else for await (const _chunk of streamed.fullStream) {}
           return streamed
         })
