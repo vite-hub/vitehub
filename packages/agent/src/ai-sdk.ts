@@ -1110,6 +1110,7 @@ function withCapturedStreamUsage<T extends {
           const event = result.value
           if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
             primaryCapture?.capture(event)
+            complete()
             const captureList = captures()
             const usage = await combinedCapturedUsage(captureList)
             if (usage !== undefined) {
@@ -1199,6 +1200,7 @@ function withCapturedStreamUsage<T extends {
                   }
                   if (value && hasRuntimeType(value, "object") && Reflect.get(value, "type") === "finish") {
                     primaryCapture?.capture(value)
+                    primaryCapture?.complete()
                     const captureList = captures()
                     const usage = await combinedCapturedUsage(captureList)
                     const usageRecord = usage === undefined

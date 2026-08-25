@@ -928,6 +928,36 @@ describe("AI SDK recovery", () => {
     await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 6 })
   })
 
+  it.each(["stream", "fullStream"] as const)("settles usage when %s stops at its finish chunk", async (key) => {
+    const fakeModel = streamingRepairModel()
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+    const streamed = result as Record<typeof key, AsyncIterable<Record<string, unknown>>> & { usage: Promise<unknown> }
+    const iterator = streamed[key][Symbol.asyncIterator]()
+
+    while (true) {
+      const item = await iterator.next()
+      expect(item.done).toBe(false)
+      if (item.value?.type === "finish") break
+    }
+
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 6 })
+  })
+
+  it("settles usage when a UI-message stream stops at its finish chunk", async () => {
+    const fakeModel = streamingRepairModel()
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+    const streamed = result as { toUIMessageStream: () => ReadableStream<Record<string, unknown>>, usage: Promise<unknown> }
+    const reader = streamed.toUIMessageStream().getReader()
+
+    while (true) {
+      const item = await reader.read()
+      expect(item.done).toBe(false)
+      if (item.value?.type === "finish") break
+    }
+
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 6 })
+  })
+
   it("cancels an unconsumed model stream and settles early usage", async () => {
     const controller = new AbortController()
     const fakeModel = streamingRepairModel()
