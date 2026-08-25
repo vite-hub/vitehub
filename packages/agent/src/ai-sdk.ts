@@ -1624,9 +1624,7 @@ async function createAgent(
     : hasRuntimeType(execution?.repairToolCall, "function")
       ? execution.repairToolCall
       : configuredRepairToolCall ?? builtInRepairToolCall
-  const maxOutputAttempts = context.output && context.nativeStructuredOutput !== false
-    ? outputMaxAttempts(context.output)
-    : 1
+  const maxOutputAttempts = context.output ? outputMaxAttempts(context.output) : 1
   const repairAgent = maxOutputAttempts > 1
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? new ToolLoopAgent({
