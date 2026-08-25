@@ -1093,6 +1093,7 @@ describe("AI SDK recovery", () => {
       if (item.done) break
       events.push(item.value)
     }
+    // SAFETY: rawStreamingResult emits the AI SDK's tagged full-stream event records.
     expect(events.map(event => (event as { type: string }).type)).toEqual([
       "stream-start",
       "text-start",
