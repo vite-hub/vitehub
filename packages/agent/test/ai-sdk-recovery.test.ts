@@ -220,6 +220,11 @@ describe("AI SDK recovery", () => {
       await repairReleased
       return "{\"text\":\"repaired\"}"
     }])
+    const doGenerate = fakeModel.doGenerate.bind(fakeModel)
+    fakeModel.doGenerate = async options => ({
+      ...await doGenerate(options),
+      providerMetadata: { test: { usage: { cost: 0.2 } } },
+    })
     const doStream = vi.fn(async () => ({
       stream: new ReadableStream({
         start(controller) {
@@ -229,6 +234,7 @@ describe("AI SDK recovery", () => {
           controller.enqueue({ id: "answer", type: "text-end" })
           controller.enqueue({
             finishReason: { raw: "stop", unified: "stop" },
+            providerMetadata: { test: { usage: { cost: 0.1 } } },
             type: "finish",
             usage: {
               inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -239,12 +245,14 @@ describe("AI SDK recovery", () => {
         },
       }),
     }))
+    const finish = vi.fn()
     const agent = defineAgent({
       driver: {
         // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
         model: { ...fakeModel, doStream } as never,
         output: { schema: outputSchema },
       },
+      hooks: { "agent:finish": finish },
       runtime: false,
     })
 
@@ -268,6 +276,17 @@ describe("AI SDK recovery", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }))
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
     await expect(earlyUsage).resolves.toMatchObject({ totalTokens: 4 })
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: expect.arrayContaining([
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          ]),
+          cost: expect.objectContaining({ usd: "0.3" }),
+        }),
+      }),
+    }))
   })
 
   it("repairs streamed output when native object output is unavailable", async () => {

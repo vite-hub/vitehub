@@ -695,6 +695,7 @@ function cloneStreamTextResult<T extends object>(
   streams: {
     fullStream?: AsyncIterable<unknown>
     stream?: AsyncIterable<unknown>
+    textStream?: AsyncIterable<unknown>
     toUIMessageStream?: (...args: unknown[]) => ReadableStream<unknown>
   },
   teeStreams = true,
@@ -709,6 +710,11 @@ function cloneStreamTextResult<T extends object>(
     overrides.fullStream = teeStreams
       ? teeingAsyncIterableStreamDescriptor(streams.fullStream)
       : { configurable: true, enumerable: true, value: toReadableAsyncIterableStream(streams.fullStream, { highWaterMark: 0 }), writable: true }
+  }
+  if (streams.textStream) {
+    overrides.textStream = teeStreams
+      ? teeingAsyncIterableStreamDescriptor(streams.textStream)
+      : { configurable: true, enumerable: true, value: toReadableAsyncIterableStream(streams.textStream, { highWaterMark: 0 }), writable: true }
   }
   if (streams.toUIMessageStream) {
     overrides.toUIMessageStream = {
@@ -2033,10 +2039,29 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (repairOutput && context.output) {
         Object.defineProperty(result, agentOutputRepairSymbol, {
           configurable: true,
-          value: async (failure: { error: Error, text: string }) => await repairOutput({
-            ...failure,
-            evidence: fallbackCapture?.evidence(),
-          }, repairCallInput),
+          value: async (failure: { error: Error, text: string }) => {
+            const repaired = await repairOutput({
+              ...failure,
+              evidence: fallbackCapture?.evidence(),
+            }, repairCallInput)
+            const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
+            const usageRecord = await combinedUsageRecord([
+              { capture: usageCapture },
+              ...toolRepairUsageCaptures.map(capture => ({ capture })),
+              ...repairUsageCaptures.map((capture, index) => ({
+                capture,
+                ...(index === repairUsageCaptures.length - 1 ? { result: repaired } : {}),
+              })),
+            ], combinedCapturedUsage(captures))
+            if (repaired && hasRuntimeType(repaired, "object") && usageRecord) {
+              Object.defineProperty(repaired, "usageRecord", {
+                configurable: true,
+                enumerable: true,
+                value: usageRecord,
+              })
+            }
+            return repaired
+          },
         })
       }
       Object.defineProperty(result, agentOutputUsageReadySymbol, {
