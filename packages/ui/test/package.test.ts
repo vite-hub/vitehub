@@ -56,6 +56,7 @@ function optionalPeerRecord(
 const packageJson = parsePackageManifest(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
+const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
@@ -90,5 +91,9 @@ describe("@vite-hub/ui package contract", () => {
       "./nuxt",
       "./vite",
     ]);
+  });
+
+  it("leaves Pierre code row geometry under Pierre's control", () => {
+    expect(styles).not.toContain("--diffs-line-height");
   });
 });
