@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
@@ -929,10 +929,7 @@ function createUsageCapture() {
   const completed = new Promise<void>((resolve) => { complete = resolve })
 
   const capture = (event: unknown) => {
-    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    const record = hasRuntimeType(event, "object") && event !== null
-      ? event as { providerMetadata?: unknown, totalUsage?: unknown, usage?: unknown }
-      : undefined
+    const record = isRuntimeRecord(event) ? event : undefined
     const usage = record?.usage ?? record?.totalUsage
     if (usage === undefined) return
     capturedUsage = usage
