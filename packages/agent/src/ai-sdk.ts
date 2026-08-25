@@ -2023,7 +2023,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             },
             async cancel(reason) {
               try {
-                await reader?.cancel(reason)
+                // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
+                reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
+                await reader.cancel(reason)
               }
               finally {
                 detachAbortListener()
@@ -2055,6 +2057,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         abortSignal.addEventListener("abort", abortListener, { once: true })
       }
       if (repairOutput && context.output) {
+        let failedRepairUsageRecord: AgentUsageRecord | undefined
+        Object.defineProperty(result, "usageRecord", {
+          configurable: true,
+          enumerable: true,
+          get: () => failedRepairUsageRecord,
+        })
         Object.defineProperty(result, agentOutputRepairSymbol, {
           configurable: true,
           value: async (failure: { error: Error, text: string }) => {
@@ -2072,13 +2080,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
                 ...toolRepairUsageCaptures.map(capture => ({ capture })),
                 ...repairUsageCaptures.map(capture => ({ capture })),
               ], combinedCapturedUsage(captures))
-              if (usageRecord) {
-                Object.defineProperty(result, "usageRecord", {
-                  configurable: true,
-                  enumerable: true,
-                  value: usageRecord,
-                })
-              }
+              failedRepairUsageRecord = usageRecord
               throw error
             }
             const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]

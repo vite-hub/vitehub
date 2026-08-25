@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { array, is, object, string } from "valibot"
 
 import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
+import { createAiSdkAdapter } from "../src/ai-sdk.ts"
 import { normalizeUiMessageStreamChunk } from "../src/stream-output.ts"
 
 import type { AgentFinishHookEvent } from "../src/index.ts"
@@ -147,6 +148,37 @@ const runtime = {
   memo: <T>(_key: string, create: () => T) => create(),
   runtime: "unknown" as const,
   waitUntil: () => undefined,
+}
+
+async function rawStreamingResult() {
+  const fakeModel = {
+    ...model([]),
+    async doStream() {
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] })
+            controller.enqueue({ id: "answer", type: "text-start" })
+            controller.enqueue({ delta: "Finished", id: "answer", type: "text-delta" })
+            controller.enqueue({ id: "answer", type: "text-end" })
+            controller.enqueue({ finishReason: { raw: "stop", unified: "stop" }, type: "finish", usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } } })
+            controller.close()
+          },
+        }, { highWaterMark: 0 }),
+      }
+    },
+  }
+  const invoker = { id: "recovery-test", kind: "user" }
+  // SAFETY: The fake model implements the AI SDK streaming model contract exercised by this test.
+  return await createAiSdkAdapter({ model: fakeModel as never }).stream({
+    actor: invoker,
+    context: { get: () => undefined },
+    input: {},
+    invoker,
+    messages: [],
+    prompt: "Respond",
+    runtime,
+  } as never)
 }
 
 const toolInputSchema = {
@@ -929,8 +961,8 @@ describe("AI SDK recovery", () => {
   })
 
   it.each(["stream", "fullStream"] as const)("settles usage when %s stops at its finish chunk", async (key) => {
-    const fakeModel = streamingRepairModel()
-    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+    const result = await rawStreamingResult()
+    // SAFETY: streamAgentInline preserves the selected AI SDK stream and usage result members.
     const streamed = result as Record<typeof key, AsyncIterable<Record<string, unknown>>> & { usage: Promise<unknown> }
     const iterator = streamed[key][Symbol.asyncIterator]()
 
@@ -944,8 +976,8 @@ describe("AI SDK recovery", () => {
   })
 
   it("settles usage when a UI-message stream stops at its finish chunk", async () => {
-    const fakeModel = streamingRepairModel()
-    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+    const result = await rawStreamingResult()
+    // SAFETY: streamAgentInline preserves the AI SDK UI-message method and usage result member.
     const streamed = result as { toUIMessageStream: () => ReadableStream<Record<string, unknown>>, usage: Promise<unknown> }
     const reader = streamed.toUIMessageStream().getReader()
 
@@ -1023,6 +1055,31 @@ describe("AI SDK recovery", () => {
     for await (const _event of result as AsyncIterable<unknown>) break
 
     await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
+  })
+
+  it("settles an unstarted UI-message stream when the consumer cancels", async () => {
+    let cancelCount = 0
+    const finish = vi.fn()
+    const fakeModel = {
+      ...model([]),
+      async doStream() {
+        return {
+          stream: new ReadableStream({
+            cancel() {
+              cancelCount += 1
+            },
+          }, { highWaterMark: 0 }),
+        }
+      },
+    }
+    const stream = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(), undefined, finish), runtime, { prompt: "Respond" }, { output: "ui-message-stream" })
+    // SAFETY: UI-message output is a ReadableStream under the selected output contract.
+    const reader = (stream as ReadableStream<unknown>).getReader()
+
+    await reader.cancel()
+
+    expect(cancelCount).toBe(1)
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
   })
 
   it("cancels structured materialization when the UI-message consumer returns", async () => {
