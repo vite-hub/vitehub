@@ -201,7 +201,9 @@ async function installConsole(
   hookPages?.("pages:extend", (pages) => {
     const additions: NuxtPage[] = [
       { file: join(consoleRuntimeRoot, "pages/index.vue"), name: "vitehub-console", path: "/_vitehub" },
-      { file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-agents", path: "/_vitehub/agents/:invocation?" },
+      { file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-agents", path: "/_vitehub/agents" },
+      { file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-agent", path: "/_vitehub/agents/:agent" },
+      { file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-invocation", path: "/_vitehub/agents/:agent/invocations/:invocation" },
     ]
     for (const page of additions) {
       if (!pages.some(candidate => candidate.path === page.path)) pages.push(page)

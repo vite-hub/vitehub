@@ -309,7 +309,9 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.uiModule).toHaveBeenCalledOnce()
     expect(pages).toEqual([
       expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents/:invocation?" }),
+      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents" }),
+      expect.objectContaining({ name: "vitehub-console-agent", path: "/_vitehub/agents/:agent" }),
+      expect.objectContaining({ name: "vitehub-console-invocation", path: "/_vitehub/agents/:agent/invocations/:invocation" }),
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
       handlers: [
@@ -340,7 +342,9 @@ describe("ViteHub Nuxt integration", () => {
     production.runPagesHook(productionPages)
     expect(productionPages).toEqual([
       expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents/:invocation?" }),
+      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents" }),
+      expect.objectContaining({ name: "vitehub-console-agent", path: "/_vitehub/agents/:agent" }),
+      expect.objectContaining({ name: "vitehub-console-invocation", path: "/_vitehub/agents/:agent/invocations/:invocation" }),
     ])
     expect(production.nuxt.options.nitro).toMatchObject({
       handlers: [
