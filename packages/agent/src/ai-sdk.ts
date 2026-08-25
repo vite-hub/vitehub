@@ -1481,16 +1481,19 @@ async function createAgent(
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const baseInstructions = joinInstructions(
+    await resolveInstructions(options, metadataContext),
+    context.instructions,
+    resolveMessageChannelInstructions(context.context, context),
+  )
   const instructions = await composeInstructions(
-    joinInstructions(
-      await resolveInstructions(options, metadataContext),
-      context.instructions,
-      resolveMessageChannelInstructions(context.context, context),
-      agentOutputInstructions(context.output),
-    ),
+    joinInstructions(baseInstructions, agentOutputInstructions(context.output)),
     metadataContext,
     context.workspaceInstructionBindings,
   )
+  const toolRepairInstructions = context.output
+    ? await composeInstructions(baseInstructions, metadataContext, context.workspaceInstructionBindings)
+    : instructions
   const adapterTools = await resolveTools(options, metadataContext, context.toolStepReporter)
   const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
@@ -1570,7 +1573,7 @@ async function createAgent(
           // SAFETY: AI SDK adapter normalization establishes the asserted agent settings contract.
           const toolRepairAgent = new ToolLoopAgent({
             ...repairSettings,
-            instructions,
+            instructions: toolRepairInstructions,
             // SAFETY: AI SDK adapter normalization establishes the asserted model contract.
             model: instrumentedModel as never,
             output: aiSdk.Output.object({ schema: jsonSchema(schema) }),
@@ -1884,6 +1887,13 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
+      const abortSignal = context.input.abortSignal
+      let abortListener: (() => void) | undefined
+      const detachAbortListener = () => {
+        if (!abortListener) return
+        abortSignal?.removeEventListener("abort", abortListener)
+        abortListener = undefined
+      }
       let started: Promise<StreamTextResult<ToolSet, never, never>> | undefined
       let resolveStarted!: (result: Promise<StreamTextResult<ToolSet, never, never>>) => void
       const whenStarted = new Promise<StreamTextResult<ToolSet, never, never>>((resolve) => {
@@ -1922,12 +1932,27 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
         return new ReadableStream({
           async pull(controller) {
-            const item = await (await getReader()).read()
-            if (item.done) controller.close()
-            else controller.enqueue(item.value)
+            try {
+              const item = await (await getReader()).read()
+              if (!item.done) {
+                controller.enqueue(item.value)
+                return
+              }
+              detachAbortListener()
+              controller.close()
+            }
+            catch (error) {
+              detachAbortListener()
+              throw error
+            }
           },
           async cancel(reason) {
-            await (await getReader()).cancel(reason)
+            try {
+              await (await getReader()).cancel(reason)
+            }
+            finally {
+              detachAbortListener()
+            }
           },
         }, { highWaterMark: 0 })
       }
@@ -1948,28 +1973,51 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           let reader: ReadableStreamDefaultReader<unknown> | undefined
           return new ReadableStream<unknown>({
             async pull(controller) {
-              // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
-              reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
-              const item = await reader.read()
-              if (item.done) controller.close()
-              else controller.enqueue(item.value)
+              try {
+                // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
+                reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
+                const item = await reader.read()
+                if (!item.done) {
+                  controller.enqueue(item.value)
+                  return
+                }
+                detachAbortListener()
+                controller.close()
+              }
+              catch (error) {
+                detachAbortListener()
+                throw error
+              }
             },
             async cancel(reason) {
-              await reader?.cancel(reason)
+              try {
+                await reader?.cancel(reason)
+              }
+              finally {
+                detachAbortListener()
+              }
             },
           }, { highWaterMark: 0 })
         },
       }) as StreamTextResult<ToolSet, never, never>
       const cancelStarted = async () => {
-        const streamed = await start()
-        const candidates = [streamed.stream, streamed.fullStream]
-        await Promise.allSettled(candidates.map(async (candidate) => {
-          const iterator = candidate?.[Symbol.asyncIterator]()
-          await iterator?.return?.()
-        }))
+        try {
+          const streamed = await start()
+          const candidates = [streamed.stream, streamed.fullStream]
+          await Promise.allSettled(candidates.map(async (candidate) => {
+            const iterator = candidate?.[Symbol.asyncIterator]()
+            await iterator?.return?.()
+          }))
+        }
+        finally {
+          detachAbortListener()
+        }
       }
-      if (context.input.abortSignal?.aborted) void cancelStarted()
-      else context.input.abortSignal?.addEventListener("abort", () => void cancelStarted(), { once: true })
+      if (abortSignal?.aborted) void cancelStarted()
+      else if (abortSignal) {
+        abortListener = () => void cancelStarted()
+        abortSignal.addEventListener("abort", abortListener, { once: true })
+      }
       if (repairOutput && context.output) {
         Object.defineProperty(result, agentOutputRepairSymbol, {
           configurable: true,

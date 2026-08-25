@@ -544,6 +544,19 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
   })
 
+  it("does not apply final-output instructions to tool-call repair", async () => {
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "{\"query\":\"fixed\"}",
+      "{\"text\":\"Finished\"}",
+    ])
+
+    await runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, { prompt: "Search" })
+
+    expect(JSON.stringify(fakeModel.calls[0]?.prompt)).toContain("configured Agent output")
+    expect(JSON.stringify(fakeModel.calls[1]?.prompt)).not.toContain("configured Agent output")
+  })
+
   it("aborts a pending tool-call repair with the invocation", async () => {
     const controller = new AbortController()
     const stopped = new Error("stopped")
@@ -620,6 +633,25 @@ describe("AI SDK recovery", () => {
     await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
     await expect(earlyUsage).resolves.toBeUndefined()
     expect(fakeModel.pullCount).toBe(0)
+  })
+
+  it("removes the invocation abort listener after stream completion", async () => {
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, "addEventListener")
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
+    const result = await streamAgentInline(toolCallingAgent(streamingRepairModel(), vi.fn(() => "found")), runtime, {
+      abortSignal: controller.signal,
+      prompt: "Search",
+    })
+
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const _event of result as AsyncIterable<unknown>) {}
+
+    const abortListeners = addEventListener.mock.calls
+      .filter(([type]) => type === "abort")
+      .map(([, listener]) => listener)
+    expect(abortListeners.length).toBeGreaterThan(0)
+    expect(abortListeners.every(listener => removeEventListener.mock.calls.some(([type, removed]) => type === "abort" && removed === listener))).toBe(true)
   })
 
   it("cancels structured materialization when the event consumer returns", async () => {
