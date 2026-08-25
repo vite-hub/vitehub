@@ -2075,10 +2075,15 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         abortSignal.addEventListener("abort", abortListener, { once: true })
       }
       if (repairOutput && context.output) {
+        // Stream results are cloned before structured repair runs. Keep a shared
+        // object so a terminal repair failure can publish its late usage record
+        // through every clone without relying on an accessor.
+        // SAFETY: combinedUsageRecord validates the value before Object.assign exposes this shared record.
+        const failedRepairUsageRecord = {} as AgentUsageRecord
         Object.defineProperty(result, "usageRecord", {
           configurable: true,
           enumerable: true,
-          value: undefined,
+          value: failedRepairUsageRecord,
           writable: true,
         })
         Object.defineProperty(result, agentOutputRepairSymbol, {
@@ -2098,11 +2103,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
                 ...toolRepairUsageCaptures.map(capture => ({ capture })),
                 ...repairUsageCaptures.map(capture => ({ capture })),
               ], combinedCapturedUsage(captures))
-              Object.defineProperty(result, "usageRecord", {
-                configurable: true,
-                enumerable: true,
-                value: usageRecord,
-              })
+              if (usageRecord) Object.assign(failedRepairUsageRecord, usageRecord)
               throw error
             }
             const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]

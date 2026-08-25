@@ -4634,6 +4634,7 @@ async function materializeAgentStructuredOutput(
   }
   finally {
     if (result && hasRuntimeType(result, "object")) {
+      // SAFETY: AI SDK structured results install this lifecycle under the private symbol before materialization.
       const usageLifecycle = Reflect.get(result, agentOutputUsageReadySymbol) as AgentOutputUsageLifecycle | undefined
       usageLifecycle?.complete()
     }
@@ -4652,6 +4653,7 @@ function materializeAgentStructuredOutputWithEvents(
     : cancellation.signal
   let retainedEvent: { consumed: () => void, event: StreamEvent } | undefined
   let finishEvent: Extract<StreamEvent, { type: "finish" }> | undefined
+  let driveRequested = false
   let settled = false
   let wake: (() => void) | undefined
   let materialized: ReturnType<typeof materializeAgentStructuredOutput> | undefined
@@ -4663,6 +4665,10 @@ function materializeAgentStructuredOutputWithEvents(
         return
       }
       if (event.type === "text-delta") return
+      if (driveRequested) {
+        drivenEvents.push(event)
+        return
+      }
       await new Promise<void>((resolve) => {
         retainedEvent = { consumed: resolve, event }
         wake?.()
@@ -4707,8 +4713,13 @@ function materializeAgentStructuredOutputWithEvents(
   let driveTask: Promise<unknown> | undefined
   const drive = () => {
     driveTask ??= (async () => {
+      driveRequested = true
       if (!eventsStarted) {
         for await (const event of eventSource) drivenEvents.push(event)
+      }
+      else if (retainedEvent) {
+        retainedEvent.consumed()
+        retainedEvent = undefined
       }
       return await materialize()
     })()
@@ -4722,9 +4733,11 @@ function materializeAgentStructuredOutputWithEvents(
     }
     eventsStarted = true
     yield* eventSource
+    if (driveTask) yield* drivenEvents
   })()
   Object.defineProperty(events, Symbol.for("vitehub.agent.stream.cancel"), { value: cancel })
   if (result && hasRuntimeType(result, "object")) {
+    // SAFETY: AI SDK structured results install this lifecycle under the private symbol before streaming.
     const usageLifecycle = Reflect.get(result, agentOutputUsageReadySymbol) as AgentOutputUsageLifecycle | undefined
     if (usageLifecycle) usageLifecycle.drive = drive
   }
