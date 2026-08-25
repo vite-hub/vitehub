@@ -1888,6 +1888,15 @@ describe("Agent Driver capacity", () => {
     await expect(cancellable.cancel()).resolves.toBeUndefined()
   })
 
+  it("does not lock a readable source until its wrapper is consumed", async () => {
+    const source = new ReadableStream({})
+    const cancellable = cancellableAsyncIterableSource(source)
+
+    const reader = source.getReader()
+    reader.releaseLock()
+    await cancellable.cancel()
+  })
+
   it("releases an unconsumed direct UI-message stream when its invocation aborts", async () => {
     const starts: string[] = []
     const controller = new AbortController()

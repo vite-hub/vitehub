@@ -141,31 +141,37 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
     ? Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
     : undefined
   const getReader = Reflect.get(stream, "getReader")
-  const readableReader = hasRuntimeType(getReader, "function")
-    // SAFETY: A callable getReader member establishes the ReadableStream-like boundary used here.
-    ? (getReader as (this: AsyncIterable<unknown>) => ReadableStreamDefaultReader<unknown>).call(stream)
-    : undefined
-  const iterator: AsyncIterator<unknown> = readableReader
-    ? {
-        next: () => readableReader.read(),
-        async return(reason) {
-          try {
-            await readableReader.cancel(reason)
-          }
-          finally {
-            readableReader.releaseLock()
-          }
-          return { done: true, value: undefined }
-        },
-      }
-    : stream[Symbol.asyncIterator]()
+  let readableReader: ReadableStreamDefaultReader<unknown> | undefined
+  let iterator: AsyncIterator<unknown> | undefined
+  const getIterator = (): AsyncIterator<unknown> => {
+    if (iterator) return iterator
+    readableReader = hasRuntimeType(getReader, "function")
+      // SAFETY: A callable getReader member establishes the ReadableStream-like boundary used here.
+      ? (getReader as (this: AsyncIterable<unknown>) => ReadableStreamDefaultReader<unknown>).call(stream)
+      : undefined
+    iterator = readableReader
+      ? {
+          next: () => readableReader!.read(),
+          async return(reason) {
+            try {
+              await readableReader!.cancel(reason)
+            }
+            finally {
+              readableReader!.releaseLock()
+            }
+            return { done: true, value: undefined }
+          },
+        }
+      : stream[Symbol.asyncIterator]()
+    return iterator
+  }
   let cancelTask: Promise<void> | undefined
   let completed = false
   const cancel = async (reason?: unknown) => {
     if (completed) return
     cancelTask ||= (async () => {
       if (hasRuntimeType(directCancel, "function")) directCancel(reason)
-      await iterator.return?.(reason)
+      await getIterator().return?.(reason)
     })()
     await cancelTask
   }
@@ -174,7 +180,7 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
     stream: (async function* () {
       try {
         for (;;) {
-          const chunk = await iterator.next()
+          const chunk = await getIterator().next()
           if (chunk.done) {
             completed = true
             return
