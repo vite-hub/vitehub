@@ -1047,6 +1047,30 @@ describe("AI SDK recovery", () => {
     await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
   })
 
+  it.each(["stream", "fullStream", "textStream"] as const)("settles usage after partially consuming %s", async (key) => {
+    const result = await rawStreamingResult()
+    // SAFETY: streamAgentInline preserves the selected AI SDK stream and usage result members.
+    const streamed = result as Record<typeof key, AsyncIterable<unknown>> & { usage: Promise<unknown> }
+    const iterator = streamed[key][Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await iterator.return?.()
+  })
+
+  it("settles usage after partially consuming a UI-message stream", async () => {
+    const result = await rawStreamingResult()
+    // SAFETY: streamAgentInline preserves the AI SDK UI-message method and usage result member.
+    const streamed = result as { toUIMessageStream: () => ReadableStream<unknown>, usage: Promise<unknown> }
+    const reader = streamed.toUIMessageStream().getReader()
+
+    await expect(reader.read()).resolves.toMatchObject({ done: false })
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
+    await expect(reader.read()).resolves.toMatchObject({ done: false })
+    await reader.cancel()
+  })
+
   it.each(["stream", "fullStream"] as const)("settles usage when %s stops at its finish chunk", async (key) => {
     const result = await rawStreamingResult()
     // SAFETY: streamAgentInline preserves the selected AI SDK stream and usage result members.

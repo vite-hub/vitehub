@@ -926,6 +926,7 @@ function createUsageCapture() {
   let start!: () => void
   let publish!: () => void
   let complete!: () => void
+  let drive: (() => Promise<void>) | undefined
   const started = new Promise<void>((resolve) => { start = resolve })
   const published = new Promise<void>((resolve) => { publish = resolve })
   const completed = new Promise<void>((resolve) => { complete = resolve })
@@ -968,9 +969,14 @@ function createUsageCapture() {
     get captured() {
       return captured
     },
-    start() {
+    start(nextDrive?: () => Promise<void>) {
       isStarted = true
+      drive ??= nextDrive
       start()
+    },
+    async drive() {
+      if (drive) await drive()
+      else await completed
     },
     started,
     get isStarted() {
@@ -1102,6 +1108,8 @@ function withCapturedStreamUsage<T extends {
       completed = true
       primaryCapture?.complete()
     }
+    const buffered: IteratorResult<unknown>[] = []
+    let draining: Promise<void> | undefined
     const wrapped: AsyncIterableIterator<unknown> = {
       [Symbol.asyncIterator]() {
         return wrapped
@@ -1160,10 +1168,26 @@ function withCapturedStreamUsage<T extends {
         }
       },
     }
+    const drain = () => draining ??= (async () => {
+      while (true) {
+        const item = await wrapped.next()
+        buffered.push(item)
+        if (item.done) return
+      }
+    })()
+    const next = async () => {
+      const bufferedItem = buffered.shift()
+      if (bufferedItem) return bufferedItem
+      if (!draining) return await wrapped.next()
+      await draining
+      // SAFETY: drain always buffers the terminal iterator result before it resolves.
+      return buffered.shift()!
+    }
     return new ReadableStream({
       async pull(controller) {
         try {
-          const item = await wrapped.next()
+          const item = await next()
+          primaryCapture?.start(drain)
           if (item.done) controller.close()
           else controller.enqueue(item.value)
         }
@@ -1192,21 +1216,37 @@ function withCapturedStreamUsage<T extends {
       ? {
           toUIMessageStream(this: typeof result, ...args: unknown[]) {
             let reader: ReadableStreamDefaultReader<unknown> | undefined
+            const buffered: Array<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>> = []
+            let draining: Promise<void> | undefined
             // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
             const getReader = () => reader ??= toUIMessageStream.apply(this, args as never[]).getReader()
+            const drain = () => draining ??= (async () => {
+              while (true) {
+                const item = await getReader().read()
+                buffered.push(item)
+                if (item.done) return
+              }
+            })()
+            const next = async () => {
+              const bufferedItem = buffered.shift()
+              if (bufferedItem) return bufferedItem
+              if (!draining) return await getReader().read()
+              await draining
+              // SAFETY: drain always buffers the terminal read result before it resolves.
+              return buffered.shift()!
+            }
             return new ReadableStream({
               async pull(controller) {
-                const reader = getReader()
                 const primaryCapture = captures()[0]
-                primaryCapture?.start()
+                primaryCapture?.start(drain)
                 try {
-                  const { done, value } = await reader.read()
+                  const { done, value } = await next()
                   if (done) {
                     primaryCapture?.complete()
                     controller.close()
                     return
                   }
-                  if (value && hasRuntimeType(value, "object") && Reflect.get(value, "type") === "finish") {
+                  if (recordFrom(value)?.type === "finish") {
                     primaryCapture?.capture(value)
                     primaryCapture?.complete()
                     const captureList = captures()
@@ -1956,7 +1996,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const driveUsage = () => {
         usageDriven ??= start().then(async (streamed) => {
           if (outputUsageLifecycle.drive) await outputUsageLifecycle.drive()
-          else if (usageCapture.isStarted) await usageCapture.completed
+          else if (usageCapture.isStarted) await usageCapture.drive()
           else for await (const _chunk of streamed.fullStream) {}
           return streamed
         })
