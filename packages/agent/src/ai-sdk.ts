@@ -1905,6 +1905,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           },
         }, { highWaterMark: 0 })
       }
+      // SAFETY: The lazy facade implements the StreamTextResult members consumed by the adapter.
       const result = {
         fullStream: lazyStream("fullStream"),
         stream: lazyStream("stream"),
@@ -1931,7 +1932,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             },
           }, { highWaterMark: 0 })
         },
-      } as unknown as StreamTextResult<ToolSet, never, never>
+      } as StreamTextResult<ToolSet, never, never>
       const cancelStarted = async () => {
         const streamed = await start()
         const candidates = [streamed.stream, streamed.fullStream]
