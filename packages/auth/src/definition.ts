@@ -105,6 +105,7 @@ function validateAuthAccessRoute(value: unknown, label: string): void {
   }
 
   validateRouteValue(value.route, `${label}.route`)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definition validation is the boundary that establishes the callback contract.
   if (typeof value.authorize !== "undefined" && typeof value.authorize !== "function") {
     throw new TypeError(`\`defineAuth()\` ${label}.authorize must be a function.`)
   }

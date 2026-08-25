@@ -418,8 +418,9 @@ async function requireAuthRequest(
   const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, undefined, input))
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   if (session) {
-    if (typeof routeIndex === "undefined") return
+    if (routeIndex === undefined) return
     const route = authAccessRoute(definition, request, input, routeIndex)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- AuthAccessRoute is a validated string-or-object union, and this selects its declared member.
     const authorize = typeof route === "string" ? undefined : route.authorize
     if (!authorize) return
 
