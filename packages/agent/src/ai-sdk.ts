@@ -1814,9 +1814,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       const auxiliaryUsageCaptures = [...toolRepairUsageCaptures, ...repairUsageCaptures]
+      const finalOriginalStep = originalGenerated?.steps.at(-1) ?? originalGenerated
       const usageRecord = auxiliaryUsageCaptures.some(capture => capture.captured)
         ? await combinedUsageRecord([
-            { capture: usageCapture, result: originalGenerated },
+            { capture: usageCapture, result: finalOriginalStep },
             ...toolRepairUsageCaptures.map(capture => ({ capture })),
             ...repairUsageCaptures.map((capture, index) => ({
               capture,
@@ -1889,6 +1890,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
       let resolveUsageReady!: () => void
       const usageReady = new Promise<void>((resolve) => { resolveUsageReady = resolve })
+      if (!context.output) resolveUsageReady()
       const abortSignal = context.input.abortSignal
       let abortListener: (() => void) | undefined
       const detachAbortListener = () => {
