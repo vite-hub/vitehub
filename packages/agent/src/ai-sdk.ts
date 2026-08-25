@@ -1870,19 +1870,78 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const streamed = await agent.stream({
+      let started: Promise<StreamTextResult<ToolSet, never, never>> | undefined
+      const start = () => started ??= Promise.resolve(agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
-      } as never) as StreamTextResult<ToolSet, never, never>
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const result = withResolvedModelMetadata(withCapturedStreamUsage(
-        // SAFETY: withCapturedUsage preserves the streamed result object and only replaces its usage accessors.
-        withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
-        usageCaptures,
-      ), model) as StreamTextResult<ToolSet, never, never>
+      } as never) as Promise<StreamTextResult<ToolSet, never, never>>).then((streamed) => {
+        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+        return withResolvedModelMetadata(withCapturedStreamUsage(
+          // SAFETY: withCapturedUsage preserves the streamed result object and only replaces its usage accessors.
+          withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
+          usageCaptures,
+        ), model) as StreamTextResult<ToolSet, never, never>
+      })
+      const lazyStream = (property: "fullStream" | "stream" | "textStream"): ReadableStream<unknown> => {
+        let reader: ReadableStreamDefaultReader<unknown> | undefined
+        const getReader = async () => {
+          if (reader) return reader
+          const stream = (await start())[property]
+          reader = stream instanceof ReadableStream
+            ? stream.getReader()
+            : ReadableStream.from(stream as AsyncIterable<unknown>).getReader()
+          return reader
+        }
+        return new ReadableStream({
+          async pull(controller) {
+            const item = await (await getReader()).read()
+            if (item.done) controller.close()
+            else controller.enqueue(item.value)
+          },
+          async cancel(reason) {
+            await (await getReader()).cancel(reason)
+          },
+        }, { highWaterMark: 0 })
+      }
+      const result = {
+        fullStream: lazyStream("fullStream"),
+        stream: lazyStream("stream"),
+        get textStream() {
+          return lazyStream("textStream")
+        },
+        get usage() {
+          return start().then(result => result.usage)
+        },
+        get totalUsage() {
+          return start().then(result => result.totalUsage)
+        },
+        toUIMessageStream(...args: unknown[]) {
+          let reader: ReadableStreamDefaultReader<unknown> | undefined
+          return new ReadableStream({
+            async pull(controller) {
+              reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
+              const item = await reader.read()
+              if (item.done) controller.close()
+              else controller.enqueue(item.value)
+            },
+            async cancel(reason) {
+              await reader?.cancel(reason)
+            },
+          }, { highWaterMark: 0 })
+        },
+      } as unknown as StreamTextResult<ToolSet, never, never>
+      const cancelStarted = async () => {
+        const streamed = await start()
+        const candidates = [streamed.stream, streamed.fullStream]
+        await Promise.allSettled(candidates.map(async (candidate) => {
+          const iterator = candidate?.[Symbol.asyncIterator]()
+          await iterator?.return?.()
+        }))
+      }
+      if (context.input.abortSignal?.aborted) void cancelStarted()
+      else context.input.abortSignal?.addEventListener("abort", () => void cancelStarted(), { once: true })
       if (repairOutput && context.output) {
         Object.defineProperty(result, agentOutputRepairSymbol, {
           configurable: true,
