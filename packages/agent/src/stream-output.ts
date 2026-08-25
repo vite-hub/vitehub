@@ -271,7 +271,7 @@ export function withReadableStreamCleanup<T>(
         await runCleanup(outcome)
       }
     },
-  })
+  }, { highWaterMark: 0 })
   if (options.abortSignal?.aborted) onAbort()
   else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
   return wrapped
