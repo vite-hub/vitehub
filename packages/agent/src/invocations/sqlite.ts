@@ -19,6 +19,7 @@ export interface LibsqlAgentInvocationStoreOptions {
 }
 
 const searchBackfillPageSize = 100
+const searchVersion = 2
 
 function tableName(prefix = "vitehub_agent_"): string {
   const name = `${prefix}invocations`
@@ -66,8 +67,7 @@ function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord
 }
 
 function searchableRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
-  const { observations: _observations, ...summary } = record
-  return JSON.stringify(summary).toLowerCase()
+  return JSON.stringify(record).toLowerCase()
 }
 
 function agentNameRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
@@ -118,6 +118,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         status TEXT NOT NULL,
         agent_name TEXT NOT NULL DEFAULT '',
         search TEXT,
+        search_version INTEGER NOT NULL DEFAULT ${searchVersion},
         record TEXT NOT NULL
       )`)
       const columns = await client.execute(`PRAGMA table_info(${table})`)
@@ -139,11 +140,21 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           if (!currentColumns.rows.some(row => row.name === "agent_name")) throw error
         }
       }
+      if (!columns.rows.some(row => row.name === "search_version")) {
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN search_version INTEGER NOT NULL DEFAULT 0`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
+          if (!currentColumns.rows.some(row => row.name === "search_version")) throw error
+        }
+      }
       let backfillSequence = 0
       while (true) {
         const missingSearch = await client.execute({
-          args: [backfillSequence, searchBackfillPageSize],
-          sql: `SELECT sequence, record FROM ${table} WHERE search IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
+          args: [searchVersion, backfillSequence, searchBackfillPageSize],
+          sql: `SELECT sequence, record FROM ${table}
+            WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
         })
         if (!missingSearch.rows.length) break
         const searchBackfill = missingSearch.rows.flatMap((row) => {
@@ -151,8 +162,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const record = deserialize(row.record, row.sequence)
           return record
             ? [{
-                args: [searchableRecord(storedRecord(record)), numberValue(row.sequence)],
-                sql: `UPDATE ${table} SET search = ? WHERE sequence = ? AND search IS NULL`,
+                args: [searchableRecord(storedRecord(record)), searchVersion, numberValue(row.sequence)],
+                sql: `UPDATE ${table} SET search = ?, search_version = ? WHERE sequence = ?`,
               }]
             : []
         })
@@ -219,8 +230,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         const result = await client.execute({
-          args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), serialize(input)],
-          sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, record) VALUES (?, ?, ?, ?, ?)`,
+          args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
+          sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
         })
         const record = await read(input.id)
         if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
@@ -305,8 +316,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const updated = applyAgentInvocationStoreUpdate(record, input)
           const stored = storedRecord(updated)
           await transaction.execute({
-            args: [updated.status, agentNameRecord(stored), searchableRecord(stored), serialize(stored), id],
-            sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, record = ? WHERE id = ?`,
+            args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, serialize(stored), id],
+            sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
           })
           await transaction.commit()
           return updated

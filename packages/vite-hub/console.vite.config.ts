@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "vite-hub/agent/vue": resolve(import.meta.dirname, "../agent/src/vue.ts"),
+      "vite-hub/source/client": resolve(import.meta.dirname, "../source/src/client.ts"),
     },
   },
   plugins: [

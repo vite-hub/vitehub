@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
+import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -16,6 +17,8 @@ import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/con
 import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
+import searchHandler from "../src/console/runtime/server/search.get.ts"
+import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -103,6 +106,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/agents",
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
+        "/api/_vitehub/console/search",
         "/_vitehub",
         "/_vitehub/**",
       ])
@@ -280,6 +284,59 @@ describe("Agent invocation console", () => {
     await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
       invocations: [{ agentName: "review" }],
     })
+  })
+
+  it("searches session text through the console Collection", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName: "babysitter",
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "matching-invocation",
+      observations: [{
+        attributes: { "message.content": "The pull request was merged via the queue." },
+        name: "agent.message",
+        sequence: 1,
+        timestamp: "2026-08-23T12:00:00.000Z",
+        type: "run",
+      }],
+      status: "completed",
+      traceId: "matching-trace",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    store.create({
+      agentName: "review",
+      createdAt: "2026-08-23T11:00:00.000Z",
+      id: "other-invocation",
+      observations: [],
+      status: "completed",
+      traceId: "other-trace",
+      updatedAt: "2026-08-23T11:00:00.000Z",
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+
+    const query = await consoleSearch.parseQuery({ search: "merged via" })
+    await expect(consoleSearch.page({ query })).resolves.toEqual({
+      items: [{
+        agentName: "babysitter",
+        context: "matching-invocation",
+        excerpt: "The pull request was merged via the queue.",
+        id: "matching-invocation",
+        status: "completed",
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      }],
+      nextCursor: null,
+    })
+
+    const app = new H3().get("/search", searchHandler as never)
+    const response = await app.request("/search?limit=12&search=merged%20via")
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: "matching-invocation" })],
+      nextCursor: null,
+    })
+
+    const invalidResponse = await app.request("/search?search=one&search=two")
+    expect(invalidResponse.status).toBe(400)
   })
 
   it("accepts persisted Agent names up to the metadata limit", async () => {
@@ -512,6 +569,9 @@ describe("Agent invocation console", () => {
       const reader = createConsoleInvocations(projectRoot)
       const invocation = await reader.getByRunId("console-cross-realm")
       expect(invocation).toMatchObject({ status: "completed" })
+      await expect(reader.list({ search: "persisted" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: invocation?.id })],
+      })
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
           "vitehub.agent.configuration": expect.objectContaining({

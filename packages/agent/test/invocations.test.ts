@@ -1679,7 +1679,7 @@ describe("Agent Invocations", () => {
     }
   })
 
-  it("initializes the libSQL search column concurrently", async () => {
+  it("initializes the libSQL search index concurrently", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-migration-"))
     const url = `file:${join(directory, "invocations.sqlite")}`
     const setupClient = createClient({ url })
@@ -1740,7 +1740,7 @@ describe("Agent Invocations", () => {
       const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
-        .resolves.toEqual({ invocations: [] })
+        .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
 

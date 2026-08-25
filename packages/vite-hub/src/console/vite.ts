@@ -89,6 +89,7 @@ export function consoleVitePlugin(): Plugin {
             join(consoleRuntimeRoot, "server/invocation.get.js"),
             join(consoleRuntimeRoot, "server/invocations.get.js"),
             join(consoleRuntimeRoot, "server/agents.get.js"),
+            join(consoleRuntimeRoot, "server/search.get.js"),
             join(consoleRuntimeRoot, "server/page.get.js"),
           ].includes(handler?.handler))
         : []
@@ -96,6 +97,7 @@ export function consoleVitePlugin(): Plugin {
         { handler: join(consoleRuntimeRoot, "server/agents.get.js"), route: "/api/_vitehub/console/agents" },
         { handler: join(consoleRuntimeRoot, "server/invocations.get.js"), route: "/api/_vitehub/console/invocations" },
         { handler: join(consoleRuntimeRoot, "server/invocation.get.js"), route: "/api/_vitehub/console/invocations/:id" },
+        { handler: join(consoleRuntimeRoot, "server/search.get.js"), route: "/api/_vitehub/console/search" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )

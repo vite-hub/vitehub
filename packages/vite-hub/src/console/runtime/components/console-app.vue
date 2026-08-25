@@ -11,10 +11,13 @@ import type {
   AgentInvocationView,
 } from "@vite-hub/ui";
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../agent-route";
+import { requestConsole } from "../client/request";
+import { relativeDuration } from "../client/time";
+import ConsoleSearch from "./console-search.vue";
 
 const route = useRoute();
 const router = useRouter();
-const props = defineProps<{ agentsBase: string; apiBase: string }>();
+const props = defineProps<{ agentsBase: string; apiBase: string; searchBase: string }>();
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
@@ -30,12 +33,6 @@ const isDesktop = ref(false);
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
-
-const request = async (path: string, options: { signal?: AbortSignal }): Promise<unknown> => {
-  const response = await fetch(path, { signal: options.signal });
-  if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`);
-  return response.json();
-};
 const recordSuccessfulPoll = () => {
   lastSuccessfulPollAt.value = new Date();
 };
@@ -44,15 +41,15 @@ const list = useAgentInvocations({
   baseURL: props.apiBase,
   onSuccess: recordSuccessfulPoll,
   pollInterval: 5_000,
-  request,
-  requestSummaries: request,
+  request: requestConsole,
+  requestSummaries: requestConsole,
   query: computed(() => selectedAgentName.value ? { agent: selectedAgentName.value } : undefined),
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
   onSuccess: recordSuccessfulPoll,
   pollInterval: 3_000,
-  request,
+  request: requestConsole,
 });
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
@@ -180,12 +177,6 @@ function errorMessage(error: unknown): string | undefined {
       : undefined;
 }
 
-function relativeDuration(elapsed: number): string {
-  if (elapsed < 60_000) return `${Math.floor(elapsed / 1_000)}s`;
-  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
-  return `${Math.floor(elapsed / 3_600_000)}h`;
-}
-
 async function selectInvocation(id: string): Promise<void> {
   sessionsOpen.value = false;
   await router.push({
@@ -210,7 +201,7 @@ async function loadAgents(): Promise<void> {
   agentsRequest = controller;
   agentsLoading.value = true;
   try {
-    const value = record(await request(props.agentsBase, { signal: controller.signal }));
+    const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
     const names = Array.isArray(value?.agents)
       ? value.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
@@ -371,6 +362,14 @@ onBeforeUnmount(() => {
           </div>
           <span class="text-xs text-dimmed">{{ invocationItems.length }}</span>
         </div>
+        <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
+          <UDashboardSearchButton
+            :collapsed="collapsed"
+            block
+            class="w-full bg-transparent ring-default"
+            label="Search sessions"
+          />
+        </div>
         <div
           v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
           class="px-3"
@@ -471,6 +470,8 @@ onBeforeUnmount(() => {
         />
       </template>
     </UDashboardSidebar>
+
+    <ConsoleSearch :agent-names="agentNames" :search-base="searchBase" />
 
     <UDashboardPanel id="agent-session">
       <div class="min-h-0 flex-1" aria-live="polite">

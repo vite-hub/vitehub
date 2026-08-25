@@ -199,8 +199,8 @@ function normalizeSearch(search: string | undefined): string | undefined {
 
 function matchesInvocationSearch(record: AgentInvocationRecord, search: string | undefined): boolean {
   if (!search) return true
-  const { cursor: _cursor, observations: _observations, ...summary } = record
-  return JSON.stringify(summary).toLowerCase().includes(search.toLowerCase())
+  const { cursor: _cursor, ...searchable } = record
+  return JSON.stringify(searchable).toLowerCase().includes(search.toLowerCase())
 }
 
 function normalizeBuiltInCursor(cursor: string | undefined): string | undefined {
