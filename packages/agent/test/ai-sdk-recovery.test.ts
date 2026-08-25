@@ -214,7 +214,12 @@ describe("AI SDK recovery", () => {
   })
 
   it("repairs invalid structured output from streamed invocations", async () => {
-    const fakeModel = model(["{\"text\":\"repaired\"}"])
+    let releaseRepair!: () => void
+    const repairReleased = new Promise<void>((resolve) => { releaseRepair = resolve })
+    const fakeModel = model([async () => {
+      await repairReleased
+      return "{\"text\":\"repaired\"}"
+    }])
     const doStream = vi.fn(async () => ({
       stream: new ReadableStream({
         start(controller) {
@@ -246,13 +251,21 @@ describe("AI SDK recovery", () => {
     const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
     // SAFETY: streamAgentInline exposes the AI SDK usage promise on its documented stream result.
     const earlyUsage = (result as { usage: Promise<unknown> }).usage
-    const events = []
+    const events: unknown[] = []
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
-    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+    const consumption = (async () => {
+      for await (const event of result as AsyncIterable<unknown>) events.push(event)
+    })()
+    await vi.waitFor(() => expect(fakeModel.calls).toHaveLength(1))
+    let usageSettled = false
+    void earlyUsage.then(() => { usageSettled = true })
+    await Promise.resolve()
+    expect(usageSettled).toBe(false)
+    releaseRepair()
+    await consumption
 
     expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }))
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
-    expect(fakeModel.calls).toHaveLength(1)
     await expect(earlyUsage).resolves.toMatchObject({ totalTokens: 4 })
   })
 

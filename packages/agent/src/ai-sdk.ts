@@ -13,7 +13,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentOutputInstructions, agentOutputJsonSchema, agentOutputRepairSymbol, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { agentOutputInstructions, agentOutputJsonSchema, agentOutputRepairSymbol, agentOutputUsageReadySymbol, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
@@ -984,6 +984,7 @@ async function combinedCapturedUsage(captures: readonly ReturnType<typeof create
 function withCapturedUsage(
   result: unknown,
   captures: ReturnType<typeof createUsageCapture> | readonly ReturnType<typeof createUsageCapture>[] | (() => readonly ReturnType<typeof createUsageCapture>[]),
+  usageReady?: Promise<void>,
 ): unknown {
   const capturedUsage = () => {
     const captureList = hasRuntimeType(captures, "function")
@@ -1021,9 +1022,7 @@ function withCapturedUsage(
         if (!primaryCapture.captured && !fallback.exists) return undefined
         await primaryCapture.started
         await primaryCapture.completed
-        // Output correction starts after the primary stream completes. Let the
-        // materializer register that capture before taking the aggregate snapshot.
-        await Promise.resolve()
+        await usageReady
         return await capturedUsage()
       }
       const fallbackUsage = fallback.exists ? await fallback.read() : undefined
@@ -1887,6 +1886,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
+      let resolveUsageReady!: () => void
+      const usageReady = new Promise<void>((resolve) => { resolveUsageReady = resolve })
       const abortSignal = context.input.abortSignal
       let abortListener: (() => void) | undefined
       const detachAbortListener = () => {
@@ -1911,7 +1912,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           return withResolvedModelMetadata(withCapturedStreamUsage(
             // SAFETY: withCapturedUsage preserves the streamed result object and only replaces its usage accessors.
-            withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
+            withCapturedUsage(streamed, usageCaptures, usageReady) as StreamTextResult<ToolSet, never, never>,
             usageCaptures,
           ), model) as StreamTextResult<ToolSet, never, never>
         })
@@ -2030,6 +2031,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           }, repairCallInput),
         })
       }
+      Object.defineProperty(result, agentOutputUsageReadySymbol, {
+        configurable: true,
+        value: resolveUsageReady,
+      })
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },

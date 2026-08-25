@@ -300,6 +300,31 @@ describe("Agent Driver capacity", () => {
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42 })
   })
 
+  it("materializes structured stream output after a recoverable error", async () => {
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => ({ value }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        output: { schema },
+        run: () => ({
+          stream: (async function* () {
+            yield { error: "provider restarted", recoverable: true, type: "error" }
+            yield { text: "{\"answer\":42}", type: "text-delta" }
+          })(),
+        }),
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42 })
+  })
+
   it("does not evaluate unused lazy streams during structured materialization", async () => {
     let lazyStreamReads = 0
     const schema = {

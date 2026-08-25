@@ -5,7 +5,7 @@ import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
-import { agentOutputRepairSymbol, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { agentOutputRepairSymbol, agentOutputUsageReadySymbol, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
@@ -4510,7 +4510,7 @@ async function finalizeAgentInvocationResult<
   }
 }
 
-async function materializeAgentStructuredOutput(
+async function materializeAgentStructuredOutputInner(
   result: unknown,
   abortSignal?: AbortSignal,
   onEvent?: (event: StreamEvent) => void | Promise<void>,
@@ -4569,6 +4569,10 @@ async function materializeAgentStructuredOutput(
   }) as AsyncIterable<StreamEvent>
   for await (const event of events) {
     if (event.type === "error") {
+      if (event.recoverable === true) {
+        await onEvent?.(event)
+        continue
+      }
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
       const rejectedText = hasRuntimeType(streamError?.text, "string") ? streamError.text : text
@@ -4616,6 +4620,23 @@ async function materializeAgentStructuredOutput(
     }
   }
   return materialized
+}
+
+async function materializeAgentStructuredOutput(
+  result: unknown,
+  abortSignal?: AbortSignal,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
+  output?: AgentOutputDefinition,
+): Promise<unknown> {
+  try {
+    return await materializeAgentStructuredOutputInner(result, abortSignal, onEvent, output)
+  }
+  finally {
+    if (result && hasRuntimeType(result, "object")) {
+      const usageReady = Reflect.get(result, agentOutputUsageReadySymbol)
+      if (hasRuntimeType(usageReady, "function")) usageReady()
+    }
+  }
 }
 
 function materializeAgentStructuredOutputWithEvents(
