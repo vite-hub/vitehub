@@ -1110,6 +1110,8 @@ function withCapturedStreamUsage<T extends {
     }
     const buffered: IteratorResult<unknown>[] = []
     let draining: Promise<void> | undefined
+    let read = Promise.resolve<IteratorResult<unknown>>({ done: true, value: undefined })
+    const readNext = () => read = read.then(() => wrapped.next())
     const wrapped: AsyncIterableIterator<unknown> = {
       [Symbol.asyncIterator]() {
         return wrapped
@@ -1170,7 +1172,7 @@ function withCapturedStreamUsage<T extends {
     }
     const drain = () => draining ??= (async () => {
       while (true) {
-        const item = await wrapped.next()
+        const item = await readNext()
         buffered.push(item)
         if (item.done) return
       }
@@ -1178,7 +1180,7 @@ function withCapturedStreamUsage<T extends {
     const next = async () => {
       const bufferedItem = buffered.shift()
       if (bufferedItem) return bufferedItem
-      if (!draining) return await wrapped.next()
+      if (!draining) return await readNext()
       await draining
       // SAFETY: drain always buffers the terminal iterator result before it resolves.
       return buffered.shift()!
@@ -1186,8 +1188,8 @@ function withCapturedStreamUsage<T extends {
     return new ReadableStream({
       async pull(controller) {
         try {
-          const item = await next()
           primaryCapture?.start(drain)
+          const item = await next()
           if (item.done) controller.close()
           else controller.enqueue(item.value)
         }
@@ -1218,11 +1220,13 @@ function withCapturedStreamUsage<T extends {
             let reader: ReadableStreamDefaultReader<unknown> | undefined
             const buffered: Array<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>> = []
             let draining: Promise<void> | undefined
+            let read = Promise.resolve<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>>({ done: true, value: undefined })
             // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
             const getReader = () => reader ??= toUIMessageStream.apply(this, args as never[]).getReader()
+            const readNext = () => read = read.then(() => getReader().read())
             const drain = () => draining ??= (async () => {
               while (true) {
-                const item = await getReader().read()
+                const item = await readNext()
                 buffered.push(item)
                 if (item.done) return
               }
@@ -1230,7 +1234,7 @@ function withCapturedStreamUsage<T extends {
             const next = async () => {
               const bufferedItem = buffered.shift()
               if (bufferedItem) return bufferedItem
-              if (!draining) return await getReader().read()
+              if (!draining) return await readNext()
               await draining
               // SAFETY: drain always buffers the terminal read result before it resolves.
               return buffered.shift()!
@@ -1269,7 +1273,7 @@ function withCapturedStreamUsage<T extends {
                 const primaryCapture = captures()[0]
                 primaryCapture?.start()
                 try {
-                  await reader?.cancel(reason)
+                  await getReader().cancel(reason)
                 }
                 finally {
                   primaryCapture?.complete()

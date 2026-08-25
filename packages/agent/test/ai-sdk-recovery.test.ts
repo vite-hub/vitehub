@@ -3,6 +3,7 @@ import { array, is, object, string } from "valibot"
 
 import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
+import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { normalizeUiMessageStreamChunk } from "../src/stream-output.ts"
 
 import type { AgentFinishHookEvent } from "../src/index.ts"
@@ -172,7 +173,7 @@ async function rawStreamingResult() {
   // SAFETY: The fake model implements the AI SDK streaming model contract exercised by this test.
   return await createAiSdkAdapter({ model: fakeModel as never }).stream!({
     actor: invoker,
-    context: { get: () => undefined },
+    context: createAgentInvocationContextStore(),
     input: {},
     invoker,
     messages: [],
