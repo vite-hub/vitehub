@@ -778,6 +778,16 @@ describe("AI SDK recovery", () => {
     await expect(result).rejects.toBe(stopped)
   })
 
+  it("propagates operational failures from tool-call repair", async () => {
+    const unavailable = new Error("repair provider unavailable")
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      async () => { throw unavailable },
+    ])
+
+    await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })).rejects.toBe(unavailable)
+  })
+
   it("includes tool-call repair usage in streamed invocations", async () => {
     const executions = vi.fn(() => "found")
     const fakeModel = streamingRepairModel()

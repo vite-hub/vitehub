@@ -1614,7 +1614,7 @@ async function createAgent(
         }
         catch (error) {
           if (abortSignal?.aborted) throw abortSignal.reason ?? error
-          return null
+          throw error
         }
       }
     : undefined
