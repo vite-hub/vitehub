@@ -151,13 +151,18 @@ const runtime = {
   waitUntil: () => undefined,
 }
 
-async function rawStreamingResult() {
+async function rawStreamingResult(beforeFirstEvent?: Promise<void>, onFirstEventRequested?: () => void) {
+  let started = false
   const fakeModel = {
     ...model([]),
     async doStream() {
       return {
         stream: new ReadableStream({
-          start(controller) {
+          async pull(controller) {
+            if (started) return
+            started = true
+            onFirstEventRequested?.()
+            await beforeFirstEvent
             controller.enqueue({ type: "stream-start", warnings: [] })
             controller.enqueue({ id: "answer", type: "text-start" })
             controller.enqueue({ delta: "Finished", id: "answer", type: "text-delta" })
@@ -1057,6 +1062,30 @@ describe("AI SDK recovery", () => {
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await iterator.return?.()
+  })
+
+  it("settles usage requested during the first pending stream read", async () => {
+    let releaseFirstEvent!: () => void
+    let markFirstEventRequested!: () => void
+    const firstEvent = new Promise<void>((resolve) => {
+      releaseFirstEvent = resolve
+    })
+    const firstEventRequested = new Promise<void>((resolve) => {
+      markFirstEventRequested = resolve
+    })
+    const result = await rawStreamingResult(firstEvent, markFirstEventRequested)
+    // SAFETY: streamAgentInline preserves the AI SDK stream and usage result members.
+    const streamed = result as { stream: AsyncIterable<unknown>, usage: Promise<unknown> }
+    const iterator = streamed.stream[Symbol.asyncIterator]()
+
+    const firstRead = iterator.next()
+    await firstEventRequested
+    const usage = streamed.usage
+    releaseFirstEvent()
+
+    await expect(firstRead).resolves.toMatchObject({ done: false })
+    await expect(usage).resolves.toMatchObject({ totalTokens: 2 })
     await iterator.return?.()
   })
 
