@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ConsoleApp from "../components/console-app.vue";
+import ConsoleProvider from "../components/console-provider.vue";
 
 const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
 
@@ -8,11 +9,13 @@ useHead({ title: "Agents · ViteHub Console" });
 
 <template>
   <ClientOnly>
-    <ConsoleApp
-      :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
-      :api-base="`${appBaseURL}/api/_vitehub/console/invocations`"
-      :search-base="`${appBaseURL}/api/_vitehub/console/search`"
-    />
+    <ConsoleProvider>
+      <ConsoleApp
+        :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
+        :api-base="`${appBaseURL}/api/_vitehub/console/invocations`"
+        :search-base="`${appBaseURL}/api/_vitehub/console/search`"
+      />
+    </ConsoleProvider>
     <template #fallback>
       <div class="flex h-dvh min-h-[32rem] items-center justify-center text-sm text-muted">
         Loading ViteHub Console…

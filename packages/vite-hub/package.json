@@ -214,6 +214,7 @@
     "@vite-hub/internal": "workspace:*",
     "h3-v1": "npm:h3@^1.15.11",
     "publint": "catalog:tooling",
+    "reka-ui": "^2.10.3",
     "tailwindcss": "^4.3.2",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
@@ -226,6 +227,7 @@
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",
     "comark-content": "catalog:markdown",
+    "reka-ui": "^2.10.3",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -233,6 +235,9 @@
       "optional": true
     },
     "comark-content": {
+      "optional": true
+    },
+    "reka-ui": {
       "optional": true
     },
     "vite": {

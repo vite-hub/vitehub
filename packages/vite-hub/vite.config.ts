@@ -37,6 +37,7 @@ export default defineConfig({
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
       { from: "src/console/runtime/components/console-app.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-provider.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "../ui/styles.css", to: "dist/ui" },

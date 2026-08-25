@@ -1809,6 +1809,9 @@ importers:
       publint:
         specifier: catalog:tooling
         version: 0.3.21
+      reka-ui:
+        specifier: ^2.10.3
+        version: 2.10.3(vue@3.5.40(typescript@6.0.3))
       tailwindcss:
         specifier: ^4.3.2
         version: 4.3.3
