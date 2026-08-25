@@ -31,7 +31,7 @@ const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
 const isDesktop = ref(false);
-const pageVisible = ref(typeof document !== "undefined" && document.visibilityState !== "hidden");
+const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
