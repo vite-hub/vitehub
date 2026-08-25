@@ -5560,7 +5560,7 @@ async function executeAgentInvocationWithCapacityLease<
             }
             catch (error) {
               uiMessageStructuredUsageRecord = observedUsageEvent?.usageRecord
-                ?? await resolveAgentUsageRecord(rendered, invocation.run)
+                ?? usageRecordFromStreamChunk(rendered)
                 ?? uiMessageStructuredUsageRecord
               throw error
             }
