@@ -323,7 +323,7 @@ function isCapabilityCliInput(input: unknown): input is { argv: string[], input?
 }
 
 export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
-  if (!hasRuntimeType(chunk, "object")) return chunk
+  if (!hasRuntimeType(chunk, "object") || chunk === null) return chunk
   // SAFETY: The object boundary above permits inspecting the provider chunk record.
   const record = chunk as Record<string, unknown>
   if (record.type === "error" && record.recoverable === true) {

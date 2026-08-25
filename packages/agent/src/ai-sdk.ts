@@ -930,11 +930,15 @@ function createUsageCapture() {
 
   const capture = (event: unknown) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+    const record = hasRuntimeType(event, "object") && event !== null
+      ? event as { providerMetadata?: unknown, totalUsage?: unknown, usage?: unknown }
+      : undefined
     const usage = record?.usage ?? record?.totalUsage
     if (usage === undefined) return
     capturedUsage = usage
-    metadataSource = event
+    const hasProviderMetadata = hasRuntimeType(record?.providerMetadata, "object") && record.providerMetadata !== null
+    // Keep the metadata-rich finish event when later lifecycle callbacks repeat only numeric usage.
+    if (metadataSource === undefined || hasProviderMetadata) metadataSource = event
     captured = true
     publish()
   }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { array, is, object, string } from "valibot"
 
 import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
+import { normalizeUiMessageStreamChunk } from "../src/stream-output.ts"
 
 import type { AgentFinishHookEvent } from "../src/index.ts"
 
@@ -198,6 +199,10 @@ function toolCallingAgent(
 }
 
 describe("AI SDK recovery", () => {
+  it("preserves null UI-message chunks at the provider boundary", () => {
+    expect(normalizeUiMessageStreamChunk(null)).toBeNull()
+  })
+
   it("repairs structured output with three total attempts by default", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":\"repaired\"}"])
     const agent = defineAgent({

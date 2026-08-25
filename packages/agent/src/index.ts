@@ -3563,7 +3563,7 @@ function withEagerUiMessageStreamUsageExtensions<
 
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
   if (!hasRuntimeType(stream, "object") || stream === null || !hasRuntimeType(result, "object") || result === null) return stream
-  Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
+  Object.defineProperties(stream, Object.fromEntries(["textStream", "usage", "usageRecord"].map(key => [key, {
     configurable: true,
     enumerable: true,
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
