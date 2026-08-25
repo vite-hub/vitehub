@@ -82,11 +82,13 @@ Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in re
 
 The Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, and progress updates.
 
+The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data.
+
 The fallback applies only when an Agent Definition does not configure `invocations`. An explicit `defineAgent({ invocations })` store remains authoritative, and its sessions are not copied into `console.sqlite` or read by the built-in Console.
 
 The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store. Use the [Invocation UI](/docs/ui/invocation) with that store when the app needs a custom inspection page.
 
-Production Console builds currently require `preset: 'node'` because the fallback journal uses durable local SQLite. Other presets can run the Console during development. Their production builds fail while `console: true` is set, so ViteHub does not write the journal to storage that may disappear between requests or deployments.
+Production Console builds currently require `preset: 'node'` because the fallback journal uses local SQLite. The Node preset supports the build, but it does not make `.vitehub/data/console.sqlite` persistent: the host must provide durable storage that survives process and deployment replacement. The file is also local to one replica and is not shared across replicas. Other presets can run the Console during development. Their production builds fail while `console: true` is set, so ViteHub does not write the journal to storage that may disappear between requests or deployments.
 
 The Console API accepts `GET` requests only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
