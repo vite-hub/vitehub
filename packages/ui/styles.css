@@ -1708,7 +1708,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   --diffs-font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   --diffs-font-size: 0.8125rem;
   --diffs-header-font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
-  --diffs-line-height: 1.5rem;
+  --diffs-line-height: 1.25rem;
   --diffs-modified-base: var(--vh-ui-info);
   background: var(--vh-ui-bg);
   color: var(--vh-ui-text);
