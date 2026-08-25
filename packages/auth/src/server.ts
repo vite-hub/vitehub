@@ -365,6 +365,7 @@ function authAccessRoute(
   event: unknown,
   routeIndex: number,
 ): AuthAccessRoute {
+  // SAFETY: Auth Definitions validate `access` before the runtime resolves their options.
   const routes = (resolveDefinitionOptions(definition, request, event) as { access?: AuthAccessConfiguration }).access?.routes
   const route = routes?.[routeIndex]
   if (!route) {
@@ -420,8 +421,7 @@ async function requireAuthRequest(
   if (session) {
     if (routeIndex === undefined) return
     const route = authAccessRoute(definition, request, input, routeIndex)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- AuthAccessRoute is a validated string-or-object union, and this selects its declared member.
-    const authorize = typeof route === "string" ? undefined : route.authorize
+    const authorize = route instanceof Object ? route.authorize : undefined
     if (!authorize) return
 
     const context: AuthAccessAuthorizationContext = {
