@@ -179,6 +179,13 @@ describe("vitehub", () => {
     ]))
   })
 
+  it("does not install console plugins when explicitly disabled", () => {
+    expect(pluginNames(vitehub({ console: false, preset: "node" }))).not.toEqual(expect.arrayContaining([
+      "vite-hub/console",
+      "vite-hub/console-invocation-root",
+    ]))
+  })
+
   it("passes the deployment storage contract to the console plugin", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: true, preset: "cloudflare" }),

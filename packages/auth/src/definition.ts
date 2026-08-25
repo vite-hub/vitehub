@@ -13,7 +13,7 @@ import type {
 } from "./types.ts"
 
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
-const accessRouteKeys = new Set(["method", "route"])
+const accessRouteKeys = new Set(["authorize", "method", "route"])
 const databaseReferenceKeys = new Set(["dedicated", "name"])
 const secondaryStorageReferenceKeys = new Set(["store"])
 
@@ -105,6 +105,9 @@ function validateAuthAccessRoute(value: unknown, label: string): void {
   }
 
   validateRouteValue(value.route, `${label}.route`)
+  if (typeof value.authorize !== "undefined" && typeof value.authorize !== "function") {
+    throw new TypeError(`\`defineAuth()\` ${label}.authorize must be a function.`)
+  }
   if (typeof value.method !== "undefined") validateStringValue(value.method, `${label}.method`)
 }
 

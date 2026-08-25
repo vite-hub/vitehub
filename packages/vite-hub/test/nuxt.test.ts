@@ -402,6 +402,18 @@ describe("ViteHub Nuxt integration", () => {
     expect(nuxt.options.nitro).not.toHaveProperty("handlers")
   })
 
+  it("does not install the console when explicitly disabled", async () => {
+    const { nuxt, pageHooks } = createNuxt(true)
+    await viteHubNuxtModule({ console: false, preset: "node" }, nuxt)
+
+    expect(mocks.uiModule).not.toHaveBeenCalled()
+    expect(pageHooks).toHaveLength(0)
+    expect(nuxt.options.nitro).not.toHaveProperty("handlers")
+    expect(nuxt.options.vite.plugins).not.toContainEqual(
+      expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
+    )
+  })
+
   it.each([
     ["cloudflare", "cloudflare-module"],
     ["vercel", "vercel"],

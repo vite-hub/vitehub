@@ -244,7 +244,7 @@ Open `/_vitehub` to inspect Agent sessions and trace observations. With the Node
 
 Production Console builds currently require the Node preset because the fallback journal needs a durable local filesystem. Other presets can use the Console during development, but must disable it for production until a host-owned durable Agent Invocation store is configured.
 
-The console does not add authorization. `console: true` exposes its read-only page and API through the application host, including production ingress. Protect `/_vitehub` and `/api/_vitehub/console/**` at the host boundary when invocation metadata must remain private.
+The console does not create an authentication system. `console: true` exposes its read-only page and API through the application host, including production ingress. Hosts using ViteHub Auth can protect `/_vitehub/**` and `/api/_vitehub/console/**` with [`access.routes` authorization callbacks](/docs/server-primitives/auth#authorize-access-routes); other hosts should guard the same routes in host middleware.
 
 The fallback applies to Agent Definitions imported from `vite-hub/agent`. An explicit `defineAgent({ invocations })` store, including one assigned later by an integration, remains authoritative. Imports directly from `@vite-hub/agent` do not receive the framework console fallback.
 

@@ -54,6 +54,11 @@ function readDefinitionArgumentObjectBody(argument: string | undefined): Definit
   const trimmed = argument?.trim()
   if (!trimmed) return
 
+  if (trimmed.startsWith("{")) {
+    const objectBody = objectLiteralBody(trimmed)
+    return objectBody === undefined ? undefined : { body: objectBody, callback: false }
+  }
+
   const arrowIndex = trimmed.indexOf("=>")
   if (arrowIndex !== -1) {
     const body = trimmed.slice(arrowIndex + 2).trim()
@@ -186,7 +191,7 @@ function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRo
     throw new TypeError(`\`defineAuth()\` access.routes[${index}] must be an inline route string or route object.`)
   }
 
-  assertOnlyObjectKeys(routeObject, new Set(["method", "route"]), `access.routes[${index}]`)
+  assertOnlyObjectKeys(routeObject, new Set(["authorize", "method", "route"]), `access.routes[${index}]`)
 
   const resolvedRoute = readStaticRouteProperty(routeObject, "route", `access.routes[${index}].route`)
   if (!resolvedRoute) {

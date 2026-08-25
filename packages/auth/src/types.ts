@@ -31,11 +31,23 @@ export interface AuthSignInConfiguration {
 }
 
 export interface AuthAccessRouteConfiguration {
+  authorize?: AuthAccessAuthorize
   method?: string
   route: string
 }
 
 export type AuthAccessRoute = string | AuthAccessRouteConfiguration
+
+export interface AuthAccessAuthorizationContext {
+  request: AuthRequest
+  session: Record<string, unknown>
+  user: Record<string, unknown> & { id: string }
+}
+
+export type AuthAccessAuthorizeResult = boolean | Response
+export type AuthAccessAuthorize = (
+  context: AuthAccessAuthorizationContext,
+) => AuthAccessAuthorizeResult | Promise<AuthAccessAuthorizeResult>
 
 export interface AuthAccessConfiguration {
   routes?: AuthAccessRoute[]

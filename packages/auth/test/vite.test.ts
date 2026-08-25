@@ -184,7 +184,7 @@ describe("hubAuth", () => {
       "    routes: [",
       "      '/app',",
       "      '/app/**',",
-      "      { method: 'POST', route: '/api/app' },",
+      "      { authorize: ({ user }) => user.isAdmin === true, method: 'POST', route: '/api/app' },",
       "    ],",
       "  },",
     ])
@@ -247,7 +247,10 @@ describe("hubAuth", () => {
     await resolvePluginConfig(plugin, root)
 
     await expect(readFile(join(root, ".vitehub", "auth", "route.ts"), "utf8")).resolves.toContain("export { default } from \"#vitehub/auth/server\"")
-    await expect(readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")).resolves.toContain("import { requireAuth } from \"#vitehub/auth/server\"")
+    const accessMiddleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
+    expect(accessMiddleware).toContain("import { requireAuthAccessRoutes } from \"#vitehub/auth/server\"")
+    expect(accessMiddleware).toContain("routes.flatMap")
+    expect(accessMiddleware).toContain("requireAuthAccessRoutes(event, routeIndexes)")
   })
 
   it("shares dev route sessions with the authenticated Agent helper in SSR modules", async () => {
