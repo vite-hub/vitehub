@@ -1067,7 +1067,7 @@ function withCapturedStreamUsage<T extends {
   result: T,
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
-  const wrap = (getStream: () => AsyncIterable<unknown>): AsyncIterable<unknown> => {
+  const wrap = (getStream: () => AsyncIterable<unknown>): ReadableStream<unknown> => {
     let iterator: AsyncIterator<unknown> | undefined
     const getIterator = () => iterator ??= getStream()[Symbol.asyncIterator]()
     const primaryCapture = captures()[0]
@@ -1134,7 +1134,21 @@ function withCapturedStreamUsage<T extends {
         }
       },
     }
-    return wrapped
+    return new ReadableStream({
+      async pull(controller) {
+        try {
+          const item = await wrapped.next()
+          if (item.done) controller.close()
+          else controller.enqueue(item.value)
+        }
+        catch (error) {
+          controller.error(error)
+        }
+      },
+      async cancel(reason) {
+        await wrapped.return?.(reason)
+      },
+    }, { highWaterMark: 0 })
   }
   const toUIMessageStream = result.toUIMessageStream
   const hasStream = "stream" in result
@@ -1871,25 +1885,35 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
       let started: Promise<StreamTextResult<ToolSet, never, never>> | undefined
-      // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
-      const start = () => started ??= Promise.resolve(agent.stream({
-        ...callInput,
-        onEnd: usageCapture.onEnd,
-        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-        onStepEnd: captureStep,
-      } as never) as Promise<StreamTextResult<ToolSet, never, never>>).then((streamed) => {
-        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        return withResolvedModelMetadata(withCapturedStreamUsage(
-          // SAFETY: withCapturedUsage preserves the streamed result object and only replaces its usage accessors.
-          withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
-          usageCaptures,
-        ), model) as StreamTextResult<ToolSet, never, never>
+      let resolveStarted!: (result: Promise<StreamTextResult<ToolSet, never, never>>) => void
+      const whenStarted = new Promise<StreamTextResult<ToolSet, never, never>>((resolve) => {
+        resolveStarted = resolve
       })
+      // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
+      const start = () => {
+        if (started) return started
+        started = Promise.resolve(agent.stream({
+          ...callInput,
+          onEnd: usageCapture.onEnd,
+          onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+          onStepEnd: captureStep,
+        } as never) as Promise<StreamTextResult<ToolSet, never, never>>).then((streamed) => {
+          // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+          return withResolvedModelMetadata(withCapturedStreamUsage(
+            // SAFETY: withCapturedUsage preserves the streamed result object and only replaces its usage accessors.
+            withCapturedUsage(streamed, usageCaptures) as StreamTextResult<ToolSet, never, never>,
+            usageCaptures,
+          ), model) as StreamTextResult<ToolSet, never, never>
+        })
+        resolveStarted(started)
+        return started
+      }
       const lazyStream = (property: "fullStream" | "stream" | "textStream"): ReadableStream<unknown> => {
         let reader: ReadableStreamDefaultReader<unknown> | undefined
         const getReader = async () => {
           if (reader) return reader
-          const stream = (await start())[property]
+          const result = await start()
+          const stream = result[property] ?? result.stream ?? result.fullStream ?? result.textStream
           reader = stream instanceof ReadableStream
             ? stream.getReader()
             // SAFETY: StreamTextResult exposes these properties as ReadableStream or AsyncIterable values.
@@ -1915,10 +1939,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           return lazyStream("textStream")
         },
         get usage() {
-          return start().then(result => result.usage)
+          return whenStarted.then(result => result.usage)
         },
         get totalUsage() {
-          return start().then(result => result.totalUsage)
+          return whenStarted.then(result => result.totalUsage)
         },
         toUIMessageStream(...args: unknown[]) {
           let reader: ReadableStreamDefaultReader<unknown> | undefined
