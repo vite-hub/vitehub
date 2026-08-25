@@ -335,8 +335,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <UApp :toaster="null">
-    <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-agent-console">
+  <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-agent-console">
     <UDashboardSidebar
       id="agent-sessions"
       v-model:open="sessionsOpen"
@@ -624,8 +623,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </UDashboardPanel>
-    </UDashboardGroup>
-  </UApp>
+  </UDashboardGroup>
 </template>
 
 <style>
