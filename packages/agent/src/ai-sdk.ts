@@ -1816,6 +1816,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         generated = repairedOutput ?? await normalizeNativeAgentOutputError(context.output, error)
         repaired = Boolean(repairedOutput)
       }
+      if (toolRepairFailure() !== undefined) throw toolRepairFailure()
       if (!repaired && fallback.enabled && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
@@ -1966,6 +1967,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
                 return
               }
               detachAbortListener()
+              if (toolRepairFailure() !== undefined) throw toolRepairFailure()
               controller.close()
             }
             catch (error) {
@@ -2009,6 +2011,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
                   return
                 }
                 detachAbortListener()
+                if (toolRepairFailure() !== undefined) throw toolRepairFailure()
                 controller.close()
               }
               catch (error) {

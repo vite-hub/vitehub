@@ -365,6 +365,16 @@ describe("AI SDK recovery", () => {
 
     expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }))
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
+    expect(events.filter(event => (event as { type?: unknown }).type === "usage").at(-1)).toMatchObject({
+      usageRecord: {
+        calls: expect.arrayContaining([
+          expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+          expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+        ]),
+        cost: expect.objectContaining({ usd: "0.3" }),
+        usage: expect.objectContaining({ totalTokens: 4 }),
+      },
+    })
     await expect(earlyUsage).resolves.toMatchObject({ totalTokens: 4 })
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({
@@ -786,6 +796,29 @@ describe("AI SDK recovery", () => {
     ])
 
     await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })).rejects.toBe(unavailable)
+  })
+
+  it("propagates tool-call repair failures after a successful follow-up step", async () => {
+    const unavailable = new Error("repair provider unavailable")
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      async () => { throw unavailable },
+      "Finished",
+    ])
+
+    await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })).rejects.toBe(unavailable)
+  })
+
+  it("propagates streamed tool-call repair failures after a successful follow-up step", async () => {
+    const unavailable = new Error("repair provider unavailable")
+    const fakeModel = streamingRepairModel()
+    fakeModel.doGenerate.mockRejectedValueOnce(unavailable)
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+
+    await expect(async () => {
+      // SAFETY: streamAgentInline returns the documented async iterable result contract.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+    }).rejects.toBe(unavailable)
   })
 
   it("includes tool-call repair usage in streamed invocations", async () => {

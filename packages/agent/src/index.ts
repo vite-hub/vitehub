@@ -5612,6 +5612,7 @@ async function executeAgentInvocationWithCapacityLease<
             ?? await resolveAgentUsageRecord(streamResult, invocation.run)
           // SAFETY: structuredMaterialization is created only when structuredOutput is defined.
           structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized)
+          if (structuredUsageRecord) yield { type: "usage", usageRecord: structuredUsageRecord }
           yield { data: structuredFinishResult, type: "data" }
           yield { type: "finish" }
         })()
