@@ -365,6 +365,7 @@ function authAccessRoute(
   event: unknown,
   routeIndex: number,
 ): AuthAccessRoute {
+  // SAFETY: Auth Definitions validate `access` before the runtime resolves their options.
   const routes = (resolveDefinitionOptions(definition, request, event) as { access?: AuthAccessConfiguration }).access?.routes
   const route = routes?.[routeIndex]
   if (!route) {
@@ -418,9 +419,9 @@ async function requireAuthRequest(
   const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, undefined, input))
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   if (session) {
-    if (typeof routeIndex === "undefined") return
+    if (routeIndex === undefined) return
     const route = authAccessRoute(definition, request, input, routeIndex)
-    const authorize = typeof route === "string" ? undefined : route.authorize
+    const authorize = route instanceof Object ? route.authorize : undefined
     if (!authorize) return
 
     const context: AuthAccessAuthorizationContext = {

@@ -56,7 +56,7 @@ function readDefinitionArgumentObjectBody(argument: string | undefined): Definit
 
   if (trimmed.startsWith("{")) {
     const objectBody = objectLiteralBody(trimmed)
-    return typeof objectBody === "undefined" ? undefined : { body: objectBody, callback: false }
+    return objectBody === undefined ? undefined : { body: objectBody, callback: false }
   }
 
   const arrowIndex = trimmed.indexOf("=>")
