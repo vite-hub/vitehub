@@ -69,11 +69,13 @@ export function createAgentUIMessageStream(options: {
   execute: (context: { abortSignal: AbortSignal, writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
   const cancellation = new AbortController()
+  let execution: Promise<void> | undefined
   return new ReadableStream<unknown>({
     cancel(reason) {
       cancellation.abort(reason ?? new DOMException("[vitehub] Agent UI-message stream cancelled.", "AbortError"))
     },
-    start(controller) {
+    pull(controller) {
+      if (execution) return execution
       const writer: AgentUIMessageStreamWriter = {
         write(event) {
           try {
@@ -84,7 +86,7 @@ export function createAgentUIMessageStream(options: {
           }
         },
       }
-      void Promise.resolve(options.execute({ abortSignal: cancellation.signal, writer }))
+      execution = Promise.resolve(options.execute({ abortSignal: cancellation.signal, writer }))
         .catch((error) => {
           try {
             controller.enqueue({
@@ -100,8 +102,9 @@ export function createAgentUIMessageStream(options: {
           }
           catch {}
         })
+      return execution
     },
-  })
+  }, { highWaterMark: 0 })
 }
 
 export function createAgentUIMessageStreamResponse(options: {

@@ -1067,8 +1067,9 @@ function withCapturedStreamUsage<T extends {
   result: T,
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
-  const wrap = (stream: AsyncIterable<unknown>): AsyncIterable<unknown> => {
-    const iterator = stream[Symbol.asyncIterator]()
+  const wrap = (getStream: () => AsyncIterable<unknown>): AsyncIterable<unknown> => {
+    let iterator: AsyncIterator<unknown> | undefined
+    const getIterator = () => iterator ??= getStream()[Symbol.asyncIterator]()
     const primaryCapture = captures()[0]
     let completed = false
     const complete = () => {
@@ -1081,6 +1082,7 @@ function withCapturedStreamUsage<T extends {
         return wrapped
       },
       async next() {
+        const iterator = getIterator()
         primaryCapture?.start()
         try {
           const result = await iterator.next()
@@ -1110,6 +1112,7 @@ function withCapturedStreamUsage<T extends {
         }
       },
       async return(value?: unknown) {
+        const iterator = getIterator()
         primaryCapture?.start()
         try {
           return iterator.return ? await iterator.return(value) : { done: true, value }
@@ -1119,6 +1122,7 @@ function withCapturedStreamUsage<T extends {
         }
       },
       async throw(error?: unknown) {
+        const iterator = getIterator()
         primaryCapture?.start()
         try {
           if (iterator.throw) return await iterator.throw(error)
@@ -1132,14 +1136,12 @@ function withCapturedStreamUsage<T extends {
     }
     return wrapped
   }
-  const stream = result.stream
-  const fullStream = result.fullStream
   const toUIMessageStream = result.toUIMessageStream
-  if (!stream && !fullStream && !toUIMessageStream) return result
-  const wrappedStream = stream ? wrap(stream) : undefined
-  const wrappedFullStream = fullStream
-    ? fullStream === stream && wrappedStream ? wrappedStream : wrap(fullStream)
-    : undefined
+  const hasStream = "stream" in result
+  const hasFullStream = "fullStream" in result
+  if (!hasStream && !hasFullStream && !toUIMessageStream) return result
+  const wrappedStream = hasStream ? wrap(() => result.stream!) : undefined
+  const wrappedFullStream = hasFullStream ? wrap(() => result.fullStream!) : undefined
   return cloneStreamTextResult(result, {
     ...(wrappedStream ? { stream: wrappedStream } : {}),
     ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
@@ -1147,9 +1149,11 @@ function withCapturedStreamUsage<T extends {
       ? {
           toUIMessageStream(this: typeof result, ...args: unknown[]) {
             // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
-            const reader = toUIMessageStream.apply(this, args as never[]).getReader()
+            let reader: ReadableStreamDefaultReader<unknown> | undefined
+            const getReader = () => reader ??= toUIMessageStream.apply(this, args as never[]).getReader()
             return new ReadableStream({
               async pull(controller) {
+                const reader = getReader()
                 const primaryCapture = captures()[0]
                 primaryCapture?.start()
                 try {
@@ -1181,7 +1185,7 @@ function withCapturedStreamUsage<T extends {
                 const primaryCapture = captures()[0]
                 primaryCapture?.start()
                 try {
-                  await reader.cancel(reason)
+                  await reader?.cancel(reason)
                 }
                 finally {
                   primaryCapture?.complete()
