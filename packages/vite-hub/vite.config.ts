@@ -62,6 +62,7 @@ export default defineConfig({
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/page.get.ts",
+      "src/console/runtime/server/search.get.ts",
     ],
     exports: {
       exclude: ["bin"],
@@ -71,6 +72,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/invocation.get"]
         delete exports["./console/runtime/server/invocations.get"]
         delete exports["./console/runtime/server/page.get"]
+        delete exports["./console/runtime/server/search.get"]
         return {
           ...exports,
           "./ui/styles.css": "./dist/ui/styles.css",

@@ -20,6 +20,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        searchBase: "/api/_vitehub/console/search",
       },
     },
     {
@@ -29,6 +30,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        searchBase: "/api/_vitehub/console/search",
       },
     },
     {
@@ -38,6 +40,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        searchBase: "/api/_vitehub/console/search",
       },
     },
   ],

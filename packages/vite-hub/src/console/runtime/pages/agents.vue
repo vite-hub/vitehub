@@ -10,5 +10,6 @@ useHead({ title: "Agents · ViteHub Console" });
   <ConsoleApp
     :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
     :api-base="`${appBaseURL}/api/_vitehub/console/invocations`"
+    :search-base="`${appBaseURL}/api/_vitehub/console/search`"
   />
 </template>
