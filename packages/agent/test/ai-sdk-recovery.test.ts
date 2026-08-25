@@ -365,6 +365,7 @@ describe("AI SDK recovery", () => {
 
     expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }))
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
+    // SAFETY: Every collected event is inspected only for its optional discriminant.
     expect(events.filter(event => (event as { type?: unknown }).type === "usage").at(-1)).toMatchObject({
       usageRecord: {
         calls: expect.arrayContaining([
