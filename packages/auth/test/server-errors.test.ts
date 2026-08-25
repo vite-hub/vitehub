@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuth, requireAuthAccessRoute } from "../src/server.ts"
+import { handleAuthRequest, requireAuth, requireAuthAccessRoutes } from "../src/server.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -141,10 +141,10 @@ describe("server authentication provider boundaries", () => {
       user: { id: "user-1", isAdmin: true },
     })
 
-    await expect(requireAuthAccessRoute(request, 0, accessDefinition)).resolves.toBeUndefined()
+    await expect(requireAuthAccessRoutes(request, [0], accessDefinition)).resolves.toBeUndefined()
 
     allowed = false
-    const forbidden = await requireAuthAccessRoute(request, 0, accessDefinition)
+    const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition)
     expect(forbidden?.status).toBe(403)
     expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
     expect(authorize).toHaveBeenCalledTimes(2)
@@ -163,6 +163,28 @@ describe("server authentication provider boundaries", () => {
       user: { id: "user-1" },
     })
 
-    await expect(requireAuthAccessRoute(request, 0, accessDefinition)).resolves.toBe(denied)
+    await expect(requireAuthAccessRoutes(request, [0], accessDefinition)).resolves.toBe(denied)
+  })
+
+  it("requires authorization from every matching access route", async () => {
+    const authorizeAdmin = vi.fn(() => false)
+    const accessDefinition = defineAuth({
+      access: {
+        routes: [
+          "/api/**",
+          { authorize: authorizeAdmin, route: "/api/private" },
+        ],
+      },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1", isAdmin: false },
+    })
+
+    const forbidden = await requireAuthAccessRoutes(request, [0, 1], accessDefinition)
+
+    expect(forbidden?.status).toBe(403)
+    expect(authorizeAdmin).toHaveBeenCalledOnce()
   })
 })

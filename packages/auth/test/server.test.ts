@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuth, requireAuthAccessRoute, resetAuth, setAuthRuntimeEnvResolver } from "../src/server.ts"
+import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuth, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver } from "../src/server.ts"
 
 describe("server auth helpers", () => {
   afterEach(() => {
@@ -259,7 +259,7 @@ describe("server auth helpers", () => {
       appName: "ViteHub",
     })
 
-    const response = await requireAuthAccessRoute(new Request("https://app.example.com/_vitehub/usage"), 0, definition)
+    const response = await requireAuthAccessRoutes(new Request("https://app.example.com/_vitehub/usage"), [0], definition)
 
     expect(response?.status).toBe(401)
     expect(called).toBe(false)
@@ -268,7 +268,7 @@ describe("server auth helpers", () => {
   it("rejects invalid route indexes", async () => {
     const definition = defineAuth({ appName: "ViteHub" })
 
-    await expect(requireAuthAccessRoute(new Request("https://app.example.com/app"), -1, definition))
-      .rejects.toThrow(/non-negative integer/)
+    await expect(requireAuthAccessRoutes(new Request("https://app.example.com/app"), [-1], definition))
+      .rejects.toThrow(/non-empty array of non-negative integers/)
   })
 })
