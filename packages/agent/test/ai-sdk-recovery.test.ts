@@ -515,14 +515,14 @@ describe("AI SDK recovery", () => {
         },
       }),
     }))
-    const finish = vi.fn()
+    const agentError = vi.fn()
     const agent = defineAgent({
       driver: {
         // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
         model: { ...fakeModel, doStream } as never,
         output: { schema: outputSchema },
       },
-      hooks: { "agent:finish": finish },
+      hooks: { "agent:error": agentError },
       runtime: false,
     })
 
@@ -532,7 +532,7 @@ describe("AI SDK recovery", () => {
       for await (const _event of result as AsyncIterable<unknown>) {}
     }).rejects.toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
 
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({
         usage: expect.objectContaining({
           calls: [
