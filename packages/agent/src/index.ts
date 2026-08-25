@@ -4652,6 +4652,7 @@ function materializeAgentStructuredOutputWithEvents(
     ? AbortSignal.any([abortSignal, cancellation.signal])
     : cancellation.signal
   let retainedEvent: { consumed: () => void, event: StreamEvent } | undefined
+  let pendingConsumption: (() => void) | undefined
   let finishEvent: Extract<StreamEvent, { type: "finish" }> | undefined
   let driveRequested = false
   let settled = false
@@ -4670,7 +4671,12 @@ function materializeAgentStructuredOutputWithEvents(
         return
       }
       await new Promise<void>((resolve) => {
-        retainedEvent = { consumed: resolve, event }
+        const consumed = () => {
+          if (pendingConsumption === consumed) pendingConsumption = undefined
+          resolve()
+        }
+        pendingConsumption = consumed
+        retainedEvent = { consumed, event }
         wake?.()
         wake = undefined
       })
@@ -4721,6 +4727,7 @@ function materializeAgentStructuredOutputWithEvents(
         retainedEvent.consumed()
         retainedEvent = undefined
       }
+      else pendingConsumption?.()
       return await materialize()
     })()
     return driveTask
