@@ -210,43 +210,9 @@ Vercel Agent Definitions currently run through the inline Workflow adapter becau
 
 ## Inspect invocations in the console
 
-Enable the read-only invocation console in a Vite application:
+Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, API, plugin, and assets do not exist when `console` is omitted or set to `false`.
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({
-    agent: true,
-    console: true,
-    preset: 'node',
-  })],
-})
-```
-
-Nuxt applications also install the console from the same option. Add Nuxt UI first:
-
-```bash
-pnpm add @nuxt/ui
-```
-
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  vitehub: {
-    agent: true,
-    console: true,
-    preset: 'node',
-  },
-})
-```
-
-Open `/_vitehub` to inspect Agent sessions and trace observations. With the Node preset, ViteHub includes the console in development and production builds and stores its fallback journal in `.vitehub/data/console.sqlite`.
-
-Production Console builds currently require the Node preset because the fallback journal needs a durable local filesystem. Other presets can use the Console during development, but must disable it for production until a host-owned durable Agent Invocation store is configured.
-
-The console does not create an authentication system. `console: true` exposes its read-only page and API through the application host, including production ingress. Hosts using ViteHub Auth can protect `/_vitehub/**` and `/api/_vitehub/console/**` with [`access.routes` authorization callbacks](/docs/server-primitives/auth#authorize-access-routes); other hosts should guard the same routes in host middleware.
-
-The fallback applies to Agent Definitions imported from `vite-hub/agent`. An explicit `defineAgent({ invocations })` store, including one assigned later by an integration, remains authoritative. Imports directly from `@vite-hub/agent` do not receive the framework console fallback.
+The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. An explicit `defineAgent({ invocations })` store remains authoritative when the Console is enabled.
 
 ## Control child work
 
