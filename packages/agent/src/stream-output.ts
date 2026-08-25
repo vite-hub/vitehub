@@ -470,6 +470,16 @@ async function writeEventsToUiMessageStream(
       writer.write({ type: "tool-input-available", toolCallId: tool.id, toolName: tool.name, input: tool.input })
       continue
     }
+    if (type === "approval-request") {
+      // SAFETY: The approval-request event tag establishes the ViteHub approval wire representation.
+      const approval = event as { id?: unknown, toolCallId?: unknown }
+      writer.write({
+        approvalId: approval.id,
+        toolCallId: hasRuntimeType(approval.toolCallId, "string") ? approval.toolCallId : approval.id,
+        type: "tool-approval-request",
+      })
+      continue
+    }
     if (type === "tool-result") {
       // SAFETY: The tool-result event tag establishes the provider tool-result wire representation.
       const tool = event as { error?: unknown, id?: unknown, name?: unknown, output?: unknown }

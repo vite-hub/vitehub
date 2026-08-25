@@ -1633,6 +1633,20 @@ describe("Provider Agent Driver", () => {
     await expect(collect(output.value)).rejects.toThrow("Provider turn aborted: provider stopped")
   })
 
+  it("preserves approval requests in normalized UI streams", async () => {
+    const events = (async function* () {
+      yield { id: "approval-1", name: "workspace_write", toolCallId: "call-1", type: "approval-request" }
+      yield { type: "finish" }
+    })()
+    const output = await finalizeUiMessageStreamOutput(events, true, () => undefined)
+
+    await expect(collect(output.value)).resolves.toContainEqual({
+      approvalId: "approval-1",
+      toolCallId: "call-1",
+      type: "tool-approval-request",
+    })
+  })
+
   it("cancels when the provider emits no terminal event", async () => {
     const threadId = "thread-cancel-race"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
