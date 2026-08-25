@@ -95,6 +95,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: events output is the documented async-iterable stream form.
     const result = await streamAgentInline(agent, runtime(), {}, { output: "events" }) as AsyncIterable<unknown>
     expect(cancel).toHaveBeenCalledWith(undefined)
     expect(createAgentInspectionMetadata(agent)).toMatchObject({
@@ -118,6 +119,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1 },
         async run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           await gate.promise
           return "done"
@@ -373,6 +375,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: events output is the documented async-iterable stream form.
     const events = await streamAgentInline(agent, runtime(), {}, { output: "events" }) as AsyncIterable<unknown>
     for await (const _event of events) {}
     expect(lazyStreamReads).toBe(0)
@@ -394,6 +397,7 @@ describe("Agent Driver capacity", () => {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         output: { schema },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return { answer: 2 }
           const fullStream: AsyncIterableIterator<never> = {
@@ -433,6 +437,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "second"
           const fullStream: AsyncIterableIterator<never> = {
@@ -453,6 +458,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: events output is the documented async-iterable stream form.
     const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "events" }) as AsyncIterable<unknown>
     const second = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "events" })
     const consumption = (async () => { for await (const _event of first) {} })()
@@ -473,6 +479,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return { toUIMessageStream: () => uiMessageStream("second", Promise.resolve()) }
           const fullStream: AsyncIterableIterator<never> = {
@@ -486,6 +493,7 @@ describe("Agent Driver capacity", () => {
           }
           return {
             fullStream,
+            // SAFETY: this test invokes the Driver only with string prompts.
             toUIMessageStream: () => uiMessageStream(input.prompt as string, Promise.resolve()),
           }
         },
@@ -493,6 +501,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: UI-message stream output is the documented ReadableStream form.
     const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const second = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
     const consumption = (async () => { for await (const _event of first) {} })()
@@ -513,6 +522,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return { toUIMessageStream: () => uiMessageStream("second", Promise.resolve()) }
           const fullStream: AsyncIterableIterator<never> = {
@@ -533,6 +543,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: UI-message stream output is the documented ReadableStream form.
     const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const second = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
     const consumption = (async () => { for await (const _event of first) {} })()
@@ -558,6 +569,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: UI-message stream output is the documented ReadableStream form.
     const result = await streamAgentInline(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
     await expect((async () => { for await (const _event of result) {} })()).resolves.toBeUndefined()
   })
@@ -584,6 +596,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 2, queue: { maxPending: 20, timeout: 300_000 } },
         async run({ input }) {
+          // SAFETY: this test invokes the Driver only with keys from the string-keyed gates fixture.
           const id = input.prompt as string
           starts.push(id)
           await gates[id]!.promise
@@ -613,6 +626,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         async run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "first") await firstGate.promise
           return input.prompt
@@ -620,6 +634,7 @@ describe("Agent Driver capacity", () => {
       },
       runtime: false,
     })
+    // SAFETY: the clone receives every own property descriptor from the same Agent instance below.
     const clone = Object.create(Object.getPrototypeOf(agent)) as typeof agent
     Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
 
@@ -639,6 +654,7 @@ describe("Agent Driver capacity", () => {
     const agent = defineAgent({
       driver: {
         capacity: { concurrency: 2 },
+        // SAFETY: this test exercises capacity inspection without invoking the model.
         model: {} as never,
       },
       runtime: false,
@@ -692,6 +708,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         async run({ input }) {
+          // SAFETY: this test invokes the Driver only with keys from the gates fixture.
           await gates[input.prompt as keyof typeof gates].promise
           return input.prompt
         },
@@ -745,6 +762,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         async run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "first") await firstGate.promise
           return input.prompt
@@ -773,6 +791,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with keys from the gates fixture.
           const id = input.prompt as keyof typeof gates
           starts.push(id)
           return (async function* () {
@@ -784,6 +803,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns only async iterables of strings.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as AsyncIterable<string>
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     const firstIterator = first[Symbol.asyncIterator]()
@@ -792,6 +812,7 @@ describe("Agent Driver capacity", () => {
 
     gates.first.resolve()
     await expect(firstIterator.next()).resolves.toEqual({ done: true, value: undefined })
+    // SAFETY: this Driver returns only async iterables of strings.
     const second = await secondResult as AsyncIterable<string>
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     gates.second.resolve()
@@ -805,6 +826,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with keys from the gates fixture.
           const id = input.prompt as keyof typeof gates
           starts.push(id)
           return {
@@ -818,6 +840,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { stream: AsyncIterable<string> }
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     const firstIterator = first.stream[Symbol.asyncIterator]()
@@ -826,6 +849,7 @@ describe("Agent Driver capacity", () => {
 
     gates.first.resolve()
     await firstIterator.next()
+    // SAFETY: this Driver returns an object containing the string stream constructed above.
     const second = await secondResult as { stream: AsyncIterable<string> }
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     gates.second.resolve()
@@ -839,6 +863,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with keys from the gates fixture.
           const id = input.prompt as keyof typeof gates
           starts.push(id)
           return {
@@ -849,6 +874,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the UI-message stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { toUIMessageStream: () => ReadableStream<unknown> }
     const secondResult = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
     const firstStream = first.toUIMessageStream()
@@ -857,6 +883,7 @@ describe("Agent Driver capacity", () => {
 
     gates.first.resolve()
     for await (const _chunk of firstStream) {}
+    // SAFETY: UI-message stream output is the documented ReadableStream form.
     const second = await secondResult as ReadableStream<unknown>
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     gates.second.resolve()
@@ -872,6 +899,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           const id = input.prompt as string
           starts.push(id)
           return {
@@ -885,6 +913,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the UI-message stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
     }
@@ -904,6 +933,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return {
             toUIMessageStream() {
@@ -915,6 +945,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the UI-message stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
     }
@@ -933,6 +964,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return { toUIMessageStream: () => lockedStream }
         },
@@ -940,6 +972,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the UI-message stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
     }
@@ -959,6 +992,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return {
             toUIMessageStream: () => new ReadableStream({
@@ -973,6 +1007,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the UI-message stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }) as { toUIMessageStream: () => ReadableStream<unknown> }
     first.toUIMessageStream()
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
@@ -993,6 +1028,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return { get textStream() { return textStream() } }
         },
@@ -1023,6 +1059,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the textStream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as { textStream: AsyncIterable<string> }
     expect(textStreamCalls).toBe(0)
     for await (const _chunk of result.textStream) {}
@@ -1044,6 +1081,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as { stream: AsyncIterable<string> }
     expect(streamCalls).toBe(0)
     for await (const _chunk of result.stream) {}
@@ -1057,6 +1095,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return {
             get stream() {
@@ -1069,6 +1108,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns an object with the lazy stream member constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { stream: unknown }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     await Promise.resolve()
@@ -1095,6 +1135,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the fullStream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as { fullStream: AsyncIterable<string> }
     const chunks = []
     for await (const chunk of result.fullStream) chunks.push(chunk)
@@ -1112,6 +1153,8 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "done"
           const stream: AsyncIterableIterator<never> = {
@@ -1148,6 +1191,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "done"
           const stream = new ReadableStream({
@@ -1165,6 +1209,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       fullStream: ReadableStream<unknown>
       stream: ReadableStream<unknown>
@@ -1187,6 +1232,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return {
             get textStream() {
@@ -1202,6 +1248,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the textStream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: AsyncIterable<string> }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const consumption = (async () => { for await (const _chunk of first.textStream) {} })()
@@ -1233,6 +1280,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as { stream: AsyncIterable<string> }
     for await (const _chunk of result.stream) {}
     expect(returned).toBe(true)
@@ -1248,6 +1296,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "done"
           const stream: AsyncIterableIterator<never> = {
@@ -1282,6 +1331,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return { get textStream() { return "not a stream" } }
         },
@@ -1289,6 +1339,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the textStream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: unknown }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     expect(first.textStream).toBe("not a stream")
@@ -1305,6 +1356,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return { get textStream() { return lockedStream } }
         },
@@ -1312,6 +1364,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the textStream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: ReadableStream<unknown> }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     expect(() => first.textStream).toThrow()
@@ -1329,6 +1382,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           const textStream: AsyncIterableIterator<never> = {
             [Symbol.asyncIterator]: () => textStream,
@@ -1345,6 +1399,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the textStream object constructed above.
     const first = await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }) as {
       textStream: AsyncIterable<unknown>
     }
@@ -1368,6 +1423,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           const iterator: AsyncIterableIterator<never> = {
             [Symbol.asyncIterator]: () => iterator,
@@ -1416,6 +1472,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return { fullStream: stream(1), stream: stream(0) }
         },
@@ -1454,6 +1511,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return { fullStream: stream(true), stream: stream(false) }
         },
@@ -1477,6 +1535,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           const fullStream: AsyncIterableIterator<never> = {
             [Symbol.asyncIterator]: () => fullStream,
@@ -1493,6 +1552,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { stream: AsyncIterable<unknown> }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const consumption = (async () => { for await (const _chunk of first.stream) {} })()
@@ -1512,6 +1572,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           const stream: AsyncIterableIterator<never> = {
             [Symbol.asyncIterator]: () => stream,
@@ -1527,6 +1588,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the UI-message stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { toUIMessageStream: () => ReadableStream<unknown> }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     for await (const _chunk of first.toUIMessageStream()) {}
@@ -1553,6 +1615,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: UI-message stream output is the documented async-iterable form.
     const stream = await streamAgentInline(agent, runtime(), { prompt: "run" }, { output: "ui-message-stream" }) as AsyncIterable<unknown>
     for await (const _chunk of stream) {}
     expect(lazyStreamReads).toBe(0)
@@ -1565,6 +1628,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           const stream: AsyncIterableIterator<never> = {
             [Symbol.asyncIterator]: () => stream,
@@ -1585,6 +1649,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the UI-message stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
     }
@@ -1603,6 +1668,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return {
             stream: (async function* () { yield "done" })(),
@@ -1616,6 +1682,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       stream: AsyncIterable<unknown>
       toUIMessageStream: () => ReadableStream<unknown>
@@ -1636,6 +1703,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return {
             get fullStream() {
@@ -1656,6 +1724,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream metadata object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       fullStream: AsyncIterable<string>
       stream: { kind: string }
@@ -1678,6 +1747,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return {
             get stream() {
@@ -1690,6 +1760,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream metadata object constructed above.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       stream: { kind: string }
       toUIMessageStream: () => ReadableStream<unknown>
@@ -1719,6 +1790,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as {
       stream: AsyncIterable<unknown>
       textStream: AsyncIterable<string>
@@ -1755,6 +1827,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as {
       stream: AsyncIterable<unknown>
       toUIMessageStream: () => ReadableStream<unknown>
@@ -1779,6 +1852,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as { fullStream: ReadableStream<unknown>, stream: ReadableStream<unknown> }
     expect(result.stream).toBe(result.fullStream)
     for await (const _chunk of result.stream) {}
@@ -1796,6 +1870,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the stream object constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as { stream: ReadableStream<string> }
     for await (const _chunk of result.stream) {}
     expect(() => source.getReader()).not.toThrow()
@@ -1820,6 +1895,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "done"
           return { toUIMessageStream: () => new ReadableStream({}) }
@@ -1845,6 +1921,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "done"
           return {
@@ -1880,6 +1957,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "done"
           const iterator: AsyncIterableIterator<never> = {
@@ -1916,6 +1994,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "second") return "done"
           const iterator: AsyncIterableIterator<never> = {
@@ -1933,6 +2012,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: UI-message stream output is the documented ReadableStream form.
     const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const cancelled = first.cancel()
@@ -1951,6 +2031,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           let yielded = false
           const iterator: AsyncIterableIterator<string> = {
@@ -1958,6 +2039,7 @@ describe("Agent Driver capacity", () => {
             next: async () => {
               if (yielded) return await new Promise<IteratorResult<string>>(() => {})
               yielded = true
+              // SAFETY: this test invokes the Driver only with string prompts.
               return { done: false, value: input.prompt as string }
             },
             return: async () => ({ done: true, value: undefined }),
@@ -1968,6 +2050,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns only async iterables of strings.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as AsyncIterable<string>
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     const iterator = first[Symbol.asyncIterator]()
@@ -1975,6 +2058,7 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first"])
 
     await iterator.return?.()
+    // SAFETY: this Driver returns only async iterables of strings.
     const second = await secondResult as AsyncIterable<string>
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     await second[Symbol.asyncIterator]().return?.()
@@ -1987,6 +2071,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return (async function* () {
             yield await new Promise<never>(() => {})
@@ -2000,6 +2085,7 @@ describe("Agent Driver capacity", () => {
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     controller.abort(new DOMException("stop", "AbortError"))
 
+    // SAFETY: events output is the documented async-iterable stream form.
     const second = await secondResult as AsyncIterable<unknown>
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     await second[Symbol.asyncIterator]().return?.()
@@ -2014,6 +2100,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           const iterator: AsyncIterableIterator<unknown> = {
             [Symbol.asyncIterator]: () => iterator,
@@ -2037,6 +2124,7 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first"])
 
     returnGate.resolve()
+    // SAFETY: events output is the documented async-iterable stream form.
     const second = await secondResult as AsyncIterable<unknown>
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     await second[Symbol.asyncIterator]().return?.()
@@ -2056,9 +2144,10 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns the ReadableStream<string> constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as ReadableStream<string>
     expect(result).toBeInstanceOf(ReadableStream)
-    expect(typeof result.getReader).toBe("function")
+    expect(result.getReader).toBeTypeOf("function")
     const reader = result.getReader()
     await expect(reader.read()).resolves.toEqual({ done: false, value: "done" })
     await expect(reader.read()).resolves.toEqual({ done: true, value: undefined })
@@ -2073,9 +2162,10 @@ describe("Agent Driver capacity", () => {
     })
     const agent = defineAgent({ driver: { run: () => source }, runtime: false })
 
+    // SAFETY: this Driver returns the ReadableStream<string> constructed above.
     const result = await runAgentInline(agent, runtime(), {}) as ReadableStream<string>
     expect(result).toBeInstanceOf(ReadableStream)
-    expect(typeof result.getReader).toBe("function")
+    expect(result.getReader).toBeTypeOf("function")
   })
 
   it("cancels an eager top-level ReadableStream before releasing capacity on abort", async () => {
@@ -2088,6 +2178,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return new ReadableStream({
             async cancel() {
@@ -2119,6 +2210,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with keys from the gates fixture.
           const id = input.prompt as keyof typeof gates
           starts.push(id)
           return new Response(new ReadableStream({
@@ -2133,12 +2225,14 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns a Response for every invocation.
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as Response
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
     await expect(first.text()).resolves.toBe("first")
+    // SAFETY: this Driver returns a Response for every invocation.
     const second = await secondResult as Response
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     gates.second.resolve()
@@ -2151,6 +2245,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return new Response(new ReadableStream({ start() {} }))
         },
@@ -2163,6 +2258,7 @@ describe("Agent Driver capacity", () => {
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
 
     await expect(first.cancel("stop")).resolves.toMatchObject({ outcome: "accepted" })
+    // SAFETY: this Driver returns a Response for every invocation.
     const secondResponse = await second as Response
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     await secondResponse.body?.cancel()
@@ -2178,6 +2274,7 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
+    // SAFETY: this Driver returns a Response for every invocation.
     const response = await runAgentInline(agent, runtime(), { abortSignal: controller.signal }) as Response
     const read = response.body!.getReader().read()
     controller.abort(new DOMException("stop", "AbortError"))
@@ -2193,6 +2290,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           return new Response(new ReadableStream({
             async cancel() {
@@ -2212,6 +2310,7 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first"])
 
     cancelGate.resolve()
+    // SAFETY: this Driver returns a Response for every invocation.
     const second = await secondResult as Response
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     await second.body?.cancel()
@@ -2224,6 +2323,7 @@ describe("Agent Driver capacity", () => {
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         async run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
           starts.push(input.prompt as string)
           if (input.prompt === "first") {
             await firstGate.promise
