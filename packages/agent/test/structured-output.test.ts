@@ -354,6 +354,7 @@ describe("Agent structured output", () => {
     const events: unknown[] = []
     const error = await (async () => {
       try {
+        // SAFETY: streamAgentInline returns the documented async iterable result contract.
         for await (const event of result as AsyncIterable<unknown>) events.push(event)
       }
       catch (cause) {
@@ -362,10 +363,29 @@ describe("Agent structured output", () => {
     })()
 
     expect(events).toEqual([
-      { text: "{\"title\":42}", type: "text-delta" },
       { type: "usage", usageRecord: { usage: { totalTokens: 3 } } },
     ])
     expect(error).toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+  })
+
+  it("preserves structured stream finish metadata", async () => {
+    const agent = defineAgent({
+      driver: {
+        output: { schema: summarySchema() },
+        run: async function* () {
+          yield { text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+          yield { messageId: "message-1", reason: "length", type: "finish" as const }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime(), {})
+    const events: unknown[] = []
+    // SAFETY: Streamed Agent output is an async iterable after the documented stream call above.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ messageId: "message-1", reason: "length", type: "finish" })
   })
 
   it("preserves structured UI-message stream usage through the finish lifecycle", async () => {

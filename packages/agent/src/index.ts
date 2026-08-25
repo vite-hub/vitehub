@@ -4650,13 +4650,18 @@ function materializeAgentStructuredOutputWithEvents(
     ? AbortSignal.any([abortSignal, cancellation.signal])
     : cancellation.signal
   let retainedEvent: { consumed: () => void, event: StreamEvent } | undefined
+  let finishEvent: Extract<StreamEvent, { type: "finish" }> | undefined
   let settled = false
   let wake: (() => void) | undefined
   let materialized: ReturnType<typeof materializeAgentStructuredOutput> | undefined
   const materialize = () => {
     materialized ??= materializeAgentStructuredOutput(result, materializationSignal, async (event) => {
       await onEvent?.(event)
-      if (event.type === "text-delta" || event.type === "finish") return
+      if (event.type === "finish") {
+        finishEvent = event
+        return
+      }
+      if (event.type === "text-delta") return
       await new Promise<void>((resolve) => {
         retainedEvent = { consumed: resolve, event }
         wake?.()
@@ -4700,6 +4705,9 @@ function materializeAgentStructuredOutputWithEvents(
   return {
     cancel,
     events,
+    get finishEvent() {
+      return finishEvent
+    },
     get result() {
       return materialize()
     },
@@ -5615,10 +5623,12 @@ async function executeAgentInvocationWithCapacityLease<
             structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized)
             if (structuredUsageRecord) yield { type: "usage", usageRecord: structuredUsageRecord }
             yield { data: structuredFinishResult, type: "data" }
-            yield { type: "finish" }
+            yield materialization.finishEvent ?? { type: "finish" }
           }
           catch (error) {
-            if (observedUsageEvent) yield observedUsageEvent
+            structuredUsageRecord = await resolveAgentUsageRecord(streamResult, invocation.run)
+              ?? observedUsageEvent?.usageRecord
+            if (structuredUsageRecord) yield { type: "usage", usageRecord: structuredUsageRecord }
             throw error
           }
           finally {

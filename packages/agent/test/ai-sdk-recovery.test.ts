@@ -392,6 +392,67 @@ describe("AI SDK recovery", () => {
     }))
   })
 
+  it("emits all completed usage when streamed structured-output repair fails", async () => {
+    const fakeModel = model(["{\"text\":2}", "{\"text\":3}"])
+    const doGenerate = fakeModel.doGenerate.bind(fakeModel)
+    fakeModel.doGenerate = async options => ({
+      ...await doGenerate(options),
+      providerMetadata: { test: { usage: { cost: 0.2 } } },
+    })
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: "{\"text\":1}", id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            providerMetadata: { test: { usage: { cost: 0.1 } } },
+            type: "finish",
+            usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    const events: unknown[] = []
+    let error: unknown
+    try {
+      // SAFETY: streamAgentInline returns the documented async iterable result contract.
+      for await (const event of result as AsyncIterable<unknown>) events.push(event)
+    }
+    catch (cause) {
+      error = cause
+    }
+
+    expect(error).toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+    // SAFETY: Collected Agent stream events expose an optional discriminant used only for filtering.
+    const usageEvents = events.filter(event => (event as { type?: unknown }).type === "usage")
+    expect(usageEvents).toHaveLength(1)
+    expect(usageEvents[0]).toMatchObject({
+      usageRecord: {
+        calls: [
+          expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+          expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+        ],
+        cost: expect.objectContaining({ usd: "0.5" }),
+        usage: expect.objectContaining({ totalTokens: 6 }),
+      },
+    })
+  })
+
   it("repairs streamed output when native object output is unavailable", async () => {
     const fakeModel = model(['"repaired"'])
     const doStream = vi.fn(async () => ({

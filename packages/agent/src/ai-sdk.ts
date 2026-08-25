@@ -2056,10 +2056,29 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         Object.defineProperty(result, agentOutputRepairSymbol, {
           configurable: true,
           value: async (failure: { error: Error, text: string }) => {
-            const repaired = await repairOutput({
-              ...failure,
-              evidence: fallbackCapture?.evidence(),
-            }, repairCallInput)
+            let repaired: AgentAdapterResult
+            try {
+              repaired = await repairOutput({
+                ...failure,
+                evidence: fallbackCapture?.evidence(),
+              }, repairCallInput)
+            }
+            catch (error) {
+              const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
+              const usageRecord = await combinedUsageRecord([
+                { capture: usageCapture },
+                ...toolRepairUsageCaptures.map(capture => ({ capture })),
+                ...repairUsageCaptures.map(capture => ({ capture })),
+              ], combinedCapturedUsage(captures))
+              if (usageRecord) {
+                Object.defineProperty(result, "usageRecord", {
+                  configurable: true,
+                  enumerable: true,
+                  value: usageRecord,
+                })
+              }
+              throw error
+            }
             const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
             const usageRecord = await combinedUsageRecord([
               { capture: usageCapture },
