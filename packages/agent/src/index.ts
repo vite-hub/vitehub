@@ -3762,7 +3762,7 @@ async function finishStreamAgentInvocation<
   retainedUsageRecord?: AgentUsageRecord,
 ): Promise<void> {
   if (outcome.status === "error") {
-    await lifecycle.finish(outcome)
+    await lifecycle.finish({ ...outcome, ...(retainedUsageRecord ? { usage: retainedUsageRecord } : {}) })
     return
   }
   let finishResult: unknown
@@ -3911,7 +3911,7 @@ async function resolveFinishUsageRecord<
 
 type AgentInvocationFinishOutcome =
   | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
-  | { error: unknown, status: "error" }
+  | { error: unknown, status: "error", usage?: AgentUsageRecord }
 
 function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
   return outcome.failed ? { error: outcome.error, status: "error" } : { result, status: "success" }
@@ -4237,7 +4237,7 @@ async function finishAgentInvocation<
   let failed = outcome.status === "error"
   let error = outcome.status === "error" ? outcome.error : undefined
   let result = outcome.status === "success" ? outcome.result : undefined
-  let usage = outcome.status === "success" ? outcome.usage : undefined
+  let usage = outcome.usage
   const usageResolved = outcome.status === "success" && outcome.usageResolved
   let runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   let text = runResult?.text
@@ -4258,7 +4258,6 @@ async function finishAgentInvocation<
       }
     }
     let resultKind: string | undefined
-    if (failed) usage = undefined
     if (!failed) {
       try {
         resultKind = agentResultKind(result)
@@ -5560,6 +5559,7 @@ async function executeAgentInvocationWithCapacityLease<
             }
             catch (error) {
               uiMessageStructuredUsageRecord = observedUsageEvent?.usageRecord
+                ?? usageRecordFromStreamChunk(enrichedRendered)
                 ?? usageRecordFromStreamChunk(rendered)
                 ?? uiMessageStructuredUsageRecord
               throw error
