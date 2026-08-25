@@ -411,6 +411,26 @@ describe("Agent structured output", () => {
     }))
   })
 
+  it("preserves structured UI-message stream finish metadata", async () => {
+    const agent = defineAgent({
+      driver: {
+        output: { schema: summarySchema() },
+        run: async function* () {
+          yield { text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+          yield { reason: "length", type: "finish" as const }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime(), {}, { output: "ui-message-stream" })
+    const events: unknown[] = []
+    // SAFETY: UI-message streamed Agent output exposes an async iterable to callers.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual(expect.objectContaining({ finishReason: "length", type: "finish" }))
+  })
+
   it("reports Standard Schema failures separately from JSON decoding", async () => {
     const agent = defineAgent({
       driver: { output: { schema: summarySchema() }, run: () => "{\"title\":42}" },

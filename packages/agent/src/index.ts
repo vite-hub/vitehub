@@ -6,6 +6,7 @@ import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, ty
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { agentOutputRepairSymbol, agentOutputUsageReadySymbol, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import type { AgentOutputUsageLifecycle } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
@@ -4633,8 +4634,8 @@ async function materializeAgentStructuredOutput(
   }
   finally {
     if (result && hasRuntimeType(result, "object")) {
-      const usageReady = Reflect.get(result, agentOutputUsageReadySymbol)
-      if (hasRuntimeType(usageReady, "function")) usageReady()
+      const usageLifecycle = Reflect.get(result, agentOutputUsageReadySymbol) as AgentOutputUsageLifecycle | undefined
+      usageLifecycle?.complete()
     }
   }
 }
@@ -4677,7 +4678,7 @@ function materializeAgentStructuredOutputWithEvents(
   const cancel = (reason?: unknown) => {
     if (!settled) cancellation.abort(reason ?? new DOMException("[vitehub] Structured Agent output stream cancelled.", "AbortError"))
   }
-  const events = (async function* () {
+  const eventSource = (async function* () {
     try {
       materialize()
       while (!settled || retainedEvent) {
@@ -4701,7 +4702,32 @@ function materializeAgentStructuredOutputWithEvents(
       await materialized?.catch(() => {})
     }
   })()
+  const drivenEvents: StreamEvent[] = []
+  let eventsStarted = false
+  let driveTask: Promise<unknown> | undefined
+  const drive = () => {
+    driveTask ??= (async () => {
+      if (!eventsStarted) {
+        for await (const event of eventSource) drivenEvents.push(event)
+      }
+      return await materialize()
+    })()
+    return driveTask
+  }
+  const events = (async function* () {
+    if (driveTask) {
+      await driveTask
+      yield* drivenEvents
+      return
+    }
+    eventsStarted = true
+    yield* eventSource
+  })()
   Object.defineProperty(events, Symbol.for("vitehub.agent.stream.cancel"), { value: cancel })
+  if (result && hasRuntimeType(result, "object")) {
+    const usageLifecycle = Reflect.get(result, agentOutputUsageReadySymbol) as AgentOutputUsageLifecycle | undefined
+    if (usageLifecycle) usageLifecycle.drive = drive
+  }
   return {
     cancel,
     events,
@@ -5505,7 +5531,7 @@ async function executeAgentInvocationWithCapacityLease<
               : undefined
             if (text) yield { text, type: "text-delta" }
             yield { data: uiMessageFinishResult, type: "data" }
-            yield { type: "finish" }
+            yield materialization.finishEvent ?? { type: "finish" }
           })()
         : enrichedRendered
       if (uiMessageMaterialization && hasRuntimeType(uiMessageRendered, "object")) {

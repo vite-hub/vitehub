@@ -14,6 +14,7 @@ import {
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions, agentOutputJsonSchema, agentOutputRepairSymbol, agentOutputUsageReadySymbol, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import type { AgentOutputUsageLifecycle } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
@@ -1917,6 +1918,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       let resolveUsageReady!: () => void
       const usageReady = new Promise<void>((resolve) => { resolveUsageReady = resolve })
       if (!context.output) resolveUsageReady()
+      const outputUsageLifecycle: AgentOutputUsageLifecycle = { complete: resolveUsageReady }
       const abortSignal = context.input.abortSignal
       let abortListener: (() => void) | undefined
       const detachAbortListener = () => {
@@ -1946,7 +1948,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       let usageDriven: Promise<StreamTextResult<ToolSet, never, never>> | undefined
       const driveUsage = () => {
         usageDriven ??= start().then(async (streamed) => {
-          for await (const _chunk of streamed.fullStream) {}
+          if (outputUsageLifecycle.drive) await outputUsageLifecycle.drive()
+          else for await (const _chunk of streamed.fullStream) {}
           return streamed
         })
         return usageDriven
@@ -2124,7 +2127,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       Object.defineProperty(result, agentOutputUsageReadySymbol, {
         configurable: true,
-        value: resolveUsageReady,
+        value: outputUsageLifecycle,
       })
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)

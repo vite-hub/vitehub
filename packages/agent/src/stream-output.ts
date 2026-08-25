@@ -432,6 +432,7 @@ async function writeEventsToUiMessageStream(
   const messageId = crypto.randomUUID()
   let textStarted = false
   let finished = false
+  let finishReason = "unknown"
   const reasoningTextIds = new Set<string>()
   writer.write({ type: "start", messageId })
   for await (const event of events) {
@@ -502,6 +503,8 @@ async function writeEventsToUiMessageStream(
     }
     if (type === "finish") {
       finished = true
+      const reason = hasRuntimeType(event, "object") && event !== null ? Reflect.get(event, "reason") : undefined
+      finishReason = hasRuntimeType(reason, "string") ? reason : "stop"
       break
     }
     if (type === "error") {
@@ -517,7 +520,7 @@ async function writeEventsToUiMessageStream(
     }
   }
   if (textStarted) writer.write({ type: "text-end", id: messageId })
-  writer.write({ type: "finish", finishReason: finished ? "stop" : "unknown" })
+  writer.write({ type: "finish", finishReason: finished ? finishReason : "unknown" })
 }
 
 export async function finalizeUiMessageStreamOutput(

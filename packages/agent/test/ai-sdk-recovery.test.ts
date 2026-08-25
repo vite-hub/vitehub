@@ -635,6 +635,46 @@ describe("AI SDK recovery", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
   })
 
+  it("materializes structured output when usage is awaited first", async () => {
+    const fakeModel = model([])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: "{\"text\":\"answer\"}", id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    // SAFETY: The streamed result preserves the AI SDK usage accessor alongside the public event stream.
+    await expect((result as { usage: Promise<unknown> }).usage).resolves.toMatchObject({ totalTokens: 2 })
+    const events = []
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ data: { text: "answer" }, type: "data" })
+  })
+
   it("parses streamed JSON before accepting a structured result envelope", async () => {
     const fakeModel = model([])
     const doStream = vi.fn(async () => ({
