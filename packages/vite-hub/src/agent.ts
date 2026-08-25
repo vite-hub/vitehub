@@ -1,6 +1,6 @@
 import { defineAgent as defineUpstreamAgent } from "@vite-hub/agent"
 
-import { resolveConsoleInvocations } from "./console/internal.ts"
+import { consoleInvocationsFallbackKey, resolveConsoleInvocations } from "./console/internal.ts"
 
 export * from "@vite-hub/agent"
 
@@ -11,9 +11,16 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
   if (agent.invocations !== undefined) return agent
 
   let assignedInvocations: AgentInvocations | undefined
+  Object.defineProperty(agent, consoleInvocationsFallbackKey, {
+    configurable: true,
+    enumerable: false,
+    get() {
+      return assignedInvocations === undefined
+    },
+  })
   Object.defineProperty(agent, "invocations", {
     configurable: true,
-    enumerable: true,
+    enumerable: false,
     get() {
       return assignedInvocations ?? globalConsoleInvocations()
     },

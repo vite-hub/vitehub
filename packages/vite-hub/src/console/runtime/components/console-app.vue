@@ -10,7 +10,7 @@ import type {
   AgentInvocationListItem,
   AgentInvocationView,
 } from "@vite-hub/ui";
-import { decodeAgentRouteParam, encodeAgentRouteParam } from "../agent-route";
+import { decodeAgentRouteParam, encodeAgentRouteParam, resolveAgentRouteName } from "../agent-route";
 import { requestConsole } from "../client/request";
 import { relativeDuration } from "../client/time";
 import ConsoleSearch from "./console-search.vue";
@@ -193,7 +193,7 @@ async function selectInvocation(
   sessionsOpen.value = false;
   selectedAgentName.value = agentName;
   await router.push({
-    name: "vitehub-console-invocation",
+    name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
   });
 }
@@ -203,7 +203,7 @@ async function selectAgent(name: string): Promise<void> {
   selectedAgentName.value = name;
   selectedInvocationId.value = undefined;
   await router.push({
-    name: "vitehub-console-agent",
+    name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
   });
 }
@@ -274,7 +274,7 @@ watch(
     selectedInvocationId.value = requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
     if (!requestedInvocation && firstInvocation && agentName && agentRouteReady) {
       await router.replace({
-        name: "vitehub-console-invocation",
+        name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
         params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation },
       });
     }
@@ -292,7 +292,7 @@ watch(
     selectedAgentName.value = agentName;
     if (requestedAgent !== agentName) {
       await router.replace({
-        name: "vitehub-console-agent",
+        name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
         params: { agent: encodeAgentRouteParam(agentName) },
       });
     }
@@ -311,7 +311,7 @@ watch(
     ) return;
     selectedInvocationId.value = undefined;
     await router.replace({
-      name: "vitehub-console-agent",
+      name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
       params: { agent: encodeAgentRouteParam(agentName) },
     });
   },
