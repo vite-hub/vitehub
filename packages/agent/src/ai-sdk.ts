@@ -1580,6 +1580,7 @@ async function createAgent(
       })
     : undefined
   const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
+  let toolRepairFailure: unknown
   const builtInRepairToolCall: ToolCallRepairFunction<ToolSet> | undefined = Object.keys(toolSet).length
     ? async ({ error, inputSchema, toolCall, tools }) => {
         if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
@@ -1614,6 +1615,7 @@ async function createAgent(
         }
         catch (error) {
           if (abortSignal?.aborted) throw abortSignal.reason ?? error
+          toolRepairFailure = error
           throw error
         }
       }
@@ -1693,6 +1695,7 @@ async function createAgent(
     }),
     model: instrumentedModel,
     repairOutput,
+    toolRepairFailure: () => toolRepairFailure,
     toolRepairUsageCaptures,
     tools: Object.keys(toolSet).length ? toolSet : undefined,
   }
@@ -1712,7 +1715,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
@@ -1799,6 +1802,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         originalGenerated = generated
       }
       catch (error) {
+        if (toolRepairFailure() !== undefined) throw toolRepairFailure()
         const failure = await nativeAgentOutputValidationFailure(context.output, error)
         const synthesized = failure && fallback.enabled && !failure.text.trim()
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1888,7 +1892,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture)
+      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
@@ -1966,7 +1970,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             }
             catch (error) {
               detachAbortListener()
-              throw error
+              throw toolRepairFailure() ?? error
             }
           },
           async cancel(reason) {
@@ -2009,7 +2013,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
               }
               catch (error) {
                 detachAbortListener()
-                throw error
+                throw toolRepairFailure() ?? error
               }
             },
             async cancel(reason) {
