@@ -487,6 +487,7 @@
 
 .vh-invocation-session {
   background: var(--vh-ui-bg);
+  container-type: inline-size;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
@@ -1664,6 +1665,16 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 .vh-invocation-empty p {
   font-size: 0.8125rem;
   margin: 0;
+}
+
+@container (max-width: 600px) {
+  .vh-invocation-thread__content {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .vh-invocation-message[data-role="user"] {
+    margin-inline-start: 1rem;
+  }
 }
 
 @media (max-width: 600px) {

@@ -56,6 +56,14 @@ function optionalPeerRecord(
 const packageJson = parsePackageManifest(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
+const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
+const compactInvocationRules = `  .vh-invocation-thread__content {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .vh-invocation-message[data-role="user"] {
+    margin-inline-start: 1rem;
+  }`;
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
@@ -90,5 +98,11 @@ describe("@vite-hub/ui package contract", () => {
       "./nuxt",
       "./vite",
     ]);
+  });
+
+  it("ships compact invocation styles for narrow sessions and viewports", () => {
+    expect(stylesheet).toMatch(/\.vh-invocation-session\s*\{[^}]*container-type: inline-size;/);
+    expect(stylesheet).toContain(`@container (max-width: 600px) {\n${compactInvocationRules}\n}`);
+    expect(stylesheet).toContain(`@media (max-width: 600px) {\n${compactInvocationRules}\n}`);
   });
 });
