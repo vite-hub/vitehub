@@ -960,6 +960,14 @@ describe("AI SDK recovery", () => {
     await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 6 })
   })
 
+  it("starts and settles the model stream when usage is awaited first", async () => {
+    const result = await rawStreamingResult()
+    // SAFETY: streamAgentInline preserves the AI SDK usage result member.
+    const streamed = result as { usage: Promise<unknown> }
+
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
+  })
+
   it.each(["stream", "fullStream"] as const)("settles usage when %s stops at its finish chunk", async (key) => {
     const result = await rawStreamingResult()
     // SAFETY: streamAgentInline preserves the selected AI SDK stream and usage result members.

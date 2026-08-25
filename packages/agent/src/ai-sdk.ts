@@ -1925,10 +1925,6 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         abortListener = undefined
       }
       let started: Promise<StreamTextResult<ToolSet, never, never>> | undefined
-      let resolveStarted!: (result: Promise<StreamTextResult<ToolSet, never, never>>) => void
-      const whenStarted = new Promise<StreamTextResult<ToolSet, never, never>>((resolve) => {
-        resolveStarted = resolve
-      })
       const start = () => {
         if (started) return started
         // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
@@ -1945,9 +1941,26 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             usageCaptures,
           ), model) as StreamTextResult<ToolSet, never, never>
         })
-        resolveStarted(started)
         return started
       }
+      let usageDriven: Promise<StreamTextResult<ToolSet, never, never>> | undefined
+      const driveUsage = () => {
+        usageDriven ??= start().then(async (streamed) => {
+          for await (const _chunk of streamed.fullStream) {}
+          return streamed
+        })
+        return usageDriven
+      }
+      const lazyUsage = <T>(select: (streamed: StreamTextResult<ToolSet, never, never>) => PromiseLike<T>): Promise<T> => ({
+        catch: onrejected => lazyUsage(select).then(undefined, onrejected),
+        finally: onfinally => lazyUsage(select).then(
+          value => Promise.resolve(onfinally?.()).then(() => value),
+          error => Promise.resolve(onfinally?.()).then(() => { throw error }),
+        ),
+        // oxlint-disable-next-line unicorn/no-thenable -- Preserve lazy startup until a caller consumes the Promise-compatible AI SDK accessor.
+        then: (onfulfilled, onrejected) => driveUsage().then(select).then(onfulfilled, onrejected),
+        [Symbol.toStringTag]: "Promise",
+      })
       const lazyStream = (property: "fullStream" | "stream" | "textStream"): ReadableStream<unknown> => {
         let reader: ReadableStreamDefaultReader<unknown> | undefined
         const getReader = async () => {
@@ -1995,10 +2008,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           return lazyStream("textStream")
         },
         get usage() {
-          return whenStarted.then(result => result.usage)
+          return lazyUsage(result => result.usage)
         },
         get totalUsage() {
-          return whenStarted.then(result => result.totalUsage)
+          return lazyUsage(result => result.totalUsage)
         },
         toUIMessageStream(...args: unknown[]) {
           let reader: ReadableStreamDefaultReader<unknown> | undefined
@@ -2025,7 +2038,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
               try {
                 // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
                 reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
+                const reading = reader.read()
                 await reader.cancel(reason)
+                await reading.catch(() => undefined)
               }
               finally {
                 detachAbortListener()
@@ -2057,11 +2072,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         abortSignal.addEventListener("abort", abortListener, { once: true })
       }
       if (repairOutput && context.output) {
-        let failedRepairUsageRecord: AgentUsageRecord | undefined
         Object.defineProperty(result, "usageRecord", {
           configurable: true,
           enumerable: true,
-          get: () => failedRepairUsageRecord,
+          value: undefined,
+          writable: true,
         })
         Object.defineProperty(result, agentOutputRepairSymbol, {
           configurable: true,
@@ -2080,7 +2095,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
                 ...toolRepairUsageCaptures.map(capture => ({ capture })),
                 ...repairUsageCaptures.map(capture => ({ capture })),
               ], combinedCapturedUsage(captures))
-              failedRepairUsageRecord = usageRecord
+              Object.defineProperty(result, "usageRecord", {
+                configurable: true,
+                enumerable: true,
+                value: usageRecord,
+              })
               throw error
             }
             const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
