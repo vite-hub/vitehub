@@ -420,6 +420,44 @@ describe("AI SDK recovery", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "finish" }))
   })
 
+  it("parses streamed JSON before accepting a structured result envelope", async () => {
+    const fakeModel = model([])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: '{"text":"answer"}', id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" })
+    const events = []
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ data: { text: "answer" }, type: "data" })
+  })
+
   it("emits complete text-bearing structured output from streamed invocations", async () => {
     const fakeModel = model([])
     const doStream = vi.fn(async () => ({
@@ -661,6 +699,17 @@ describe("AI SDK recovery", () => {
         }),
       }),
     }))
+  })
+
+  it("settles usage when only textStream is consumed", async () => {
+    const fakeModel = streamingRepairModel()
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+    // SAFETY: streamAgentInline preserves the AI SDK textStream and usage result members.
+    const streamed = result as { textStream: AsyncIterable<unknown>, usage: Promise<unknown> }
+
+    for await (const _text of streamed.textStream) {}
+
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 6 })
   })
 
   it("cancels an unconsumed model stream and settles early usage", async () => {

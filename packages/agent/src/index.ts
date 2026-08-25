@@ -5490,7 +5490,7 @@ async function executeAgentInvocationWithCapacityLease<
             const materialized = await materialization.result
             uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
             // SAFETY: uiMessageMaterialization is created only when structuredOutput is defined.
-            uiMessageFinishResult = await validateAgentOutput(structuredOutput!, materialized, { allowMaterializedObject: materialized !== enrichedRendered })
+            uiMessageFinishResult = await validateAgentOutput(structuredOutput!, materialized)
             const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
               // SAFETY: The runtime type check above proves this property is a string.
               ? Reflect.get(uiMessageFinishResult, "text") as string
@@ -5611,7 +5611,7 @@ async function executeAgentInvocationWithCapacityLease<
           structuredUsageRecord = usageRecordFromStreamChunk(materialized)
             ?? await resolveAgentUsageRecord(streamResult, invocation.run)
           // SAFETY: structuredMaterialization is created only when structuredOutput is defined.
-          structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized, { allowMaterializedObject: materialized !== streamResult })
+          structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized)
           yield { data: structuredFinishResult, type: "data" }
           yield { type: "finish" }
         })()

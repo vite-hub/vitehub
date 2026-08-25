@@ -1061,6 +1061,7 @@ function withCapturedUsage(
 function withCapturedStreamUsage<T extends {
   fullStream?: AsyncIterable<unknown>
   stream?: AsyncIterable<unknown>
+  textStream?: AsyncIterable<unknown>
   toUIMessageStream?: (...args: never[]) => ReadableStream<unknown>
 }>(
   result: T,
@@ -1152,12 +1153,15 @@ function withCapturedStreamUsage<T extends {
   const toUIMessageStream = result.toUIMessageStream
   const hasStream = "stream" in result
   const hasFullStream = "fullStream" in result
-  if (!hasStream && !hasFullStream && !toUIMessageStream) return result
+  const hasTextStream = "textStream" in result
+  if (!hasStream && !hasFullStream && !hasTextStream && !toUIMessageStream) return result
   const wrappedStream = hasStream ? wrap(() => result.stream!) : undefined
   const wrappedFullStream = hasFullStream ? wrap(() => result.fullStream!) : undefined
+  const wrappedTextStream = hasTextStream ? wrap(() => result.textStream!) : undefined
   return cloneStreamTextResult(result, {
     ...(wrappedStream ? { stream: wrappedStream } : {}),
     ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
+    ...(wrappedTextStream ? { textStream: wrappedTextStream } : {}),
     ...(toUIMessageStream
       ? {
           toUIMessageStream(this: typeof result, ...args: unknown[]) {
