@@ -1228,19 +1228,22 @@ describe("agent Vite plugin", () => {
   it("replaces the Agent app root in Nitro server code without overriding user replacements", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
+    // SAFETY: This fixture supplies the private Nitro config context consumed by the plugin.
+    const nitroConfig = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      nitro: {
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: "configured",
+          __VITEHUB_OTHER_REPLACEMENT__: "other",
+        },
+      },
+      root: "/repo/apps/web",
+    } as never
     const result = isRuntimeFunction(plugin.config)
       ? await plugin.config.call(
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {} as never,
-          {
-            [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-            nitro: {
-              replace: {
-                __VITEHUB_AGENT_APP_ROOT__: "configured",
-                __VITEHUB_OTHER_REPLACEMENT__: "other",
-              },
-            },
-            root: "/repo/apps/web",
-          } as never,
+          nitroConfig,
           { command: "build", mode: "production" },
         )
       : undefined
@@ -1291,7 +1294,7 @@ describe("agent Vite plugin", () => {
             { command: "build", mode: "production" },
           )
         : undefined
-      // SAFETY: The fixture above supplies Nitro configuration and the hook preserves it in its result.
+      // SAFETY: The fixture above supplies Nitro configuration and the hook preserves its modules array.
       const modules = (result as { nitro: { modules: unknown[] } }).nitro.modules
       expect(modules.slice(1)).toEqual(["existing"])
       let compiled: (() => Promise<void>) | undefined
@@ -1352,6 +1355,29 @@ describe("agent Vite plugin", () => {
       await rm(root, { force: true, recursive: true })
     }
   }, 15_000)
+
+  it("packages provider runtimes for suffix-only scheduled Agents", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-scheduled-output-"))
+    try {
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
+      const plugin = hubAgent()
+      const result = isRuntimeFunction(plugin.config)
+        ? await plugin.config.call(
+            // SAFETY: This focused fixture does not read the Vite plugin context.
+            {} as never,
+            // SAFETY: This fixture supplies the Nitro fields read by the config hook.
+            { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root } as never,
+            { command: "build", mode: "production" },
+          )
+        : undefined
+
+      expect(result).toMatchObject({ nitro: { modules: [expect.any(Function)] } })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 
   it("registers configured Discord Gateway routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")

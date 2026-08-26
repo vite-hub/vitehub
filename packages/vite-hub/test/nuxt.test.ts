@@ -15,6 +15,10 @@ import type { Plugin, PluginOption } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
+function isTestRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
 const mocks = vi.hoisted(() => ({
   objectHook: vi.fn((config: { nitro?: Record<string, unknown> }) => ({
     nitro: {
@@ -42,8 +46,8 @@ const mocks = vi.hoisted(() => ({
   markdownTemplateResolveId: vi.fn(),
   outputHook: vi.fn(),
   agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[]; nitro?: Record<string, unknown>; root?: string }) => {
-    const replace = config.nitro?.replace && typeof config.nitro.replace === "object"
-      ? config.nitro.replace as Record<string, unknown>
+    const replace = isTestRecord(config.nitro?.replace)
+      ? config.nitro.replace
       : {}
     return {
       nitro: {

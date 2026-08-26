@@ -25,7 +25,7 @@ import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from 
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 
@@ -2792,6 +2792,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       const nitroContext = hasNitroConfigContext(config)
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
+      const hasScheduledAgents = Boolean(resolved && discoverScheduledAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
@@ -2848,7 +2849,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...(installProcessDiscordGateway ? [join(generatedRoot, generatedAgentDiscordGatewayPlugin)] : []),
         ],
       ))
-      const mergedNitro = nitroContext && hasHostedAgents && !denoOutput
+      const mergedNitro = nitroContext && hasScheduledAgents && !denoOutput
         ? installAgentProviderRuntimePackages(mergedAgentNitro)
         : mergedAgentNitro
       if (nitroContext) {
@@ -2858,33 +2859,32 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...replacement,
         }
       }
-      return {
-        ...(typeof agent !== "undefined" ? { agent } : {}),
+      const result: UserConfig & { nitro?: NitroConfig } = {
         define: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(root),
           ...config.define,
         },
-        ...(nitroHandlers.length
-          ? {
-              build: mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals),
-            }
-          : {}),
-        ...(nitroContext || nitroHandlers.length || installCloudflareState || installProcessDiscordGateway
-          ? {
-              nitro: mergedNitro,
-            }
-          : {}),
         server: {
           watch: {
             ignored: mergeGeneratedViteHubWatchIgnored(config.server?.watch?.ignored),
           },
         },
       }
+      if (agent !== undefined) result.agent = agent
+      if (nitroHandlers.length) {
+        // SAFETY: Vite's build options accept the Rolldown external field merged by this boundary.
+        result.build = mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals)
+      }
+      if (nitroContext || nitroHandlers.length || installCloudflareState || installProcessDiscordGateway) {
+        result.nitro = mergedNitro
+      }
+      return result
     },
     async configResolved(config) {
       resolved = config
       agent = config.agent ?? agent
       installsCloudflareState ||= shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), config)
+      // SAFETY: ViteHub's config hook adds this private server-directory symbol before config resolution.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(

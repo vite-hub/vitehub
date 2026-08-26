@@ -160,10 +160,9 @@ describe("Provider Agent Driver", () => {
   ] as const)("maps %s to its provider runtime mode", async (_label, providerName, permissions, runtimeMode) => {
     const threadId = `thread-permissions-${providerName}-${permissions ?? "omitted"}`
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const adapter = createProviderAgentAdapter({
-      ...(permissions ? { permissions } : {}),
-      provider: providerName,
-    })
+    const providerOptions: { permissions?: typeof permissions, provider: typeof providerName } = { provider: providerName }
+    if (permissions) providerOptions.permissions = permissions
+    const adapter = createProviderAgentAdapter(providerOptions)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
