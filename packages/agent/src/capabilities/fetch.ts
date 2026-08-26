@@ -21,6 +21,7 @@ export type FetchCapabilityStandardSchemaV1<T = unknown> = StandardSchemaV1<unkn
 export interface FetchCapabilityRequestOptions {
   body?: unknown
   headers?: Record<string, string>
+  maxResponseBytes?: number
   method?: FetchCapabilityMethod
   query?: Record<string, unknown>
   timeout?: number

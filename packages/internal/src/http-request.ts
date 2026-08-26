@@ -6,6 +6,10 @@ export type HttpRequestMethod = "GET" | "HEAD" | "POST"
 export type HttpResponseType = "json" | "text"
 export type InternalHttpResponseType = HttpResponseType | "arrayBuffer" | "blob"
 
+export const defaultHttpRequestTimeout = 30_000
+export const defaultHttpMaxResponseBytes = 5 * 1024 * 1024
+export const maximumHttpMaxResponseBytes = 25 * 1024 * 1024
+
 export interface StandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
   value: T
@@ -26,6 +30,7 @@ export interface HttpRequestOptions {
   cookies?: Record<string, string>
   headers?: Record<string, string>
   method?: HttpRequestMethod
+  maxResponseBytes?: number
   query?: Record<string, unknown>
   timeout?: number
 }
@@ -34,8 +39,10 @@ export interface HttpRequestDefinition extends HttpRequestOptions {
   url: string | URL
 }
 
-export interface NormalizedHttpRequest extends Omit<HttpRequestDefinition, "method" | "url"> {
+export interface NormalizedHttpRequest extends Omit<HttpRequestDefinition, "maxResponseBytes" | "method" | "timeout" | "url"> {
+  maxResponseBytes: number
   method: HttpRequestMethod
+  timeout: number
   url: URL
 }
 
@@ -112,15 +119,13 @@ function fetchWithRetry<TOutput>(
 ): Effect.Effect<{ data: unknown, response: Response }, EffectBoundaryFailure> {
   const attempts = definition.method === "GET" || definition.method === "HEAD" ? 2 : 1
   const attempt = fetchOnce(definition, responseType, schema)
-  const timed = definition.timeout
-    ? Effect.timeoutOrElse(attempt, {
-        duration: definition.timeout,
-        orElse: () => Effect.fail(new HttpAttemptFailure({
-          cause: new DOMException("This operation was aborted", "AbortError"),
-          retryable: true,
-        })),
-      })
-    : attempt
+  const timed = Effect.timeoutOrElse(attempt, {
+    duration: definition.timeout,
+    orElse: () => Effect.fail(new HttpAttemptFailure({
+      cause: new DOMException("This operation was aborted", "AbortError"),
+      retryable: true,
+    })),
+  })
   return Effect.retry(timed, {
     times: attempts - 1,
     while: error => error.retryable,
@@ -150,7 +155,7 @@ function fetchOnce<TOutput>(
       },
     }).pipe(
       Effect.flatMap((response) => {
-        if (response.ok) return decodeHttpResponse(response, responseType, schema)
+        if (response.ok) return decodeHttpResponse(response, responseType, schema, definition.maxResponseBytes, controller.signal)
         const cause = new HttpStatusError(response.status)
         return cancelResponseBody(response).pipe(
           Effect.andThen(Effect.fail(new HttpAttemptFailure({
@@ -175,11 +180,13 @@ function decodeHttpResponse<TOutput>(
   response: Response,
   responseType: InternalHttpResponseType,
   schema: StandardSchemaV1<TOutput> | undefined,
+  maxResponseBytes: number,
+  signal: AbortSignal,
 ): Effect.Effect<{ data: unknown, response: Response }, HttpAttemptFailure> {
   return Effect.tryPromise({
     catch: cause => new HttpAttemptFailure({ cause, retryable: false }),
     try: async () => {
-      const decoded = await decodeResponse(response, responseType)
+      const decoded = await decodeResponse(response, responseType, maxResponseBytes, signal)
       const data = schema ? await parseStandardSchema(schema, decoded, "HTTP response") : decoded
       return { data, response }
     },
@@ -241,13 +248,69 @@ function queryValue(value: unknown): string {
   return JSON.stringify(value)
 }
 
-async function decodeResponse(response: Response, responseType: InternalHttpResponseType): Promise<unknown> {
-  if (responseType === "text") return await response.text()
-  if (responseType === "arrayBuffer") return await response.arrayBuffer()
-  if (responseType === "blob") return await response.blob()
+async function decodeResponse(
+  response: Response,
+  responseType: InternalHttpResponseType,
+  maxResponseBytes: number,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const bytes = await readResponseBytes(response, maxResponseBytes, signal)
+  if (responseType === "arrayBuffer") return bytes.slice().buffer
+  if (responseType === "blob") {
+    return new Blob([bytes.slice()], { type: response.headers.get("content-type") || "" })
+  }
 
-  const text = await response.text()
+  const text = new TextDecoder().decode(bytes)
+  if (responseType === "text") return text
   return text ? JSON.parse(text) : undefined
+}
+
+async function readResponseBytes(response: Response, maxResponseBytes: number, signal: AbortSignal): Promise<Uint8Array> {
+  const declaredLength = response.headers.get("content-length")?.trim()
+  if (declaredLength && /^\d+$/.test(declaredLength) && BigInt(declaredLength) > BigInt(maxResponseBytes)) {
+    const error = responseSizeError(maxResponseBytes)
+    await response.body?.cancel(error).catch(() => {})
+    throw error
+  }
+
+  const body = response.body
+  if (!body) return new Uint8Array()
+  const reader = body.getReader()
+  const cancelReader = () => {
+    void reader.cancel(signal.reason).catch(() => {})
+  }
+  signal.addEventListener("abort", cancelReader, { once: true })
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      totalBytes += chunk.value.byteLength
+      if (totalBytes > maxResponseBytes) {
+        const error = responseSizeError(maxResponseBytes)
+        await reader.cancel(error).catch(() => {})
+        throw error
+      }
+      chunks.push(chunk.value)
+    }
+  }
+  finally {
+    signal.removeEventListener("abort", cancelReader)
+    reader.releaseLock()
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+function responseSizeError(maxResponseBytes: number): RangeError {
+  return new RangeError(`[vitehub] HTTP response exceeds the configured ${maxResponseBytes}-byte limit.`)
 }
 
 export function normalizeHttpRequest(definition: HttpRequestDefinition): NormalizedHttpRequest {
@@ -259,9 +322,17 @@ export function normalizeHttpRequest(definition: HttpRequestDefinition): Normali
     && (!Number.isFinite(definition.timeout) || definition.timeout <= 0 || definition.timeout > 2_147_483_647)) {
     throw new TypeError("[vitehub] HTTP request timeout must be a positive finite number no greater than 2147483647.")
   }
+  if (definition.maxResponseBytes !== undefined
+    && (!Number.isSafeInteger(definition.maxResponseBytes)
+      || definition.maxResponseBytes <= 0
+      || definition.maxResponseBytes > maximumHttpMaxResponseBytes)) {
+    throw new TypeError(`[vitehub] HTTP request maxResponseBytes must be a positive safe integer no greater than ${maximumHttpMaxResponseBytes}.`)
+  }
   return {
     ...definition,
+    maxResponseBytes: definition.maxResponseBytes ?? defaultHttpMaxResponseBytes,
     method,
+    timeout: definition.timeout ?? defaultHttpRequestTimeout,
     url: definition.url instanceof URL ? definition.url : new URL(definition.url),
   }
 }

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { executeHttpRequest } from "../src/http-request.ts"
+import {
+  defaultHttpMaxResponseBytes,
+  defaultHttpRequestTimeout,
+  executeHttpRequest,
+  maximumHttpMaxResponseBytes,
+  normalizeHttpRequest,
+} from "../src/http-request.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -73,6 +79,100 @@ describe("HTTP request", () => {
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 
+  it("rejects a streamed response above the configured byte limit without retrying", async () => {
+    const cancel = vi.fn()
+    const fetch = vi.fn(async () => new Response(new ReadableStream({
+      cancel,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("1234"))
+      },
+    })))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ maxResponseBytes: 3, url: "https://example.com/large" }, { responseType: "text" }))
+      .rejects.toThrow("response exceeds")
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("rejects an oversized Content-Length before reading and cancels the body", async () => {
+    const cancel = vi.fn()
+    const fetch = vi.fn(async () => new Response(new ReadableStream({ cancel }), {
+      headers: { "content-length": "4" },
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ maxResponseBytes: 3, url: "https://example.com/declared-large" }))
+      .rejects.toThrow("configured 3-byte limit")
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("counts streamed bytes when Content-Length is missing or understated", async () => {
+    for (const contentLength of [undefined, "2"]) {
+      const cancel = vi.fn()
+      const headers = contentLength ? { "content-length": contentLength } : undefined
+      const fetch = vi.fn(async () => new Response(new ReadableStream({
+        cancel,
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("1234"))
+        },
+      }), { headers }))
+      vi.stubGlobal("fetch", fetch)
+
+      await expect(executeHttpRequest({ maxResponseBytes: 3, url: "https://example.com/stream" }, { responseType: "text" }))
+        .rejects.toThrow("configured 3-byte limit")
+      expect(cancel).toHaveBeenCalledOnce()
+    }
+  })
+
+  it.each(["Node", "Cloudflare"])("decodes bounded text and JSON through the %s WHATWG Response path", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response("hello"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ maxResponseBytes: 5, url: "https://example.com/text" }, { responseType: "text" }))
+      .resolves.toMatchObject({ data: "hello" })
+    await expect(executeHttpRequest({ maxResponseBytes: 11, url: "https://example.com/json" }))
+      .resolves.toMatchObject({ data: { ok: true } })
+  })
+
+  it("decodes bounded arrayBuffer and blob responses without bypassing the reader", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3])))
+      .mockResolvedValueOnce(new Response("blob", { headers: { "content-type": "text/custom" } }))
+    vi.stubGlobal("fetch", fetch)
+
+    const arrayBuffer = await executeHttpRequest({ maxResponseBytes: 3, url: "https://example.com/buffer" }, { responseType: "arrayBuffer" })
+    expect(new Uint8Array(arrayBuffer.data as ArrayBuffer)).toEqual(new Uint8Array([1, 2, 3]))
+    const blob = await executeHttpRequest({ maxResponseBytes: 4, url: "https://example.com/blob" }, { responseType: "blob" })
+    expect(blob.data).toBeInstanceOf(Blob)
+    expect((blob.data as Blob).type).toBe("text/custom")
+    await expect((blob.data as Blob).text()).resolves.toBe("blob")
+  })
+
+  it("does not retry deterministic response schema failures", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: false })))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ url: "https://example.com/schema" }, {
+      schema: {
+        "~standard": {
+          validate: () => ({ issues: ["expected ok"] }),
+        },
+      },
+    })).rejects.toThrow("Invalid HTTP response")
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("normalizes safe outbound defaults", () => {
+    expect(normalizeHttpRequest({ url: "https://example.com" })).toMatchObject({
+      maxResponseBytes: defaultHttpMaxResponseBytes,
+      timeout: defaultHttpRequestTimeout,
+    })
+  })
+
   it("interrupts an active request with the caller's exact abort reason", async () => {
     const reason = new Error("caller stopped")
     const controller = new AbortController()
@@ -132,6 +232,19 @@ describe("HTTP request", () => {
     expect(fetch.mock.calls.every(call => call[1]?.signal?.aborted)).toBe(true)
   })
 
+  it("cancels response readers when response-body decoding times out", async () => {
+    const cancel = vi.fn()
+    const fetch = vi.fn(async () => new Response(new ReadableStream({ cancel })))
+    vi.stubGlobal("fetch", fetch)
+
+    const error = await executeHttpRequest({ timeout: 1, url: "https://example.com/slow-body" }, { responseType: "text" })
+      .catch(error => error)
+
+    expect(error).toMatchObject({ name: "AbortError" })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     0,
     -1,
@@ -143,6 +256,21 @@ describe("HTTP request", () => {
     vi.stubGlobal("fetch", fetch)
 
     await expect(executeHttpRequest({ timeout, url: "https://example.com" })).rejects.toThrow("positive finite number")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    maximumHttpMaxResponseBytes + 1,
+  ])("rejects invalid maxResponseBytes %s before dispatch", async (maxResponseBytes) => {
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ maxResponseBytes, url: "https://example.com" })).rejects.toThrow("positive safe integer")
     expect(fetch).not.toHaveBeenCalled()
   })
 })
