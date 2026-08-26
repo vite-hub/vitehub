@@ -1,6 +1,6 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -316,6 +316,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       }
     },
     buildStart() {
+      resetProviderDeploymentOutputs(providerOutput)
       resetProviderOutputRuntime(providerOutput)
     },
     async buildEnd() {
@@ -329,21 +330,28 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         providerOutput,
         rootDir,
       })
-    },
-    async closeBundle() {
-      if (shouldSkipViteProviderBuild(command, getViteMode())) {
-        return
-      }
-
-      await generateProviderOutputs({
-        blob,
-        clientOutDir,
-        cloudflareOwnedByNitro,
-        artifacts: providerArtifacts,
-        providerOutput,
+      contributeProviderDeploymentOutput(providerOutput, {
+        owner: "blob",
         rootDir,
-        serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
+        write: async ({ write }) => {
+          await generateProviderOutputs({
+            blob,
+            clientOutDir,
+            cloudflareOwnedByNitro,
+            artifacts: providerArtifacts,
+            providerOutput,
+            rootDir,
+            serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
+          }, write)
+        },
       })
+    },
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (shouldSkipViteProviderBuild(command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
+      },
     },
     load(id) {
       if (id === RESOLVED_BLOB_VIRTUAL_CONFIG_ID) {

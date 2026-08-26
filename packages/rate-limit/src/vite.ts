@@ -4,7 +4,10 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import {
   composeNitroCloudflareProviderOutput,
   contributeCloudflareProviderOutput,
+  contributeProviderDeploymentOutput,
   contributeProviderRuntime,
+  finalizeProviderDeploymentOutputs,
+  resetProviderDeploymentOutputs,
   shouldSkipViteProviderBuild,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
@@ -185,6 +188,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (!isServerEnvironment(name, config)) return
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
+    buildStart() {
+      resetProviderDeploymentOutputs(composedOutput)
+    },
     async handleHotUpdate(context) {
       if (!/\.(?:c|m)?[jt]sx?$/i.test(context.file)) return
       resolved = context.server.config
@@ -194,7 +200,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
       return `import ${JSON.stringify(normalizePath(resolve(resolved.root, generatedRuntimeModule)))}\n${code}`
     },
-    async closeBundle() {
+    async buildEnd() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
       if (cloudflareOwnedByNitro && provider === "cloudflare") {
         const configuredDeclarations = declarations
@@ -208,16 +214,30 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         await refreshDeclarations()
       }
       const namespace = resolveRateLimitNamespace(rateLimit.namespace)
-      await writeRateLimitProviderOutput({
-        clientOutDir: resolved.build.outDir,
-        cloudflareOwnedByNitro,
-        declarations,
-        namespace,
-        previousDeclarations,
-        provider,
-        rootDir: resolved.root,
+      const config = resolved
+      contributeProviderDeploymentOutput(composedOutput, {
+        owner: "rate-limit",
+        rootDir: config.root,
+        write: async ({ write }) => {
+          await writeRateLimitProviderOutput({
+            clientOutDir: config.build.outDir,
+            cloudflareOwnedByNitro,
+            declarations,
+            namespace,
+            previousDeclarations,
+            provider,
+            rootDir: config.root,
+          }, write)
+          previousDeclarations = declarations
+        },
       })
-      previousDeclarations = declarations
+    },
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(composedOutput)
+      },
     },
   }
 }

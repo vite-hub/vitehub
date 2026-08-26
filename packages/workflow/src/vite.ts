@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
@@ -156,6 +156,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
+    buildStart() {
+      resetProviderDeploymentOutputs(providerOutput)
+    },
     vitehub: {
       workflow: {
         async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry }: WorkflowNitroConfigOptions) {
@@ -175,32 +178,45 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         prepareScheduleRuntime,
       },
     },
-    async closeBundle() {
+    buildEnd() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
-      await generateProviderOutputs({
-        agentImportBase: internalOptions?.agentImportBase,
-        clientOutDir: resolve(resolved.root, resolved.build.outDir),
-        hosting: internalOptions?.hosting,
-        importBase: internalOptions?.importBase,
-        providerImportAliases: await providerImportAliases(),
-        providerRuntimeImportAliases: {
-          cloudflare: providerRuntimeImportAliases("cloudflare"),
-          vercel: providerRuntimeImportAliases("vercel"),
-        },
-        rootDir: resolveViteHubProjectRoot(resolved.root),
-        definitionRootDir: resolved.root,
-        serverDirs,
-        serverFunctionName: resolveNitroVercelFunctionName(resolved, "workflow"),
-        includeUserAppEntry: internalOptions?.includeUserAppEntry,
-        workflow,
-        workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-        workspaceImportBase: internalOptions?.workspaceImportBase,
-        transformRegistry: (resolved.plugins as AgentWorkflowRegistryPlugin[])
-          .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-          ?.vitehub?.agent?.transformWorkflowRegistry,
+      const config = resolved
+      const rootDir = resolveViteHubProjectRoot(config.root)
+      contributeProviderDeploymentOutput(providerOutput, {
+        owner: "workflow",
+        rootDir,
+        write: async ({ write }) => await generateProviderOutputs({
+          agentImportBase: internalOptions?.agentImportBase,
+          clientOutDir: resolve(config.root, config.build.outDir),
+          hosting: internalOptions?.hosting,
+          importBase: internalOptions?.importBase,
+          providerImportAliases: await providerImportAliases(),
+          providerRuntimeImportAliases: {
+            cloudflare: providerRuntimeImportAliases("cloudflare"),
+            vercel: providerRuntimeImportAliases("vercel"),
+          },
+          rootDir,
+          definitionRootDir: config.root,
+          serverDirs,
+          serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
+          includeUserAppEntry: internalOptions?.includeUserAppEntry,
+          workflow,
+          workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
+          workspaceImportBase: internalOptions?.workspaceImportBase,
+          transformRegistry: (config.plugins as AgentWorkflowRegistryPlugin[])
+            .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
+            ?.vitehub?.agent?.transformWorkflowRegistry,
+        }, write),
       })
+    },
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
+      },
     },
   }
 }

@@ -12,7 +12,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const blobPackageName = "@vite-hub/blob"
@@ -639,7 +639,10 @@ function registerSupportedProviderRuntimeModules(
   })
 }
 
-export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
+export async function generateProviderOutputs(
+  options: GenerateProviderOutputsOptions,
+  write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
+): Promise<GeneratedBlobArtifacts> {
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob, options.cloudflareOwnedByNitro)
   const localOnly = !shouldCreateProviderOutput(options.blob)
@@ -651,20 +654,20 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const cleanupVercel = options.cloudflareOwnedByNitro ? getVercelBlobOutputCleanup(options) : undefined
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
-    await writeProviderDeploymentOutputs({
+    await write({
       clientOutDir: options.clientOutDir,
       cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir, hasCurrentCloudflareContribution) },
       rootDir: options.rootDir,
     })
   }
   if (cleanupVercel) {
-    await writeProviderDeploymentOutputs({
+    await write({
       clientOutDir: options.clientOutDir,
       cleanup: { vercel: cleanupVercel },
       rootDir: options.rootDir,
     })
   }
-  await writeProviderDeploymentOutputs({
+  await write({
     afterWrite: createVercel || stageSharedVercelRuntime
       ? () => copyVercelBlobRuntimePackages(options)
       : undefined,

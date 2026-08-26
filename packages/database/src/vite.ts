@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
@@ -162,6 +162,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     buildStart() {
+      resetProviderDeploymentOutputs(providerOutput)
       resetProviderOutputRuntime(providerOutput)
     },
     async handleHotUpdate(context) {
@@ -190,6 +191,21 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         rootDir: databaseRoot(),
         runtimeConfig,
       })
+      contributeProviderDeploymentOutput(providerOutput, {
+        owner: "database",
+        rootDir: resolved.root,
+        write: async ({ write }) => {
+          await writeGeneratedDatabaseArtifacts(runtimeConfig!)
+          await generateProviderOutputs({
+            artifacts: providerArtifacts,
+            clientOutDir: resolved!.build.outDir,
+            providerOutput,
+            rootDir: resolved!.root,
+            runtimeConfig: runtimeConfig!,
+            serverFunctionName: resolveNitroVercelFunctionName(resolved!, "database"),
+          }, write)
+        },
+      })
     },
     resolveId(id) {
       return resolveDatabaseVirtualId(id)
@@ -208,20 +224,12 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         })}\n`
       }
     },
-    async closeBundle() {
-      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
-        return
-      }
-
-      await writeGeneratedDatabaseArtifacts(runtimeConfig)
-      await generateProviderOutputs({
-        artifacts: providerArtifacts,
-        clientOutDir: resolved.build.outDir,
-        providerOutput,
-        rootDir: resolved.root,
-        runtimeConfig,
-        serverFunctionName: resolveNitroVercelFunctionName(resolved, "database"),
-      })
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
+      },
     },
   }
 }
