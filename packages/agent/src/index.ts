@@ -5771,8 +5771,8 @@ async function executeAgentInvocationWithCapacityLease<
         })()
       : isStreamResult
         ? withStreamResultCancellation(streamAgentOutputToEvents(streamResult), streamResult)
-      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         : customRun
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           ? rendered as AsyncIterable<StreamEvent>
           : withStreamResultCancellation(streamAgentOutputToEvents(rendered), rendered)
     if (structuredMaterialization) {
