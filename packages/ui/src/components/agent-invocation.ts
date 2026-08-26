@@ -710,7 +710,7 @@ function renderWorkSummary(
   if (!activities.length) return null;
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
   const duration = formatDuration(invocation.startedAt, endedAt);
-  return h("li", { class: "vh-invocation-work", key: "invocation-work" }, [
+  return h("li", { class: "vh-invocation-work", key: `invocation-work-${activities[0]!.id}` }, [
     h("details", { class: "vh-invocation-work__details" }, [
       h("summary", { class: "vh-invocation-work__summary" }, [
         h("span", { class: "vh-invocation-work__title" }, duration ? `Worked for ${duration}` : "Work details"),
@@ -750,31 +750,27 @@ function renderInvocationActivities(
 
   const prefix = activities.slice(0, firstUser + 1);
   const tail = activities.slice(firstUser + 1);
-  const work = tail.filter((activity, offset) => {
-    const index = firstUser + 1 + offset;
-    return index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
-  });
-  let renderedWork = false;
   const timeline: ReturnType<typeof renderActivitySequence> = [];
-  let externalRun: InvocationActivity[] = [];
-  const flushExternalRun = () => {
-    timeline.push(...renderActivitySequence(externalRun, invocation, expanded, toggleExpanded, inspect));
-    externalRun = [];
+  let run: InvocationActivity[] = [];
+  let runIsWork: boolean | undefined;
+  const flushRun = () => {
+    if (runIsWork) {
+      const summary = renderWorkSummary(run, invocation, expanded, toggleExpanded, inspect);
+      if (summary) timeline.push(summary);
+    }
+    else timeline.push(...renderActivitySequence(run, invocation, expanded, toggleExpanded, inspect));
+    run = [];
   };
   tail.forEach((activity, offset) => {
     const index = firstUser + 1 + offset;
     const isWork = index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
-    if (!isWork) {
-      externalRun.push(activity);
-      return;
+    if (runIsWork !== undefined && runIsWork !== isWork) {
+      flushRun();
     }
-    if (renderedWork) return;
-    flushExternalRun();
-    renderedWork = true;
-    const summary = renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect);
-    if (summary) timeline.push(summary);
+    runIsWork = isWork;
+    run.push(activity);
   });
-  flushExternalRun();
+  flushRun();
 
   return [
     ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),

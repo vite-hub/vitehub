@@ -370,6 +370,7 @@ describe("Agent Invocation UI", () => {
           type: "run" as const,
         },
         { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 6, timestamp, type: "lifecycle" as const },
+        { attributes: { "tool.id": "verify", "tool.output": "clean", "tool.name": "verify" }, name: "agent.tool.finish", sequence: 7, timestamp, type: "run" as const },
       ],
       startedAt: timestamp,
       status: "cancelled" as const,
@@ -388,11 +389,14 @@ describe("Agent Invocation UI", () => {
       "vh-invocation-work",
       "vh-invocation-activity",
       "vh-invocation-message",
+      "vh-invocation-work",
     ]);
     expect(rows[1]!.attributes("data-kind")).toBe("delivery");
     expect(rows[3]!.attributes("data-kind")).toBe("delivery");
-    expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 5s");
-    expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
+    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(2);
+    expect(wrapper.findAll(".vh-invocation-work__title").map(title => title.text())).toEqual(["Worked for 5s", "Worked for 5s"]);
+    expect(wrapper.findAll(".vh-invocation-work__activities")[0]!.text()).toContain("Shell");
+    expect(wrapper.findAll(".vh-invocation-work__activities")[1]!.text()).toContain("Verify");
     expect(rows[4]!.text()).toContain("Done.");
     expect(rows[3]!.get('[data-icon="telegram"]').attributes("data-icon")).toBe("telegram");
     expect(rows[3]!.get(".vh-invocation-delivery__body").text()).toBe("The Telegram reply body.");

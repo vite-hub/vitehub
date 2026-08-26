@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { agentErrorDetails } from "./agent-error.ts"
@@ -30,21 +30,28 @@ export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = A
 
 export const agentInvocationTraceIdContextKey = "agent.invocation.traceId"
 
-function channelEffectContent(effect: AgentChannelDeliveryEffectIntent): string | undefined {
-  if (effect.kind !== "reply") return
-  if (typeof effect.payload === "string") return effect.payload.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH)
-  if (!effect.payload || !hasRuntimeType(effect.payload, "object")) return
-  const payload = effect.payload as { body?: unknown, markdown?: unknown }
-  const content = typeof payload.body === "string"
-    ? payload.body
-    : typeof payload.markdown === "string"
-      ? payload.markdown
-      : typeof effect.metadata?.body === "string"
+function channelEffectContent(effect: AgentChannelDeliveryEffectIntent): { content?: string, truncated: boolean } {
+  if (effect.kind !== "reply") return { truncated: false }
+  if (hasRuntimeType(effect.payload, "string")) {
+    return {
+      content: effect.payload.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH),
+      truncated: effect.payload.length > MAX_CHANNEL_EFFECT_CONTENT_LENGTH,
+    }
+  }
+  if (!isRuntimeRecord(effect.payload)) return { truncated: false }
+  const content = hasRuntimeType(effect.payload.body, "string")
+    ? effect.payload.body
+    : hasRuntimeType(effect.payload.markdown, "string")
+      ? effect.payload.markdown
+      : hasRuntimeType(effect.metadata?.body, "string")
         ? effect.metadata.body
-        : typeof effect.metadata?.markdown === "string"
+        : hasRuntimeType(effect.metadata?.markdown, "string")
           ? effect.metadata.markdown
       : undefined
-  return content?.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH)
+  return {
+    content: content?.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH),
+    truncated: Boolean(content && content.length > MAX_CHANNEL_EFFECT_CONTENT_LENGTH),
+  }
 }
 
 export function hasAgentTraceLog(context: { runtime: ResolvedAgentRuntimeContext }): boolean {
@@ -339,11 +346,13 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
   effect: AgentChannelDeliveryEffectIntent,
   attributes: Record<string, unknown> = {},
 ): Promise<void> {
+  const content = channelEffectContent(effect)
   await traceAgentEvent(context, {
     attributes: invocationAttributes(context, {
-      "channel.effect.content": channelEffectContent(effect),
+      "channel.effect.content": content.content,
       "channel.effect.intent": effect.intent,
       "channel.effect.kind": effect.kind,
+      ...(content.truncated ? { "vitehub.observation.truncated": true } : {}),
       ...attributes,
     }),
     name: "agent.channel.delivery.effect",

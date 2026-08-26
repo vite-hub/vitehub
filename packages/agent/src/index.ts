@@ -1186,6 +1186,7 @@ async function applyChannelDeliveryEffectIntents<
         ? {
             ...intent,
             payload: (async function* () {
+              // SAFETY: isAsyncIterable establishes the asserted stream contract above.
               for await (const chunk of intent.payload as AsyncIterable<string>) {
                 if (streamedReplyContent.length < 16 * 1024) {
                   const remaining = 16 * 1024 - streamedReplyContent.length
