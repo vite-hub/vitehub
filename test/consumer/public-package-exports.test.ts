@@ -2,12 +2,13 @@ import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, relative, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 import ts from "typescript"
+import { array, object, optional, parse, record, string } from "valibot"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
 import { packageInfos } from "../utils/repo"
@@ -16,14 +17,15 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 
-interface PackageManifest {
-  dependencies?: Record<string, string>
-  devDependencies?: Record<string, string>
-  name: string
-  optionalDependencies?: Record<string, string>
-  peerDependencies?: Record<string, string>
-  version: string
-}
+const stringRecord = record(string(), string())
+const packageManifestSchema = object({
+  dependencies: optional(stringRecord),
+  devDependencies: optional(stringRecord),
+  name: optional(string()),
+  optionalDependencies: optional(stringRecord),
+  peerDependencies: optional(stringRecord),
+  version: optional(string()),
+})
 
 async function run(command: string, args: string[], cwd: string) {
   try {
@@ -31,6 +33,7 @@ async function run(command: string, args: string[], cwd: string) {
     return { stderr: String(result.stderr || ""), stdout: String(result.stdout || "") }
   }
   catch (error) {
+    // SAFETY: execFile attaches captured stdout and stderr to its rejected Error.
     const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
     const output = `${failed.stdout || ""}${failed.stderr || ""}`
     throw new Error(`${command} ${args.join(" ")} failed${output ? `\n${output}` : ""}`, { cause: error })
@@ -45,11 +48,20 @@ function workspaceConfig(specs: Record<string, string>) {
 }
 
 async function readManifest(path: string) {
-  return JSON.parse(await readFile(path, "utf8")) as PackageManifest
+  const value: unknown = JSON.parse(await readFile(path, "utf8"))
+  return parse(packageManifestSchema, value)
 }
 
 async function installedVersion(path: string) {
-  return (await readManifest(path)).version
+  const version = (await readManifest(path)).version
+  if (!version) throw new Error(`${path} must declare a version`)
+  return version
+}
+
+function requiredDependency(manifest: { dependencies?: Record<string, string> }, name: string) {
+  const version = manifest.dependencies?.[name]
+  if (!version) throw new Error(`Consumer fixture must declare ${name}`)
+  return version
 }
 
 async function packPublicPackages(packDir: string) {
@@ -65,14 +77,14 @@ async function packPublicPackages(packDir: string) {
 }
 
 async function writeConsumer(appDir: string, specs: Record<string, string>) {
-  const fixture = JSON.parse(await readFile(join(repoRoot, "fixtures/consumer/vite-hub/package.json"), "utf8")) as PackageManifest
+  const fixture = await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json"))
   const requiredPeers = {
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
     typescript: await installedVersion(join(repoRoot, "node_modules/typescript/package.json")),
-    vite: fixture.dependencies!.vite,
+    vite: requiredDependency(fixture, "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
   }
 
@@ -103,7 +115,8 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
     "process.stdout.write(JSON.stringify(specifiers.map(specifier => import.meta.resolve(specifier))))",
   ].join("\n")
   const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
-  return JSON.parse(stdout) as string[]
+  const value: unknown = JSON.parse(stdout)
+  return parse(array(string()), value)
 }
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[]) {
@@ -120,29 +133,60 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[]) {
 }
 
 async function importPackagesWithoutRootFallback(appDir: string) {
-  const scopeDir = join(appDir, "node_modules/@vite-hub")
-  const hiddenScopeDir = join(appDir, "node_modules/.vite-hub-root-dependencies")
   const packageRoots = new Map(await Promise.all(packageInfos.map(async info => [
     info.packageName,
     await realpath(join(appDir, "node_modules", ...info.packageName.split("/"))),
   ] as const)))
 
-  await rename(scopeDir, hiddenScopeDir)
-  try {
-    for (const info of packageInfos) {
+  for (const info of packageInfos) {
+    const packageRoot = packageRoots.get(info.packageName)
+    if (!packageRoot) throw new Error(`Missing installed package root for ${info.packageName}`)
+    const manifest = await readManifest(join(packageRoot, "package.json"))
+    await withoutRootDependencies(appDir, new Set([
+      info.packageName,
+      "@types/node",
+      ...Object.keys(manifest.peerDependencies || {}),
+    ]), async () => {
       const runnerDir = join(appDir, ".isolated", info.name)
       const packageNameParts = info.packageName.split("/")
       const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
       await mkdir(linkDir, { recursive: true })
-      await symlink(packageRoots.get(info.packageName)!, join(linkDir, packageNameParts.at(-1)!), "dir")
+      const packageDirName = packageNameParts.at(-1)
+      if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
+      await symlink(packageRoot, join(linkDir, packageDirName), "dir")
       await importSpecifiers(runnerDir, publicPackageExportContracts
         .filter(contract => contract.packageName === info.packageName && contract.target.endsWith(".js") && contract.kind !== "type-only")
         .map(contract => contract.specifier))
-      await typecheckPackageExports(info.packageName, packageRoots.get(info.packageName)!, runnerDir)
+      await typecheckPackageExports(info.packageName, packageRoot, runnerDir)
+    })
+  }
+}
+
+async function withoutRootDependencies(appDir: string, allowed: Set<string>, runIsolated: () => Promise<void>) {
+  const manifest = await readManifest(join(appDir, "package.json"))
+  const rootDependencies = [...new Set([
+    ...Object.keys(manifest.dependencies || {}),
+    ...Object.keys(manifest.devDependencies || {}),
+  ])].filter(name => !allowed.has(name))
+  const hiddenRoot = join(appDir, ".root-dependencies")
+  const moved: string[] = []
+
+  try {
+    for (const name of rootDependencies) {
+      const parts = name.split("/")
+      const destination = join(hiddenRoot, ...parts)
+      await mkdir(dirname(destination), { recursive: true })
+      await rename(join(appDir, "node_modules", ...parts), destination)
+      moved.push(name)
     }
+    await runIsolated()
   }
   finally {
-    await rename(hiddenScopeDir, scopeDir)
+    for (const name of moved.reverse()) {
+      const parts = name.split("/")
+      await rename(join(hiddenRoot, ...parts), join(appDir, "node_modules", ...parts))
+    }
+    await rm(hiddenRoot, { recursive: true, force: true })
   }
 }
 

@@ -42,8 +42,8 @@ const optionalPeerExports = new Map<string, readonly string[]>([
 ])
 
 function exportTarget(rawTarget: string | Record<string, string>) {
-  if (typeof rawTarget === "string") return rawTarget
-  return rawTarget.import || rawTarget.default || rawTarget.types
+  if (rawTarget instanceof Object) return rawTarget.import || rawTarget.default || rawTarget.types
+  return rawTarget
 }
 
 function exportSpecifier(packageName: string, subpath: string) {
