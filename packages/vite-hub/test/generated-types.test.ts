@@ -253,10 +253,15 @@ describe("framework generated types", () => {
     await mkdir(join(root, "server/collections"), { recursive: true })
     await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
 
-    await frameworkHubSource().api.prepareSources({ projectRoot: root })
+    const [source, types] = frameworkHubSource()
+    await configResolved(source!)({ root })
+    await configResolved(types!)({ root })
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
       'from "vite-hub/source/server"',
+    )
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
+      `./source/collections.d.ts`,
     )
   })
 
