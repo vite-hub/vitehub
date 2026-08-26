@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { rootTestTasks } from "./test/tasks.ts";
+
 export default defineConfig({
   run: {
     tasks: {
@@ -111,32 +113,7 @@ export default defineConfig({
         command: "node packages/schedule/test/e2e-live.mjs",
         dependsOn: ["@vite-hub/schedule#build"],
       },
-      test: {
-        cache: false,
-        command: "node test/run-package-task.mjs test",
-      },
-      "test:contracts": {
-        cache: false,
-        command: "vp test",
-      },
-      "test:consumer": {
-        cache: false,
-        command:
-          "VITEHUB_CONSUMER_CONTRACT=1 vp test test/consumer/vite-hub.test.ts test/consumer/source-closures.test.ts",
-        dependsOn: ["build"],
-      },
-      "test:output": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts",
-      },
-      "test:output:cloudflare": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts",
-      },
-      "test:output:vercel": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts test/output/vercel.test.ts",
-      },
+      ...rootTestTasks,
       typecheck: {
         cache: false,
         command:

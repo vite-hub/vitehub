@@ -81,8 +81,6 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: vp run build
-      - run: vp run playground:vite:build:local --provider cloudflare
       - name: Provider Output Contract
         run: vp run test:output:cloudflare
       - name: Local Provider Run
@@ -113,8 +111,6 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: vp run build
-      - run: vp run playground:vite:build:local --provider vercel
       - name: Provider Output Contract
         run: vp run test:output:vercel
       - name: Local Provider Run
