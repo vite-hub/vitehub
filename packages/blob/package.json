@@ -74,7 +74,8 @@
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
-    "pathe": "catalog:unjs"
+    "pathe": "catalog:unjs",
+    "undici": "^6.28.0"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

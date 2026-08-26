@@ -367,34 +367,25 @@ describe("hubBlob", () => {
       expect(runtimeSource).not.toContain("/drivers/fs")
       expect(runtimeSource).not.toContain("/drivers/vercel")
 
-      const filesSdkStub = join(root, "files-sdk.mjs")
-      const netlifyAdapterStub = join(root, "netlify-blobs.mjs")
+      const netlifyBlobsStub = join(root, "netlify-blobs.mjs")
       const entryFile = join(root, "entry.mjs")
       const artifactFile = join(artifactRoot, "server.mjs")
-      await writeFile(filesSdkStub, [
-        "export class Files {",
-        "  constructor({ adapter }) {",
-        "    if (adapter?.kind !== 'netlify-blobs-adapter-stub') throw new Error('netlify-files-sdk-stub')",
-        "    this.adapter = adapter",
-        "  }",
-        "  async download(key) {",
-        "    const value = this.adapter.values.get(key)",
-        "    if (!value) throw new Error(`Missing ${key}`)",
-        "    return { arrayBuffer: async () => value.bytes.buffer, blob: async () => new Blob([value.bytes], { type: value.contentType }) }",
-        "  }",
-        "  async upload(key, body, options = {}) {",
+      await writeFile(netlifyBlobsStub, [
+        "const values = new Map()",
+        "function createStore() { return {",
+        "  async set(key, body, options = {}) {",
         "    const bytes = new Uint8Array(await new Response(body).arrayBuffer())",
-        "    this.adapter.values.set(key, { bytes, contentType: options.contentType })",
-        "    return { contentType: options.contentType, key, lastModified: new Date(0), size: bytes.byteLength }",
+        "    values.set(key, { bytes, metadata: options.metadata })",
+        "    return { etag: 'netlify-etag', modified: true }",
         "  }",
-        "  async url(key) { return `https://blob.example/${key}` }",
-        "}",
-        "",
-      ].join("\n"), "utf8")
-      await writeFile(netlifyAdapterStub, [
-        "export function netlifyBlobs() {",
-        "  return { kind: 'netlify-blobs-adapter-stub', values: new Map() }",
-        "}",
+        "  async get(key, options = {}) { const value = values.get(key); return value ? new Blob([value.bytes], { type: value.metadata.contentType }) : null }",
+        "  async getMetadata(key) { const value = values.get(key); return value ? { etag: 'netlify-etag', metadata: value.metadata } : null }",
+        "  async getWithMetadata(key) { const value = values.get(key); return value ? { data: value.bytes.buffer, etag: 'netlify-etag', metadata: value.metadata } : null }",
+        "  async delete(key) { values.delete(key) }",
+        "  async list() { return { blobs: [...values.keys()].map(key => ({ etag: 'netlify-etag', key })), directories: [] } }",
+        "} }",
+        "export const getStore = createStore",
+        "export const getDeployStore = createStore",
         "",
       ].join("\n"), "utf8")
       await writeFile(entryFile, [
@@ -418,15 +409,14 @@ describe("hubBlob", () => {
         plugins: [{
           name: "netlify-sdk-stubs",
           setup(build) {
-            build.onResolve({ filter: /^files-sdk$/ }, () => ({ path: filesSdkStub }))
-            build.onResolve({ filter: /^files-sdk\/netlify-blobs$/ }, () => ({ path: netlifyAdapterStub }))
+            build.onResolve({ filter: /^@netlify\/blobs$/ }, () => ({ path: netlifyBlobsStub }))
           },
         }],
         target: "node24",
       })
       const artifactSource = await readFile(artifactFile, "utf8")
-      expect(artifactSource).toContain("netlify-files-sdk-stub")
-      expect(artifactSource).toContain("netlify-blobs-adapter-stub")
+      expect(artifactSource).toContain("netlify-etag")
+      expect(artifactSource).not.toContain("files-sdk/netlify-blobs")
       expect(artifactSource).not.toContain("files-sdk/vercel-blob")
       expect(artifactSource).not.toContain("files-sdk/s3")
       const externalImports = Object.values(buildResult.metafile.outputs)

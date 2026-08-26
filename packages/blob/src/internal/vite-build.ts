@@ -35,7 +35,7 @@ const filesSdkDriverPeers = {
   "google-drive": ["@googleapis/drive", "google-auth-library"],
   hetzner: filesSdkS3Peers,
   minio: filesSdkS3Peers,
-  "netlify-blobs": ["@netlify/blobs"],
+  "netlify-blobs": [],
   onedrive: ["@azure/identity", "@microsoft/microsoft-graph-client"],
   s3: filesSdkS3Peers,
   storj: filesSdkS3Peers,
@@ -525,7 +525,6 @@ function createVercelOutput(
         "files-sdk/google-drive",
         "files-sdk/hetzner",
         "files-sdk/minio",
-        "files-sdk/netlify-blobs",
         "files-sdk/onedrive",
         "files-sdk/r2",
         "files-sdk/s3",
@@ -556,7 +555,7 @@ function shouldCreateProviderOutput(blob: BlobModuleOptions | ResolvedBlobModule
 function hasFilesSdkStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
   const resolved = resolveBlobConfig(blob, "vercel")
   return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
-    .some(store => store.driver !== "fs" && store.driver !== "vercel-blob")
+    .some(store => store.driver !== "fs" && store.driver !== "netlify-blobs" && store.driver !== "vercel-blob")
 }
 
 function hasSiblingVercelRuntime(providerOutput: ComposedProviderOutput | undefined): boolean {
@@ -589,6 +588,7 @@ function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModu
   const resolved = resolveBlobConfig(blob, "vercel")
   const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
   if (stores.some(store => store.driver === "vercel-blob")) packages.add("@vercel/blob")
+  if (stores.some(store => store.driver === "netlify-blobs")) packages.add("@netlify/blobs")
   if (hasFilesSdkStore(blob)) packages.add("files-sdk")
   for (const store of stores) {
     for (const name of filesSdkDriverPeers[store.driver] ?? []) {
