@@ -508,6 +508,41 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[data-role="tool"] .vh-visually-hidden').text()).toBe("Tool message");
   });
 
+  it("keeps completed multi-turn conversations outside work summaries", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      completedAt: timestamp,
+      createdAt: timestamp,
+      id: "multi-turn-invocation",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "user-1", parts: [{ text: "First question", type: "text" }], role: "user" },
+            { id: "assistant-1", parts: [{ text: "First answer", type: "text" }], role: "assistant" },
+            { id: "user-2", parts: [{ text: "Follow-up question", type: "text" }], role: "user" },
+            { id: "assistant-2", parts: [{ text: "Final answer", type: "text" }], role: "assistant" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(0);
+    expect(wrapper.findAll(".vh-invocation-message").map(message => message.text())).toEqual([
+      expect.stringContaining("First question"),
+      expect.stringContaining("First answer"),
+      expect.stringContaining("Follow-up question"),
+      expect.stringContaining("Final answer"),
+    ]);
+  });
+
   it("derives commands from direct provider payloads", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -1388,7 +1423,7 @@ describe("Agent Invocation UI", () => {
 
     expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
       .toEqual(["First question", "First answer", "Unanswered question"]);
-    expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
+    expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(true);
   });
 
   it("renders grouped delivery outcomes, reaction intents, and truncation honestly", () => {

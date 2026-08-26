@@ -756,7 +756,10 @@ function renderInvocationActivities(
   const tail = activities.slice(firstUser + 1);
   const isWorkActivity = (activity: InvocationActivity, offset: number) => {
     const index = firstUser + 1 + offset;
-    return index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
+    return index !== lastAssistant
+      && activity.kind !== "message"
+      && activity.kind !== "delivery"
+      && !isExternalActivity(activity);
   };
   let workRunCount = 0;
   let previousWasWork = false;
