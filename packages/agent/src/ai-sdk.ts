@@ -1198,7 +1198,13 @@ function withCapturedStreamUsage<T extends {
         }
       },
       async cancel(reason) {
-        await wrapped.return?.(reason)
+        // A usage drain can already be waiting in `next()`. Async generators queue
+        // `return()` behind that read, so awaiting it here would make cancellation
+        // and Agent Invocation capacity wait for a provider event that may never
+        // arrive. Mark the capture complete now and let cooperative sources finish
+        // their cancellation asynchronously.
+        complete()
+        void Promise.resolve(wrapped.return?.(reason)).catch(() => undefined)
       },
     }, { highWaterMark: 0 })
   }

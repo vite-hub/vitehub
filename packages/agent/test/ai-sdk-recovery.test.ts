@@ -1159,6 +1159,33 @@ describe("AI SDK recovery", () => {
     ])
   })
 
+  it("cancels a stream while its usage drain is waiting for a provider event", async () => {
+    let releaseFirstEvent!: () => void
+    let markFirstEventRequested!: () => void
+    const firstEvent = new Promise<void>((resolve) => { releaseFirstEvent = resolve })
+    const firstEventRequested = new Promise<void>((resolve) => { markFirstEventRequested = resolve })
+    const result = await rawStreamingResult(firstEvent, markFirstEventRequested)
+    // SAFETY: streamAgentInline preserves the AI SDK stream and usage result members.
+    const streamed = result as { stream: ReadableStream<unknown>, usage: Promise<unknown> }
+    const reader = streamed.stream.getReader()
+
+    const firstRead = reader.read()
+    await firstEventRequested
+    const usage = streamed.usage
+    const cancellation = reader.cancel()
+    let cancelled = false
+    void cancellation.then(() => { cancelled = true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const cancelledBeforeProviderEvent = cancelled
+
+    releaseFirstEvent()
+    await firstRead.catch(() => undefined)
+    await cancellation
+
+    expect(cancelledBeforeProviderEvent).toBe(true)
+    await expect(usage).resolves.toBeUndefined()
+  })
+
   it("settles usage after partially consuming a UI-message stream", async () => {
     const result = await rawStreamingResult()
     // SAFETY: streamAgentInline preserves the AI SDK UI-message method and usage result member.
