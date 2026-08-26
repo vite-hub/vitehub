@@ -3,6 +3,7 @@ import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -42,16 +43,16 @@ function deferred<T>() {
 }
 
 async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined
+  let timeout: ReturnType<typeof setNodeTimeout> | undefined
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
+        timeout = setNodeTimeout(() => reject(new Error(message)), timeoutMs)
       }),
     ])
   } finally {
-    if (timeout) clearTimeout(timeout)
+    if (timeout) clearNodeTimeout(timeout)
   }
 }
 
@@ -8077,6 +8078,7 @@ describe("server helpers", () => {
       await expect(steered.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
       expect(waitUntilTasks.length).toBeGreaterThan(waitUntilCount)
       expect(waitUntilTasks.at(-1)).toBeInstanceOf(Promise)
+      const steeringSettlement = waitUntilTasks.at(-1)!
       expect(steeredInputs).toEqual([expect.objectContaining({ prompt: "delivery-2" })])
 
       const duplicate = await handler(request("delivery-2"), "github", options)
@@ -8127,6 +8129,7 @@ describe("server helpers", () => {
       releases.shift()!()
       await withDeadline(runCompleted[0]!.promise, 3_000, "First queued webhook Agent Invocation did not finish.")
       await stopped
+      await withDeadline(steeringSettlement, 3_000, "Steered webhook settlement did not finish.")
       expect(completedRuns).toBe(1)
       failFlush = false
       await expect(state.get("webhook:review:github:github:steer:delivery-2")).resolves.toBeNull()
