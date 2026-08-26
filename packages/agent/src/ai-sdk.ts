@@ -1120,6 +1120,7 @@ function withCapturedStreamUsage<T extends {
       return iterator!.return ? await iterator!.return(reason) : { done: true as const, value: reason }
     }
     const primaryCapture = captures()[0]
+    let cancelled = false
     let completed = false
     const complete = () => {
       if (completed) return
@@ -1202,18 +1203,21 @@ function withCapturedStreamUsage<T extends {
       return buffered.shift()!
     }
     return new ReadableStream({
-      async pull(controller) {
-        try {
-          primaryCapture?.start(drain)
-          const item = await next()
-          if (item.done) controller.close()
-          else controller.enqueue(item.value)
-        }
-        catch (error) {
-          controller.error(error)
-        }
+      pull(controller) {
+        primaryCapture?.start(drain)
+        void next().then(
+          (item) => {
+            if (cancelled) return
+            if (item.done) controller.close()
+            else controller.enqueue(item.value)
+          },
+          (error) => {
+            if (!cancelled) controller.error(error)
+          },
+        )
       },
       async cancel(reason) {
+        cancelled = true
         await wrapped.return?.(reason)
       },
     }, { highWaterMark: 0 })
