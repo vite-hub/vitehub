@@ -7,7 +7,7 @@ import { isScalar, LineCounter, parseDocument, visit } from "yaml"
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-async function findYamlFiles(directory, filter) {
+async function findYamlFiles(directory, filter, ignoredDirectories = new Set()) {
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
@@ -20,7 +20,9 @@ async function findYamlFiles(directory, filter) {
   const files = []
   for (const entry of entries) {
     const path = resolve(directory, entry.name)
-    if (entry.isDirectory()) files.push(...await findYamlFiles(path, filter))
+    if (entry.isDirectory() && !ignoredDirectories.has(entry.name)) {
+      files.push(...await findYamlFiles(path, filter, ignoredDirectories))
+    }
     else if (entry.isFile() && filter(entry.name)) files.push(path)
   }
   return files
@@ -30,14 +32,14 @@ export async function findGitHubActionPolicyFiles(repoRoot) {
   const githubRoot = resolve(repoRoot, ".github")
   const [workflows, actions] = await Promise.all([
     findYamlFiles(resolve(githubRoot, "workflows"), name => /\.ya?ml$/.test(name)),
-    findYamlFiles(resolve(githubRoot, "actions"), name => /^action\.ya?ml$/.test(name)),
+    findYamlFiles(repoRoot, name => /^action\.ya?ml$/.test(name), new Set([".git", "node_modules"])),
   ])
   return [...workflows, ...actions].sort()
 }
 
 export function inspectGitHubActionReferences(path, source) {
   const lineCounter = new LineCounter()
-  const document = parseDocument(source, { lineCounter })
+  const document = parseDocument(source, { lineCounter, schema: "failsafe" })
   const failures = document.errors.map(error => ({
     line: error.linePos?.[0]?.line ?? 1,
     message: `invalid YAML: ${error.message.split("\n", 1)[0]}`,
@@ -51,7 +53,7 @@ export function inspectGitHubActionReferences(path, source) {
       if (!isScalar(pair.key) || pair.key.value !== "uses") return
 
       const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line
-      if (!isScalar(pair.value) || typeof pair.value.value !== "string") {
+      if (!isScalar(pair.value) || pair.value.value === null) {
         failures.push({ line, message: "uses must be a string", path })
         return
       }

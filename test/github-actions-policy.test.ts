@@ -55,6 +55,20 @@ describe("GitHub Action pin policy", () => {
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("finds composite actions outside .github/actions", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "steps:\n  - uses: ./tools/setup\n",
+      "tools/setup/action.yml": "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v6\n",
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("full 40-character commit SHA"),
+        path: "tools/setup/action.yml",
+      }),
+    ])
+  })
+
   it.each([
     ["movable tag", "actions/checkout@v6 # v6.1.0", "full 40-character commit SHA"],
     ["missing version comment", pinnedCheckout.split(" #")[0], "exact version comment"],
