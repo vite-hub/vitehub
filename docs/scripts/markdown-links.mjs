@@ -20,7 +20,7 @@ function withoutCode(markdown) {
     .replace(/`[^`\n]*`/g, "");
 }
 
-export function markdownSlug(value) {
+function rawMarkdownSlug(value) {
   return value
     .toLowerCase()
     .trim()
@@ -28,6 +28,13 @@ export function markdownSlug(value) {
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/[^\p{L}\p{N}\p{M} _-]/gu, "")
     .replace(/ /g, "-");
+}
+
+function markdownSlug(value) {
+  return value
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .replace(/^(\d)/, "_$1");
 }
 
 export function markdownAnchors(markdown) {
@@ -39,16 +46,18 @@ export function markdownAnchors(markdown) {
   for (const line of source.split("\n")) {
     const heading = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
     if (!heading) continue;
-    const base = markdownSlug(heading[1]);
-    if (!base) continue;
-    let anchor = base;
-    while (occurrences.has(anchor)) {
-      const count = (occurrences.get(base) ?? 0) + 1;
-      occurrences.set(base, count);
-      anchor = `${base}-${count}`;
+    const rawBase = rawMarkdownSlug(heading[1]);
+    if (!rawBase) continue;
+    let rawAnchor = rawBase;
+    while (occurrences.has(rawAnchor)) {
+      const count = (occurrences.get(rawBase) ?? 0) + 1;
+      occurrences.set(rawBase, count);
+      rawAnchor = `${rawBase}-${count}`;
     }
+    const anchor = markdownSlug(rawAnchor);
+    if (!anchor) continue;
     anchors.add(anchor);
-    occurrences.set(anchor, 0);
+    occurrences.set(rawAnchor, 0);
   }
   return anchors;
 }
@@ -61,6 +70,12 @@ export function markdownLinks(markdown) {
   }
 
   const links = [];
+  for (const match of source.matchAll(/^\s*to:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))/gm)) {
+    links.push(match[1] ?? match[2] ?? match[3]);
+  }
+  for (const match of source.matchAll(/<a\s[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
+    links.push(match[1] ?? match[2] ?? match[3]);
+  }
   for (let index = 0; index < source.length; index += 1) {
     const bracket = source.indexOf("[", index);
     if (bracket === -1) break;
@@ -70,6 +85,11 @@ export function markdownLinks(markdown) {
     }
     const labelEnd = source.indexOf("]", bracket + 1);
     if (labelEnd === -1) break;
+    const lineStart = source.lastIndexOf("\n", bracket - 1) + 1;
+    if (/^\s{0,3}$/.test(source.slice(lineStart, bracket)) && source[labelEnd + 1] === ":") {
+      index = labelEnd;
+      continue;
+    }
     if (source[labelEnd + 1] === "(") {
       let depth = 1;
       let cursor = labelEnd + 2;
@@ -97,7 +117,12 @@ export function markdownLinks(markdown) {
         if (destination) links.push(destination);
         index = referenceEnd;
       }
+      continue;
     }
+    const key = source.slice(bracket + 1, labelEnd).trim().toLowerCase();
+    const destination = definitions.get(key);
+    if (destination) links.push(destination);
+    index = labelEnd;
   }
   return links;
 }

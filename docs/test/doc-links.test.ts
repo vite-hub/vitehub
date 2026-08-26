@@ -15,28 +15,48 @@ function fixture(files: Record<string, string>) {
 }
 
 describe("documentation link validation", () => {
-  it("parses inline, nested, and reference links outside code", () => {
+  it("parses rendered link forms outside code", () => {
     expect(markdownLinks(`
 [Inline](./guide.md#install)
 [Nested](./api_(stable).md)
 [Reference][guide]
+[Shortcut]
+::card
+---
+to: /docs/card
+---
+::
+<a href="/docs/html">HTML</a>
 
 [guide]: /docs/guide
+[shortcut]: /docs/shortcut
 
 \`[ignored](./missing.md)\`
 \`\`\`
 [ignored](./missing.md)
 \`\`\`
-`)).toEqual(["./guide.md#install", "./api_(stable).md", "/docs/guide"]);
+`)).toEqual([
+      "/docs/card",
+      "/docs/html",
+      "./guide.md#install",
+      "./api_(stable).md",
+      "/docs/guide",
+      "/docs/shortcut",
+    ]);
   });
 
   it("matches generated anchors for repeated headings", () => {
     expect([...markdownAnchors("# API & runtime\n\n## `Repeat`\n\n## Repeat\n\n## Repeat-1\n\n## Repeat")]).toEqual([
-      "api--runtime",
+      "api-runtime",
       "repeat",
       "repeat-1",
       "repeat-1-1",
       "repeat-2",
+    ]);
+    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B")]).toEqual([
+      "_123-start",
+      "trim",
+      "a-b",
     ]);
   });
 
@@ -64,6 +84,26 @@ describe("documentation link validation", () => {
       expect.stringContaining('route "/docs/missing" does not exist'),
       expect.stringContaining("anchor #missing does not exist"),
       expect.stringContaining('file "../missing/README.md" does not exist'),
+    ]);
+  });
+
+  it("reports missing MDC and HTML routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": `# Docs
+
+::card
+---
+to: /docs/missing-card
+---
+::
+
+<a href="/docs/missing-html">Missing</a>`,
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing-card" does not exist'),
+      expect.stringContaining('route "/docs/missing-html" does not exist'),
     ]);
   });
 });
