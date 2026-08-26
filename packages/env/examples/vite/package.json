@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite dev"
+    "build": "vp build",
+    "dev": "vp dev"
   },
   "dependencies": {
     "@vite-hub/env": "workspace:*",
@@ -13,6 +13,8 @@
     "vite": "catalog:vite"
   },
   "devDependencies": {
-    "typescript": "catalog:tooling"
+    "@types/node": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling"
   }
 }

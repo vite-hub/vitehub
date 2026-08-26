@@ -46,6 +46,7 @@ jobs:
           VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
       - run: vp run typecheck
       - run: vp run test:contracts
+      - run: vp run examples:verify
       - run: vp run test
 
   docs:
