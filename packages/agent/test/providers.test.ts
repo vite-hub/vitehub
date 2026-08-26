@@ -11645,17 +11645,13 @@ describe("server helpers", () => {
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
-  it("consumes queued finish reply streams before delivery tracing completes", async () => {
+  it("streams queued finish replies after the primary response without eager buffering", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     let consumed = false
-    const observe = vi.fn((event: { name: string; outcome: string }) => {
-      if (event.name === "channel:delivery-effect" && event.outcome === "success") {
-        expect(consumed).toBe(true)
-      }
-    })
+    const observe = vi.fn()
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -11667,6 +11663,9 @@ describe("server helpers", () => {
       driver: { run: () => "Agent output" },
       hooks: {
         "agent:finish": event => event.reply((async function* () {
+          expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", {
+            markdown: "Agent output",
+          })
           yield "Streamed "
           yield "reply"
           consumed = true
@@ -11680,6 +11679,7 @@ describe("server helpers", () => {
     const response = await handler(chatWebhookRequest(91_034), "telegram")
 
     expect(response.status).toBe(200)
+    expect(consumed).toBe(true)
     expect(observe).toHaveBeenCalledWith(expect.objectContaining({
       name: "channel:delivery-effect",
       outcome: "success",

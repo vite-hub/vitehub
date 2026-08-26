@@ -46,6 +46,8 @@ import {
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { chatFinishDeliveryRegistrarKey } from "../internal/chat-finish-delivery.ts"
+import type { ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
@@ -305,8 +307,13 @@ const chatTypingRefreshIntervalMs = 4000
 const chatTypingRefreshTimeoutMs = 2000
 const vercelFunctionsPackage = "@vercel/functions"
 
-type AgentChatQueuedFinishExtension = AgentChatFinishExtension & {
-  [chatFinishMessagesKey]: AgentChatMessage[]
+interface QueuedChatFinishMessage {
+  callbacks: ChatFinishDeliveryCallback[]
+  message: AgentChatMessage
+}
+
+type AgentChatQueuedFinishExtension = AgentChatFinishExtension & ChatFinishDeliveryRegistrar & {
+  [chatFinishMessagesKey]: QueuedChatFinishMessage[]
 }
 
 interface ChatTypingRefresh {
@@ -4332,24 +4339,24 @@ export async function postChatErrorFallback(
 function createChatFinishExtension(
   input: AgentChatMessageTriggerInput,
   registration: AgentWebhookRegistrationDefinition,
-  abortSignal?: AbortSignal,
 ): AgentChatQueuedFinishExtension {
-  const messages: AgentChatMessage[] = []
+  const messages: QueuedChatFinishMessage[] = []
+  const queuedStreams = new WeakMap<object, QueuedChatFinishMessage>()
   return {
     [chatFinishMessagesKey]: messages,
+    [chatFinishDeliveryRegistrarKey]: (message, callback) => {
+      if (!isRuntimeObject(message)) return false
+      const queued = queuedStreams.get(message)
+      if (!queued) return false
+      queued.callbacks.push(callback)
+      return true
+    },
     provider: chatRegistrationOrigin(registration),
     ...(input.run ? { run: input.run } : {}),
     sendMessage: async (message) => {
-      if (isAsyncIterable(message)) {
-        const chunks: string[] = []
-        const stream = abortSignal ? abortableChatMessage(message, abortSignal) : message
-        for await (const chunk of stream) chunks.push(chunk)
-        messages.push((async function* () {
-          yield* chunks
-        })())
-        return
-      }
-      messages.push(message)
+      const queued = { callbacks: [], message } satisfies QueuedChatFinishMessage
+      messages.push(queued)
+      if (isRuntimeObject(message)) queuedStreams.set(message, queued)
     },
   }
 }
@@ -4399,7 +4406,23 @@ async function flushChatFinishExtensionMessages(
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
-  for (let message of messages) {
+  for (const queued of messages) {
+    let { message } = queued
+    const capture: ChatFinishDeliveryCapture = { content: "", truncated: false }
+    if (isAsyncIterable(message) && queued.callbacks.length) {
+      const source = message
+      message = (async function* () {
+        for await (const chunk of source) {
+          if (capture.content.length < 16 * 1024) {
+            const remaining = 16 * 1024 - capture.content.length
+            capture.content += chunk.slice(0, remaining)
+            if (chunk.length > remaining) capture.truncated = true
+          }
+          else if (chunk.length > 0) capture.truncated = true
+          yield chunk
+        }
+      })()
+    }
     abortSignal?.throwIfAborted()
     if (abortSignal && isAsyncIterable(message)) {
       message = manualDelivery.placeholder ? await collectAbortableChatMessage(message, abortSignal) : abortableChatMessage(message, abortSignal)
@@ -4432,9 +4455,13 @@ async function flushChatFinishExtensionMessages(
           manualDelivery.placeholderCleanup = undefined
         }
       }
-      if (deliveredToPlaceholder) continue
+      if (deliveredToPlaceholder) {
+        for (const callback of queued.callbacks) await callback(capture)
+        continue
+      }
     }
     await postChatMessage(thread, message, abortSignal)
+    for (const callback of queued.callbacks) await callback(capture)
   }
 }
 
@@ -5183,7 +5210,7 @@ async function handleChatSdkMessage(
         invocationDeadlineAbort,
       )
     }
-    const chatFinish = createChatFinishExtension(input, registration, invocationDeadlineAbort?.signal)
+    const chatFinish = createChatFinishExtension(input, registration)
     progress = manualDelivery ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal) : undefined
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now())
     const invocationInput = withChatFinishExtension(

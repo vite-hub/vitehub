@@ -52,6 +52,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
+import { registerMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
@@ -1237,11 +1238,20 @@ async function applyChannelDeliveryEffectIntents<
             : undefined
           const deliveredContentTruncated = streamedReplyContentTruncated
             || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
-          await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
-            ...metadata,
-            ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
-            ...(deliveredContentTruncated ? { "vitehub.observation.truncated": true } : {}),
+          const deferredTrace = intent.kind === "reply" && registerMessageChannelDeferredReplyTrace(deliveryEffectContext, async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
+              ...metadata,
+              ...(capture.content ? { "channel.effect.content": capture.content } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
           })
+          if (!deferredTrace) {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
+              ...metadata,
+              ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+              ...(deliveredContentTruncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          }
         })
         handlerCompleted = true
       }

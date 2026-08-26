@@ -43,6 +43,8 @@ import type {
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import { defineMessageChannelInstructions } from "./internal/channels.ts"
+import { chatFinishDeliveryRegistrarKey, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
+import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
@@ -1222,6 +1224,10 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
       : undefined
     if (chat) {
       await chat.sendMessage(stream)
+      const registrar = chat as AgentChatFinishExtension & ChatFinishDeliveryRegistrar
+      if (registrar[chatFinishDeliveryRegistrarKey]) {
+        setMessageChannelDeferredReplyTrace(context, callback => registrar[chatFinishDeliveryRegistrarKey]?.(stream, callback) ?? false)
+      }
       return
     }
     const adapter = context.channel.adapter
