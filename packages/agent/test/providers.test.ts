@@ -30,7 +30,9 @@ vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
 }))
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof import("../src/vite.ts").hubAgent>) {
+  // SAFETY: hubAgent defines buildEnd as a callable Vite hook.
   await (plugin.buildEnd as () => void | Promise<void>)()
+  // SAFETY: hubAgent defines closeBundle as an object hook with a callable handler.
   await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
 }
 
@@ -999,13 +1001,19 @@ describe("agent Vite plugin", () => {
       const configResolved = configResolvedHook as (config: {
         build?: { outDir?: string }
         command: "build"
-        resolve: { alias: [] }
+        resolve: { alias: Array<{ find: string; replacement: string }> }
         root: string
       }) => Promise<void>
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: { alias: [] },
+        resolve: {
+          alias: [
+            { find: "@vite-hub/agent/server/internal", replacement: resolve(import.meta.dirname, "../src/server/internal.ts") },
+            { find: "@vite-hub/agent/server/workspace", replacement: resolve(import.meta.dirname, "../src/server/workspace.ts") },
+            { find: "@vite-hub/agent", replacement: resolve(import.meta.dirname, "../src/index.ts") },
+          ],
+        },
         root,
       })
       await runProviderOutputHooks(plugin)
