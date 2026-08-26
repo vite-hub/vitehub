@@ -13,12 +13,17 @@ function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
   return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError")
 }
 
-function validateIdempotencyKey(value: string | undefined): void {
-  if (value === undefined) return
+function validateIdempotencyKey(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
   try {
-    new Headers({ "Idempotency-Key": value })
+    const normalized = new Headers({ "Idempotency-Key": value }).get("Idempotency-Key")!
+    if (normalized.length < 1 || normalized.length > 256) {
+      throw emailProviderError("resend", "INVALID_OPTIONS", "idempotencyKey must contain between 1 and 256 characters.")
+    }
+    return normalized
   }
   catch (cause) {
+    if (isEmailProviderError(cause)) throw cause
     throw emailProviderError("resend", "INVALID_OPTIONS", "idempotencyKey is not a valid HTTP header value.", { cause })
   }
 }
@@ -64,12 +69,19 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   return {
     name: "resend",
     async send(message, context) {
+      if (message.sandbox === true) {
+        return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support sandbox delivery.") }
+      }
       if (message.raw !== undefined) {
         return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support raw message payloads.") }
       }
       let body: string
+      let idempotencyKey: string | undefined
       try {
-        validateIdempotencyKey(message.idempotencyKey)
+        idempotencyKey = validateIdempotencyKey(message.idempotencyKey)
+        if (typeof message.scheduledAt === "string" && message.scheduledAt.trim() === "") {
+          throw emailProviderError("resend", "INVALID_OPTIONS", "scheduledAt cannot be empty.")
+        }
         body = JSON.stringify(payload(message))
       }
       catch (cause) {
@@ -83,7 +95,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
           headers: {
             authorization: `Bearer ${options.apiKey}`,
             "content-type": "application/json",
-            ...(message.idempotencyKey ? { "Idempotency-Key": message.idempotencyKey } : {}),
+            ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },
           method: "POST",
           signal: context.signal,

@@ -88,6 +88,24 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it.each(["", "   ", "x".repeat(257)])("rejects an out-of-range idempotency key before fetch", async (idempotencyKey) => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "resend" },
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it.each(["x", "x".repeat(256)])("accepts an idempotency key at the supported boundaries", async (idempotencyKey) => {
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject({ error: null })
+    expect(request.mock.calls[0]![1]?.headers).toMatchObject({ "Idempotency-Key": idempotencyKey })
+  })
+
   it("rejects raw message payloads before fetch", async () => {
     const request = vi.fn()
     const driver = resend({ apiKey: "re_secret", fetch: request })
@@ -104,6 +122,24 @@ describe("Resend Email driver", () => {
 
     await expect(driver.send({ ...message, scheduledAt: new Date("invalid") }, context))
       .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it("rejects an empty schedule before fetch", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, scheduledAt: "" }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it("rejects sandbox delivery before fetch", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, sandbox: true }, context))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } })
     expect(request).not.toHaveBeenCalled()
   })
 
@@ -248,6 +284,7 @@ describe("Cloudflare Email driver", () => {
   it.each([
     ["raw message payloads", { raw: "From: hello@example.com\r\n\r\nHello" }],
     ["idempotency keys", { idempotencyKey: "send-1" }],
+    ["sandbox delivery", { sandbox: true }],
   ])("rejects unsupported %s before sending", async (_name, unsupported) => {
     const send = vi.fn()
     const Constructor = vi.fn()
@@ -319,6 +356,15 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })
 
     await expect(driver.send({ ...message, headers: { [header]: "custom" } }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it.each(["Content-Type: text/plain", "bad header", "X-Test("])("rejects the invalid header name %s", async (header) => {
+    const send = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })
+
+    await expect(driver.send({ ...message, headers: { [header]: "value" } }, context))
       .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
     expect(send).not.toHaveBeenCalled()
   })
