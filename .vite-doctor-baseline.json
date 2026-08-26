@@ -4090,6 +4090,101 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/auth/test/server.test.ts",
       "fingerprint": "7a0baa18e2a82ef197405824477e46aa9f3437c1ed4e6072e11d2ef5eebf180b"
+    },
+    {
+      "ruleId": "typescript/evidence/no-caller-chosen-result-type",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "62f516093fe5dcf0155d3aa3975653d6c2d76f0d203f84369700eeaf346c5bfc"
+    },
+    {
+      "ruleId": "typescript/evidence/no-caller-chosen-result-type",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "edc2f90d68b571d6d9b680a4fcd31697fd15a7cce361e4fb919a459fcff9258c"
+    },
+    {
+      "ruleId": "typescript/evidence/no-caller-chosen-result-type",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "c47b3fc7e14bbe8ec6335c58d1fd059703244b542ff0e5aba85df11886d1e8b5"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "4126342f4fa9060b610a28d5fbd78755d4b4120b732fd4d41f5e17996d8ac72b"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "bcb44bb308f1143eb3585b2e4d6dfdb927d1548a54654ba7617b4b8598329562"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "f9b2d2111de681cd29bd7724e9a8e925fcaab612763885bfaaec57c6d47734d2"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "a75b4bd8499d9fc67a0a81611f87745277e6d7874a065fe26e6a033c952cb2b2"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "e173e5dd00bd54a9d9d688a39bf51b7f902231c774d5462cfaf682f01c605583"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "3760e75213a943367ab4566acfcddbd5ae265b6d34a846dda9dbf0e3da6ee615"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "ccd29df39029e12be32730466dd48018ead76e48769cd597b9d708a6621752e2"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "6851934a2a5f44146de721c3a6f9e46109aa1a5ca902054b0d481534c90cd52b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "7814072d195790132bc6dcd9b548b6ad570ab318281ad41e5ec4e5c307ba1e0b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "d4bf2a353c9703bfc6b2722ab8e61c623e84c4900d85af9d5aecd53279cfd005"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "a2bf855e5eda493ba06c298d4170087cf4c0d62b9bb05662d275c3d2e56c0567"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "36bbbc3a22909e75f74590bfcc00a09c5d6a5ad5796ca3078d25643ab30e57a5"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "f3414c28a652a95389ba21d4abd7ce7972db2b96d33dffcece29e3912e5fbdab"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "92c2267b94866f8200274841024551e75c22040924f69134ed89fa9fbfde7586"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "bff776bad2ae24aa7e5cc887a7b1358fb8218b6bf42e83780c56bf52ad2a76af"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/trigger-runtime.ts",
+      "fingerprint": "7892063d00aa7d0eb6d013a89aa74c2d4d7fcfc9dd9b6928b9e49c3f8ac4886a"
     }
   ]
 }

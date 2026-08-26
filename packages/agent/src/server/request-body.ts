@@ -27,12 +27,20 @@ async function cancelRequestBody(request: Request, reason: unknown): Promise<voi
 }
 
 function requestWithBody(request: Request, bytes: Uint8Array): Request {
-  return new Request(request.url, {
-    ...(bytes.byteLength ? { body: bytes.slice() } : {}),
+  const init: RequestInit = {
     headers: request.headers,
     method: request.method,
     signal: request.signal,
-  })
+  }
+  if (bytes.byteLength) init.body = bytes.slice()
+
+  const replayable = new Request(request, init)
+  for (const key of Reflect.ownKeys(request)) {
+    if (Reflect.has(replayable, key)) continue
+    const descriptor = Reflect.getOwnPropertyDescriptor(request, key)
+    if (descriptor) Reflect.defineProperty(replayable, key, descriptor)
+  }
+  return replayable
 }
 
 export async function captureAgentInboundBody(request: Request, configuredLimit?: number): Promise<CapturedAgentInboundBody> {

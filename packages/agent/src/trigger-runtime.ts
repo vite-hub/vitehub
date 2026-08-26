@@ -343,7 +343,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     if (registration.signature === "github-sha256") {
-      const body = options.rawBody ? options.rawBody.slice().buffer as ArrayBuffer : await request.clone().arrayBuffer()
+      const body = options.rawBody ? Uint8Array.from(options.rawBody).buffer : await request.clone().arrayBuffer()
       const expected = `sha256=${await hmacSha256(secretToken, body)}`
       if (await constantTimeEqual(expected, headerValue)) {
         return { registration, verified: true }

@@ -19,13 +19,14 @@ function streamingRequest(chunks: string[], headers?: Record<string, string>) {
       else controller.enqueue(encoder.encode(value))
     },
   })
-  const request = new Request("https://example.com/webhook", {
+  const init: RequestInit & { duplex: "half" } = {
     body,
     headers,
     method: "POST",
     // Node requires duplex for a streamed request body. Workers and Vercel expose the same Request interface without it.
     duplex: "half",
-  } as RequestInit & { duplex: "half" })
+  }
+  const request = new Request("https://example.com/webhook", init)
   return { cancel, request }
 }
 
@@ -37,12 +38,17 @@ describe("Agent inbound request bodies", () => {
   ])("rejects a declared body larger than the route limit on the %s Request path", async (_host, runtimeOptions) => {
     const body = JSON.stringify({ messages: [{ id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" }] })
     const run = vi.fn(() => "unused")
-    const handler = createChannelChatRouteHandler(defineAgent({ driver: { run } }) as never)
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: The test's minimal Agent definition exercises only the route's pre-invocation body boundary.
+      defineAgent({ driver: { run } }) as never,
+    )
+    // SAFETY: Each matrix value is a supported route runtime option shape accepted by the cross-host route contract.
+    const options = { agentName: "support", maxBodyBytes: body.length - 1, ...runtimeOptions } as never
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
       body,
       headers: { "content-length": String(body.length), "content-type": "application/json" },
       method: "POST",
-    }), { agentName: "support", maxBodyBytes: body.length - 1, ...runtimeOptions } as never)
+    }), options)
 
     expect(response.status).toBe(413)
     expect(run).not.toHaveBeenCalled()
@@ -60,6 +66,17 @@ describe("Agent inbound request bodies", () => {
     expect(captured.bytes).toEqual(bytes)
     expect(captured.text).toBe(raw)
     await expect(captured.request.arrayBuffer()).resolves.toEqual(bytes.buffer)
+  })
+
+  it("preserves host metadata on the replayable request", async () => {
+    const request = new Request("https://example.com/webhook", { body: "payload", method: "POST" })
+    const cf = { colo: "SJC" }
+    Object.defineProperty(request, "cf", { enumerable: true, value: cf })
+
+    const captured = await captureAgentInboundBody(request)
+
+    expect(Reflect.get(captured.request, "cf")).toBe(cf)
+    await expect(captured.request.text()).resolves.toBe("payload")
   })
 
   it.each([
@@ -84,12 +101,13 @@ describe("Agent inbound request bodies", () => {
         timer = setTimeout(() => stream.enqueue(encoder.encode("later")), 100)
       },
     })
-    const request = new Request("https://example.com/webhook", {
+    const init: RequestInit & { duplex: "half" } = {
       body,
       method: "POST",
       signal: controller.signal,
       duplex: "half",
-    } as RequestInit & { duplex: "half" })
+    }
+    const request = new Request("https://example.com/webhook", init)
     const captured = captureAgentInboundBody(request, 100)
     controller.abort(new Error("client disconnected"))
 
@@ -98,11 +116,16 @@ describe("Agent inbound request bodies", () => {
   })
 
   it("rejects malformed JSON after the bounded capture", async () => {
-    const handler = createChannelChatRouteHandler(defineAgent({ driver: { run: () => "unused" } }) as never)
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: The test's minimal Agent definition exercises only the route's pre-invocation body boundary.
+      defineAgent({ driver: { run: () => "unused" } }) as never,
+    )
+    // SAFETY: This test supplies the one runtime option consumed before Agent invocation.
+    const options = { maxBodyBytes: 100 } as never
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
       body: "{not-json",
       method: "POST",
-    }), { maxBodyBytes: 100 } as never)
+    }), options)
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: "Malformed agent chat payload." })
