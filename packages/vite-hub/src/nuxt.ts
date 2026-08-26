@@ -17,7 +17,6 @@ import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, consoleInvocationRootPlugin } from "./console/vite.ts"
-import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
