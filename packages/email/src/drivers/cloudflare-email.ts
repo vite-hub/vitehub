@@ -128,6 +128,12 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         if (message.scheduledAt !== undefined) {
           return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support scheduled delivery.") }
         }
+        if (message.raw !== undefined) {
+          return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support raw message payloads.") }
+        }
+        if (message.idempotencyKey !== undefined) {
+          return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support idempotency keys.") }
+        }
         const from = addresses(message.from)[0]
         const recipients = [
           ...addresses(message.to),

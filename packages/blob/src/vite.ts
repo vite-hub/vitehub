@@ -1,6 +1,6 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -16,7 +16,7 @@ import {
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions, BlobServeConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
-import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
@@ -85,9 +85,10 @@ function isNitroCloudflareHost(value: unknown): boolean {
 }
 
 function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareOwnedByNitro: boolean): Record<string, unknown> {
+  const providerOutput = useProviderOutputCatalog(config)
   if (!cloudflareOwnedByNitro) {
-    registerCloudflareProviderOutput(config, "blob", {})
-    return composeNitroCloudflareProviderOutput(config, nitro)
+    contributeCloudflareProviderOutput(providerOutput, { owner: "blob" })
+    return composeNitroCloudflareProviderOutput(providerOutput, nitro)
   }
   const bindings = createCloudflareR2Bindings(resolveBlobViteConfig(blob, { hosting: "cloudflare" }).blob)
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
@@ -100,8 +101,8 @@ function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, un
     cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
     rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
   }
-  registerCloudflareProviderOutput(config, "blob", bindings ? { r2Buckets: bindings } : {})
-  return composeNitroCloudflareProviderOutput(config, baseNitro)
+  contributeCloudflareProviderOutput(providerOutput, { owner: "blob", ...(bindings ? { r2Buckets: bindings } : {}) })
+  return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, nitro)
 }
 
 function normalizeNitroRoute(route: string): string {
@@ -245,7 +246,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let command: "build" | "serve" = "serve"
   let cloudflareOwnedByNitro = false
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
-  let providerOutput: ComposedProviderOutput | undefined
+  let providerOutput: ProviderOutputCatalog | undefined
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   let resolved: ResolvedConfig | undefined
@@ -291,7 +292,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         rootDir,
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
-      providerOutput = useComposedProviderOutput(config)
+      providerOutput = useProviderOutputCatalog(config)
       runtimeConfig = blobConfig
       const hosting = getNitroHostingProvider(configuredNitro)
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
@@ -315,7 +316,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       }
     },
     buildStart() {
-      resetComposedProviderOutput(providerOutput)
+      resetProviderOutputRuntime(providerOutput)
     },
     async buildEnd() {
       if (shouldSkipViteProviderBuild(command, getViteMode())) {

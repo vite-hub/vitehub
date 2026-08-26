@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createProviderOutputCatalog, getProviderRuntimeModule } from "@vite-hub/internal/build/deployment-output"
 
 import { prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
 import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
@@ -318,7 +318,7 @@ describe("Vite db provider outputs", () => {
 
   it("registers D1 HTTP as a supported Vercel database runtime", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-vercel-registry-")
-    const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
+    const providerOutput = createProviderOutputCatalog()
 
     await prepareDatabaseProviderOutputs({
       providerOutput,
@@ -341,7 +341,7 @@ describe("Vite db provider outputs", () => {
 
   it("applies the effective Nuxt D1 binding to named definition runtimes", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-definition-defaults-")
-    const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
+    const providerOutput = createProviderOutputCatalog()
     const runtimeConfig = createRuntimeConfig(rootDir, {})
     runtimeConfig.databaseNames = ["analytics"]
     runtimeConfig.databases.analytics = runtimeConfig.databases.primary!

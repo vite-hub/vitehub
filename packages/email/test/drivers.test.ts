@@ -10,7 +10,6 @@ const message: EmailMessage = {
   from: { email: "hello@example.com", name: "ViteHub" },
   headers: { "X-Trace-Id": "trace-1" },
   html: "<p>Hello</p>",
-  idempotencyKey: "send-1",
   replyTo: "support@example.com",
   subject: "Welcome",
   tags: [{ name: "kind", value: "welcome" }],
@@ -32,7 +31,7 @@ describe("Resend Email driver", () => {
     }))
     const driver = resend({ apiKey: "re_secret", fetch: request })
 
-    await expect(driver.send({ ...message, scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context)).resolves.toMatchObject({
+    await expect(driver.send({ ...message, idempotencyKey: "send-1", scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context)).resolves.toMatchObject({
       data: { driver: "resend", id: "email-1" },
       error: null,
     })
@@ -194,6 +193,20 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
 
     await expect(driver.send({ ...message, scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context)).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
+    expect(Constructor).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["raw message payloads", { raw: "From: hello@example.com\r\n\r\nHello" }],
+    ["idempotency keys", { idempotencyKey: "send-1" }],
+  ])("rejects unsupported %s before sending", async (_name, unsupported) => {
+    const send = vi.fn()
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
+
+    await expect(driver.send({ ...message, ...unsupported }, context))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
     expect(Constructor).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
   })

@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
-import { getProviderRuntimeModule, registerProviderRuntimeModules, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderRuntime, getProviderRuntimeModule, hasProviderRuntimeModule, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
@@ -14,7 +14,7 @@ import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const dbPackageName = "@vite-hub/database"
 const productName = "database"
@@ -39,7 +39,7 @@ interface GenerateProviderOutputsOptions {
   appRootDir?: string
   artifacts?: GeneratedDBArtifacts
   clientOutDir: string
-  providerOutput?: ComposedProviderOutput
+  providerOutput?: ProviderOutputCatalog
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
   serverFunctionName?: string
@@ -200,7 +200,7 @@ function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
 interface ProviderWriteOptions {
   artifacts: GeneratedDBArtifacts
   clientOutDir: string
-  providerOutput?: ComposedProviderOutput
+  providerOutput?: ProviderOutputCatalog
   provisionState: ProvisionState
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
@@ -283,7 +283,7 @@ function getSupportedProviderRuntimeModules(
   artifacts: GeneratedDBArtifacts,
   runtimeConfig: ResolvedDBViteConfig,
   provisionState: ProvisionState,
-): Record<string, string> {
+) {
   return {
     ...(shouldCreateCloudflareOutput(runtimeConfig, provisionState)
       ? {
@@ -301,12 +301,15 @@ function getSupportedProviderRuntimeModules(
 }
 
 function registerSupportedProviderRuntimeModules(
-  providerOutput: ComposedProviderOutput | undefined,
+  providerOutput: ProviderOutputCatalog | undefined,
   artifacts: GeneratedDBArtifacts,
   runtimeConfig: ResolvedDBViteConfig,
   provisionState: ProvisionState,
 ): void {
-  registerProviderRuntimeModules(providerOutput, productName, getSupportedProviderRuntimeModules(artifacts, runtimeConfig, provisionState))
+  contributeProviderRuntime(providerOutput, {
+    owner: "database",
+    runtimeModules: getSupportedProviderRuntimeModules(artifacts, runtimeConfig, provisionState),
+  })
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
@@ -319,8 +322,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? createCloudflareOutput(writeOptions) : undefined,
     cleanup: {
       cloudflare: () => {
-        const hasOtherCloudflareOutput = Object.entries(options.providerOutput?.runtimeModuleFilesByProduct ?? {})
-          .some(([product, modules]) => product !== productName && Boolean(modules?.cloudflare))
+        const hasOtherCloudflareOutput = hasProviderRuntimeModule(options.providerOutput, "cloudflare", { except: "database" })
         return {
           ...(!hasOtherCloudflareOutput ? { fileNames: ["index.js"] } : {}),
           wranglerConfigOwnership: { keys: ["d1_databases"] },
