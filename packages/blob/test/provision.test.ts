@@ -81,16 +81,20 @@ describe("blob cloudflare provision step", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
-  it("bounds R2 bucket pagination", async () => {
+  it("continues R2 bucket pagination beyond 100 pages", async () => {
     let calls = 0
-    const fetchImpl = mockFetch(async () => jsonResponse({
-      success: true,
-      result: { buckets: [] },
-      result_info: { cursor: `cursor-${++calls}` },
-    }))
+    const fetchImpl = mockFetch(async () => {
+      calls++
+      return jsonResponse({
+        success: true,
+        result: { buckets: calls === 101 ? [{ name: "assets" }] : [] },
+        result_info: calls === 101 ? undefined : { cursor: `cursor-${calls}` },
+      })
+    })
 
-    await expect(plan(fetchImpl)).rejects.toThrow("exceeded 100 pages")
-    expect(fetchImpl).toHaveBeenCalledTimes(100)
+    const actions = await plan(fetchImpl)
+    expect(actions[0]!.exists).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(101)
   })
 
   it("accepts Cloudflare's duplicate-bucket error only after the exact R2 bucket becomes visible", async () => {

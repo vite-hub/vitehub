@@ -44,7 +44,6 @@ interface VercelBlobStoreResponse {
 const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
 const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
-const CLOUDFLARE_R2_BUCKET_LIST_MAX_PAGES = 100
 const CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE = "1000"
 
 async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest): Promise<Set<string>> {
@@ -52,7 +51,7 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
   const cursors = new Set<string>()
   let cursor: string | undefined
 
-  for (let page = 0; page < CLOUDFLARE_R2_BUCKET_LIST_MAX_PAGES; page++) {
+  while (true) {
     const query: Record<string, string> = {
       per_page: CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE,
     }
@@ -73,8 +72,6 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
     cursors.add(nextCursor)
     cursor = nextCursor
   }
-
-  throw new Error(`Cloudflare R2 bucket listing exceeded ${CLOUDFLARE_R2_BUCKET_LIST_MAX_PAGES} pages.`)
 }
 
 async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, bucketName: string): Promise<void> {
