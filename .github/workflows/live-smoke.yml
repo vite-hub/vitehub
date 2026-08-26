@@ -176,7 +176,7 @@ jobs:
 
       - name: Provider Output Contract (cloudflare)
         if: matrix.provider == 'cloudflare'
-        run: vp run test:output:cloudflare
+        run: vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts
 
       - name: Dry-run Cloudflare deploy
         if: matrix.provider == 'cloudflare'
@@ -213,7 +213,7 @@ jobs:
 
       - name: Provider Output Contract (vercel)
         if: matrix.provider == 'vercel'
-        run: vp run test:output:vercel
+        run: vp test --config test/output/vitest.config.ts test/output/vercel.test.ts
 
       - name: Relax Vercel cron cadence for live deploy
         if: matrix.provider == 'vercel'
