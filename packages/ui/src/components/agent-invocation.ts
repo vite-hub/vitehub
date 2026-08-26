@@ -243,6 +243,42 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
         type: "button",
       }, summaryContent)
     : h(hasDetails ? "summary" : "div", { class: "vh-invocation-event__summary" }, summaryContent);
+  const event = h(hasDetails ? "details" : "div", {
+    class: "vh-invocation-event",
+  }, [
+    summary,
+    hasDetails ? h("div", { class: "vh-invocation-event__details" }, [
+      deliveryFailure
+        ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
+        : null,
+      activity.truncated
+        ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+        : null,
+      activity.patches.length
+        ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentPatchDiff, { key: index, patch })))
+        : command
+        ? h("div", { class: "vh-invocation-command" }, [
+            h("div", { class: "vh-invocation-command__bar" }, [
+              h("code", command.command),
+              command.exitCode !== undefined
+                ? h("span", { "data-failed": command.exitCode !== 0 }, `exit ${command.exitCode}`)
+                : null,
+            ]),
+            command.cwd ? h("div", { class: "vh-invocation-command__cwd" }, command.cwd) : null,
+            command.output ? h("pre", terminalText(command.output)) : null,
+          ])
+        : !visibleDelivery && activity.body
+          ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
+          : null,
+      inspectable
+        ? h("button", {
+            class: "vh-invocation-event__inspect",
+            onClick: () => inspect(inspectTarget),
+            type: "button",
+          }, `Inspect ${inspectTarget}`)
+        : null,
+    ]) : null,
+  ]);
   return h("li", {
     class: "vh-invocation-activity",
     "data-activity-id": activity.id,
@@ -251,45 +287,10 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     "data-status": activity.status,
     key: activity.id,
   }, [
-    h(hasDetails ? "details" : "div", {
-      class: "vh-invocation-event",
-    }, [
-      summary,
-      visibleDelivery
-        ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(activity.body!, "vh-invocation-event__markdown")])
-        : null,
-      hasDetails ? h("div", { class: "vh-invocation-event__details" }, [
-        deliveryFailure
-          ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
-          : null,
-        activity.truncated
-          ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
-          : null,
-        activity.patches.length
-          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentPatchDiff, { key: index, patch })))
-          : command
-          ? h("div", { class: "vh-invocation-command" }, [
-              h("div", { class: "vh-invocation-command__bar" }, [
-                h("code", command.command),
-                command.exitCode !== undefined
-                  ? h("span", { "data-failed": command.exitCode !== 0 }, `exit ${command.exitCode}`)
-                  : null,
-              ]),
-              command.cwd ? h("div", { class: "vh-invocation-command__cwd" }, command.cwd) : null,
-              command.output ? h("pre", terminalText(command.output)) : null,
-            ])
-          : activity.body
-            ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
-            : null,
-        inspectable
-          ? h("button", {
-              class: "vh-invocation-event__inspect",
-              onClick: () => inspect(inspectTarget),
-              type: "button",
-            }, `Inspect ${inspectTarget}`)
-          : null,
-      ]) : null,
-    ]),
+    event,
+    visibleDelivery
+      ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(activity.body!, "vh-invocation-event__markdown")])
+      : null,
   ]);
 }
 
@@ -749,25 +750,24 @@ function renderInvocationActivities(
 
   const prefix = activities.slice(0, firstUser + 1);
   const tail = activities.slice(firstUser + 1);
-  const delivery = tail.filter(activity => activity.kind === "delivery" && activity.attributes["channel.effect.kind"] === "reply");
-  const externalBeforeFinal = tail.filter((activity, offset) =>
-    isExternalActivity(activity) && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
-  );
-  const externalAfterFinal = tail.filter((activity, offset) =>
-    isExternalActivity(activity) && lastAssistant >= 0 && firstUser + 1 + offset > lastAssistant,
-  );
   const work = tail.filter((activity, offset) => {
     const index = firstUser + 1 + offset;
     return index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
   });
+  let renderedWork = false;
+  const timeline = tail.flatMap((activity, offset) => {
+    const index = firstUser + 1 + offset;
+    const isWork = index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
+    if (!isWork) return renderActivitySequence([activity], invocation, expanded, toggleExpanded, inspect);
+    if (renderedWork) return [];
+    renderedWork = true;
+    const summary = renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect);
+    return summary ? [summary] : [];
+  });
 
   return [
     ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(externalBeforeFinal, invocation, expanded, toggleExpanded, inspect),
-    renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect),
-    ...(lastAssistant >= 0 ? [renderInvocationActivity(activities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
-    ...renderActivitySequence(externalAfterFinal, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(delivery, invocation, expanded, toggleExpanded, inspect),
+    ...timeline,
   ].filter(item => item !== null);
 }
 
