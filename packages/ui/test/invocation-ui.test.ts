@@ -394,7 +394,7 @@ describe("Agent Invocation UI", () => {
     expect(rows[1]!.attributes("data-kind")).toBe("delivery");
     expect(rows[3]!.attributes("data-kind")).toBe("delivery");
     expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(2);
-    expect(wrapper.findAll(".vh-invocation-work__title").map(title => title.text())).toEqual(["Worked for 5s", "Worked for 5s"]);
+    expect(wrapper.findAll(".vh-invocation-work__title").map(title => title.text())).toEqual(["Work details", "Work details"]);
     expect(wrapper.findAll(".vh-invocation-work__activities")[0]!.text()).toContain("Shell");
     expect(wrapper.findAll(".vh-invocation-work__activities")[1]!.text()).toContain("Verify");
     expect(rows[4]!.text()).toContain("Done.");

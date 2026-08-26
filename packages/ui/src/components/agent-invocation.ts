@@ -703,13 +703,14 @@ function isExternalActivity(activity: InvocationActivity): boolean {
 function renderWorkSummary(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
+  showDuration: boolean,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
 ) {
   if (!activities.length) return null;
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
-  const duration = formatDuration(invocation.startedAt, endedAt);
+  const duration = showDuration ? formatDuration(invocation.startedAt, endedAt) : undefined;
   return h("li", { class: "vh-invocation-work", key: `invocation-work-${activities[0]!.id}` }, [
     h("details", { class: "vh-invocation-work__details" }, [
       h("summary", { class: "vh-invocation-work__summary" }, [
@@ -750,20 +751,30 @@ function renderInvocationActivities(
 
   const prefix = activities.slice(0, firstUser + 1);
   const tail = activities.slice(firstUser + 1);
+  const isWorkActivity = (activity: InvocationActivity, offset: number) => {
+    const index = firstUser + 1 + offset;
+    return index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
+  };
+  let workRunCount = 0;
+  let previousWasWork = false;
+  tail.forEach((activity, offset) => {
+    const isWork = isWorkActivity(activity, offset);
+    if (isWork && !previousWasWork) workRunCount += 1;
+    previousWasWork = isWork;
+  });
   const timeline: ReturnType<typeof renderActivitySequence> = [];
   let run: InvocationActivity[] = [];
   let runIsWork: boolean | undefined;
   const flushRun = () => {
     if (runIsWork) {
-      const summary = renderWorkSummary(run, invocation, expanded, toggleExpanded, inspect);
+      const summary = renderWorkSummary(run, invocation, workRunCount === 1, expanded, toggleExpanded, inspect);
       if (summary) timeline.push(summary);
     }
     else timeline.push(...renderActivitySequence(run, invocation, expanded, toggleExpanded, inspect));
     run = [];
   };
   tail.forEach((activity, offset) => {
-    const index = firstUser + 1 + offset;
-    const isWork = index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
+    const isWork = isWorkActivity(activity, offset);
     if (runIsWork !== undefined && runIsWork !== isWork) {
       flushRun();
     }

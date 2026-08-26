@@ -1604,6 +1604,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const headers = githubApiHeaders(token, options.userAgent)
       const body = await githubBodyWithArtifacts(context, messageChannelReplyBody(context), options, command, headers)
       if (!body) return
+      setMessageChannelDeliveredReplyBody(context.effect, body)
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`
       await githubApi(fetcher, url, {
         body: JSON.stringify({ body }),

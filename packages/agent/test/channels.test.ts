@@ -834,7 +834,7 @@ describe("agent channels", () => {
   })
 
   it("publishes Workspace image paths before posting GitHub PR replies", async () => {
-    const { github } = await import("../src/channels.ts")
+    const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const postedBodies: string[] = []
@@ -876,12 +876,13 @@ describe("agent channels", () => {
     const replyEffect = channel.effects?.reply
     if (typeof replyEffect !== "function") throw new Error("Missing GitHub reply effect.")
 
+    const effect = {
+      kind: "reply" as const,
+      payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nQuery: ![query](screenshots/login.png?raw=1)\nFragment: ![fragment](result.png#v1)\nHTML: <img src=\"screenshots/login.png\" width=\"400\">\nCode: `unused.png`" },
+    }
     await replyEffect({
       channel,
-      effect: {
-        kind: "reply",
-        payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nQuery: ![query](screenshots/login.png?raw=1)\nFragment: ![fragment](result.png#v1)\nHTML: <img src=\"screenshots/login.png\" width=\"400\">\nCode: `unused.png`" },
-      },
+      effect,
       input: {
         context: {
           github: {
@@ -940,6 +941,7 @@ describe("agent channels", () => {
     expect(postedBodies[0]).not.toContain("Screenshot: screenshots/login.png")
     expect(postedBodies[0]).not.toContain("Root: result.png")
     expect(postedBodies[0]).not.toContain("[result](![")
+    expect(messageChannelDeliveredReplyBody(effect)).toBe(postedBodies[0])
   })
 
   it("normalizes hand-written GitHub PR status string payloads", async () => {
