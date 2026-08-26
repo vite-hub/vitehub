@@ -64,6 +64,30 @@ describe("Resend Email driver", () => {
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: true } })
   })
 
+  it("forwards cancellation to fetch and classifies aborts", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      expect(init?.signal).toBe(controller.signal)
+      throw new DOMException("aborted", "AbortError")
+    })
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send(message, { ...context, signal: controller.signal })).resolves.toMatchObject({
+      error: { code: "CANCELLED", driver: "resend", retryable: false },
+    })
+  })
+
+  it("rejects invalid idempotency header values before fetch", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, idempotencyKey: "invalid\nvalue" }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "resend" },
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it("rejects an invalid scheduled date without making a request", async () => {
     const request = vi.fn()
     const driver = resend({ apiKey: "re_secret", fetch: request })
@@ -230,6 +254,16 @@ describe("Cloudflare Email driver", () => {
     await expect(driver.send({ ...message, headers: { "message-id": "<stable@example.com>" } }, context))
       .resolves.toMatchObject({ data: { id: "<stable@example.com>" }, error: null })
     expect(Constructor.mock.calls[0]![2]).toContain("Message-ID: <stable@example.com>")
+  })
+
+  it("rejects an empty custom message ID before delivery", async () => {
+    const send = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() })
+
+    await expect(driver.send({ ...message, headers: { "message-id": "  " } }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    })
+    expect(send).not.toHaveBeenCalled()
   })
 
   it("folds attachment base64 and escapes quoted filenames", async () => {

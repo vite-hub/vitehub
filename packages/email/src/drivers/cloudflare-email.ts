@@ -142,7 +142,11 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         ]
         if (!from || recipients.length === 0) return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "from and to are required.") }
         if (recipients.length > 1) return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email supports exactly one envelope recipient per message.") }
-        const id = headerValue(message.headers, "message-id") ?? `<${crypto.randomUUID()}@vitehub.email>`
+        const customId = headerValue(message.headers, "message-id")
+        if (customId !== undefined && customId.trim() === "") {
+          return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "Message-ID cannot be empty.") }
+        }
+        const id = customId ?? `<${crypto.randomUUID()}@vitehub.email>`
         const raw = rawMessage(message, id)
         await options.binding.send(new Constructor(addressValue(from).email, addressValue(recipients[0]!).email, raw))
         return { data: { at: new Date(), driver: "cloudflare-email", id }, error: null }

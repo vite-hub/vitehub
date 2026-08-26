@@ -9,6 +9,20 @@ export interface ResendEmailDriverOptions {
   fetch?: typeof fetch
 }
 
+function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
+  return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError")
+}
+
+function validateIdempotencyKey(value: string | undefined): void {
+  if (value === undefined) return
+  try {
+    new Headers({ "Idempotency-Key": value })
+  }
+  catch (cause) {
+    throw emailProviderError("resend", "INVALID_OPTIONS", "idempotencyKey is not a valid HTTP header value.", { cause })
+  }
+}
+
 function attachment(value: EmailAttachment): Record<string, unknown> {
   return {
     content: typeof value.content === "string" ? stringToBase64(value.content) : bytesToBase64(value.content),
@@ -49,9 +63,10 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   const endpoint = options.endpoint ?? "https://api.resend.com"
   return {
     name: "resend",
-    async send(message) {
+    async send(message, context) {
       let body: string
       try {
+        validateIdempotencyKey(message.idempotencyKey)
         body = JSON.stringify(payload(message))
       }
       catch (cause) {
@@ -68,10 +83,12 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
             ...(message.idempotencyKey ? { "Idempotency-Key": message.idempotencyKey } : {}),
           },
           method: "POST",
+          signal: context.signal,
         })
       }
       catch (cause) {
         if (isEmailProviderError(cause)) return { data: null, error: cause }
+        if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", { cause, retryable: false }) }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend request failed.", { cause, retryable: true }) }
       }
       let text: string
@@ -79,6 +96,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         text = await response.text()
       }
       catch (cause) {
+        if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", { cause, retryable: false }) }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: true }) }
       }
       let responseBody: Record<string, unknown> = {}
