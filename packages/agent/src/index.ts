@@ -3577,7 +3577,7 @@ function withStreamResultCancellation<T extends AsyncIterable<StreamEvent>>(stre
   if (!result || !hasRuntimeType(result, "object")) return stream
   for (const property of ["stream", "fullStream"] as const) {
     const candidate = Reflect.get(result, property)
-    if (!candidate || !hasRuntimeType(candidate, "object")) continue
+    if (!hasRuntimeType(candidate, "object") || candidate === null) continue
     const cancel = Reflect.get(candidate, Symbol.for("vitehub.agent.stream.cancel"))
     if (!hasRuntimeType(cancel, "function")) continue
     Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), { value: cancel })
