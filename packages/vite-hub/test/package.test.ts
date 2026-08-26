@@ -273,6 +273,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("AgentInvocationList")
     expect(consolePage).toContain("agentInvocationTitle")
     expect(consolePage).toContain("<UDashboardNavbar")
+    expect(consolePage).toContain('class="lg:hidden"')
+    expect(consolePage).not.toContain('class="xl:hidden"')
     expect(consolePage).toContain(':header="false"')
     expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout"')
     expect(consolePage).toContain(':retry-key="paginationRetryRevision"')

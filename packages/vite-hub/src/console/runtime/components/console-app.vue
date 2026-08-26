@@ -572,7 +572,7 @@ onBeforeUnmount(() => {
           <template #right>
             <UTooltip text="Open sessions">
               <UButton
-                class="xl:hidden"
+                class="lg:hidden"
                 icon="i-lucide-panel-left"
                 color="neutral"
                 variant="ghost"
