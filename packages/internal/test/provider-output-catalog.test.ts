@@ -27,6 +27,13 @@ describe("Provider Output contribution catalog", () => {
     expect(getProviderRuntimeModule(second, "blob", "cloudflare")).toBeUndefined()
   })
 
+  it("retains a catalog when Vite copies a config between hooks", () => {
+    const config = {}
+    const catalog = useProviderOutputCatalog(config)
+
+    expect(useProviderOutputCatalog({ ...config })).toBe(catalog)
+  })
+
   it("replaces duplicate owner contributions and clears repeat-build runtime state", () => {
     const catalog = createProviderOutputCatalog()
     contributeProviderRuntime(catalog, {

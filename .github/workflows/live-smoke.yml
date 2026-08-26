@@ -9,6 +9,9 @@ concurrency:
   group: live-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   VERCEL_CLI_VERSION: 54.5.1
 
@@ -38,7 +41,8 @@ jobs:
     needs: setup-cloudflare
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 30
+    env:
+      LIVE_SMOKE_STAGE: preflight
     strategy:
       fail-fast: false
       matrix:
@@ -53,7 +57,7 @@ jobs:
           name: vitehub-package-dist
           path: packages
 
-      - name: Validate Cloudflare env
+      - name: Preflight Cloudflare
         if: matrix.provider == 'cloudflare'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -73,9 +77,10 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare Vercel project
+      - name: Preflight Vercel
         id: prepare_vercel
         if: matrix.provider == 'vercel'
+        timeout-minutes: 10
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
           KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
@@ -151,8 +156,12 @@ jobs:
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Enter provision stage
+        run: echo "LIVE_SMOKE_STAGE=provision" >> "$GITHUB_ENV"
+
       - name: Provision Cloudflare resources
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 15
         env:
           BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -162,8 +171,23 @@ jobs:
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider cloudflare
 
+      - name: Provision Vercel resources
+        if: matrix.provider == 'vercel'
+        timeout-minutes: 15
+        env:
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITEHUB_HOSTING: vercel
+          VITEHUB_VITE_MODE: e2e
+        run: vp run playground:vite:provision --provider vercel
+
+      - name: Enter build stage
+        run: echo "LIVE_SMOKE_STAGE=build" >> "$GITHUB_ENV"
+
       - name: Build playground (cloudflare)
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 15
         env:
           BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
@@ -176,27 +200,20 @@ jobs:
 
       - name: Provider Output Contract (cloudflare)
         if: matrix.provider == 'cloudflare'
-        run: vp run test:output:cloudflare
+        timeout-minutes: 5
+        run: vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts
 
       - name: Dry-run Cloudflare deploy
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 5
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: vp dlx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
 
-      - name: Provision Vercel resources
-        if: matrix.provider == 'vercel'
-        env:
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
-          VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITEHUB_HOSTING: vercel
-          VITEHUB_VITE_MODE: e2e
-        run: vp run playground:vite:provision --provider vercel
-
       - name: Build playground (vercel)
         if: matrix.provider == 'vercel'
+        timeout-minutes: 15
         env:
           BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
           KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
@@ -213,7 +230,8 @@ jobs:
 
       - name: Provider Output Contract (vercel)
         if: matrix.provider == 'vercel'
-        run: vp run test:output:vercel
+        timeout-minutes: 5
+        run: vp test --config test/output/vitest.config.ts test/output/vercel.test.ts
 
       - name: Relax Vercel cron cadence for live deploy
         if: matrix.provider == 'vercel'
@@ -229,9 +247,13 @@ jobs:
           }
           NODE
 
+      - name: Enter deploy stage
+        run: echo "LIVE_SMOKE_STAGE=deploy" >> "$GITHUB_ENV"
+
       - name: Deploy Cloudflare
         id: deploy_cloudflare
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 15
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -247,6 +269,7 @@ jobs:
       - name: Deploy Vercel
         id: deploy_vercel
         if: matrix.provider == 'vercel'
+        timeout-minutes: 15
         env:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
@@ -278,7 +301,11 @@ jobs:
             echo "url=${{ steps.deploy_vercel.outputs.url }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Enter runtime stage
+        run: echo "LIVE_SMOKE_STAGE=runtime" >> "$GITHUB_ENV"
+
       - name: KV Live E2E (${{ matrix.provider }})
+        timeout-minutes: 10
         run: vp run kv:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Queue Live E2E (${{ matrix.provider }})
@@ -287,6 +314,7 @@ jobs:
 
       - name: Rate Limit Live E2E (cloudflare)
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 10
         run: vp run rate-limit:e2e --mode live --provider cloudflare --url "${{ steps.url.outputs.url }}"
 
       - name: Schedule Live E2E (${{ matrix.provider }})
@@ -294,6 +322,7 @@ jobs:
         run: vp run schedule:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
 
       - name: Sandbox Live E2E (${{ matrix.provider }})
+        timeout-minutes: 10
         run: vp run sandbox:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Workflow Live E2E (${{ matrix.provider }})
@@ -301,38 +330,118 @@ jobs:
         run: vp run workflow:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
       - name: Workspace Live E2E (${{ matrix.provider }})
+        timeout-minutes: 10
         run: vp run workspace:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Blob Live E2E
+        timeout-minutes: 10
         env:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
         run: vp run blob:e2e --mode live --url "${{ steps.url.outputs.url }}"
 
       - name: DB Live E2E
+        timeout-minutes: 10
         run: vp run database:e2e --url "${{ steps.url.outputs.url }}"
 
-  report-failure:
-    name: report failure
+      - name: Create stage evidence
+        if: always()
+        env:
+          LIVE_SMOKE_CONCLUSION: ${{ job.status }}
+          LIVE_SMOKE_PROVIDER: ${{ matrix.provider }}
+          LIVE_SMOKE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          LIVE_SMOKE_RUN_ID: ${{ github.run_id }}
+          LIVE_SMOKE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p live-smoke-evidence
+          node .github/scripts/live-smoke-report.mjs evidence \
+            --provider "$LIVE_SMOKE_PROVIDER" \
+            --stage "$LIVE_SMOKE_STAGE" \
+            --conclusion "$LIVE_SMOKE_CONCLUSION" \
+            --run-id "$LIVE_SMOKE_RUN_ID" \
+            --run-attempt "$LIVE_SMOKE_RUN_ATTEMPT" \
+            --run-url "$LIVE_SMOKE_RUN_URL" \
+            > "live-smoke-evidence/$LIVE_SMOKE_PROVIDER.json"
+
+      - name: Upload stage evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-smoke-evidence-${{ matrix.provider }}-${{ github.run_attempt }}
+          path: live-smoke-evidence/${{ matrix.provider }}.json
+          retention-days: 30
+          if-no-files-found: error
+
+  report-live-smoke:
+    name: report live smoke
     needs: [setup-cloudflare, live-smoke]
-    if: failure() && github.event_name == 'schedule'
+    if: always()
     runs-on: ubuntu-latest
     permissions:
+      actions: read
+      contents: read
       issues: write
     steps:
-      - uses: actions/github-script@v8
+      - uses: actions/checkout@v6
+
+      - run: mkdir -p live-smoke-evidence
+
+      - name: Download provider stage evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: live-smoke-evidence-*
+          path: live-smoke-evidence
+
+      - name: Identify provider jobs in this attempt
+        id: attempt
+        uses: actions/github-script@v8
         with:
           script: |
-            const title = "Live Smoke failure"
-            const body = [
-              `Nightly Live Smoke failed: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              "",
-              "Keep this issue open until a green scheduled run; close it then.",
-            ].join("\n")
-            const { data: issues } = await github.rest.issues.listForRepo({
-              ...context.repo, labels: "live-smoke-failure", state: "open",
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
+              ...context.repo,
+              run_id: context.runId,
+              attempt_number: Number(process.env.GITHUB_RUN_ATTEMPT),
+              per_page: 100,
             })
-            if (issues.length > 0) {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: issues[0].number, body })
-            } else {
-              await github.rest.issues.create({ ...context.repo, title, body, labels: ["live-smoke-failure"] })
-            }
+            const providers = jobs.flatMap(({ name }) => {
+              const match = /^live smoke \((cloudflare|vercel)\)$/.exec(name)
+              return match ? [match[1]] : []
+            })
+            core.setOutput("providers", [...new Set(providers)].join(","))
+
+      - name: Aggregate provider stages
+        env:
+          LIVE_SMOKE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          LIVE_SMOKE_RUN_ID: ${{ github.run_id }}
+          LIVE_SMOKE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LIVE_SMOKE_SETUP_STATUS: ${{ needs.setup-cloudflare.result }}
+          LIVE_SMOKE_ATTEMPT_PROVIDERS: ${{ steps.attempt.outputs.providers }}
+        run: |
+          node .github/scripts/live-smoke-report.mjs aggregate \
+            --directory live-smoke-evidence \
+            --setup-status "$LIVE_SMOKE_SETUP_STATUS" \
+            --attempt-providers "$LIVE_SMOKE_ATTEMPT_PROVIDERS" \
+            --run-id "$LIVE_SMOKE_RUN_ID" \
+            --run-attempt "$LIVE_SMOKE_RUN_ATTEMPT" \
+            --run-url "$LIVE_SMOKE_RUN_URL" \
+            > live-smoke-report.json
+
+      - name: Upload aggregate stage evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-smoke-report-${{ github.run_attempt }}
+          path: live-smoke-report.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Update tracked failure issue
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.setup-cloudflare.result == 'success' && needs.live-smoke.result == 'success')
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { readFileSync } = require("node:fs")
+            const { pathToFileURL } = require("node:url")
+            const report = JSON.parse(readFileSync("live-smoke-report.json", "utf8"))
+            const reporter = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/live-smoke-report.mjs`).href)
+            const result = await reporter.updateLiveSmokeIssue({ github, context, report })
+            core.info(`Live Smoke issue action: ${result.action}`)

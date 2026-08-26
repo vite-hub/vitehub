@@ -15,9 +15,11 @@ import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
+import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
-import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
+import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
+import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
@@ -1152,7 +1154,7 @@ async function* runProvider<
       mcp: toolServer?.mcp,
       model: options.model,
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
-      runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
+      runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
@@ -1167,7 +1169,7 @@ async function* runProvider<
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment.")
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
-    const invocationId = agentInvocationControlId(context.runtime)
+    const invocationId = ownedAgentInvocationControlId(context.runtime)
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
@@ -1221,6 +1223,10 @@ async function* runProvider<
       if (current.value.threadId && current.value.threadId !== threadId) {
         nextEvent = events.next()
         continue
+      }
+      if ((!invocationId || isAuxiliaryAgentAdapterContext(context)) && current.value.type === "request.opened" && current.value.requestId) {
+        // SAFETY: A request.opened event always carries the provider approval request identifier expected by respondToRequest.
+        await activeRuntime.respondToRequest(threadId, current.value.requestId as never, "decline")
       }
       const normalized = providerEvent(current.value, context.tools)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)

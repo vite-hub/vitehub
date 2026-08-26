@@ -1179,6 +1179,7 @@ export interface AgentProviderDriverOptions<
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   output?: AgentOutputDefinition<TOutput>
+  /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
 }
 
@@ -1788,7 +1789,7 @@ export interface AgentInspectionModelExecutionMetadata {
 
 export interface AgentInspectionProviderMetadata {
   model?: string
-  permissions?: AgentProviderPermissions
+  permissions: AgentProviderPermissions
   provider?: string
 }
 

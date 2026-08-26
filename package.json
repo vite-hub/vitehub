@@ -4,6 +4,10 @@
   "private": true,
   "description": "ViteHub monorepo workspace.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git"
+  },
   "type": "module",
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",

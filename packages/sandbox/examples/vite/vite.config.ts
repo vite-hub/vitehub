@@ -5,6 +5,7 @@ import { hubSandbox } from "@vite-hub/sandbox/vite"
 export default defineConfig({
   appType: "custom",
   build: {
+    ssr: true,
     rollupOptions: {
       input: resolve(import.meta.dirname, "src/server.ts"),
     },

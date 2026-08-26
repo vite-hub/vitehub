@@ -34,7 +34,7 @@ export type NormalizedAgentDriver<
     kind: "provider"
     model?: string
     output?: AgentOutputDefinition<TOutput>
-    permissions?: AgentProviderPermissions
+    permissions: AgentProviderPermissions
     provider: "claude-code" | "codex"
   }
   | {
@@ -97,8 +97,10 @@ function normalizeProviderEnvironment(value: unknown): Record<string, string | u
   return Object.fromEntries(entries) as Record<string, string | undefined>
 }
 
-function normalizeProviderPermissions(value: unknown): AgentProviderPermissions | undefined {
-  if (value === undefined) return
+export const defaultAgentProviderPermissions: AgentProviderPermissions = "ask"
+
+function normalizeProviderPermissions(value: unknown): AgentProviderPermissions {
+  if (value === undefined) return defaultAgentProviderPermissions
   if (value !== "ask" && value !== "allow-edits" && value !== "allow-all") {
     throw new TypeError('[vitehub] defineAgent({ driver.permissions }) must be "ask", "allow-edits", or "allow-all".')
   }

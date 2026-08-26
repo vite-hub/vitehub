@@ -125,17 +125,24 @@ const providerOutputCatalogRegistry = globalThis as typeof globalThis & {
 }
 const providerOutputCatalogs = providerOutputCatalogRegistry.__vitehubProviderOutputCatalogs
   ??= new WeakMap<object, ProviderOutputCatalog>()
+const providerOutputCatalog = Symbol.for("vitehub.provider-output-catalog")
+
+interface ProviderOutputCatalogOwner {
+  [providerOutputCatalog]?: ProviderOutputCatalog
+}
 
 export function createProviderOutputCatalog(): ProviderOutputCatalog {
   return new ProviderOutputCatalog()
 }
 
 export function useProviderOutputCatalog(config: object): ProviderOutputCatalog {
-  let catalog = providerOutputCatalogs.get(config)
+  const owner = config as ProviderOutputCatalogOwner
+  let catalog = owner[providerOutputCatalog] ?? providerOutputCatalogs.get(config)
   if (!catalog) {
     catalog = createProviderOutputCatalog()
-    providerOutputCatalogs.set(config, catalog)
   }
+  owner[providerOutputCatalog] = catalog
+  providerOutputCatalogs.set(config, catalog)
   return catalog
 }
 

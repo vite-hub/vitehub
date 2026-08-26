@@ -1,6 +1,7 @@
 import {
   createCloudflareProvisionClient,
   createVercelProvisionClient,
+  ProvisionRequestError,
   resolveCloudflareProvisionConfig,
   resolveVercelProvisionConfig,
 } from "@vite-hub/internal/provision"
@@ -8,7 +9,7 @@ import { readEnv } from "@vite-hub/internal/env"
 
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
-import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
+import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { BlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
 
 interface CloudflareR2Bucket {
@@ -19,8 +20,13 @@ interface VercelBlobStore {
   access?: "private" | "public"
   id?: string
   name?: string
-  projectsMetadata?: Array<{ projectId?: string }>
+  projectsMetadata?: VercelBlobProjectMetadata[]
   type?: string
+}
+
+interface VercelBlobProjectMetadata {
+  environments?: string[]
+  projectId?: string
 }
 
 interface VercelBlobStoresResponse {
@@ -31,9 +37,134 @@ interface VercelBlobStoreCreateResponse {
   store?: VercelBlobStore
 }
 
+interface VercelBlobStoreResponse {
+  store?: VercelBlobStore
+}
+
 const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
 const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
+const CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE = "1000"
+
+async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest): Promise<Set<string>> {
+  const names = new Set<string>()
+  const cursors = new Set<string>()
+  let cursor: string | undefined
+
+  while (true) {
+    const query: Record<string, string> = {
+      per_page: CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE,
+    }
+    if (cursor) query.cursor = cursor
+    const listed = await request<{ buckets?: CloudflareR2Bucket[] }>("/r2/buckets", {
+      parse: parseCloudflareBuckets,
+      query,
+    })
+    for (const bucket of listed.result?.buckets ?? []) {
+      if (bucket.name) names.add(bucket.name)
+    }
+
+    const nextCursor = listed.result_info?.cursor?.trim()
+    if (!nextCursor) return names
+    if (cursors.has(nextCursor)) {
+      throw new Error("Cloudflare R2 bucket listing returned a repeated pagination cursor.")
+    }
+    cursors.add(nextCursor)
+    cursor = nextCursor
+  }
+}
+
+async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, bucketName: string): Promise<void> {
+  try {
+    await request("/r2/buckets", { method: "POST", body: { name: bucketName } })
+  }
+  catch (error) {
+    const duplicate = error instanceof ProvisionRequestError
+      && (error.status === 409 || (error.status === 400 && error.codes.includes(10004)))
+    if (!duplicate) throw error
+    const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`, {
+      parse: parseCloudflareBucket,
+    })
+    if (existing.result?.name !== bucketName) throw error
+  }
+}
+
+function parseObject(value: unknown): Record<string, unknown> {
+  if (!value || Object(value) !== value) throw new Error("Provisioning returned an invalid response.")
+  // SAFETY: The object check establishes the string-keyed JSON object representation.
+  return value as Record<string, unknown>
+}
+
+function parseVercelBlobStoreResponse(value: unknown): VercelBlobStoreResponse {
+  return parseObject(value)
+}
+
+function parseVercelBlobStoresResponse(value: unknown): VercelBlobStoresResponse {
+  return parseObject(value)
+}
+
+function parseVercelBlobStoreCreateResponse(value: unknown): VercelBlobStoreCreateResponse {
+  return parseObject(value)
+}
+
+function parseCloudflareBuckets(value: unknown): { buckets?: CloudflareR2Bucket[] } {
+  return parseObject(value)
+}
+
+function parseCloudflareBucket(value: unknown): CloudflareR2Bucket {
+  return parseObject(value)
+}
+
+function vercelConnectionState(store: VercelBlobStore, projectId: string): "absent" | "equivalent" | "mismatched" {
+  const connection = store.projectsMetadata?.find(project => project.projectId === projectId)
+  if (!connection) return "absent"
+  return VERCEL_PROJECT_ENVIRONMENTS.every(environment => connection.environments?.includes(environment))
+    ? "equivalent"
+    : "mismatched"
+}
+
+async function readVercelBlobStore(
+  request: ReturnType<typeof createVercelProvisionClient>,
+  storeId: string,
+): Promise<VercelBlobStore> {
+  const response = await request(`/storage/stores/${storeId}`, { parse: parseVercelBlobStoreResponse })
+  if (!response.store) {
+    throw new Error("Vercel Blob provisioning did not return store metadata.")
+  }
+  return response.store
+}
+
+async function ensureVercelBlobConnection(
+  request: ReturnType<typeof createVercelProvisionClient>,
+  storeId: string,
+  projectId: string,
+): Promise<void> {
+  const state = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
+  if (state === "equivalent") return
+  if (state === "mismatched") {
+    throw new Error("Vercel Blob is connected to the project without all required environments.")
+  }
+
+  try {
+    await request(`/v1/storage/stores/${storeId}/connections`, {
+      method: "POST",
+      body: {
+        envVarEnvironments: VERCEL_PROJECT_ENVIRONMENTS,
+        projectId,
+        type: "integration",
+      },
+    })
+  }
+  catch (error) {
+    if (!(error instanceof ProvisionRequestError) || error.status !== 400) throw error
+    const current = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
+    if (current === "equivalent") return
+    if (current === "mismatched") {
+      throw new Error("Vercel Blob is connected to the project without all required environments.")
+    }
+    throw error
+  }
+}
 
 function resolvedStores(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
   const config = resolveBlobViteConfig(options, { env })
@@ -57,8 +188,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       }
 
       const request = createCloudflareProvisionClient(config, context.fetch)
-      const listed = await request<{ buckets?: CloudflareR2Bucket[] }>("/r2/buckets")
-      const existing = new Set((listed.result?.buckets ?? []).map(bucket => bucket.name).filter((name): name is string => Boolean(name)))
+      const existing = await listCloudflareR2BucketNames(request)
 
       return [...new Set(buckets)].map((bucketName): ProvisionAction => ({
         kind: "cloudflare-r2-bucket",
@@ -66,7 +196,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
         exists: existing.has(bucketName),
         apply: async () => {
           if (!existing.has(bucketName)) {
-            await request(`/r2/buckets`, { method: "POST", body: { name: bucketName } })
+            await createCloudflareR2Bucket(request, bucketName)
           }
           return {}
         },
@@ -91,7 +221,7 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
       }
 
       const request = createVercelProvisionClient(config, context.fetch)
-      const listed = await request<VercelBlobStoresResponse>("/v1/storage/stores")
+      const listed = await request("/v1/storage/stores", { parse: parseVercelBlobStoresResponse })
       const existing = (listed.stores ?? []).find(store =>
         (!store.type || store.type === "blob")
         && (store.access ?? "public") === requested.access,
@@ -102,8 +232,9 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
         name: existing?.name ?? VERCEL_BLOB_STORE_NAME,
         exists: Boolean(existing),
         apply: async () => {
-          const store = existing ?? (await request<VercelBlobStoreCreateResponse>("/v1/storage/stores/blob", {
+          const store = existing ?? (await request("/v1/storage/stores/blob", {
             method: "POST",
+            parse: parseVercelBlobStoreCreateResponse,
             body: {
               access: requested.access,
               name: VERCEL_BLOB_STORE_NAME,
@@ -113,16 +244,7 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
           if (!store?.id) {
             throw new Error("Vercel Blob provisioning did not return a store id.")
           }
-          if (!store.projectsMetadata?.some(project => project.projectId === projectId)) {
-            await request(`/v1/storage/stores/${store.id}/connections`, {
-              method: "POST",
-              body: {
-                envVarEnvironments: VERCEL_PROJECT_ENVIRONMENTS,
-                projectId,
-                type: "integration",
-              },
-            })
-          }
+          await ensureVercelBlobConnection(request, store.id, projectId)
           return {}
         },
       }]
