@@ -50,10 +50,18 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   return {
     name: "resend",
     async send(message) {
+      let body: string
+      try {
+        body = JSON.stringify(payload(message))
+      }
+      catch (cause) {
+        if (isEmailProviderError(cause)) return { data: null, error: cause }
+        return { data: null, error: emailProviderError("resend", "INVALID_OPTIONS", "Resend payload is invalid.", { cause }) }
+      }
       let response: Response
       try {
         response = await request(`${endpoint}/emails`, {
-          body: JSON.stringify(payload(message)),
+          body,
           headers: {
             authorization: `Bearer ${options.apiKey}`,
             "content-type": "application/json",
@@ -73,21 +81,21 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       catch (cause) {
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: true }) }
       }
-      let body: Record<string, unknown> = {}
-      try { body = text ? JSON.parse(text) as Record<string, unknown> : {} }
+      let responseBody: Record<string, unknown> = {}
+      try { responseBody = text ? JSON.parse(text) as Record<string, unknown> : {} }
       catch {}
       if (!response.ok) {
         const code: EmailProviderErrorCode = response.status === 401 || response.status === 403
           ? "AUTH"
           : response.status === 429 ? "RATE_LIMIT" : response.status >= 500 ? "NETWORK" : "PROVIDER"
-        return { data: null, error: emailProviderError("resend", code, typeof body.message === "string" ? body.message : `HTTP ${response.status}`, {
-          cause: body,
+        return { data: null, error: emailProviderError("resend", code, typeof responseBody.message === "string" ? responseBody.message : `HTTP ${response.status}`, {
+          cause: responseBody,
           retryable: code === "RATE_LIMIT" || code === "NETWORK",
           status: response.status,
         }) }
       }
-      return typeof body.id === "string"
-        ? { data: { at: new Date(), driver: "resend", id: body.id, provider: body }, error: null }
+      return typeof responseBody.id === "string"
+        ? { data: { at: new Date(), driver: "resend", id: responseBody.id, provider: responseBody }, error: null }
         : { data: null, error: emailProviderError("resend", "PROVIDER", "Resend returned no message id.") }
     },
   }

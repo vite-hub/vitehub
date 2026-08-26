@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -337,7 +337,7 @@ describe("ViteHub Nuxt integration", () => {
 
     mocks.uiModule.mockClear()
     const production = createNuxt(false)
-    await viteHubNuxtModule({ console: true, preset: "node" }, production.nuxt)
+    await viteHubNuxtModule({ console: { exposure: "host-managed" }, preset: "node" }, production.nuxt)
     expect(mocks.uiModule).toHaveBeenCalledOnce()
     const productionPages: Array<{ file: string, name: string, path: string }> = []
     production.runPagesHook(productionPages)
@@ -372,7 +372,103 @@ describe("ViteHub Nuxt integration", () => {
 
     const production = createNuxt(false)
     await expect(viteHubNuxtModule({ console: true, preset: "cloudflare" }, production.nuxt))
-      .rejects.toThrow('console: true currently requires preset: "node" for production')
+      .rejects.toThrow('Console currently requires preset: "node" for production')
+  })
+
+  it("rejects bare production Console enablement", async () => {
+    const production = createNuxt(false)
+
+    await expect(viteHubNuxtModule({ console: true, preset: "node" }, production.nuxt))
+      .rejects.toThrow("console: true is development-only")
+  })
+
+  it("discovers callback-backed Auth policy for a production Console", async () => {
+    const authDefinition = "/tmp/vitehub-nuxt/custom-server/auth.ts"
+    await mkdir(resolve(authDefinition, ".."), { recursive: true })
+    await writeFile(authDefinition, `
+      export default defineAuth({
+        access: { routes: [
+          { route: "/_vitehub/**", authorize: authorizeConsole },
+          { route: "/api/_vitehub/console/**", authorize: authorizeConsole },
+        ] },
+      })
+    `)
+    try {
+      const production = createNuxt(false)
+
+      await expect(viteHubNuxtModule({
+        auth: true,
+        console: { access: "auth" },
+        preset: "node",
+      }, production.nuxt)).resolves.toBeUndefined()
+
+      expect(nitroOptions(production.nuxt).handlers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: "/api/_vitehub/console/agents" }),
+      ]))
+    }
+    finally {
+      await rm(authDefinition, { force: true })
+    }
+  })
+
+  it("rejects Auth-backed production Console when replay config disables Auth", async () => {
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options.vite, { auth: false as const })
+
+    await expect(viteHubNuxtModule({
+      auth: true,
+      console: { access: "auth" },
+      preset: "node",
+    }, production.nuxt)).rejects.toThrow("requires a discovered ViteHub Auth Definition")
+  })
+
+  it("uses the normalized relative Vite root for Auth assertion and middleware", async () => {
+    const authDefinition = "/tmp/vitehub-nuxt/frontend/server/auth.ts"
+    await mkdir(resolve(authDefinition, ".."), { recursive: true })
+    await writeFile(authDefinition, `
+      export default defineAuth({
+        access: { routes: [
+          { route: "/_vitehub/**", authorize: authorizeConsole },
+          { route: "/api/_vitehub/console/**", authorize: authorizeConsole },
+        ] },
+      })
+    `)
+    try {
+      const defaultPlugins = mocks.vitehub()
+      const authConfig = vi.fn((config: { nitro?: { handlers?: unknown[] } }) => ({
+        nitro: {
+          ...config.nitro,
+          handlers: [...(config.nitro?.handlers ?? []), { route: "/api/auth/**" }],
+        },
+      }))
+      mocks.vitehub.mockClear()
+      mocks.vitehub.mockReturnValueOnce([
+        defaultPlugins,
+        { config: authConfig, name: "@vite-hub/auth/vite" },
+      ])
+      const production = createNuxt(false)
+      Reflect.deleteProperty(production.nuxt.options, "serverDir")
+      Object.assign(production.nuxt.options.vite, { root: "frontend" })
+
+      await viteHubNuxtModule({
+        auth: true,
+        console: { access: "auth" },
+        preset: "node",
+      }, production.nuxt)
+      const nitroConfig: Record<string, unknown> = {}
+      await production.runNitroConfigHook(nitroConfig)
+
+      expect(nitroConfig).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/auth/**" })]),
+      })
+      expect(authConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ root: "/tmp/vitehub-nuxt/frontend" }),
+        expect.anything(),
+      )
+    }
+    finally {
+      await rm("/tmp/vitehub-nuxt/frontend", { force: true, recursive: true })
+    }
   })
 
   it("does not reinstall a configured ViteHub UI module for the console", async () => {

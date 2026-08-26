@@ -61,7 +61,7 @@ export default defineAgent({
 
 ## Coding provider drivers
 
-Use `driver: "codex"` or `driver: "claude-code"` for the defaults. A tagged Driver config exposes provider-neutral model, environment, instruction, permission, output, and capacity options.
+Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes provider-neutral model, environment, instruction, permission, output, and capacity options.
 
 ```ts
 // server/agents/codex/agent.ts
@@ -86,7 +86,7 @@ export default defineAgent({
 
 Provider Drivers require a local Node.js host and don't accept `box`; Cloudflare Agents and Deno fail explicitly. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` or `CLAUDE.md`, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active; provider cursors are not durable across process restarts or workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
 
-`permissions` accepts `"ask"`, `"allow-edits"`, or `"allow-all"`. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider steering and follow-up are unsupported. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills.
+`permissions` accepts `"ask"`, `"allow-edits"`, or `"allow-all"` and defaults to `"ask"`. Set `"allow-all"` explicitly when provider actions should run without approval. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider steering and follow-up are unsupported. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills.
 
 ## Driver capacity
 

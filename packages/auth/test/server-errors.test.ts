@@ -150,6 +150,22 @@ describe("server authentication provider boundaries", () => {
     expect(authorize).toHaveBeenCalledTimes(2)
   })
 
+  it("fails closed when a required route authorization callback is absent at runtime", async () => {
+    const accessDefinition = defineAuth({
+      access: { routes: [{ authorize: undefined, route: "/api/private" }] },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1" },
+    })
+
+    const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition, [0])
+
+    expect(forbidden?.status).toBe(403)
+    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+  })
+
   it("passes through custom route authorization responses", async () => {
     const denied = new Response("Admin access required", { status: 403 })
     const accessDefinition = defineAuth({

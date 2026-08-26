@@ -9,7 +9,12 @@ export function addresses(input: EmailAddressList): EmailAddress[] {
 export function addressValue(input: EmailAddress): { email: string, name?: string } {
   if (typeof input !== "string") return input
   const match = /^\s*(.*?)\s*<([^<>]+)>\s*$/.exec(input)
-  return match ? { email: match[2]!, ...(match[1] ? { name: match[1] } : {}) } : { email: input.trim() }
+  if (!match) return { email: input.trim() }
+  const phrase = match[1]!
+  const name = phrase.startsWith('"') && phrase.endsWith('"')
+    ? phrase.slice(1, -1).replace(/\\(.)/g, "$1")
+    : phrase
+  return { email: match[2]!, ...(name ? { name } : {}) }
 }
 
 export function formatAddress(input: EmailAddress): string {

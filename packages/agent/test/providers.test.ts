@@ -1848,7 +1848,12 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain('"support": {"name":"support"}')
       expect(webhookRoute).not.toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
-      expect(webhookRoute).toContain("const body = await readRawBody(event)")
+      expect(webhookRoute).toContain("getRequestWebStream")
+      expect(webhookRoute).toContain("const method = event.method || 'POST'")
+      expect(webhookRoute).toContain("body: method === 'GET' || method === 'HEAD' ? undefined : getRequestWebStream(event)")
+      expect(webhookRoute).toContain("method,")
+      expect(webhookRoute).not.toContain("readRawBody(event)")
+      expect(await import("h3")).toHaveProperty("getRequestWebStream")
       expect(webhookRoute).toContain("createAgentWebhookRequest({")
       expect(webhookRoute).toContain("node: event.node")
       expect(webhookRoute).toContain("signal: event.req?.signal")
@@ -5994,6 +5999,7 @@ describe("server helpers", () => {
         method: "POST",
       }),
       "telegram",
+      { maxBodyBytes: 2 * 1024 * 1024 },
     )
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const largePrompt = run.mock.results.at(-1)?.value as string | undefined
@@ -15419,7 +15425,7 @@ describe("server helpers", () => {
       expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
       expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
       resolveProgressEdit?.()
-      await vi.runAllTimersAsync()
+      await Promise.resolve()
       expect(adapter.editMessage).toHaveBeenCalledOnce()
     } finally {
       consoleError.mockRestore()

@@ -33,6 +33,13 @@ vitehub({ email: { driver: "resend" }, preset: "node" })
 vitehub({ email: true, preset: "cloudflare" })
 vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
 vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
+vitehub({ console: true, preset: "node" })
+vitehub({ auth: true, console: { access: "auth" }, preset: "node" })
+vitehub({ console: { exposure: "host-managed" }, preset: "node" })
+// @ts-expect-error Production access contracts are mutually exclusive.
+vitehub({ console: { access: "auth", exposure: "host-managed" }, preset: "node" })
+// @ts-expect-error Unknown Console access modes must not silently expose inspection routes.
+vitehub({ console: { access: "public" }, preset: "node" })
 expectTypeOf(defineAgent).toBeFunction()
 expectTypeOf(email).toBeFunction()
 expectTypeOf(env).toBeFunction()

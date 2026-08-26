@@ -17,6 +17,6 @@ Open a [GitHub issue](https://github.com/vite-hub/vitehub/issues) for a reproduc
 
 ## Security reports
 
-Do not publish a suspected vulnerability in Discord or a public issue. Use a [private GitHub security advisory](https://github.com/vite-hub/vitehub/security/advisories/new) so the report, proof, and remediation discussion remain private until maintainers can assess the impact. Include affected versions and a safe reproduction. Do not include credentials or data taken from systems you do not own or have permission to test.
+Do not publish a suspected vulnerability in Discord or a public issue. Follow the [ViteHub security policy](https://github.com/vite-hub/vitehub/security/policy) to establish a private reporting channel before sharing the report or proof. Include affected versions and a safe reproduction. Do not include credentials or data taken from systems you do not own or have permission to test.
 
 ViteHub does not publish a support phone number or postal office. If the project adopts a legal entity, mailing address, or dedicated support email, this page and the site's structured identity data should be updated together.

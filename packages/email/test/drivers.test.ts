@@ -66,6 +66,15 @@ describe("Resend Email driver", () => {
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: true } })
   })
 
+  it("rejects an invalid scheduled date without making a request", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, scheduledAt: new Date("invalid") }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it.each([[401, "AUTH"], [429, "RATE_LIMIT"], [500, "NETWORK"], [400, "PROVIDER"]] as const)("maps HTTP %s to %s", async (status, code) => {
     const driver = resend({ apiKey: "re_secret", fetch: async () => new Response(JSON.stringify({ message: "failed" }), { status }) })
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code, driver: "resend", status } })
@@ -98,6 +107,17 @@ describe("Cloudflare Email driver", () => {
     const Constructor = vi.fn()
     await cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor }).send(namedMessage, context)
     expect(Constructor.mock.calls[0]![2]).toContain('From: "Doe, \\"Jane\\"" <jane@example.com>')
+  })
+
+  it("normalizes syntax quotes in string display names", async () => {
+    const quotedMessage = { ...message, from: '"Doe, Jane" <jane@example.com>' }
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    await resend({ apiKey: "re_secret", fetch: request }).send(quotedMessage, context)
+    expect(JSON.parse(request.mock.calls[0]![1]?.body as string).from).toBe('"Doe, Jane" <jane@example.com>')
+
+    const Constructor = vi.fn()
+    await cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor }).send(quotedMessage, context)
+    expect(Constructor.mock.calls[0]![2]).toContain('From: "Doe, Jane" <jane@example.com>')
   })
 
   it("rejects multiple envelope recipients before sending", async () => {

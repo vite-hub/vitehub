@@ -250,7 +250,7 @@ describe("hubAuth", () => {
     const accessMiddleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
     expect(accessMiddleware).toContain("import { requireAuthAccessRoutes } from \"#vitehub/auth/server\"")
     expect(accessMiddleware).toContain("routes.flatMap")
-    expect(accessMiddleware).toContain("requireAuthAccessRoutes(event, routeIndexes)")
+    expect(accessMiddleware).toContain("requireAuthAccessRoutes(event, routeIndexes, undefined, requiredAuthorizeRouteIndexes)")
   })
 
   it("shares dev route sessions with the authenticated Agent helper in SSR modules", async () => {

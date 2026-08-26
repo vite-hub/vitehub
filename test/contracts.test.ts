@@ -1,12 +1,15 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { array, object, optional, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import {
   packageDir,
   packageInfo,
   packageInfoByPublishName,
   packageInfos,
+  packageManifestSchema,
   packageNames,
   readJson,
   readPackageManifest,
@@ -24,6 +27,16 @@ const ignoredGeneratedDirs = new Set([
   "dist",
   "node_modules",
 ])
+
+const showcaseManifestSchema = object({
+  label: optional(string()),
+  frameworks: optional(record(string(), object({
+    modes: optional(record(string(), object({
+      phases: optional(record(string(), string())),
+      supplementalFiles: optional(array(string())),
+    }))),
+  }))),
+})
 
 function exportTargetPath(packageName: PackageName, target: string) {
   return join(packageDir(packageName), target.replace(/^\.\//, ""))
@@ -99,12 +112,78 @@ describe("package manifest contracts", () => {
     }
   })
 
+  it("uses the repository Apache license and source metadata for every public package", () => {
+    const rootManifest = readJson(packageManifestSchema, join(repoRoot, "package.json"))
+    const expectedRepository = {
+      type: "git",
+      url: "git+https://github.com/vite-hub/vitehub.git",
+    }
+
+    expect(rootManifest).toMatchObject({
+      license: "Apache-2.0",
+      repository: expectedRepository,
+    })
+    expect(readFileSync(join(repoRoot, "LICENSE"), "utf8")).toContain("Apache License\n                           Version 2.0, January 2004")
+
+    for (const info of packageInfos) {
+      const manifest = readPackageManifest(info.name)
+      expect(manifest.license, `${info.packageName} should use the repository license`).toBe("Apache-2.0")
+      expect(manifest.repository, `${info.packageName} should identify its monorepo source`).toEqual({
+        ...expectedRepository,
+        directory: `packages/${info.name}`,
+      })
+    }
+  })
+
+  it("includes the repository license in every packed public package", () => {
+    const packDir = mkdtempSync(join(tmpdir(), "vitehub-license-pack-"))
+    const license = readFileSync(join(repoRoot, "LICENSE"), "utf8")
+
+    try {
+      for (const info of packageInfos) {
+        const before = new Set(readdirSync(packDir))
+        execFileSync("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], {
+          cwd: repoRoot,
+          encoding: "utf8",
+          stdio: "pipe",
+        })
+        const tarballs = readdirSync(packDir).filter(file => !before.has(file))
+        expect(tarballs, `${info.packageName} should create one tarball`).toHaveLength(1)
+
+        const tarball = join(packDir, tarballs[0]!)
+        const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).split("\n")
+        expect(listing, `${info.packageName} should include the root license`).toContain("package/LICENSE")
+        expect(execFileSync("tar", ["-xOf", tarball, "package/LICENSE"], { encoding: "utf8" }))
+          .toBe(license)
+      }
+    }
+    finally {
+      rmSync(packDir, { recursive: true })
+    }
+  }, 30_000)
+
+  it("publishes security reporting and project policy links", () => {
+    const security = readFileSync(join(repoRoot, "SECURITY.md"), "utf8")
+    const readme = readFileSync(join(repoRoot, "README.md"), "utf8")
+    const contact = readFileSync(join(repoRoot, "docs/content/trust/contact.md"), "utf8")
+
+    expect(security).toContain("https://github.com/vite-hub/vitehub/security/advisories")
+    expect(security).toContain("https://github.com/vite-hub/vitehub/issues/new")
+    expect(security).toContain("https://discord.gg/YTRDsRP3")
+    expect(security).toContain("Published 0.x versions | No backports")
+    expect(security).not.toMatch(/mailto:|[\w.+-]+@[\w.-]+/)
+    expect(readme).toContain("[Apache License 2.0](LICENSE)")
+    expect(readme).toContain("[security policy](SECURITY.md)")
+    expect(contact).toContain("https://github.com/vite-hub/vitehub/security/policy")
+    expect(contact).not.toContain("/security/advisories/new")
+  })
+
   it("publishes required package dependencies before their consumers", () => {
     const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/package-release-order.mjs")], {
       cwd: repoRoot,
       encoding: "utf8",
     }).trim().split("\n")
-    const positions = new Map(order.map((path, index) => [readJson<{ name: string }>(join(repoRoot, path)).name, index]))
+    const positions = new Map(order.map((path, index) => [readJson(packageManifestSchema, join(repoRoot, path)).name, index]))
 
     expect(positions.size).toBe(packageInfos.length)
     for (const info of packageInfos) {
@@ -263,10 +342,7 @@ describe("showcase contracts", () => {
         continue
       }
 
-      const manifest = readJson<{
-        label?: string
-        frameworks?: Record<string, { modes?: Record<string, { phases?: Record<string, string>, supplementalFiles?: string[] }> }>
-      }>(manifestPath)
+      const manifest = readJson(showcaseManifestSchema, manifestPath)
 
       expect(manifest.label, `${packageName} showcase should have a label`).toEqual(expect.any(String))
       expect(manifest.frameworks, `${packageName} showcase should list frameworks`).toEqual(expect.any(Object))
