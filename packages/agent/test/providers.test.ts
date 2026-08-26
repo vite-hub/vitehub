@@ -20,6 +20,7 @@ import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
+  copyNodeRuntimePackages: vi.fn(async () => undefined),
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
@@ -1218,6 +1219,96 @@ describe("agent Vite plugin", () => {
       },
     })
   })
+
+  it("packages an installed Codex CLI into self-hosted Node output", async () => {
+    const { copyNodeRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubAgent } = await import("../src/vite.ts")
+    const platformPackages: Record<string, string> = {
+      "darwin-arm64": "@openai/codex-darwin-arm64",
+      "darwin-x64": "@openai/codex-darwin-x64",
+      "linux-arm64": "@openai/codex-linux-arm64",
+      "linux-x64": "@openai/codex-linux-x64",
+    }
+    const platformPackage = platformPackages[`${process.platform}-${process.arch}`]!
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-output-"))
+    try {
+      await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}\n")
+      const codexPackageDir = join(root, "node_modules", "@openai", "codex")
+      const platformPackageDir = join(root, "node_modules", ...platformPackage.split("/"))
+      await mkdir(codexPackageDir, { recursive: true })
+      await mkdir(platformPackageDir, { recursive: true })
+      await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.149.1" }))
+      await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: `0.149.1-${process.platform}-${process.arch}` }))
+      const plugin = hubAgent()
+      const result = isRuntimeFunction(plugin.config)
+        ? await plugin.config.call(
+            {} as never,
+            {
+              [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+              nitro: { modules: ["existing"] },
+              root,
+            } as never,
+            { command: "build", mode: "production" },
+          )
+        : undefined
+      const modules = (result as { nitro: { modules: unknown[] } }).nitro.modules
+      expect(modules.slice(1)).toEqual(["existing"])
+      let compiled: (() => Promise<void>) | undefined
+      ;(modules[0] as (nitro: unknown) => void)({
+        hooks: {
+          hook(name: string, callback: () => Promise<void>) {
+            if (name === "compiled") compiled = callback
+          },
+        },
+        options: {
+          dev: false,
+          output: { serverDir: join(root, ".output", "server") },
+          preset: "node-server",
+          rootDir: root,
+        },
+      })
+      vi.mocked(copyNodeRuntimePackages).mockClear()
+
+      await compiled!()
+
+      expect(copyNodeRuntimePackages).toHaveBeenCalledWith({
+        outputNodeModules: join(root, ".output", "server", "node_modules"),
+        packages: [
+          { name: "@openai/codex", resolveFrom: join(root, "package.json") },
+          { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
+        ],
+        rootDir: root,
+      })
+
+      const unsupportedHook = vi.fn()
+      ;(modules[0] as (nitro: unknown) => void)({
+        hooks: { hook: unsupportedHook },
+        options: {
+          output: { serverDir: join(root, ".output", "server") },
+          preset: "cloudflare-module",
+          rootDir: root,
+        },
+      })
+      expect(unsupportedHook).not.toHaveBeenCalled()
+
+      const devHook = vi.fn()
+      ;(modules[0] as (nitro: unknown) => void)({
+        hooks: { hook: devHook },
+        options: {
+          dev: true,
+          output: { serverDir: join(root, ".output", "server") },
+          preset: "node-server",
+          rootDir: root,
+        },
+      })
+      expect(devHook).not.toHaveBeenCalled()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 15_000)
 
   it("registers configured Discord Gateway routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")

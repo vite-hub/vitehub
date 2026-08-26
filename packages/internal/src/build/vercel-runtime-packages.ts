@@ -7,11 +7,19 @@ import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
 const runtimeExportConditions = new Set(["default", "import", "module", "node", "node-addons", "require"])
 let nodeFileTracePromise: Promise<typeof import("@vercel/nft").nodeFileTrace> | undefined
 
-export interface VercelFunctionRuntimePackage {
+export interface NodeRuntimePackage {
   includePeerDependencies?: boolean
   name: string
   optional?: boolean
   resolveFrom?: string
+}
+
+export type VercelFunctionRuntimePackage = NodeRuntimePackage
+
+interface NodeRuntimePackagesOptions {
+  outputNodeModules: string
+  packages: NodeRuntimePackage[]
+  rootDir: string
 }
 
 interface VercelFunctionRuntimePackagesOptions {
@@ -35,12 +43,21 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     throw error
   }
 
+  await copyNodeRuntimePackages({
+    outputNodeModules: resolve(serverDir, "node_modules"),
+    packages: options.packages,
+    rootDir: options.rootDir,
+  })
+}
+
+export async function copyNodeRuntimePackages(options: NodeRuntimePackagesOptions): Promise<void> {
+  if (!options.packages.length) return
+
   const copied = new Set<string>()
-  const outputNodeModules = resolve(serverDir, "node_modules")
   for (const runtimePackage of options.packages) {
     const resolveFrom = runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")
     const resolver = createRequire(resolveFrom)
-    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), outputNodeModules, copied, runtimePackage)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, runtimePackage)
   }
 }
 
@@ -50,7 +67,7 @@ async function copyPackageToNodeModules(
   fromDir: string,
   outputNodeModules: string,
   copied: Set<string>,
-  options: VercelFunctionRuntimePackage = { name },
+  options: NodeRuntimePackage = { name },
 ): Promise<void> {
   const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
   if (!packageJsonPath) {

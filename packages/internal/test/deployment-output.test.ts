@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path"
 import { tmpdir } from "node:os"
@@ -918,6 +919,32 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(serverDir, "node_modules", "runtime-peer", "package.json"))).toBe(true)
     expect(existsSync(join(serverDir, "node_modules", "transitive-peer", "package.json"))).toBe(true)
     expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
+  })
+
+  it("copies runtime packages into an explicit Node output", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    const runtimePackageDir = await writePackage(rootDir, "runtime-package", {
+      dependencies: { "runtime-dependency": "1.0.0" },
+      exports: { ".": "./index.js" },
+      type: "module",
+    })
+    await writePackage(rootDir, "runtime-dependency")
+    await writeFile(join(runtimePackageDir, "index.js"), "import 'runtime-dependency'\nconsole.log('runtime-ready')\n", "utf8")
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+    })
+
+    expect(existsSync(join(outputNodeModules, "runtime-package", "index.js"))).toBe(true)
+    expect(existsSync(join(outputNodeModules, "runtime-dependency", "package.json"))).toBe(true)
+    expect(spawnSync(process.execPath, [join(outputNodeModules, "runtime-package", "index.js")], { encoding: "utf8" })).toMatchObject({
+      status: 0,
+      stdout: "runtime-ready\n",
+    })
   })
 
   it("preserves nested dependency versions in copied Vercel runtime packages", async () => {
