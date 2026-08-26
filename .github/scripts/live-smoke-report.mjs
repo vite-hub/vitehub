@@ -236,7 +236,8 @@ function assertAllowed(value, allowed, name) {
 }
 
 function assertTimestamp(value) {
-  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+  const timestamp = String(value);
+  if (value !== timestamp || !Number.isFinite(Date.parse(timestamp))) {
     throw new Error(`invalid observation timestamp: ${value}`);
   }
 }

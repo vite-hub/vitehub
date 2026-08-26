@@ -3,7 +3,6 @@ import {
   supportHosts,
   supportProofFor,
   supportProofPresentation,
-  type SupportHost,
   type SupportProofState,
   type SupportProofTier,
 } from "../data/support-proof";
@@ -103,13 +102,13 @@ const cell = (status: MatrixStatus, detail: string, display?: string): MatrixCel
   status,
 });
 
-const proofValues = (tier: SupportProofTier): Record<SupportHost, MatrixCell> =>
+const proofValues = (tier: SupportProofTier): Record<string, MatrixCell> =>
   Object.fromEntries(
     supportHosts.map((host) => {
       const presentation = supportProofPresentation(supportProofFor(tier, host));
       return [host, cell(presentation.state, presentation.detail, presentation.display)];
     }),
-  ) as Record<SupportHost, MatrixCell>;
+  );
 
 const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
   {
