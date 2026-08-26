@@ -1106,6 +1106,7 @@ function withCapturedStreamUsage<T extends {
       if (reader || iterator) return
       const stream = getStream()
       const candidate = Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
+      // SAFETY: hasRuntimeType narrows candidate to a callable function before this assignment.
       if (hasRuntimeType(candidate, "function")) directCancel = candidate as (reason?: unknown) => unknown
       if (stream instanceof ReadableStream) reader = stream.getReader()
       else iterator = stream[Symbol.asyncIterator]()
