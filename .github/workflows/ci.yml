@@ -55,6 +55,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
+      - run: vp run --filter vitehub-docs test:links
       - run: vp run --filter vitehub-docs test
       - run: vp run docs:build
       - name: Verify Worker bundle

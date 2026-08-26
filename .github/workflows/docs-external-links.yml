@@ -1,0 +1,22 @@
+name: docs external links
+
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  examples:
+    name: public examples catalog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - name: Check public example links
+        run: vp run --filter vitehub-docs test:links:external
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
