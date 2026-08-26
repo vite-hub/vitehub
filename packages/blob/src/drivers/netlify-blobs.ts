@@ -78,7 +78,6 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       let seen = 0
       let hasMore = false
       for await (const page of pages) {
-        for (const directory of page.directories) folders.add(directory)
         for (const blob of page.blobs) {
           if (seen++ < offset) continue
           if (selected.length === limit) {
@@ -86,6 +85,9 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
             break
           }
           selected.push(blob)
+        }
+        if (offset < seen) {
+          for (const directory of page.directories) folders.add(directory)
         }
         if (hasMore) break
       }

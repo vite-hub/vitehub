@@ -242,7 +242,7 @@ describe("package manifest contracts", () => {
     expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
     expect(manifest.dependencies?.["@vercel/blob"]).toBeUndefined()
     expect(manifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))
-    expect(frameworkManifest.dependencies?.["files-sdk"]).toEqual(expect.any(String))
+    expect(frameworkManifest.dependencies?.["files-sdk"]).toBeUndefined()
     expect(frameworkManifest.dependencies?.["@vite-hub/netlify-blobs-runtime"]).toMatch(/^npm:@netlify\/blobs@/)
   })
 })

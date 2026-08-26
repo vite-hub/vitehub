@@ -200,7 +200,6 @@
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "dropbox": "catalog:storage",
-    "files-sdk": "catalog:storage",
     "google-auth-library": "catalog:storage",
     "mlly": "catalog:unjs",
     "uploadthing": "catalog:storage",
