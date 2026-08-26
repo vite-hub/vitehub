@@ -13,7 +13,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentOutputInstructions, agentOutputJsonSchema, agentOutputRepairSymbol, agentOutputUsageReadySymbol, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { agentOutputInstructions, agentOutputJsonSchema, agentOutputRepairSymbol, agentOutputUsageReadySymbol, isAgentOutputValidationError, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import type { AgentOutputUsageLifecycle } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
@@ -1909,6 +1909,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           await validateAgentOutput(context.output, generated)
         }
         catch (error) {
+          if (!isAgentOutputValidationError(error)) throw error
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           generated = await repairOutput({
             error: error instanceof Error ? error : new Error(String(error)),

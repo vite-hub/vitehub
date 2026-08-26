@@ -930,6 +930,30 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(1)
   })
 
+  it("propagates operational output validator failures without repair", async () => {
+    const unavailable = new Error("validator unavailable")
+    const fakeModel = model(["{\"text\":\"valid\"}", "{\"text\":\"must not run\"}"])
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+        output: {
+          schema: {
+            "~standard": {
+              validate: async () => { throw unavailable },
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime, { prompt: "Respond" })).rejects.toBe(unavailable)
+    expect(fakeModel.calls).toHaveLength(1)
+  })
+
   it("rejects invalid structured-output attempt limits", async () => {
     const fakeModel = model(["{\"text\":\"unused\"}"])
     const agent = defineAgent({

@@ -52,7 +52,7 @@ export async function nativeAgentOutputValidationFailure(
   }
 }
 
-function isAgentOutputValidationError(value: unknown): boolean {
+export function isAgentOutputValidationError(value: unknown): boolean {
   const code = getViteHubErrorShape(value)?.code
   return code === "AGENT_OUTPUT_INVALID_JSON" || code === "AGENT_OUTPUT_SCHEMA_INVALID"
 }
