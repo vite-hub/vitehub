@@ -39,9 +39,11 @@ describe("release workflow authority", () => {
     expect(verify).not.toContain("Publish packages to npm")
     expect(verify).not.toContain("gh release create")
 
-    const publishGate = "if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
-    expect(publishNpm.indexOf(publishGate)).toBeLessThan(publishNpm.indexOf("    steps:"))
-    expect(githubRelease.indexOf(publishGate)).toBeLessThan(githubRelease.indexOf("    steps:"))
+    const publishGate = "if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
+    for (const authorityJob of [publishNpm, githubRelease]) {
+      expect(authorityJob).toContain(publishGate)
+      expect(authorityJob.indexOf(publishGate)).toBeLessThan(authorityJob.indexOf("    steps:"))
+    }
     expect(workflow).not.toContain("pull_request_target")
   })
 })

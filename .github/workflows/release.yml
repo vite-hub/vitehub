@@ -190,7 +190,7 @@ jobs:
   publish-npm:
     name: publish npm packages
     needs: verify
-    if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
+    if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
     # Configure required reviewers and release-tag protection for this environment in repository settings.
     environment: npm-release
@@ -340,7 +340,7 @@ jobs:
   github-release:
     name: create GitHub release
     needs: [verify, publish-npm]
-    if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
+    if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
     permissions:
       contents: write
