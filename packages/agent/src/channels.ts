@@ -1111,8 +1111,8 @@ function transientReactionStore(input: AgentRunInput): Record<string, GitHubTran
   return context[key] as Record<string, GitHubTransientReaction>
 }
 
-function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
-  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+export function messageChannelReplyBody<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "effect">,
 ): string | undefined {
   if (typeof context.effect.payload === "string") return context.effect.payload
   if (isRecord(context.effect.payload) && typeof context.effect.payload.body === "string") return context.effect.payload.body
@@ -1216,7 +1216,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     }
     return
   }
-  let body = replyBody(context)
+  let body = messageChannelReplyBody(context)
   if (stream) {
     for await (const chunk of stream) body = `${body || ""}${chunk}`
   }
@@ -1586,7 +1586,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const headers = githubApiHeaders(token, options.userAgent)
-      const body = await githubBodyWithArtifacts(context, replyBody(context), options, command, headers)
+      const body = await githubBodyWithArtifacts(context, messageChannelReplyBody(context), options, command, headers)
       if (!body) return
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`
       await githubApi(fetcher, url, {
@@ -1601,7 +1601,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const headers = githubApiHeaders(token, options.userAgent)
-      const body = await githubBodyWithArtifacts(context, replyBody(context), options, command, headers)
+      const body = await githubBodyWithArtifacts(context, messageChannelReplyBody(context), options, command, headers)
       if (!body) return
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/comments/${command.commentId}`
       await githubApi(fetcher, url, {
@@ -1617,7 +1617,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const headers = githubApiHeaders(token, options.userAgent)
-      const body = await githubBodyWithArtifacts(context, replyBody(context), options, command, headers)
+      const body = await githubBodyWithArtifacts(context, messageChannelReplyBody(context), options, command, headers)
       if (!body) return
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/pulls/${command.issueNumber}/reviews`
       await githubApi(fetcher, url, {

@@ -3904,7 +3904,10 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       channels: {
         portal: defineChannel("portal", {
-          effects: { reply: () => undefined },
+          effects: { reply: async ({ effect }) => {
+            if (typeof effect.payload !== "object" || !(Symbol.asyncIterator in effect.payload)) return
+            for await (const _chunk of effect.payload as AsyncIterable<string>) {}
+          } },
           triggers: {
             message: {
               invoke: context => ({
@@ -3917,7 +3920,10 @@ describe("agent message protocol", () => {
       },
       driver: { run: () => "ok" },
       hooks: {
-        "agent:finish": event => event.reply({ markdown: "**Delivered reply**" }),
+        "agent:finish": event => event.reply((async function* () {
+          yield "**Delivered "
+          yield "reply**"
+        })()),
       },
     })
 

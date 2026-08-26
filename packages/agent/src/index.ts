@@ -44,6 +44,7 @@ import {
   http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
+  messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
   slack as builtInSlack,
   teams as builtInTeams,
@@ -1178,6 +1179,20 @@ async function applyChannelDeliveryEffectIntents<
 
     let delivered = true
     for (const handler of handlers) {
+      let streamedReplyContent = ""
+      const deliveredIntent = intent.kind === "reply" && isAsyncIterable(intent.payload)
+        ? {
+            ...intent,
+            payload: (async function* () {
+              for await (const chunk of intent.payload as AsyncIterable<string>) {
+                if (streamedReplyContent.length < 16 * 1024) {
+                  streamedReplyContent += chunk.slice(0, 16 * 1024 - streamedReplyContent.length)
+                }
+                yield chunk
+              }
+            })(),
+          }
+        : intent
       let handlerCompleted = false
       try {
         await verifyOwnership?.()
@@ -1197,7 +1212,7 @@ async function applyChannelDeliveryEffectIntents<
             ...context.runtimeContext,
             channel: active.channel,
             context: context.context,
-            effect: intent,
+            effect: deliveredIntent,
             // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             ...(finish ? { finish: finish as never } : {}),
             input: context.input,
@@ -1210,7 +1225,13 @@ async function applyChannelDeliveryEffectIntents<
             },
             workspace: context.workspace,
           })
-          await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
+          const deliveredContent = intent.kind === "reply"
+            ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent })
+            : undefined
+          await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
+            ...metadata,
+            ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+          })
         })
         handlerCompleted = true
       }

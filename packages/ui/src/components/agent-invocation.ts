@@ -688,7 +688,8 @@ function renderActivitySequence(
 function isExternalActivity(activity: InvocationActivity): boolean {
   return activity.kind === "preparation"
     || activity.kind === "action"
-    || activity.kind === "system";
+    || activity.kind === "system"
+    || (activity.kind === "delivery" && activity.attributes["channel.effect.kind"] !== "reply");
 }
 
 function renderWorkSummary(
@@ -741,7 +742,7 @@ function renderInvocationActivities(
 
   const prefix = activities.slice(0, firstUser + 1);
   const tail = activities.slice(firstUser + 1);
-  const delivery = tail.filter(activity => activity.kind === "delivery");
+  const delivery = tail.filter(activity => activity.kind === "delivery" && activity.attributes["channel.effect.kind"] === "reply");
   const externalBeforeFinal = tail.filter((activity, offset) =>
     isExternalActivity(activity) && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
   );

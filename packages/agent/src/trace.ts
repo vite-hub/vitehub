@@ -35,10 +35,14 @@ function channelEffectContent(effect: AgentChannelDeliveryEffectIntent): string 
   if (typeof effect.payload === "string") return effect.payload.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH)
   if (!effect.payload || !hasRuntimeType(effect.payload, "object")) return
   const payload = effect.payload as { body?: unknown, markdown?: unknown }
-  const content = typeof payload.markdown === "string"
-    ? payload.markdown
-    : typeof payload.body === "string"
-      ? payload.body
+  const content = typeof payload.body === "string"
+    ? payload.body
+    : typeof payload.markdown === "string"
+      ? payload.markdown
+      : typeof effect.metadata?.body === "string"
+        ? effect.metadata.body
+        : typeof effect.metadata?.markdown === "string"
+          ? effect.metadata.markdown
       : undefined
   return content?.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH)
 }
