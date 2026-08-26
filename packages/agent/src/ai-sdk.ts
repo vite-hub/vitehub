@@ -1283,7 +1283,7 @@ function withCapturedStreamUsage<T extends {
           },
         }
       : {}),
-  })
+  }, false)
 }
 
 async function combinedUsageRecord(

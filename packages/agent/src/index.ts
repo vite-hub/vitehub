@@ -3573,6 +3573,56 @@ function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream
   return stream
 }
 
+function withDrivenStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
+  if (!hasRuntimeType(stream, "object") || stream === null || !hasRuntimeType(result, "object") || result === null) return stream
+  const iterator = stream[Symbol.asyncIterator]()
+  const buffered: IteratorResult<StreamEvent>[] = []
+  let read = Promise.resolve<IteratorResult<StreamEvent>>({ done: true, value: undefined })
+  let drainTask: Promise<void> | undefined
+  const readNext = () => read = read.then(() => iterator.next())
+  const drive = () => drainTask ??= (async () => {
+    while (true) {
+      const item = await readNext()
+      buffered.push(item)
+      if (item.done) return
+    }
+  })()
+  const driven = {
+    [Symbol.asyncIterator]() {
+      return driven
+    },
+    async next() {
+      const item = buffered.shift()
+      if (item) return item
+      if (!drainTask) return await readNext()
+      await drainTask
+      // SAFETY: drive buffers the terminal iterator result before it resolves.
+      return buffered.shift()!
+    },
+    async return(value?: unknown) {
+      if (drainTask) await drainTask
+      else await iterator.return?.(value)
+      return { done: true as const, value: undefined }
+    },
+    async throw(error?: unknown) {
+      if (drainTask) await drainTask
+      else if (iterator.throw) return await iterator.throw(error)
+      else await iterator.return?.()
+      throw error
+    },
+  }
+  const descriptors = Object.fromEntries(["textStream", "usage", "usageRecord"].map(key => [key, {
+    configurable: true,
+    enumerable: true,
+    get: key === "usage"
+      ? () => drive().then(() => (result as Record<string, unknown>)[key])
+      : () => (result as Record<string, unknown>)[key],
+  }]))
+  Object.defineProperties(driven, descriptors)
+  // SAFETY: driven implements the same single-consumer async iterable contract as stream.
+  return driven as unknown as T
+}
+
 function resultWithStreamedText(result: unknown, text: string): unknown {
   if (!text || hasRuntimeType(result, "string")) return result
   if (result && hasRuntimeType(result, "object") && !(result instanceof Response)) {
@@ -5736,7 +5786,11 @@ async function executeAgentInvocationWithCapacityLease<
     return {
       deferFinish: shouldWrapOutput,
       finishResult: rendered,
-      value: isAsyncIterable(value) ? withStreamResultProperties(value, rendered) : value,
+      value: isAsyncIterable(value)
+        ? shouldWrapOutput
+          ? withDrivenStreamResultProperties(value, rendered)
+          : withStreamResultProperties(value, rendered)
+        : value,
     }
   }, executionFailureMessage, {
     finalizeResponse: options.output === "ui-message-stream"
