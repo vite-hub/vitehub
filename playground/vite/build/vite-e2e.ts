@@ -29,6 +29,7 @@ import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/sr
 import { configureCloudflareArtifacts } from "../../../packages/workspace/src/integrations/cloudflare.ts"
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
+import { createWorkflowRegistryContents } from "../../../packages/workflow/src/internal/vite-build.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { copyClientOutput, hasStaticIndex } from "@vite-hub/internal/build/client-output"
@@ -682,7 +683,7 @@ function renderSandboxProviderLoaderModule(file: string, provider: "cloudflare" 
   ].join("\n")
 }
 
-async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
+export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   const generatedDir = ensureGeneratedDir(options.rootDir, viteE2EProductName)
   await rm(generatedDir, { force: true, recursive: true })
   await mkdir(generatedDir, { recursive: true })
@@ -726,7 +727,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   let workflowRegistryFile: string | undefined
   if (workflowDefinitions.length) {
     workflowRegistryFile = resolve(generatedDir, "workflow-registry.mjs")
-    runtimeWrites.push(writeFile(workflowRegistryFile, createRuntimeRegistryContents(workflowRegistryFile, workflowDefinitions), "utf8"))
+    runtimeWrites.push(writeFile(workflowRegistryFile, createWorkflowRegistryContents(workflowRegistryFile, workflowDefinitions), "utf8"))
   }
 
   if (options.db) {
