@@ -3573,7 +3573,7 @@ function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream
   return stream
 }
 
-function withDrivenStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
+function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, result: unknown): AsyncIterable<StreamEvent> {
   if (!hasRuntimeType(stream, "object") || stream === null || !hasRuntimeType(result, "object") || result === null) return stream
   const iterator = stream[Symbol.asyncIterator]()
   const buffered: IteratorResult<StreamEvent>[] = []
@@ -3615,12 +3615,11 @@ function withDrivenStreamResultProperties<T extends AsyncIterable<StreamEvent>>(
     configurable: true,
     enumerable: true,
     get: key === "usage"
-      ? () => drive().then(() => (result as Record<string, unknown>)[key])
-      : () => (result as Record<string, unknown>)[key],
+      ? () => drive().then(() => Reflect.get(result, key))
+      : () => Reflect.get(result, key),
   }]))
   Object.defineProperties(driven, descriptors)
-  // SAFETY: driven implements the same single-consumer async iterable contract as stream.
-  return driven as unknown as T
+  return driven
 }
 
 function resultWithStreamedText(result: unknown, text: string): unknown {
