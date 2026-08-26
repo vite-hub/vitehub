@@ -97,6 +97,7 @@ describe("Agent Channel delivery journal", () => {
     })
 
     try {
+      // SAFETY: This fixture exercises only Workflow context normalization and does not read the Agent definition.
       await expect(runAgentWorkflowDefinition({} as never, {
         id: "workflow-normalized-capabilities",
         name: "support",

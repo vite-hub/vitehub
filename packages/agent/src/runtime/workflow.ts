@@ -312,8 +312,10 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   if (payload.trace) runtimeInput.trace = payload.trace
   let runtimeContext = createExecutionContext(createAgentRuntimeContext<TRuntimeConfig>(runtimeInput))
   if (payload.run?.runId && payload.run.runId !== runId) {
-    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    ;(runtimeContext as unknown as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
+    Object.defineProperty(runtimeContext, agentInvocationRunId, {
+      enumerable: false,
+      value: payload.run.runId,
+    })
   }
 
   Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, {
