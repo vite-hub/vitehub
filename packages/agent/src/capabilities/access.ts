@@ -373,6 +373,10 @@ function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
   const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
   const fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
     ...workspace.fs,
+    async list(path = "", options?: ListOptions) {
+      if (options?.exclude) workspaceRuntime.assertModelWorkspaceGlobPattern(options.exclude)
+      return await workspace.fs.list(path as never, options)
+    },
     async glob(pattern: string | string[], options?: GlobOptions) {
       workspaceRuntime.assertModelWorkspaceGlobPattern(pattern as string | string[])
       return await workspace.fs.glob(pattern as never, options)

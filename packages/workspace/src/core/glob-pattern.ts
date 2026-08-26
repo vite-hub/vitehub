@@ -99,10 +99,13 @@ function patternComplexity(pattern: string, limit: number): number {
       index++
       continue
     }
+    if (pattern[index] === "}") {
+      return limit + 1
+    }
     if (pattern[index] !== "{") continue
 
     const closing = findClosingBrace(pattern, index)
-    if (closing === -1) continue
+    if (closing === -1) return limit + 1
     const content = pattern.slice(index + 1, closing)
     const alternatives = splitBraceParts(content, ",")
     let braceComplexity: number
