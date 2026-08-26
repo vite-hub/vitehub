@@ -14,7 +14,7 @@ export function loadExampleContracts(path = manifestPath) {
   return manifest.examples;
 }
 
-export function discoverPackageExamples(root = repoRoot) {
+function discoverPackageExamples(root = repoRoot) {
   const discovered = [];
   const packagesDir = join(root, "packages");
   for (const packageEntry of readdirSync(packagesDir, { withFileTypes: true })) {
@@ -78,7 +78,7 @@ export function assertExampleOutputs(contract, exampleDir) {
   }
 }
 
-export function runPackageExamples(contracts = loadExampleContracts(), root = repoRoot) {
+function runPackageExamples(contracts = loadExampleContracts(), root = repoRoot) {
   assertManifestCompleteness(contracts, root);
   for (const contract of contracts) {
     const packageDir = join(root, "packages", contract.id);
