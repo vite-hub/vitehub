@@ -107,6 +107,9 @@ function patternComplexity(pattern: string, limit: number): number {
     const closing = findClosingBrace(pattern, index)
     if (closing === -1) return limit + 1
     const content = pattern.slice(index + 1, closing)
+    // brace-expansion reparses nested results, so their eventual sequence width
+    // cannot be bounded from each brace group independently.
+    if (content.includes("{") || content.includes("}")) return limit + 1
     const alternatives = splitBraceParts(content, ",")
     let braceComplexity: number
     if (alternatives.length > 1) {

@@ -27,6 +27,9 @@ describe("model-facing Workspace glob patterns", () => {
     expect(() => assertModelWorkspaceGlobPattern("{a},b}".repeat(11))).toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
+    expect(() => assertModelWorkspaceGlobPattern("{{x,1..3}1}".repeat(4))).toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
   })
 
   it("rejects expansive padded sequences before matching", () => {
