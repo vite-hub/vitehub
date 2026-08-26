@@ -107,8 +107,8 @@ describe("createEmail", () => {
         "List-Unsubscribe": "<https://example.com/unsubscribe>, <mailto:leave@example.com>",
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
       }),
-      subject: "Personal welcome",
-      to: "jane@example.com",
+      subject: message.subject,
+      to: message.to,
     }))
     expect(preparedMessage.personalizations).toEqual([
       { customArgs: { campaign: "welcome" }, subject: "Personal welcome", to: "jane@example.com", variables: { name: "Jane" } },

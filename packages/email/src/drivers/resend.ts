@@ -1,5 +1,5 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts"
-import { addresses, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
+import { addresses, applyPersonalization, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
 
 import type { EmailAttachment, EmailDriver, EmailMessage, EmailProviderErrorCode } from "../types.ts"
 
@@ -63,6 +63,7 @@ function payload(message: EmailMessage): Record<string, unknown> {
 export default function resendEmailDriver(options: ResendEmailDriverOptions): EmailDriver {
   requiredOption("resend", options?.apiKey, "apiKey")
   if (!options.apiKey.startsWith("re_")) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must start with 're_'.")
+  if (/[^\u0021-\u007E]/.test(options.apiKey)) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey contains an invalid HTTP header character.")
   const request = options.fetch ?? globalThis.fetch
   if (typeof request !== "function") throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.")
   const endpoint = options.endpoint ?? "https://api.resend.com"
@@ -78,6 +79,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       let body: string
       let idempotencyKey: string | undefined
       try {
+        message = applyPersonalization("resend", message)
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey)
         if (typeof message.scheduledAt === "string" && message.scheduledAt.trim() === "") {
           throw emailProviderError("resend", "INVALID_OPTIONS", "scheduledAt cannot be empty.")

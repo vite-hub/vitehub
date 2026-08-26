@@ -24,6 +24,10 @@ describe("Resend Email driver", () => {
     expect(() => resend({ apiKey: "secret" })).toThrow("apiKey must start with 're_'")
   })
 
+  it("rejects API keys with invalid header characters during configuration", () => {
+    expect(() => resend({ apiKey: "re_secret\n" })).toThrow("apiKey contains an invalid HTTP header character")
+  })
+
   it("maps the portable message and returns the provider id", async () => {
     const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), {
       headers: { "content-type": "application/json" },
@@ -116,6 +120,26 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it("rejects unsupported personalizations before fetch", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] }, context))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } })
+    await expect(driver.send({ ...message, personalizations: [{ to: "one@example.com", variables: { name: "One" } }] }, context))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it("applies one address and subject personalization", async () => {
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await driver.send({ ...message, personalizations: [{ subject: "Personal welcome", to: "one@example.com" }] }, context)
+
+    expect(JSON.parse(request.mock.calls[0]![1]?.body as string)).toMatchObject({ subject: "Personal welcome", to: ["one@example.com"] })
+  })
+
   it("rejects an invalid scheduled date without making a request", async () => {
     const request = vi.fn()
     const driver = resend({ apiKey: "re_secret", fetch: request })
@@ -155,6 +179,17 @@ describe("Resend Email driver", () => {
 })
 
 describe("Cloudflare Email driver", () => {
+  it("rejects multiple personalizations before delivery", async () => {
+    const send = vi.fn()
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never })
+
+    await expect(driver.send({ ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] }, context))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
+    expect(Constructor).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it("constructs raw MIME and sends it through the binding", async () => {
     const send = vi.fn()
     const Constructor = vi.fn(function (this: Record<string, unknown>, from: string, to: string, raw: string) {

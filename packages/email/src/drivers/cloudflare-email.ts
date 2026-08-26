@@ -1,5 +1,5 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts"
-import { addresses, addressValue, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
+import { addresses, addressValue, applyPersonalization, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
 
 import type { EmailAttachment, EmailDriver, EmailMessage } from "../types.ts"
 
@@ -143,6 +143,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         if (message.idempotencyKey !== undefined) {
           return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support idempotency keys.") }
         }
+        message = applyPersonalization("cloudflare-email", message)
         const from = addresses(message.from)[0]
         const recipients = [
           ...addresses(message.to),

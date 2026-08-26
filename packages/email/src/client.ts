@@ -34,7 +34,6 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
 }
 
 function prepareMessage(message: EmailMessage): EmailMessage {
-  const personalization = message.personalizations?.[0]
   const headers = { ...message.headers }
   if (message.unsubscribe) {
     const { mailto, oneClick, url } = message.unsubscribe
@@ -45,12 +44,6 @@ function prepareMessage(message: EmailMessage): EmailMessage {
   return {
     ...message,
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    ...(personalization ? {
-      bcc: personalization.bcc ?? message.bcc,
-      cc: personalization.cc ?? message.cc,
-      subject: personalization.subject ?? message.subject,
-      to: personalization.to,
-    } : {}),
   }
 }
 
