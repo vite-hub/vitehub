@@ -845,11 +845,13 @@ describe("Provider Agent Driver", () => {
     const controller = new AbortController()
     const primary = runtime(primaryThreadId, [], { afterEvents: () => new Promise(() => {}) })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const primaryResult = adapter.generate(context(primaryThreadId, {
-      input: { abortSignal: controller.signal, prompt: "hello" },
-    }) as never)
     const invocationId = `run-${primaryThreadId}`
+    const primaryContext = context(primaryThreadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    })
+    primaryContext.runtime = withAgentInvocationControlId(primaryContext.runtime, invocationId)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const primaryResult = adapter.generate(primaryContext as never)
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
     const auxiliaryThreadId = "thread-auxiliary-input"
@@ -952,8 +954,11 @@ describe("Provider Agent Driver", () => {
       },
     })!), reportToolStep)
 
+    const invocationId = "run-thread-tool-approval"
+    const approvalContext = context("thread-tool-approval", { tools })
+    approvalContext.runtime = withAgentInvocationControlId(approvalContext.runtime, invocationId)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const output = createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-approval", { tools }) as never) as AsyncIterable<unknown>
+    const output = createProviderAgentAdapter({ provider: "codex" }).stream!(approvalContext as never) as AsyncIterable<unknown>
     const stream = output[Symbol.asyncIterator]()
     const approval = await stream.next()
     expect(approval.value).toEqual(expect.objectContaining({
@@ -964,10 +969,10 @@ describe("Provider Agent Driver", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const approvalId = (approval.value as { id: string }).id
     await expect(Promise.all([
-      sendAgentInvocationInput("run-thread-tool-approval", {
+      sendAgentInvocationInput(invocationId, {
         messages: [{ id: "approval", parts: [{ approved: true, id: approvalId, type: "approval-decision" }], role: "user" }],
       }, { mode: "respond" }),
-      sendAgentInvocationInput("run-thread-tool-approval", {
+      sendAgentInvocationInput(invocationId, {
         messages: [{ id: "duplicate", parts: [{ approved: false, id: approvalId, type: "approval-decision" }], role: "user" }],
       }, { mode: "respond" }),
     ])).resolves.toEqual(["accepted", "unsupported"])
