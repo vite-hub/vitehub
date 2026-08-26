@@ -113,6 +113,7 @@ describe("Agent inbound request bodies", () => {
       cancel(reason) {
         if (timer) clearTimeout(timer)
         cancel(reason)
+        return Promise.reject(new Error("host stream cancellation failed"))
       },
       pull(stream) {
         timer = setTimeout(() => stream.enqueue(encoder.encode("later")), 100)

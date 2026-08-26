@@ -68,7 +68,7 @@ export async function captureAgentInboundBody(request: Request, configuredLimit?
   let size = 0
   const onAbort = () => {
     const reason = request.signal.reason ?? new DOMException("The request was aborted.", "AbortError")
-    void reader.cancel(reason)
+    void reader.cancel(reason).catch(() => undefined)
   }
   request.signal.addEventListener("abort", onAbort, { once: true })
 

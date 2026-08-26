@@ -5999,6 +5999,7 @@ describe("server helpers", () => {
         method: "POST",
       }),
       "telegram",
+      { maxBodyBytes: 2 * 1024 * 1024 },
     )
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const largePrompt = run.mock.results.at(-1)?.value as string | undefined
@@ -15424,7 +15425,7 @@ describe("server helpers", () => {
       expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
       expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
       resolveProgressEdit?.()
-      await vi.runAllTimersAsync()
+      await Promise.resolve()
       expect(adapter.editMessage).toHaveBeenCalledOnce()
     } finally {
       consoleError.mockRestore()
