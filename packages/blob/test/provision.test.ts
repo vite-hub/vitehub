@@ -21,6 +21,7 @@ async function captureError(promise: Promise<unknown>): Promise<Error> {
     throw error
   }
   throw new Error("Expected promise to reject.")
+}
 
 describe("blob cloudflare provision step", () => {
   const env = { CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "token", BLOB_BUCKET_NAME: "assets" }
@@ -92,7 +93,7 @@ describe("blob cloudflare provision step", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(100)
   })
 
-  it("accepts a create conflict only after the exact R2 bucket becomes visible", async () => {
+  it("accepts Cloudflare's duplicate-bucket error only after the exact R2 bucket becomes visible", async () => {
     const requests: Array<{ method: string | undefined, url: URL }> = []
     const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input))
@@ -101,7 +102,7 @@ describe("blob cloudflare provision step", () => {
         return jsonResponse({ success: true, result: { name: "assets" } })
       }
       if (init?.method === "POST") {
-        return jsonResponse({ errors: [{ message: "bucket already exists" }], success: false }, 409)
+        return jsonResponse({ errors: [{ code: 10004, message: "bucket already exists" }], success: false }, 400)
       }
       return jsonResponse({ success: true, result: { buckets: [] } })
     })
@@ -113,6 +114,21 @@ describe("blob cloudflare provision step", () => {
       ["POST", "/client/v4/accounts/acc/r2/buckets"],
       ["GET", "/client/v4/accounts/acc/r2/buckets/assets"],
     ])
+  })
+
+  it("does not treat another Cloudflare 400 response as a duplicate bucket", async () => {
+    const fetchImpl = mockFetch(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return jsonResponse({ errors: [{ code: 10005, message: "provider-secret" }], success: false }, 400)
+      }
+      return jsonResponse({ success: true, result: { buckets: [] } })
+    })
+
+    const actions = await plan(fetchImpl)
+    const error = await captureError(actions[0]!.apply())
+    expect(error.message).toContain("POST /r2/buckets (400)")
+    expect(error.message).not.toContain("provider-secret")
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
   it("preserves a create conflict when the exact R2 read returns a different bucket", async () => {

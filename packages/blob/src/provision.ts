@@ -81,7 +81,9 @@ async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, buc
     await request("/r2/buckets", { method: "POST", body: { name: bucketName } })
   }
   catch (error) {
-    if (!(error instanceof ProvisionRequestError) || error.status !== 409) throw error
+    const duplicate = error instanceof ProvisionRequestError
+      && (error.status === 409 || (error.status === 400 && error.codes.includes(10004)))
+    if (!duplicate) throw error
     const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`)
     if (existing.result?.name !== bucketName) throw error
   }

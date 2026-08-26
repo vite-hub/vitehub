@@ -62,7 +62,7 @@ export interface CloudflareEnvelope<T> {
   result?: T
   result_info?: { cursor?: string }
   success?: boolean
-  errors?: Array<{ message?: string }>
+  errors?: Array<{ code?: number, message?: string }>
 }
 
 interface ProvisionRequestOptions {
@@ -81,11 +81,13 @@ export interface ProvisionRequest {
 }
 
 export class ProvisionRequestError extends Error {
+  readonly codes: readonly number[]
   readonly status: number
 
-  constructor(message: string, status: number) {
-    super(message)
+  constructor(method: string, path: string, status: number, codes: readonly number[] = []) {
+    super(`Provision request failed: ${method} ${path} (${status}).`)
     this.name = "ProvisionRequestError"
+    this.codes = codes
     this.status = status
   }
 }
@@ -104,7 +106,9 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
     }
     const response = await fetchImpl(url, init)
     if (!response.ok) {
-      throw new ProvisionRequestError(`Provision request failed: ${options.method ?? "GET"} ${path} (${response.status}).`, response.status)
+      const body = await response.json().catch(() => undefined) as { errors?: Array<{ code?: unknown }> } | undefined
+      const codes = body?.errors?.flatMap(error => typeof error.code === "number" ? [error.code] : []) ?? []
+      throw new ProvisionRequestError(options.method ?? "GET", path, response.status, codes)
     }
     const value: unknown = await response.json()
     return "parse" in options ? options.parse(value) : value
