@@ -55,6 +55,15 @@ describe("GitHub Action pin policy", () => {
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("ignores uses keys outside action invocation fields", async () => {
+    const root = await createFixture({
+      ".github/actions/setup/action.yml": `inputs:\n  uses:\n    description: Not an action reference\nruns:\n  using: composite\n  steps:\n    - uses: ${pinnedCheckout}\n`,
+      ".github/workflows/ci.yml": `env:\n  uses: not-an-action-reference\njobs:\n  test:\n    env:\n      uses: still-not-an-action-reference\n    steps:\n      - uses: ${pinnedCheckout}\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
   it("finds composite actions outside .github/actions", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "steps:\n  - uses: ./tools/setup\n",
@@ -101,10 +110,10 @@ describe("GitHub Action pin policy", () => {
 
   it("has stable success, policy failure, and usage-error CLI contracts", async () => {
     const passingRoot = await createFixture({
-      ".github/workflows/ci.yml": `steps:\n  - uses: ${pinnedCheckout}\n`,
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - uses: ${pinnedCheckout}\n`,
     })
     const failingRoot = await createFixture({
-      ".github/workflows/ci.yml": "steps:\n  - uses: actions/checkout@v6\n",
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n",
     })
 
     const passing = spawnSync(process.execPath, [scriptPath, passingRoot], { encoding: "utf8" })
@@ -113,7 +122,7 @@ describe("GitHub Action pin policy", () => {
     const failing = spawnSync(process.execPath, [scriptPath, failingRoot], { encoding: "utf8" })
     expect(failing.status).toBe(1)
     expect(failing.stdout).toBe("")
-    expect(failing.stderr).toContain(".github/workflows/ci.yml:2: external action must use a full 40-character commit SHA")
+    expect(failing.stderr).toContain(".github/workflows/ci.yml:4: external action must use a full 40-character commit SHA")
 
     const usageError = spawnSync(process.execPath, [scriptPath, passingRoot, failingRoot], { encoding: "utf8" })
     expect(usageError).toMatchObject({

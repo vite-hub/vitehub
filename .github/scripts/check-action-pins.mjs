@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { isScalar, LineCounter, parseDocument, visit } from "yaml"
+import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml"
 
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
@@ -48,37 +48,60 @@ export function inspectGitHubActionReferences(path, source) {
 
   if (failures.length > 0) return failures
 
-  visit(document, {
-    Pair(_key, pair) {
-      if (!isScalar(pair.key) || pair.key.value !== "uses") return
+  const inspectUses = (pair) => {
+    if (!pair) return
 
-      const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line
-      if (!isScalar(pair.value) || pair.value.value === null) {
-        failures.push({ line, message: "uses must be a string", path })
-        return
-      }
+    const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line
+    if (!isScalar(pair.value) || pair.value.value === null) {
+      failures.push({ line, message: "uses must be a string", path })
+      return
+    }
 
-      const reference = pair.value.value
-      if (reference.startsWith("./")) return
-      if (!actionCommitPattern.test(reference)) {
-        failures.push({
-          line,
-          message: `external action must use a full 40-character commit SHA: ${reference}`,
-          path,
-        })
-        return
-      }
+    const reference = pair.value.value
+    if (reference.startsWith("./")) return
+    if (!actionCommitPattern.test(reference)) {
+      failures.push({
+        line,
+        message: `external action must use a full 40-character commit SHA: ${reference}`,
+        path,
+      })
+      return
+    }
 
-      const versionComment = pair.value.comment?.trim() ?? ""
-      if (!versionCommentPattern.test(versionComment)) {
-        failures.push({
-          line,
-          message: `pinned external action must have an exact version comment (for example, # v1.2.3): ${reference}`,
-          path,
-        })
-      }
-    },
-  })
+    const versionComment = pair.value.comment?.trim() ?? ""
+    if (!versionCommentPattern.test(versionComment)) {
+      failures.push({
+        line,
+        message: `pinned external action must have an exact version comment (for example, # v1.2.3): ${reference}`,
+        path,
+      })
+    }
+  }
+
+  const findPair = (map, key) => map.items.find(pair => isScalar(pair.key) && pair.key.value === key)
+  const inspectSteps = (steps) => {
+    if (!isSeq(steps)) return
+    for (const step of steps.items) {
+      if (isMap(step)) inspectUses(findPair(step, "uses"))
+    }
+  }
+
+  const root = document.contents
+  if (!isMap(root)) return failures
+
+  if (path.startsWith(".github/workflows/")) {
+    const jobs = findPair(root, "jobs")?.value
+    if (!isMap(jobs)) return failures
+    for (const jobPair of jobs.items) {
+      if (!isMap(jobPair.value)) continue
+      inspectUses(findPair(jobPair.value, "uses"))
+      inspectSteps(findPair(jobPair.value, "steps")?.value)
+    }
+  }
+  else {
+    const runs = findPair(root, "runs")?.value
+    if (isMap(runs)) inspectSteps(findPair(runs, "steps")?.value)
+  }
 
   return failures
 }
