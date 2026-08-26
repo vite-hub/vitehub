@@ -132,9 +132,7 @@ function custody(state: StateAdapter, options: { authenticated?: boolean; ttlMs?
 }
 
 async function issueApproval(owner: ReturnType<typeof custody>, id = "approval-1"): Promise<void> {
-  await consumeStream(
-    owner.observe(eventStream(approvalRequestEvents(id))) as ReadableStream<unknown>,
-  )
+  await consumeStream(owner.observe(eventStream(approvalRequestEvents(id))))
 }
 
 describe("Agent Chat approval custody", () => {
@@ -144,12 +142,8 @@ describe("Agent Chat approval custody", () => {
     const directCustody = custody(direct.state, { ttlMs: 60_000 })
     const framedCustody = custody(framed.state, { ttlMs: 60_000 })
 
-    await consumeStream(
-      directCustody.observe(eventStream(approvalRequestEvents())) as ReadableStream<unknown>,
-    )
-    const observedResponse = framedCustody.observe(
-      responseStream(approvalRequestEvents(), true),
-    ) as Response
+    await consumeStream(directCustody.observe(eventStream(approvalRequestEvents())))
+    const observedResponse = framedCustody.observe(responseStream(approvalRequestEvents(), true))
     expect(observedResponse.status).toBe(201)
     expect(observedResponse.statusText).toBe("Created")
     expect(observedResponse.headers.get("content-length")).toBeNull()
@@ -287,6 +281,7 @@ describe("Agent Chat approval custody", () => {
     const malformedOwner = custody(malformedFixture.state)
     await issueApproval(malformedOwner, "approval-2")
     const malformed = approvalResponse("approval-2")
+    // SAFETY: approvalResponse always creates this approval part for the mutation fixture.
     delete (malformed[0]!.parts![0] as { approval: { approved?: unknown } }).approval.approved
     await expect(malformedOwner.authorize(malformed)).rejects.toMatchObject({
       message: 'Agent chat approval "approval-2" requires an approved decision.',
@@ -346,16 +341,14 @@ describe("Agent Chat approval custody", () => {
       },
     })
     await expect(
-      consumeStream(custody(approvalState().state).observe(source) as ReadableStream<unknown>),
+      consumeStream(custody(approvalState().state).observe(source)),
     ).rejects.toThrow("source failed")
 
     const stateError = new Error("State write failed")
     const failed = approvalState({ setError: stateError })
     await expect(
       consumeStream(
-        custody(failed.state).observe(
-          eventStream(approvalRequestEvents()),
-        ) as ReadableStream<unknown>,
+        custody(failed.state).observe(eventStream(approvalRequestEvents())),
       ),
     ).rejects.toThrow("State write failed")
   })

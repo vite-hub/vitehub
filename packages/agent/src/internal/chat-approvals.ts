@@ -98,13 +98,14 @@ function agentChatConsumedApprovalKey(
 
 function uiApprovalPart(
   part: unknown,
-): { approval: Record<string, unknown>; record: Record<string, unknown> } | undefined {
+): { approval: Record<string, unknown> & { id: string }; record: Record<string, unknown> } | undefined {
   if (!isRecord(part)) return
   const type = part.type
   if (type !== "dynamic-tool" && !(isRuntimeString(type) && type.startsWith("tool-"))) return
   if (part.state !== "approval-requested" && part.state !== "approval-responded") return
-  if (!isRecord(part.approval) || !isRuntimeString(part.approval.id)) return
-  return { approval: part.approval, record: part }
+  const approval = part.approval
+  if (!isRecord(approval) || !isRuntimeString(approval.id)) return
+  return { approval, record: part }
 }
 
 export function resolveAgentChatApprovalTtl(maximumTtlMs?: number): number {
@@ -156,7 +157,7 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
       const pending = new Map(
         await Promise.all(
           submitted
-            .map((part) => part.approval.id as string)
+            .map((part) => part.approval.id)
             .filter((id, index, ids) => ids.indexOf(id) === index)
             .map(
               async (id) =>
@@ -173,7 +174,7 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
         await Promise.all(
           submitted
             .filter((part) => part.historical)
-            .map((part) => part.approval.id as string)
+            .map((part) => part.approval.id)
             .filter((id, index, ids) => ids.indexOf(id) === index)
             .map(async (id) => {
               const value = await state.get<AgentChatConsumedApproval>(
@@ -191,13 +192,13 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
             .filter((part) => {
               const submittedPart = uiApprovalPart(part)
               if (!submittedPart || messageIndex === messages.length - 1) return true
-              const id = submittedPart.approval.id as string
+              const id = submittedPart.approval.id
               return Boolean(pending.get(id) || historical.get(id))
             })
             .map((part) => {
               const submittedPart = uiApprovalPart(part)
               if (!submittedPart) return part
-              const id = submittedPart.approval.id as string
+              const id = submittedPart.approval.id
               const historicalDecision = historical.get(id)
               const request =
                 pending.get(id) ??
@@ -241,7 +242,7 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
         .filter((message) => message.parts.length > 0)
 
       const newlyApproved = submitted.flatMap((part) => {
-        const id = part.approval.id as string
+        const id = part.approval.id
         const request = pending.get(id)
         return part.record.state === "approval-responded" &&
           part.approval.approved === true &&
@@ -284,6 +285,9 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
     })
   }
 
+  function observe(result: Response): Response
+  function observe<T>(result: ReadableStream<T>): ReadableStream<T>
+  function observe(result: unknown): unknown
   function observe(result: unknown): unknown {
     const toolInputs = new Map<string, { input?: unknown; name?: string }>()
 
@@ -313,10 +317,10 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
       )
     }
 
-    function observedStream(
-      stream: ReadableStream<unknown>,
+    function observedStream<T>(
+      stream: ReadableStream<T>,
       framed = false,
-    ): ReadableStream<unknown> {
+    ): ReadableStream<T> {
       const reader = stream.getReader()
       const decoder = framed ? new TextDecoder() : undefined
       let pending = ""
@@ -365,7 +369,7 @@ export function createAgentChatApprovalCustody(options: AgentChatApprovalCustody
       const headers = new Headers([...result.headers.entries()])
       headers.delete("content-encoding")
       headers.delete("content-length")
-      return new Response(observedStream(result.body, true) as ReadableStream<Uint8Array>, {
+      return new Response(observedStream(result.body, true), {
         headers,
         status: result.status,
         statusText: result.statusText,
