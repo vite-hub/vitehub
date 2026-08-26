@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -13,6 +14,8 @@ const requestTimeout = 15_000;
 if (!existsSync(serverEntry)) {
   throw new Error("Missing docs/.output/server/index.mjs. Build vitehub-docs before running the artifact smoke.");
 }
+
+await assertPortAvailable();
 
 const server = spawn("vp", [
   "dlx", "wrangler@4.112.0", "dev",
@@ -86,7 +89,7 @@ async function waitUntilReady() {
     if (server.exitCode !== null) throw new Error(`Docs artifact server exited before startup with status ${server.exitCode}`);
     try {
       const remaining = deadline - Date.now();
-      const response = await fetch(`${origin}/openapi.json`, { signal: AbortSignal.timeout(Math.max(1, Math.min(requestTimeout, remaining))) });
+      const response = await fetchFromServer("startup", "/openapi.json", Math.max(1, Math.min(requestTimeout, remaining)));
       if (response.status === 200) return;
     }
     catch {}
@@ -96,12 +99,40 @@ async function waitUntilReady() {
 }
 
 async function request(name, path, expectedStatus, expectedType, headers = {}) {
-  const response = await fetch(`${origin}${path}`, { headers, signal: AbortSignal.timeout(requestTimeout) });
+  const response = await fetchFromServer(name, path, requestTimeout, headers);
   const body = await response.text();
   if (response.status !== expectedStatus) throw new Error(`${name} returned ${response.status}, expected ${expectedStatus}`);
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.startsWith(expectedType)) throw new Error(`${name} returned ${contentType || "no content type"}, expected ${expectedType}`);
   return body;
+}
+
+async function assertPortAvailable() {
+  const probe = createServer();
+  try {
+    await new Promise((resolveListen, rejectListen) => {
+      probe.once("error", rejectListen);
+      probe.listen(port, "127.0.0.1", resolveListen);
+    });
+  }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EADDRINUSE") {
+      throw new Error(`Docs artifact smoke port ${port} is already in use`);
+    }
+    throw error;
+  }
+  finally {
+    if (probe.listening) await new Promise(resolveClose => probe.close(resolveClose));
+  }
+}
+
+function fetchFromServer(name, path, timeout, headers = {}) {
+  return Promise.race([
+    fetch(`${origin}${path}`, { headers, signal: AbortSignal.timeout(timeout) }),
+    serverExit.then(({ code, signal }) => {
+      throw new Error(`${name} could not complete because the docs artifact server exited with ${signal ?? `status ${code}`}`);
+    }),
+  ]);
 }
 
 async function assertTextRoute(name, path, status, type, text, headers) {

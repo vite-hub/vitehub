@@ -16,7 +16,7 @@ describe("docs build warning budget", () => {
     const timing = buildWarningBudget.find(entry => entry.name === "build plugin timings")
     if (!timing) throw new Error("missing plugin timing budget")
     const warnings = [
-      ...Array.from({ length: timing.maximum + 1 }, () => timing.text),
+      ...Array.from({ length: timing.maximum + 1 }, () => `[warn] ${timing.text}`),
       "WARN an unexpected docs build warning",
     ].join("\n")
 
