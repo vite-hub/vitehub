@@ -57,13 +57,18 @@ describe("root test layers", () => {
   })
 
   it("keeps package tests behind their package build", () => {
+    const packageDirsWithTests = new Set(
+      trackedTestFiles()
+        .filter(path => path.startsWith("packages/"))
+        .map(path => path.split("/").slice(0, 2).join("/")),
+    )
     const violations = readdirSync(resolve(repoRoot, "packages"), { withFileTypes: true })
-      .filter(entry => entry.isDirectory())
+      .filter(entry => entry.isDirectory() && packageDirsWithTests.has(`packages/${entry.name}`))
       .flatMap((entry) => {
         const manifestPath = join(repoRoot, "packages", entry.name, "package.json")
         const manifest = parse(packageManifestSchema, JSON.parse(readFileSync(manifestPath, "utf8")))
-        if (!manifest.scripts?.test) return []
-        return manifest.scripts.build && manifest.scripts.test.includes("#build")
+        return manifest.scripts?.build
+          && manifest.scripts.test?.includes(`${manifest.name}#build`)
           ? []
           : [manifest.name]
       })
