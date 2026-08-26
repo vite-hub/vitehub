@@ -10,6 +10,11 @@ import { hubRateLimit } from "../src/vite.ts"
 
 const roots: string[] = []
 
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubRateLimit>) {
+  await (plugin.buildEnd as () => void | Promise<void>)()
+  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
@@ -67,7 +72,7 @@ describe("hubRateLimit", () => {
     const resolvedConfig = { ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [{ name: "nitro:main" }], resolve: { alias: [] } }
     await configResolved(resolvedConfig as never)
     expect(resolvedConfig.nitro.cloudflare.wrangler.ratelimits).toHaveLength(2)
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     await expect(access(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
@@ -131,12 +136,11 @@ describe("hubRateLimit", () => {
       const plugin = hubRateLimit({ namespace: "vite-test" })
       const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
       const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-      const closeBundle = plugin.closeBundle as () => Promise<void>
       const userConfig = { root }
 
       config(userConfig, { command: "build" })
       await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] } } as never)
-      await closeBundle()
+      await runProviderOutputHooks(plugin)
 
       const [appOutput] = await readdir(join(root, "dist"))
       await expect(readFile(join(root, "dist", appOutput!, "wrangler.json"), "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
@@ -164,7 +168,7 @@ describe("hubRateLimit", () => {
       expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.ratelimits", [
         expect.objectContaining({ name: getCloudflareRateLimitBindingName("upload") }),
       ])
-      await (plugin.closeBundle as () => Promise<void>)()
+      await runProviderOutputHooks(plugin)
 
       await expect(access(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).rejects.toMatchObject({ code: "ENOENT" })
     }
@@ -181,12 +185,11 @@ describe("hubRateLimit", () => {
     const plugin = hubRateLimit({ namespace: "vite-test" })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    const closeBundle = plugin.closeBundle as () => Promise<void>
     const userConfig = { nitro: { preset: "cloudflare-module" }, root }
 
     config(userConfig, { command: "build" })
     await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] } } as never)
-    await closeBundle()
+    await runProviderOutputHooks(plugin)
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
   })
@@ -197,14 +200,13 @@ describe("hubRateLimit", () => {
     const plugin = hubRateLimit({ namespace: "vite-test" })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    const closeBundle = plugin.closeBundle as () => Promise<void>
     const userConfig = { nitro: { preset: "cloudflare-module" }, root }
 
     config(userConfig, { command: "build" })
     await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [{ name: "nitro:main" }], resolve: { alias: [] } } as never)
     await writeCloudflareDeclaration(root)
 
-    await expect(closeBundle()).rejects.toThrow("changed after config resolution")
+    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
   })
 
   it("registers provider runtime without global request middleware", async () => {

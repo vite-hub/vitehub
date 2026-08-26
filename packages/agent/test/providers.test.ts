@@ -24,9 +24,15 @@ vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
-vi.mock("@vite-hub/internal/build/deployment-output", () => ({
+vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
+  ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>(),
   writeProviderDeploymentOutputs: vi.fn(async () => undefined),
 }))
+
+async function runProviderOutputHooks(plugin: ReturnType<typeof import("../src/vite.ts").hubAgent>) {
+  await (plugin.buildEnd as () => void | Promise<void>)()
+  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
+}
 
 vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 
@@ -965,12 +971,10 @@ describe("agent Vite plugin", () => {
     const plugin = hubAgent()
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
-    // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
     await configResolved({ command: "build", root: "/app" })
-    await closeBundle.handler()
+    await runProviderOutputHooks(plugin)
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
       packages: [
@@ -1000,8 +1004,6 @@ describe("agent Vite plugin", () => {
         root: string
       }) => Promise<void>
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
       await configResolved({
@@ -1010,7 +1012,7 @@ describe("agent Vite plugin", () => {
         resolve: { alias: [] },
         root,
       })
-      await closeBundle.handler()
+      await runProviderOutputHooks(plugin)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain('const chatRoutePattern = new RegExp("^/api/_vitehub/agents/[^/]+/chat$")')
@@ -1119,8 +1121,6 @@ describe("agent Vite plugin", () => {
         resolve: { alias: [] }
         root: string
       }) => Promise<void>
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
       await configResolved({
@@ -1129,7 +1129,7 @@ describe("agent Vite plugin", () => {
         resolve: { alias: [] },
         root,
       })
-      await closeBundle.handler()
+      await runProviderOutputHooks(plugin)
 
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
         cleanup: {
@@ -1972,12 +1972,10 @@ describe("agent Vite plugin", () => {
       const plugin = hubAgent({ runtime: "deno" })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
       await configResolved({ agent: { runtime: "deno" }, command: "build", root })
-      await closeBundle.handler()
+      await runProviderOutputHooks(plugin)
 
       expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
     } finally {

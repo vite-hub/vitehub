@@ -15,6 +15,11 @@ const execFileAsync = promisify(execFile)
 const roots: string[] = []
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
 
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubQueue>) {
+  await (plugin.buildEnd as () => void | Promise<void>)()
+  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
@@ -333,7 +338,7 @@ describe("hubQueue", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)(resolved as never)
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.queues.producers")
     expect(resolved).toHaveProperty("nitro.rollupConfig.external", ["cloudflare:workers"])
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(false)
 
     const disabled = { nitro: { preset: "cloudflare_module", handlers: [{ handler: ".vitehub/nitro/queue/middleware.ts", middleware: true, route: "/**" }, { handler: "server/middleware.ts", middleware: true }], plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] }, queue: false, root }
@@ -364,7 +369,7 @@ describe("hubQueue", () => {
     }
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
     await plugin.vitehub?.queue?.createNitroConfig({ nitro: config.nitro, projectRoot: root, root: viteRoot })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     expect(existsSync(join(root, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(true)
     expect(existsSync(join(viteRoot, ".vercel"))).toBe(false)
@@ -388,7 +393,7 @@ describe("hubQueue", () => {
     }
     ;(vercelPlugin.config as unknown as (config: Record<string, unknown>) => void)(vercelConfig)
     await (vercelPlugin.configResolved as (config: unknown) => Promise<void>)(vercelConfig as never)
-    await (vercelPlugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(vercelPlugin)
 
     const outputRoot = join(root, ".vercel", "output")
     const functionsRoot = join(outputRoot, "functions")
@@ -438,7 +443,7 @@ describe("hubQueue", () => {
     }
     ;(cloudflarePlugin.config as unknown as (config: Record<string, unknown>) => void)(cloudflareConfig)
     await (cloudflarePlugin.configResolved as (config: unknown) => Promise<void>)(cloudflareConfig as never)
-    await (cloudflarePlugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(cloudflarePlugin)
 
     await expect(readFile(join(serverFunction, "index.mjs"), "utf8")).resolves.toBe(serverContents)
     await expect(readFile(join(blobFunction, "index.mjs"), "utf8")).resolves.toContain("blob: true")
@@ -493,7 +498,7 @@ describe("hubQueue", () => {
     expect(pagesPlugin).not.toContain("cloudflare:queue")
     expect(pagesPlugin).toContain("cloudflare:workers")
     expect(pagesPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
   })
 
@@ -505,7 +510,7 @@ describe("hubQueue", () => {
     const config = { build: { outDir: "dist" }, command: "build", nitro: { preset: "vercel" }, root }
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
   })
 
@@ -521,7 +526,7 @@ describe("hubQueue", () => {
       const config = { build: { outDir: "dist" }, command: "build", nitro: { plugins: [".vitehub/nitro/blob/plugin.ts"] }, plugins: [{ name: "@vite-hub/blob/vite" }], root }
       ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
       await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
-      await (plugin.closeBundle as () => Promise<void>)()
+      await runProviderOutputHooks(plugin)
       expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
     }
     finally {
@@ -543,7 +548,7 @@ describe("hubQueue", () => {
     } as never)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
   })
 
   it("rejects late Queue Definitions for Vercel Nitro", async () => {
@@ -559,7 +564,7 @@ describe("hubQueue", () => {
     } as never)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
   })
 
   it("removes Queue bindings when final config discovery is empty", async () => {
@@ -599,7 +604,7 @@ describe("hubQueue", () => {
     } as never)
     await rm(definition)
 
-    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
   })
 
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {

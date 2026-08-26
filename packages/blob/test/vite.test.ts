@@ -16,6 +16,11 @@ import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
 
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubBlob>) {
+  await (plugin.buildEnd as () => void | Promise<void>)()
+  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
+}
+
 function driverImports(source: string) {
   return source.match(/from\s+["'][^"']+\/drivers\/[^"']+["']/g) || []
 }
@@ -596,7 +601,6 @@ describe("hubBlob", () => {
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
-    const closeBundle = plugin.closeBundle as () => void | Promise<void>
     const value = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
 
     config(value, { command: "build" })
@@ -607,7 +611,7 @@ describe("hubBlob", () => {
       root,
     }
     await configResolved(resolved as never)
-    await closeBundle()
+    await runProviderOutputHooks(plugin)
 
     expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
@@ -656,7 +660,7 @@ describe("hubBlob", () => {
       config(plugin, plainVite)
       expect(plainVite).not.toHaveProperty("nitro.cloudflare")
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)(plainVite as never)
-      await (plugin.closeBundle as () => void | Promise<void>)()
+      await runProviderOutputHooks(plugin)
       expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
     }
     finally {

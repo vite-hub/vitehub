@@ -187,28 +187,30 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "workflow",
         rootDir,
-        write: async ({ write }) => await generateProviderOutputs({
-          agentImportBase: internalOptions?.agentImportBase,
-          clientOutDir: resolve(config.root, config.build.outDir),
-          hosting: internalOptions?.hosting,
-          importBase: internalOptions?.importBase,
-          providerImportAliases: await providerImportAliases(),
-          providerRuntimeImportAliases: {
-            cloudflare: providerRuntimeImportAliases("cloudflare"),
-            vercel: providerRuntimeImportAliases("vercel"),
-          },
-          rootDir,
-          definitionRootDir: config.root,
-          serverDirs,
-          serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
-          includeUserAppEntry: internalOptions?.includeUserAppEntry,
-          workflow,
-          workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-          workspaceImportBase: internalOptions?.workspaceImportBase,
-          transformRegistry: (config.plugins as AgentWorkflowRegistryPlugin[])
-            .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-            ?.vitehub?.agent?.transformWorkflowRegistry,
-        }, write),
+        write: async ({ write }) => {
+          await generateProviderOutputs({
+            agentImportBase: internalOptions?.agentImportBase,
+            clientOutDir: resolve(config.root, config.build.outDir),
+            hosting: internalOptions?.hosting,
+            importBase: internalOptions?.importBase,
+            providerImportAliases: await providerImportAliases(),
+            providerRuntimeImportAliases: {
+              cloudflare: providerRuntimeImportAliases("cloudflare"),
+              vercel: providerRuntimeImportAliases("vercel"),
+            },
+            rootDir,
+            definitionRootDir: config.root,
+            serverDirs,
+            serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
+            includeUserAppEntry: internalOptions?.includeUserAppEntry,
+            workflow,
+            workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
+            workspaceImportBase: internalOptions?.workspaceImportBase,
+            transformRegistry: (config.plugins as AgentWorkflowRegistryPlugin[])
+              .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
+              ?.vitehub?.agent?.transformWorkflowRegistry,
+          }, write)
+        },
       })
     },
     closeBundle: {
