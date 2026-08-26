@@ -17,13 +17,13 @@ export const allowedMissingIcons = Object.freeze([
 ]);
 
 export const buildWarningBudget = Object.freeze([
-  { name: "Docus assistant disabled", maximum: 1, text: "[docus]  WARN  AI assistant disabled:" },
-  { name: "Nuxt Content local D1 fallback", maximum: 1, text: "[@nuxt/content]  WARN  Deploying to Cloudflare requires using D1 database" },
-  { name: "build plugin timings", maximum: 3, text: "WARN  [PLUGIN_TIMINGS]" },
-  { name: "VueUse pure annotations", maximum: 2, text: "WARN  [INVALID_ANNOTATION]" },
+  { name: "Docus assistant disabled", maximum: 1, text: "AI assistant disabled:" },
+  { name: "Nuxt Content local D1 fallback", maximum: 1, text: "Deploying to Cloudflare requires using D1 database" },
+  { name: "build plugin timings", maximum: 3, text: "[PLUGIN_TIMINGS]" },
+  { name: "VueUse pure annotations", maximum: 2, text: "[INVALID_ANNOTATION]" },
   { name: "Rollup pure annotations", maximum: 2, text: "contains an annotation that Rollup cannot interpret", warningTokenRequired: false },
-  { name: "Vite chunk size", maximum: 1, text: "WARN  [plugin builtin:vite-reporter]" },
-  { name: "Nitro Cloudflare assets override", maximum: 1, text: "[nitro]  WARN  [cloudflare] Wrangler config assetsset" },
+  { name: "Vite chunk size", maximum: 1, text: "[plugin builtin:vite-reporter]" },
+  { name: "Nitro Cloudflare assets override", maximum: 1, text: "Wrangler config assetsset" },
 ]);
 
 export function assertBuildWarningBudget(output) {
@@ -32,18 +32,19 @@ export function assertBuildWarningBudget(output) {
   const newMissingIcons = new Set();
 
   for (const line of stripVTControlCharacters(output).split(/\r?\n/)) {
-    const warningWithoutToken = buildWarningBudget.find(entry => entry.warningTokenRequired === false && line.includes(entry.text));
+    const normalizedLine = line.toLowerCase().replace(/\s+/g, " ");
+    const warningWithoutToken = buildWarningBudget.find(entry => entry.warningTokenRequired === false && normalizedLine.includes(normalizeWarningText(entry.text)));
     if (warningWithoutToken) {
       counts.set(warningWithoutToken.name, (counts.get(warningWithoutToken.name) ?? 0) + 1);
       continue;
     }
-    if (!/\b(?:WARN|WARNING)\b/.test(line)) continue;
-    const iconMatch = /\[Icon] failed to load icon ([^\s]+)/.exec(line);
+    if (!/\b(?:warn(?:ing)?|[a-z]+warning)\b/i.test(line)) continue;
+    const iconMatch = /\[Icon] failed to load icon [`'"]?([^`'"\s]+)[`'"]?/i.exec(line);
     if (iconMatch) {
       if (!allowedMissingIcons.includes(iconMatch[1])) newMissingIcons.add(iconMatch[1]);
       continue;
     }
-    const budget = buildWarningBudget.find(entry => line.includes(entry.text));
+    const budget = buildWarningBudget.find(entry => normalizedLine.includes(normalizeWarningText(entry.text)));
     if (!budget) unknownWarnings.push(line.trim());
     else counts.set(budget.name, (counts.get(budget.name) ?? 0) + 1);
   }
@@ -59,6 +60,10 @@ export function assertBuildWarningBudget(output) {
   if (failures.length > 0) {
     throw new Error(`Docs build warnings changed:\n${failures.map(failure => `- ${failure}`).join("\n")}`);
   }
+}
+
+function normalizeWarningText(text) {
+  return text.toLowerCase().replace(/\s+/g, " ");
 }
 
 export async function runDocsBuild() {

@@ -5,7 +5,7 @@ import { allowedMissingIcons, assertBuildWarningBudget, buildWarningBudget } fro
 describe("docs build warning budget", () => {
   it("accepts every explicitly budgeted warning and known missing icon", () => {
     const warnings = [
-      ...buildWarningBudget.flatMap(entry => Array.from({ length: entry.maximum }, () => entry.text)),
+      ...buildWarningBudget.flatMap(entry => Array.from({ length: entry.maximum }, () => entry.warningTokenRequired === false ? entry.text : `[warn] ${entry.text}`)),
       ...allowedMissingIcons.map(icon => `WARN [Icon] failed to load icon ${icon}`),
     ].join("\n")
 
@@ -26,5 +26,25 @@ describe("docs build warning budget", () => {
   it("rejects a new missing icon", () => {
     expect(() => assertBuildWarningBudget("WARN [Icon] failed to load icon custom:new-release-icon"))
       .toThrow("new missing icon: custom:new-release-icon")
+  })
+
+  it("accepts the normalized warning and quoted icon formats emitted by the docs build", () => {
+    const warnings = [
+      "[warn] [docus] AI assistant disabled: missing AI binding",
+      "[warn] [PLUGIN_TIMINGS] render pages took 1s",
+      "[warn] [Icon] failed to load icon `simple-icons:pnpm`",
+    ].join("\n")
+
+    expect(() => assertBuildWarningBudget(warnings)).not.toThrow()
+  })
+
+  it("rejects lowercase logger warnings and standard Node warnings", () => {
+    const warnings = [
+      "[warn] an unexpected docs build warning",
+      "(node:123) DeprecationWarning: deprecated docs integration",
+      "ExperimentalWarning: experimental docs integration",
+    ].join("\n")
+
+    expect(() => assertBuildWarningBudget(warnings)).toThrow(/unbudgeted warning.*DeprecationWarning.*ExperimentalWarning/s)
   })
 })
