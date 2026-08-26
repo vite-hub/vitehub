@@ -5,6 +5,8 @@ import type { NodeRuntimePackage } from "@vite-hub/internal/build/vercel-runtime
 
 const codexPackageName = "@openai/codex"
 
+declare const __VITEHUB_AGENT_APP_ROOT__: string | undefined
+
 const codexPlatformPackages: Record<string, string> = {
   "darwin-arm64": "@openai/codex-darwin-arm64",
   "darwin-x64": "@openai/codex-darwin-x64",
@@ -20,9 +22,10 @@ function isPackageResolutionMiss(error: unknown): boolean {
 
 export function resolveInstalledCodexExecutable(resolveFrom?: string, platform = process.platform): string | undefined {
   if (platform === "win32") return
+  const appRoot = typeof __VITEHUB_AGENT_APP_ROOT__ === "string" ? __VITEHUB_AGENT_APP_ROOT__ : undefined
   const candidates = resolveFrom
     ? [resolveFrom]
-    : [join(process.cwd(), "package.json"), import.meta.url]
+    : [appRoot && join(appRoot, "package.json"), join(process.cwd(), "package.json"), import.meta.url].filter((candidate): candidate is string => Boolean(candidate))
   for (const candidate of candidates) {
     try {
       return createRequire(candidate).resolve(`${codexPackageName}/bin/codex.js`)

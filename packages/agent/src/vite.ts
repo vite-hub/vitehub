@@ -2853,6 +2853,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         : mergedAgentNitro
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
+        define: {
+          __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(root),
+          ...config.define,
+        },
         ...(nitroHandlers.length
           ? {
               build: mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals),

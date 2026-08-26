@@ -40,6 +40,20 @@ describe("Codex runtime package", () => {
     ])
   })
 
+  it("resolves Codex from an app below the process working directory", async () => {
+    const monorepoRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-monorepo-"))
+    tempDirs.push(monorepoRoot)
+    const appRoot = join(monorepoRoot, "apps", "web")
+    await mkdir(appRoot, { recursive: true })
+    await writeFile(join(appRoot, "package.json"), "{}\n")
+    const packageDir = join(appRoot, "node_modules", "@openai", "codex")
+    await mkdir(join(packageDir, "bin"), { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.149.1" }))
+    await writeFile(join(packageDir, "bin", "codex.js"), "#!/usr/bin/env node\n")
+
+    expect(resolveInstalledCodexExecutable(join(appRoot, "package.json"))).toBe(join(packageDir, "bin", "codex.js"))
+  })
+
   it("leaves the host Codex executable as the fallback when the package is absent", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-codex-runtime-absent-"))
     tempDirs.push(rootDir)
