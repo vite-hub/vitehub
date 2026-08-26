@@ -7949,6 +7949,9 @@ describe("server helpers", () => {
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
+    const runStarted = Array.from({ length: 5 }, () => deferred<void>())
+    const runCompleted = Array.from({ length: 5 }, () => deferred<void>())
+    let startedRuns = 0
     let releaseSteer: () => void = () => undefined
     const steerAccepted = new Promise<void>((resolve) => {
       releaseSteer = resolve
@@ -7957,6 +7960,8 @@ describe("server helpers", () => {
     let failFlush = false
     let completedRuns = 0
     const run = vi.fn(async (context: { run?: { runId?: string }; waitUntil: (task: Promise<unknown>) => void }) => {
+      const runIndex = startedRuns++
+      runStarted[runIndex]?.resolve(undefined)
       const { run: metadata } = context
       const controlId = agentInvocationControlId(context)
       if (!metadata?.runId || !controlId) throw new Error("Expected controlled Agent Invocation identities.")
@@ -7979,6 +7984,7 @@ describe("server helpers", () => {
       } finally {
         closeControl()
         completedRuns += 1
+        runCompleted[runIndex]?.resolve(undefined)
       }
     })
     const agent = defineAgent({
@@ -8040,7 +8046,8 @@ describe("server helpers", () => {
         ok: true,
         queued: true,
       })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await withDeadline(runStarted[0]!.promise, 3_000, "First queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledOnce()
       expect(rehydrate).toHaveBeenCalledWith("delivery-1")
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
 
@@ -8115,12 +8122,14 @@ describe("server helpers", () => {
       expect(steeredInputs).toHaveLength(1)
       expect(run).toHaveBeenCalledOnce()
 
-      stop()
+      const stopped = stop()
       failFlush = true
       releases.shift()!()
-      await vi.waitFor(() => expect(completedRuns).toBe(1))
+      await withDeadline(runCompleted[0]!.promise, 3_000, "First queued webhook Agent Invocation did not finish.")
+      await stopped
+      expect(completedRuns).toBe(1)
       failFlush = false
-      await vi.waitFor(async () => expect(await state.get("webhook:review:github:github:steer:delivery-2")).toBeNull())
+      await expect(state.get("webhook:review:github:github:steer:delivery-2")).resolves.toBeNull()
       const absent = await handler(request("delivery-2"), "github", options)
       await expect(absent.json()).resolves.toEqual({
         accepted: false,
@@ -8132,15 +8141,20 @@ describe("server helpers", () => {
       expect(run).toHaveBeenCalledOnce()
       stop = handler.resume(options)
 
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 3_000 })
+      await withDeadline(runStarted[1]!.promise, 3_000, "Second queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(2)
       releases.shift()!()
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
+      await withDeadline(runStarted[2]!.promise, 3_000, "Third queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(3)
       releases.shift()!()
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      await withDeadline(runStarted[3]!.promise, 3_000, "Fourth queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(4)
       releases.shift()!()
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(5))
+      await withDeadline(runStarted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(5)
       releases.shift()!()
-      await vi.waitFor(() => expect(completedRuns).toBe(5))
+      await withDeadline(runCompleted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not finish.")
+      expect(completedRuns).toBe(5)
     } finally {
       const stopping = stop()
       releaseSteer()
@@ -8166,7 +8180,12 @@ describe("server helpers", () => {
     const states: Array<ReturnType<typeof createLibsqlAgentState>> = []
     const releases: Array<() => void> = []
     const steeredInputs: string[] = []
+    const runStarted = [deferred<void>(), deferred<void>()]
+    const runCompleted = [deferred<void>(), deferred<void>()]
+    let startedRuns = 0
     const run = vi.fn(async (context: { run?: { runId?: string } }) => {
+      const runIndex = startedRuns++
+      runStarted[runIndex]?.resolve(undefined)
       const controlId = agentInvocationControlId(context)
       if (!controlId) throw new Error("Expected an Agent Invocation control identity.")
       const unregister = registerAgentInvocationInputHandler(controlId, {
@@ -8181,6 +8200,7 @@ describe("server helpers", () => {
         return "accepted"
       } finally {
         unregister()
+        runCompleted[runIndex]?.resolve(undefined)
       }
     })
     const agent = defineAgent({
@@ -8235,7 +8255,8 @@ describe("server helpers", () => {
 
     try {
       await handler(request("first-run", "first"), "github", options)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await withDeadline(runStarted[0]!.promise, 3_000, "First state-scoped webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledOnce()
       await expect(states[0]?.get("webhook:backend-id")).resolves.toEqual(expect.any(String))
 
       const sameBackend = await handler(request("same-backend-steer", "first"), "github", options)
@@ -8253,11 +8274,12 @@ describe("server helpers", () => {
         ok: true,
         queued: true,
       })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await withDeadline(runStarted[1]!.promise, 3_000, "Second state-scoped webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(2)
       expect(steeredInputs).toEqual(["same-backend-steer"])
     } finally {
       releases.splice(0).forEach((release) => release())
-      await vi.waitFor(() => expect(releases).toHaveLength(0)).catch(() => undefined)
+      await Promise.all(runCompleted.slice(0, startedRuns).map(({ promise }) => promise))
       await Promise.all(states.map((state) => state.disconnect().catch(() => undefined)))
       await rm(stateDir, { force: true, recursive: true })
     }
