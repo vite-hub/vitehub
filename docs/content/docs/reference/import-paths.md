@@ -154,6 +154,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/realtime/vite` | Register Realtime Definition discovery and generated runtime wiring. |
 | `@vite-hub/sandbox/vite` | Register the Sandbox Vite Integration. |
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |
+| `@vite-hub/source/vite` | Register Source discovery, generated artifacts, and Nitro route integration. |
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |
 | `@vite-hub/workspace/vite` | Register the Workspace Vite Integration. |
 
@@ -172,7 +173,8 @@ for libraries, focused integrations, and advanced composition.
 The Agent Package does not expose an `@vite-hub/agent/netlify` application import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
 With Nuxt, that source wrapper is generated under `<buildDir>/vitehub/agent/netlify-function.mjs` (normally `.nuxt/vitehub/agent/netlify-function.mjs`).
 
-The framework distribution does not introduce public `vite-hub/*/vite` or
+The framework distribution exposes `vite-hub/source/vite` for custom Source
+integration. It does not introduce other public `vite-hub/*/vite` or
 provider-specific application aliases. Use root `vitehub()` for framework
 composition and the owner-package paths above for advanced integration control.
 
