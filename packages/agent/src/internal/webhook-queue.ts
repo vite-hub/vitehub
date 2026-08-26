@@ -253,7 +253,7 @@ export function createAgentWebhookQueue<Options>(
   }
 
   const track = (state: StateAdapter, options: Options, scopePrefix?: string) => {
-    if (!hasAgentWebhookQueue(state) || trackedStates.has(state)) return
+    if (!hasAgentWebhookQueue(state)) return
     trackedStates.set(state, { options, scopePrefix })
   }
 

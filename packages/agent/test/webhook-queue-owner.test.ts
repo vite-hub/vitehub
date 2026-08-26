@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAgentWebhookQueue } from "../src/internal/webhook-queue.ts"
 
-import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../src/internal/webhook-queue.ts"
+import type { AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../src/internal/webhook-queue.ts"
 
 function delivery(id: string, attempts = 0): AgentWebhookQueueLease {
   return {
@@ -22,6 +22,7 @@ function delivery(id: string, attempts = 0): AgentWebhookQueueLease {
 
 function queueState(claims: AgentWebhookQueueLease[] = []) {
   const queued = [...claims]
+  // SAFETY: The queue owner only exercises the webhook queue methods supplied by this focused fixture.
   const state = {
     claimWebhookDelivery: vi.fn(async () => queued.shift() ?? null),
     claimWebhookSteering: vi.fn(async () => true),
@@ -30,7 +31,7 @@ function queueState(claims: AgentWebhookQueueLease[] = []) {
     extendWebhookDeliveryLease: vi.fn(async () => true),
     retryWebhookDelivery: vi.fn(async () => true),
     webhookDeliveryScopes: vi.fn(async () => ["scope"]),
-  } as unknown as AgentWebhookQueueStateAdapter
+  } as AgentWebhookQueueStateAdapter
   return { queued, state }
 }
 
@@ -42,7 +43,7 @@ describe("Agent webhook queue owner", () => {
     const queue = createAgentWebhookQueue({ execute, resolveWaitUntil: async () => undefined })
     const registration = { backendId: "backend", options: {}, scope: "scope", state }
 
-    await expect(queue.admit(registration, lease as AgentWebhookQueueDelivery)).resolves.toBe(true)
+    await expect(queue.admit(registration, lease)).resolves.toBe(true)
     await queue.idle()
     await queue.register(registration)
     await queue.idle()
@@ -74,10 +75,11 @@ describe("Agent webhook queue owner", () => {
     expect(stopped).toHaveBeenCalledTimes(2)
   })
 
-  it("rediscovers persisted scopes after restart", async () => {
+  it("rediscovers every persisted scope when registration wins startup", async () => {
     const fixture = queueState([delivery("persisted")])
     const { state } = fixture
-    state.claimWebhookDelivery = vi.fn(async (scope: string) => scope === "scope" ? fixture.queued.shift() ?? null : null)
+    state.webhookDeliveryScopes = vi.fn(async () => ["scope:declared", "scope:persisted"])
+    state.claimWebhookDelivery = vi.fn(async (scope: string) => scope === "scope:persisted" ? fixture.queued.shift() ?? null : null)
     const execute = vi.fn(async () => undefined)
     const queue = createAgentWebhookQueue({
       execute,
@@ -86,8 +88,8 @@ describe("Agent webhook queue owner", () => {
       retryMs: 5,
     })
     const stop = queue.resume(async (registrar) => {
-      registrar.track(state, {}, "scope")
       await registrar.register({ backendId: "backend", options: {}, scope: "scope:declared", state })
+      registrar.track(state, {}, "scope:")
     }, { scopePrefix: "scope" })
 
     await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
