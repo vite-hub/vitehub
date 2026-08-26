@@ -11684,7 +11684,8 @@ describe("server helpers", () => {
       name: "channel:delivery-effect",
       outcome: "success",
     }))
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", {
       markdown: "Streamed reply",
     })
   })

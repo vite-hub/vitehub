@@ -102,6 +102,30 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
   }, 5_000)
 
+  it("persists delivery observations emitted after terminal finalization", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("late-delivery-observation"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.finish("completed")
+
+    await journal.context.traceLog?.append({
+      attributes: { "channel.effect.content": "Streamed reply" },
+      name: "agent.channel.delivery.effect",
+      type: "run",
+    })
+
+    await vi.waitFor(async () => {
+      const record = await invocations.getByRunId("late-delivery-observation")
+      expect(record).toMatchObject({ status: "completed" })
+      expect(record?.observations).toEqual([
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "channel.effect.content": "Streamed reply" }),
+          name: "agent.channel.delivery.effect",
+        }),
+      ])
+    })
+  })
+
   it("persists truncation when a running invocation reaches observation capacity", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))

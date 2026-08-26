@@ -880,6 +880,7 @@ describe("agent channels", () => {
       kind: "reply" as const,
       payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nQuery: ![query](screenshots/login.png?raw=1)\nFragment: ![fragment](result.png#v1)\nHTML: <img src=\"screenshots/login.png\" width=\"400\">\nCode: `unused.png`" },
     }
+    // SAFETY: The fixture supplies the complete delivery context consumed by the GitHub reply effect.
     const deliveryContext = {
       channel,
       effect,
@@ -962,6 +963,7 @@ describe("agent channels", () => {
       if (href.endsWith("/git/ref/heads/review-assets")) return Response.json({ object: { sha: "branch-sha" } })
       if (href.includes("/contents/")) return Response.json({ content: { sha: "content-sha" } }, { status: 201 })
       if (href.endsWith("/issues/42/comments")) {
+        // SAFETY: This mocked GitHub endpoint receives the JSON comment body created by the reply effect.
         const body = JSON.parse(String(init?.body)).body as string
         postedBodies.push(body)
         if (postedBodies.length === 1) {
@@ -989,6 +991,7 @@ describe("agent channels", () => {
       kind: "reply" as const,
       payload: { body: "Result: result.png" },
     }
+    // SAFETY: The fixture supplies the complete delivery context consumed by the GitHub reply effect.
     const deliveryContext = (runId: string) => ({
       channel,
       effect,
