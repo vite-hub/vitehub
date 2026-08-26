@@ -1269,7 +1269,8 @@ describe("agent Vite plugin", () => {
     }
     const platformPackage = platformPackages[`${process.platform}-${process.arch}`]
     if (!platformPackage) throw new Error(`Unsupported test platform ${process.platform}/${process.arch}.`)
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-output-"))
+    const nitroRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-nitro-"))
+    const root = join(nitroRoot, "app")
     try {
       await mkdir(join(root, "server", "agents", "support"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
@@ -1309,7 +1310,7 @@ describe("agent Vite plugin", () => {
           dev: false,
           output: { serverDir: join(root, ".output", "server") },
           preset: "node-server",
-          rootDir: root,
+          rootDir: nitroRoot,
         },
       })
       vi.mocked(copyNodeRuntimePackages).mockClear()
@@ -1352,7 +1353,7 @@ describe("agent Vite plugin", () => {
       expect(devHook).not.toHaveBeenCalled()
     }
     finally {
-      await rm(root, { force: true, recursive: true })
+      await rm(nitroRoot, { force: true, recursive: true })
     }
   }, 15_000)
 

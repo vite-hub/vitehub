@@ -730,29 +730,30 @@ function mergeNitroPlugins(nitro: NitroConfig, plugins: string[]): NitroConfig {
   return { ...nitro, plugins: [...existingPlugins, ...plugins] }
 }
 
-function installAgentProviderRuntimePackages(nitro: NitroConfig): NitroConfig {
+function installAgentProviderRuntimePackages(nitro: NitroConfig, rootDir: string): NitroConfig {
   const modules = Array.isArray(nitro.modules) ? nitro.modules : []
-  if (modules.includes(agentProviderRuntimePackagesNitroModule)) return nitro
   return {
     ...nitro,
-    modules: [agentProviderRuntimePackagesNitroModule, ...modules],
+    modules: [createAgentProviderRuntimePackagesNitroModule(rootDir), ...modules],
   }
 }
 
-function agentProviderRuntimePackagesNitroModule(nitro: {
+function createAgentProviderRuntimePackagesNitroModule(rootDir: string): (nitro: {
   hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
-  options: { dev?: boolean, output: { serverDir: string }, preset?: string | null, rootDir: string }
-}): void {
-  if (nitro.options.dev !== false || deploymentPresetFromNitro(nitro.options.preset) !== "node") return
-  nitro.hooks.hook("compiled", async () => {
-    const packages = resolveCodexRuntimePackages({ rootDir: nitro.options.rootDir })
-    if (!packages.length) return
-    await copyNodeRuntimePackages({
-      outputNodeModules: join(nitro.options.output.serverDir, "node_modules"),
-      packages,
-      rootDir: nitro.options.rootDir,
+  options: { dev?: boolean, output: { serverDir: string }, preset?: string | null }
+}) => void {
+  return (nitro) => {
+    if (nitro.options.dev !== false || deploymentPresetFromNitro(nitro.options.preset) !== "node") return
+    nitro.hooks.hook("compiled", async () => {
+      const packages = resolveCodexRuntimePackages({ rootDir })
+      if (!packages.length) return
+      await copyNodeRuntimePackages({
+        outputNodeModules: join(nitro.options.output.serverDir, "node_modules"),
+        packages,
+        rootDir,
+      })
     })
-  })
+  }
 }
 
 function normalizeNitroRoute(route: string): string {
@@ -2850,7 +2851,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         ],
       ))
       const mergedNitro = nitroContext && hasScheduledAgents && !denoOutput
-        ? installAgentProviderRuntimePackages(mergedAgentNitro)
+        ? installAgentProviderRuntimePackages(mergedAgentNitro, root)
         : mergedAgentNitro
       if (nitroContext) {
         const replacement = isRecord(mergedNitro.replace) ? mergedNitro.replace : {}
