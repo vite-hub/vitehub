@@ -325,6 +325,10 @@ describe("Agent Chat approval custody", () => {
     expect(resolveAgentChatApprovalTtl()).toBe(86_400_000)
     expect(resolveAgentChatApprovalTtl(60_000)).toBe(60_000)
     expect(resolveAgentChatApprovalTtl(172_800_000)).toBe(86_400_000)
+    expect(resolveAgentChatApprovalTtl(0)).toBe(86_400_000)
+    expect(resolveAgentChatApprovalTtl(-1)).toBe(86_400_000)
+    expect(resolveAgentChatApprovalTtl(Number.POSITIVE_INFINITY)).toBe(86_400_000)
+    expect(resolveAgentChatApprovalTtl(Number.NaN)).toBe(86_400_000)
 
     const fixture = approvalState()
     const owner = custody(fixture.state, { ttlMs: 172_800_000 })

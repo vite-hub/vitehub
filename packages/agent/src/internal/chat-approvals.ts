@@ -108,9 +108,9 @@ function uiApprovalPart(
 }
 
 export function resolveAgentChatApprovalTtl(maximumTtlMs?: number): number {
-  return maximumTtlMs === undefined
-    ? defaultAgentChatApprovalTtlMs
-    : Math.min(defaultAgentChatApprovalTtlMs, maximumTtlMs)
+  return maximumTtlMs !== undefined && Number.isFinite(maximumTtlMs) && maximumTtlMs > 0
+    ? Math.min(defaultAgentChatApprovalTtlMs, maximumTtlMs)
+    : defaultAgentChatApprovalTtlMs
 }
 
 export function createAgentChatApprovalCustody(options: AgentChatApprovalCustodyOptions) {
