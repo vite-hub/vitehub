@@ -47,7 +47,7 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
   })
 }
 
-const optionalMessageAdapterRuntimeExternals = ["bufferutil", "utf-8-validate", "zlib-sync"]
+const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
@@ -962,23 +962,38 @@ describe("agent Vite plugin", () => {
   it("materializes Agent runtime packages for Vercel build output", async () => {
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent()
-    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
-    // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
-    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-vercel-runtime-"))
+    const platformPackage = `@openai/codex-${process.platform}-${process.arch}`
+    try {
+      const codexPackageDir = join(root, "node_modules", "@openai", "codex")
+      const platformPackageDir = join(root, "node_modules", ...platformPackage.split("/"))
+      await mkdir(codexPackageDir, { recursive: true })
+      await mkdir(platformPackageDir, { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex" }))
+      await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: platformPackage }))
+      const plugin = hubAgent()
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "build"; root: string }) => Promise<void>
+      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+      vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
-    await configResolved({ command: "build", root: "/app" })
-    await closeBundle.handler()
+      await configResolved({ command: "build", root })
+      await closeBundle.handler()
 
-    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
-      packages: [
-        { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
-        { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
-      ],
-      rootDir: "/app",
-    })
+      expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+        packages: [
+          { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
+          { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
+          { name: "@openai/codex", resolveFrom: join(root, "package.json") },
+          { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
+        ],
+        rootDir: root,
+      })
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("publishes the conventional Netlify chat path", async () => {
@@ -1258,7 +1273,7 @@ describe("agent Vite plugin", () => {
     })
   })
 
-  it("packages an installed Codex CLI into self-hosted Node output", async () => {
+  it("packages installed provider runtimes into self-hosted Node output", async () => {
     const { copyNodeRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
     const platformPackages: Record<string, string> = {
@@ -1271,16 +1286,23 @@ describe("agent Vite plugin", () => {
     if (!platformPackage) throw new Error(`Unsupported test platform ${process.platform}/${process.arch}.`)
     const nitroRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-nitro-"))
     const root = join(nitroRoot, "app")
+    const claudePlatformPackage = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`
     try {
       await mkdir(join(root, "server", "agents", "support"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}\n")
       const codexPackageDir = join(root, "node_modules", "@openai", "codex")
       const platformPackageDir = join(root, "node_modules", ...platformPackage.split("/"))
+      const claudePackageDir = join(root, "node_modules", "@anthropic-ai", "claude-agent-sdk")
+      const claudePlatformPackageDir = join(root, "node_modules", ...claudePlatformPackage.split("/"))
       await mkdir(codexPackageDir, { recursive: true })
       await mkdir(platformPackageDir, { recursive: true })
+      await mkdir(claudePackageDir, { recursive: true })
+      await mkdir(claudePlatformPackageDir, { recursive: true })
       await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.149.1" }))
       await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: `0.149.1-${process.platform}-${process.arch}` }))
+      await writeFile(join(claudePackageDir, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", version: "0.3.246" }))
+      await writeFile(join(claudePlatformPackageDir, "package.json"), JSON.stringify({ name: claudePlatformPackage, version: "0.3.246" }))
       const plugin = hubAgent()
       const result = isRuntimeFunction(plugin.config)
         ? await plugin.config.call(
@@ -1323,6 +1345,8 @@ describe("agent Vite plugin", () => {
         packages: [
           { name: "@openai/codex", resolveFrom: join(root, "package.json") },
           { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
+          { name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(root, "package.json") },
+          { name: claudePlatformPackage, resolveFrom: join(claudePackageDir, "package.json") },
         ],
         rootDir: root,
       })
@@ -1757,11 +1781,11 @@ describe("agent Vite plugin", () => {
         deleted_classes: ["ViteHubAgentStateDO"],
       }),
     )
-    expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers", ...optionalMessageAdapterRuntimeExternals])
+    expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers", ...optionalAgentRuntimeExternals])
     expect(output.nitro?.rollupConfig?.plugins?.some((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
       rolldownOptions: {
-        external: ["existing", ...optionalMessageAdapterRuntimeExternals],
+        external: ["existing", ...optionalAgentRuntimeExternals],
         input: "legacy-entry",
       },
     })
@@ -1944,7 +1968,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.cloudflare).toBeUndefined()
     expect(output.nitro?.rollupConfig).toBeUndefined()
     expect(output.build).toEqual({
-      rolldownOptions: { external: optionalMessageAdapterRuntimeExternals },
+      rolldownOptions: { external: optionalAgentRuntimeExternals },
     })
   })
 

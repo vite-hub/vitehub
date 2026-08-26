@@ -24,13 +24,14 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-The built-in `"codex"` and `"claude-code"` drivers use ViteHub's pinned T3 provider runtime. Add Codex only when an Agent uses it:
+The built-in `"codex"` and `"claude-code"` drivers use ViteHub's pinned T3 provider runtime. Install only the provider packages an Agent uses:
 
 ```sh
 pnpm add @openai/codex@0.149.1
+pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 ```
 
-ViteHub resolves that project dependency directly. Production self-hosted Node builds on macOS and Linux copy only the build host's OS/CPU payload, so build on the same OS and CPU architecture as the deployment host. Without the dependency, the Codex Driver keeps using `codex` from the host `PATH`. Claude Code continues to use its host executable. Provider credentials must be available to the host process in either case.
+ViteHub resolves those project dependencies directly. Production self-hosted Node builds on macOS and Linux copy only the build host's native payload, including the Linux libc variant, so build on the same host type used for deployment. Without `@openai/codex`, the Codex Driver keeps using `codex` from the host `PATH`. The Claude Code Driver requires the Agent SDK; when its native package is unavailable at runtime, ViteHub leaves T3's host `claude` command fallback unchanged. Provider credentials remain owned by the host environment.
 
 Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` because the pinned runtime is an exact pkg.pr.new tarball.
 
