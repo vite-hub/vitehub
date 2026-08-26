@@ -26,6 +26,7 @@ import { runAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
+import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | string | undefined>
@@ -88,7 +89,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
-      const plugin = consoleVitePlugin()
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -137,7 +138,81 @@ describe("Agent invocation console", () => {
     await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
       command: "build",
       mode: "production",
-    }])).rejects.toThrow('console: true currently requires preset: "node" for production')
+    }])).rejects.toThrow('Console currently requires preset: "node" for production')
+  })
+
+  it("rejects a bare production Console boolean", async () => {
+    const plugin = consoleVitePlugin({ console: true, preset: "node" })
+    const configHook = plugin.config
+    if (!configHook) throw new TypeError("Expected a console config hook.")
+    const configHandler = "handler" in configHook ? configHook.handler : configHook
+
+    await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
+      command: "build",
+      mode: "production",
+    }])).rejects.toThrow("console: true is development-only")
+  })
+
+  it("requires ViteHub Auth authorize policies for both production route groups", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-host-"))
+    const auth = (routes: ResolvedAuthViteConfig["access"]["routes"]): ResolvedAuthViteConfig => ({
+      access: { routes },
+      basePath: "/api/auth",
+      database: { mode: "default" },
+      definition: { handler: "/server/auth.ts", name: "default", source: "server-auth" },
+      rootDir: root,
+      route: "/api/auth",
+      secondaryStorage: false,
+    })
+    try {
+      const missingApi = consoleVitePlugin({
+        console: { access: "auth" },
+        preset: "node",
+        resolveAuthConfig: () => auth([{ authorize: true, route: "/_vitehub/**" }]),
+      })
+      const missingHook = missingApi.config
+      if (!missingHook) throw new TypeError("Expected a console config hook.")
+      const missingHandler = "handler" in missingHook ? missingHook.handler : missingHook
+      await expect(Reflect.apply(missingHandler, {}, [{ root }, { command: "build", mode: "production" }]))
+        .rejects.toThrow("/api/_vitehub/console/**")
+
+      const protectedConsole = consoleVitePlugin({
+        console: { access: "auth" },
+        preset: "node",
+        resolveAuthConfig: () => auth([
+          { authorize: true, route: "/_vitehub/**" },
+          { authorize: true, route: "/api/_vitehub/console/**" },
+        ]),
+      })
+      const protectedHook = protectedConsole.config
+      if (!protectedHook) throw new TypeError("Expected a console config hook.")
+      const protectedHandler = "handler" in protectedHook ? protectedHook.handler : protectedHook
+      const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
+      await Reflect.apply(protectedHandler, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: "/_vitehub/**" }),
+        expect.objectContaining({ route: "/api/_vitehub/console/agents" }),
+      ]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("accepts explicit host-managed production exposure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-managed-host-"))
+    try {
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**" }))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("keeps the local console available during development for every preset", async () => {
@@ -263,7 +338,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
-      const plugin = consoleVitePlugin()
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook

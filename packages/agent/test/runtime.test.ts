@@ -11322,10 +11322,12 @@ describe("agent message protocol", () => {
 
     it("preserves source run identity when Workflow providers require a portable ID", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       let providerRunId = ""
+      let workflowPayload: unknown
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
@@ -11339,7 +11341,8 @@ describe("agent message protocol", () => {
         workflow: async () => ({
           createWorkflow: () => ({
             defer: async () => ({ id: "recovery", provider: "cloudflare", status: "queued" }),
-            run: async (_payload: unknown, options: { id?: string }) => {
+            run: async (payload: unknown, options: { id?: string }) => {
+              workflowPayload = payload
               providerRunId = options.id || ""
               return { id: providerRunId, status: "queued" }
             },
@@ -11348,12 +11351,13 @@ describe("agent message protocol", () => {
       })
       try {
         const sourceRunId = "source/run/id"
-        await runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
+        const agent = defineAgent({
+          driver: { run: () => "completed" },
           invocations,
           name: "portable-id-agent",
           runtime: workflow("portable-id-agent"),
-        }), {
+        })
+        await runAgent(agent, {
           memo: vi.fn(),
           run: { runId: sourceRunId },
           runtime: "unknown",
@@ -11362,6 +11366,16 @@ describe("agent message protocol", () => {
 
         expect(providerRunId).toMatch(/^vitehub-invalid-/)
         await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "pending" })
+        await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
+
+        await expect(runAgentWorkflowDefinition(agent, {
+          id: providerRunId,
+          name: "portable-id-agent",
+          // SAFETY: The captured payload comes from the Workflow boundary under test.
+          payload: workflowPayload as never,
+          provider: "cloudflare",
+        }, runAgent)).resolves.toMatchObject({ text: "completed" })
+        await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "completed" })
         await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
       }
       finally {

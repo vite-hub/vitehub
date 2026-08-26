@@ -1,6 +1,7 @@
 packages:
   - "docs"
   - "packages/*"
+  - "packages/*/examples/*"
 catalog:
   '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@99682f626b1d24843d3f82bd082644d77aa0de43
   vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d

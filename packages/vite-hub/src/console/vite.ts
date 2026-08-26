@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
+import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { Plugin } from "vite"
 
 import { serializeConsoleRefresh } from "./refresh.ts"
@@ -32,6 +33,56 @@ type ConsoleNitroConfig = {
 
 type ConsoleAgentEntry = { handler: string, name: string }
 
+export type ConsoleOptions =
+  | { access: "auth", exposure?: never }
+  | { access?: never, exposure: "host-managed" }
+
+interface ConsoleVitePluginOptions {
+  console?: true | ConsoleOptions
+  preset?: string
+  resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
+}
+
+const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
+
+function authRouteProtects(route: ResolvedAuthViteConfig["access"]["routes"][number], target: string): boolean {
+  if (!route.authorize || (route.method && route.method.toUpperCase() !== "GET")) return false
+  if (!route.route.endsWith("/**")) return false
+  const routeBase = route.route.slice(0, -3)
+  const targetBase = target.slice(0, -3)
+  return targetBase === routeBase || targetBase.startsWith(`${routeBase}/`)
+}
+
+export function assertConsoleProductionAccess(
+  configured: true | ConsoleOptions,
+  options: {
+    development: boolean
+    preset?: string
+    auth?: ResolvedAuthViteConfig
+  },
+): void {
+  if (options.development) return
+  if (options.preset && options.preset !== "node") {
+    throw new Error(
+      `[vitehub] Console currently requires preset: "node" for production because its fallback journal uses durable local SQLite. Disable Console for the ${JSON.stringify(options.preset)} production build or deploy it with the Node preset.`,
+    )
+  }
+  if (configured === true) {
+    throw new Error('[vitehub] console: true is development-only. Production Console builds require console: { access: "auth" } or console: { exposure: "host-managed" }.')
+  }
+  if (configured.exposure === "host-managed") return
+  if (configured.access !== "auth") {
+    throw new TypeError('[vitehub] Console production access must use access: "auth" or exposure: "host-managed".')
+  }
+  if (!options.auth) {
+    throw new Error('[vitehub] console: { access: "auth" } requires a discovered ViteHub Auth Definition.')
+  }
+  const missing = consoleAccessRoutes.filter(target => !options.auth?.access.routes.some(route => authRouteProtects(route, target)))
+  if (missing.length) {
+    throw new Error(`[vitehub] Console Auth access must configure an authorize callback for ${missing.join(" and ")}.`)
+  }
+}
+
 function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[]): string {
   return [
     `import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`,
@@ -56,7 +107,7 @@ async function writeConsoleNitroPlugin(
 
 export function discoverConsoleAgentNames(
   root: string,
-  serverDirs = [join(root, "server")],
+  serverDirs: string[] = [join(root, "server")],
 ): string[] {
   return discoverAgentDefinitionEntries(root, serverDirs).map(agent => agent.name)
 }
@@ -65,7 +116,7 @@ function generatedRegistration(value: string, path: string): boolean {
   return value === path || value.replaceAll("\\", "/").endsWith(`/${path}`)
 }
 
-export function consoleVitePlugin(options: { preset?: string } = {}): Plugin {
+export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
   let root: string | undefined
@@ -83,20 +134,28 @@ export function consoleVitePlugin(options: { preset?: string } = {}): Plugin {
   return {
     name: "vite-hub/console",
     async config(config, environment) {
-      if (environment.command === "build" && options.preset && options.preset !== "node") {
-        throw new Error(
-          `[vitehub] console: true currently requires preset: "node" for production because its fallback journal uses durable local SQLite. Disable Console for the ${JSON.stringify(options.preset)} production build or deploy it with the Node preset.`,
-        )
-      }
       root = resolve(config.root || process.cwd())
+      const configured = options.console ?? true
+      // SAFETY: ViteHub Auth and server discovery extend Vite's user config with these documented keys.
+      const viteConfig = config as typeof config & {
+        [VITEHUB_SERVER_DIRS]?: string[]
+        auth?: AuthModuleOptions
+      }
+      assertConsoleProductionAccess(configured, {
+        auth: configured !== true && configured.access === "auth"
+          ? options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS], viteConfig.auth)
+          : undefined,
+        development: environment.command !== "build",
+        preset: options.preset,
+      })
       projectRoot = resolveViteHubProjectRoot(root)
       generatedPlugin = resolve(root, generatedConsolePlugin)
       await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root))
 
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
-      const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
-      const nitro: ConsoleNitroConfig = viteConfig.nitro
-        ? { ...viteConfig.nitro }
+      const consoleConfig = viteConfig as typeof viteConfig & { nitro?: ConsoleNitroConfig }
+      const nitro: ConsoleNitroConfig = consoleConfig.nitro
+        ? { ...consoleConfig.nitro }
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
@@ -124,7 +183,7 @@ export function consoleVitePlugin(options: { preset?: string } = {}): Plugin {
         : []
       publicAssets.push({ baseURL: "/_vitehub/assets", dir: consolePublicRoot, fallthrough: false })
 
-      viteConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
+      consoleConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
     },
     async configResolved(config) {
       root = config.root

@@ -416,6 +416,7 @@ async function requireAuthRequest(
   input: AuthRequestInput,
   definition: AuthDefinition,
   routeIndexes?: number[],
+  requiredAuthorizeRouteIndexes: number[] = [],
 ): Promise<Response | undefined> {
   const request = unwrapAuthRequest(input)
   const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, undefined, input))
@@ -428,8 +429,13 @@ async function requireAuthRequest(
       session: session.session,
       user: session.user,
     }
-    for (const route of authAccessRoutes(definition, request, input, routeIndexes)) {
+    const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
+    const routes = authAccessRoutes(definition, request, input, routeIndexes)
+    for (const [index, route] of routes.entries()) {
       const authorize = route instanceof Object ? route.authorize : undefined
+      if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
+        return createForbiddenResponse(request)
+      }
       if (!authorize) continue
       const result = await authorize(context)
       if (result instanceof Response) return result
@@ -466,11 +472,15 @@ export async function requireAuthAccessRoutes(
   input: AuthRequestInput,
   routeIndexes: number[],
   definition: AuthDefinition = resolveDefaultDefinition(),
+  requiredAuthorizeRouteIndexes: number[] = [],
 ): Promise<Response | undefined> {
   if (!Array.isArray(routeIndexes) || routeIndexes.length === 0 || routeIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
     throw new TypeError("[vitehub] Auth access route indexes must be a non-empty array of non-negative integers.")
   }
-  return requireAuthRequest(input, definition, routeIndexes)
+  if (!Array.isArray(requiredAuthorizeRouteIndexes) || requiredAuthorizeRouteIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
+    throw new TypeError("[vitehub] Required Auth authorize route indexes must be an array of non-negative integers.")
+  }
+  return requireAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes)
 }
 
 export default handleAuth

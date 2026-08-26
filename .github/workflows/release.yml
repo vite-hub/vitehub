@@ -31,9 +31,7 @@ jobs:
           node-version: "24"
           cache: true
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: 2.9.3
+      - uses: ./.github/actions/setup-deno
 
       - name: Validate npm trusted publishing support
         run: |

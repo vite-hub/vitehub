@@ -308,7 +308,7 @@ describe("framework package contract", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-distributed-console-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n", "utf8")
-      const plugin = framework.vitehub({ console: true, preset: "node" })
+      const plugin = framework.vitehub({ console: { exposure: "host-managed" }, preset: "node" })
         .find(candidate => Reflect.get(Object(candidate), "name") === "vite-hub/console")
       if (!plugin) throw new TypeError("Expected the distributed Console plugin.")
       const configHook = Reflect.get(Object(plugin), "config")

@@ -28,10 +28,12 @@ export function createAgentWebhookRequest(input: AgentWebhookRequestInput): Requ
   input.node?.res?.once("close", () => {
     if (!input.node?.res?.writableEnded) abort()
   })
-  return new Request(input.url, {
+  const init: RequestInit & { duplex?: "half" } = {
     body: input.body,
     headers: input.headers,
     method: input.method,
     signal: input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal,
-  })
+  }
+  if (input.body instanceof ReadableStream) init.duplex = "half"
+  return new Request(input.url, init)
 }

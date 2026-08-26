@@ -737,10 +737,10 @@ function capabilityInspectionMetadataProjection(
   return metadata.length ? { capabilities: metadata } : {}
 }
 
-function providerMetadata(driver: { model?: string, permissions?: AgentInspectionProviderMetadata["permissions"], provider: string }): AgentInspectionProviderMetadata {
+function providerMetadata(driver: { model?: string, permissions: AgentInspectionProviderMetadata["permissions"], provider: string }): AgentInspectionProviderMetadata {
   return {
     ...(driver.model ? { model: driver.model } : {}),
-    ...(driver.permissions ? { permissions: driver.permissions } : {}),
+    permissions: driver.permissions,
     provider: driver.provider,
   }
 }

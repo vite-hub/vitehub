@@ -135,4 +135,28 @@ Libraries and focused integrations can depend on any `@vite-hub/*` owner package
 
 ## Development
 
-This repo uses Node 24.15 or newer, pnpm, and Vite+. Run `vp run verify` for the full local gate. Package scripts own package-local test, build, and typecheck behavior.
+This repo requires Node 24.15 or newer and Deno 2.9.3. Use the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/) to install the pinned version. `.tool-versions` supplies that version to local checks and CI.
+
+From a clean checkout, let Corepack select pnpm 10.33.0 from `package.json` and install the workspace dependencies. This also installs Vite+.
+
+```sh
+corepack pnpm install --frozen-lockfile
+```
+
+Check the contributor tools without running tests:
+
+```sh
+corepack pnpm exec vp run preflight
+```
+
+Then run the full local gate:
+
+```sh
+corepack pnpm exec vp run verify
+```
+
+`verify` runs the preflight first and includes the native Deno package consumer test. A missing or different Deno version is a contributor setup error, not a ViteHub runtime failure. Package scripts own package-local test, build, and typecheck behavior.
+
+## Project policies
+
+ViteHub is available under the [Apache License 2.0](LICENSE). Report suspected vulnerabilities through the [security policy](SECURITY.md) before sharing details publicly.

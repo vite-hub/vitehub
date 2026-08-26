@@ -8,6 +8,7 @@ dynamicallyLoaded = [
   "test/local/netlify-real-project.mjs",
   "test/local/deno-real-project.mjs",
   "test/local/build-playground.mjs",
+  "test/preflight.mjs",
   "test/run-package-task.mjs",
   "docs/content.config.ts",
   "docs/app/assets/main.css",
