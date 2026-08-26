@@ -95,7 +95,7 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `env` | Explicit environment values passed to the local provider process. ViteHub otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. |
 | `execution.attachments.maxBytes` | Optional positive per-invocation image attachment budget; defaults to 25 MiB. Inline and application-resolved lazy images share the budget. |
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
-| `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"allow-all"`. |
+| `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"ask"`. Set `"allow-all"` explicitly to run provider actions without approval. |
 | `output` | Optional structured Agent output contract. |
 | `capacity` | Optional process-local concurrency and queue limits. |
 
