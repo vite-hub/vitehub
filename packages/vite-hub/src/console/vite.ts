@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -10,7 +11,15 @@ import type { Plugin } from "vite"
 import { serializeConsoleRefresh } from "./refresh.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
-const consoleRuntimeRoot = fileURLToPath(new URL("./runtime", import.meta.url))
+function resolveConsoleRuntimeRoot(): string {
+  const root = [
+    fileURLToPath(new URL("./runtime", import.meta.url)),
+    fileURLToPath(new URL("./console/runtime", import.meta.url)),
+  ].find(root => ["page.get.ts", "page.get.js"].some(file => existsSync(join(root, "server", file))))
+  if (!root) throw new Error("[vitehub] Could not locate the packaged Console runtime.")
+  return root
+}
+const consoleRuntimeRoot = resolveConsoleRuntimeRoot()
 const consolePublicRoot = join(consoleRuntimeRoot, "public/console")
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 

@@ -304,6 +304,44 @@ describe("framework package contract", () => {
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
 
+  it("configures Nitro with Console files from the distributed package", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-distributed-console-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n", "utf8")
+      const plugin = framework.vitehub({ console: true, preset: "node" })
+        .find(candidate => Reflect.get(Object(candidate), "name") === "vite-hub/console")
+      if (!plugin) throw new TypeError("Expected the distributed Console plugin.")
+      const configHook = Reflect.get(Object(plugin), "config")
+      const configHandler = Reflect.get(Object(configHook), "handler") || configHook
+      if (!(configHandler instanceof Function)) throw new TypeError("Expected the Console config hook.")
+      const config = { root }
+
+      await Reflect.apply(configHandler, plugin, [config, { command: "build", mode: "production" }])
+
+      const nitro = Reflect.get(config, "nitro")
+      const handlers = Reflect.get(Object(nitro), "handlers")
+      const publicAssets = Reflect.get(Object(nitro), "publicAssets")
+      if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
+        throw new TypeError("Expected the distributed Console Nitro configuration.")
+      }
+      expect(handlers).toHaveLength(6)
+      for (const registration of handlers) {
+        const handler = Reflect.get(Object(registration), "handler")
+        if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.")
+        expect(handler).toContain("/dist/console/runtime/server/")
+        expect(existsSync(handler), handler).toBe(true)
+      }
+      expect(publicAssets).toHaveLength(1)
+      const publicAssetDir = Reflect.get(Object(publicAssets[0]), "dir")
+      if (String(publicAssetDir) !== publicAssetDir) throw new TypeError("Expected a Console public asset path.")
+      expect(publicAssetDir).toContain("/dist/console/runtime/public/console")
+      expect(existsSync(publicAssetDir), publicAssetDir).toBe(true)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("runs the distributed CLI entrypoint with clean help streams", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"))
     try {
