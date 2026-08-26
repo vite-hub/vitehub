@@ -267,7 +267,11 @@ async function decodeResponse(
 
 async function readResponseBytes(response: Response, maxResponseBytes: number, signal: AbortSignal): Promise<Uint8Array> {
   const declaredLength = response.headers.get("content-length")?.trim()
-  if (declaredLength && /^\d+$/.test(declaredLength) && BigInt(declaredLength) > BigInt(maxResponseBytes)) {
+  if (response.body
+    && !response.headers.has("content-encoding")
+    && declaredLength
+    && /^\d+$/.test(declaredLength)
+    && BigInt(declaredLength) > BigInt(maxResponseBytes)) {
     const error = responseSizeError(maxResponseBytes)
     await response.body?.cancel(error).catch(() => {})
     throw error

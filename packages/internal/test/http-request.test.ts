@@ -108,6 +108,31 @@ describe("HTTP request", () => {
     expect(cancel).toHaveBeenCalledOnce()
   })
 
+  it("allows an oversized Content-Length on an empty HEAD response", async () => {
+    const fetch = vi.fn(async () => new Response(null, {
+      headers: { "content-length": "4" },
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ maxResponseBytes: 3, method: "HEAD", url: "https://example.com/head" }))
+      .resolves.toMatchObject({ data: undefined })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("counts decoded bytes instead of rejecting an encoded Content-Length", async () => {
+    const fetch = vi.fn(async () => new Response("123", {
+      headers: {
+        "content-encoding": "gzip",
+        "content-length": "4",
+      },
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ maxResponseBytes: 3, url: "https://example.com/compressed" }, { responseType: "text" }))
+      .resolves.toMatchObject({ data: "123" })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("counts streamed bytes when Content-Length is missing or understated", async () => {
     for (const contentLength of [undefined, "2"]) {
       const cancel = vi.fn()
