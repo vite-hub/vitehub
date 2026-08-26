@@ -52,7 +52,8 @@ describe("release workflow artifact handoff", () => {
   it("uploads one bounded immutable workspace after verification", () => {
     expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Dry-run npm package publish"))
     expect(verify).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1")
-    expect(verify).toContain('artifact_name="release-workspace-${GITHUB_SHA}-${GITHUB_RUN_ID}"')
+    expect(verify).toContain('artifact_name="release-workspace-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"')
+    expect(verify).toContain("runAttempt: process.env.GITHUB_RUN_ATTEMPT")
     expect(verify).toContain(".release/release-metadata.json")
     expect(verify).toContain(".release/package-order.txt")
     expect(verify).toContain("pnpm-lock.yaml")
@@ -68,6 +69,7 @@ describe("release workflow artifact handoff", () => {
       expect(downstream).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1")
       expect(downstream).toContain("name: ${{ needs.verify.outputs.artifact_name }}")
       expect(downstream).toContain("EXPECTED_ARTIFACT_DIGEST: ${{ needs.verify.outputs.artifact_digest }}")
+      expect(downstream).toContain("GITHUB_RUN_ATTEMPT")
       expect(downstream).not.toContain("actions/checkout@")
     }
 
