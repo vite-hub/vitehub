@@ -29,7 +29,7 @@ declare module "vite-hub/database/drizzle" {
 
 expectTypeOf(vitehub).toBeFunction()
 vitehub({ preset: "node", rateLimit: true })
-vitehub({ email: { driver: "unemail/driver/resend" }, preset: "node" })
+vitehub({ email: { driver: "resend" }, preset: "node" })
 vitehub({ email: true, preset: "cloudflare" })
 vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
 vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })

@@ -36,7 +36,7 @@ vitehub({
   auth: true,
   database: true,
   email: {
-    driver: "unemail/driver/resend",
+    driver: "resend",
   },
   kv: true,
   queue: true,

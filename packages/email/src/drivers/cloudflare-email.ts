@@ -1,0 +1,86 @@
+import { emailProviderError, isEmailProviderError } from "../provider.ts"
+import { addresses, addressValue, bytesToBase64, formatAddress, requiredOption } from "./shared.ts"
+
+import type { EmailAttachment, EmailDriver, EmailMessage } from "../types.ts"
+
+export interface CloudflareEmailBinding {
+  send: (message: unknown) => Promise<void> | void
+}
+
+export type CloudflareEmailMessageConstructor = new (from: string, to: string, raw: string) => unknown
+
+export interface CloudflareEmailDriverOptions {
+  binding: CloudflareEmailBinding
+  EmailMessage?: CloudflareEmailMessageConstructor
+}
+
+function safeHeader(value: string): string {
+  if (/\r|\n/.test(value)) throw emailProviderError("cloudflare-email", "INVALID_OPTIONS", "Email headers cannot contain line breaks.")
+  return value
+}
+
+function attachmentPart(boundary: string, value: EmailAttachment): string {
+  const content = typeof value.content === "string" ? value.content : bytesToBase64(value.content)
+  return [
+    `--${boundary}`,
+    `Content-Type: ${safeHeader(value.contentType ?? "application/octet-stream")}; name="${safeHeader(value.filename)}"`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: ${value.disposition ?? "attachment"}; filename="${safeHeader(value.filename)}"`,
+    ...(value.cid ? [`Content-ID: <${safeHeader(value.cid)}>`] : []),
+    "",
+    content,
+  ].join("\r\n")
+}
+
+function rawMessage(message: EmailMessage, id: string): string {
+  const boundary = `vitehub-${crypto.randomUUID()}`
+  const body = message.html ?? message.text ?? ""
+  const contentType = message.html ? "text/html; charset=utf-8" : "text/plain; charset=utf-8"
+  const headers = [
+    `From: ${safeHeader(formatAddress(addresses(message.from)[0]!))}`,
+    `To: ${safeHeader(addresses(message.to).map(formatAddress).join(", "))}`,
+    ...(message.cc ? [`Cc: ${safeHeader(addresses(message.cc).map(formatAddress).join(", "))}`] : []),
+    ...(message.replyTo ? [`Reply-To: ${safeHeader(addresses(message.replyTo).map(formatAddress).join(", "))}`] : []),
+    `Subject: ${safeHeader(message.subject)}`,
+    `Message-ID: ${safeHeader(id)}`,
+    "MIME-Version: 1.0",
+    ...Object.entries(message.headers ?? {}).filter(([name]) => name.toLowerCase() !== "message-id").map(([name, value]) => `${safeHeader(name)}: ${safeHeader(value)}`),
+  ]
+  if (!message.attachments?.length) return [...headers, `Content-Type: ${contentType}`, "", body].join("\r\n")
+  return [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    `Content-Type: ${contentType}`,
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    body,
+    ...message.attachments.map(value => attachmentPart(boundary, value)),
+    `--${boundary}--`,
+    "",
+  ].join("\r\n")
+}
+
+export default function cloudflareEmailDriver(options: CloudflareEmailDriverOptions): EmailDriver {
+  requiredOption("cloudflare-email", options?.binding, "binding")
+  const Constructor = options.EmailMessage ?? (globalThis as typeof globalThis & { EmailMessage?: CloudflareEmailMessageConstructor }).EmailMessage
+  if (!Constructor) throw emailProviderError("cloudflare-email", "INVALID_OPTIONS", "EmailMessage constructor is unavailable.")
+  return {
+    name: "cloudflare-email",
+    async send(message) {
+      try {
+        const from = addresses(message.from)[0]
+        const to = addresses(message.to)[0]
+        if (!from || !to) return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "from and to are required.") }
+        const id = message.headers?.["Message-ID"] ?? `<${crypto.randomUUID()}@vitehub.email>`
+        await options.binding.send(new Constructor(addressValue(from).email, addressValue(to).email, rawMessage(message, id)))
+        return { data: { at: new Date(), driver: "cloudflare-email", id }, error: null }
+      }
+      catch (cause) {
+        if (isEmailProviderError(cause)) return { data: null, error: cause }
+        return { data: null, error: emailProviderError("cloudflare-email", "PROVIDER", "Cloudflare Email send failed.", { cause }) }
+      }
+    },
+  }
+}

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
-import { createError } from "unemail"
 import { createEmail } from "../src/index.ts"
+import { emailProviderError } from "../src/provider.ts"
 import { email } from "../src/server.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
@@ -86,8 +86,8 @@ describe("createEmail", () => {
     ["PROVIDER", "EMAIL_PROVIDER_FAILED"],
     ["UNSUPPORTED", "EMAIL_PROVIDER_FAILED"],
     ["CANCELLED", "EMAIL_PROVIDER_FAILED"],
-  ] as const)("maps Unemail %s failures to %s", async (providerCode, code) => {
-    const cause = createError("fixture", providerCode, "provider unavailable")
+  ] as const)("maps provider %s failures to %s", async (providerCode, code) => {
+    const cause = emailProviderError("fixture", providerCode, "provider unavailable")
     const client = createEmail({
       driver: fixtureDriver(vi.fn(async () => ({ data: null, error: cause }))),
     })

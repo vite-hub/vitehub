@@ -15,13 +15,13 @@ import { renderEmailMarkdown } from "../src/markdown.ts"
 import { email } from "../src/server.ts"
 import { createTestEmail, type TestEmailClient } from "../src/test.ts"
 import { hubEmail } from "../src/vite.ts"
-import resend from "unemail/driver/resend"
+import resend from "../src/drivers/resend.ts"
 
-resend({ apiKey: "secret" }) satisfies EmailDriver
-const lazyDriver = (() => resend({ apiKey: "secret" })) satisfies EmailDriverFactory
+resend({ apiKey: "re_secret" }) satisfies EmailDriver
+const _lazyDriver = (() => resend({ apiKey: "re_secret" })) satisfies EmailDriverFactory
 declare const message: EmailMessage
 
-hubEmail({ driver: "unemail/driver/resend" })
+hubEmail({ driver: "resend" })
 // @ts-expect-error Email requires a configured provider.
 hubEmail()
 // @ts-expect-error File discovery is not an Email configuration model.

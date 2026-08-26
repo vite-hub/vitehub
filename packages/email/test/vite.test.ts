@@ -78,12 +78,12 @@ describe("hubEmail", () => {
       .toThrow("Invalid Email template")
   })
 
-  it("generates a server-only Unemail definition without resolving credentials at config time", async () => {
+  it("generates a server-only Email definition without resolving credentials at config time", async () => {
     const root = await createTempProject()
     const secret = "re_build-secret-sentinel"
     vi.stubEnv("RESEND_API_KEY", secret)
     const plugin = hubEmail({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       options: {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
@@ -93,7 +93,7 @@ describe("hubEmail", () => {
 
     const definition = plugin.api.getDefinition()
     expect(definition).toMatchObject({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       name: "default",
     })
     expect(resolveDefinition(plugin)).toBe(`\0${EMAIL_DEFINITION_ID}`)
@@ -108,7 +108,7 @@ describe("hubEmail", () => {
   it("reads Cloudflare Email credentials from the current runtime binding", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       options: {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
@@ -135,7 +135,7 @@ describe("hubEmail", () => {
 
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
     const root = await createTempProject()
-    const plugin = hubEmail({ driver: "unemail/driver/cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare-email" })
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
     const cloudflareConfig = { nitro: { preset: "cloudflare-module" } }
 
@@ -162,7 +162,7 @@ describe("hubEmail", () => {
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
     await writeFile(template, "Hello {{name}}")
     await writeFile(nestedTemplate, "Nested detail")
-    const plugin = hubEmail({ driver: "unemail/driver/cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare-email" })
 
     await resolvePlugin(plugin, root)
 
@@ -206,7 +206,7 @@ describe("hubEmail", () => {
     await mkdir(join(root, "server", "emails"), { recursive: true })
     await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
     const plugin = hubEmail({
-      driver: "unemail/driver/cloudflare-email",
+      driver: "cloudflare-email",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -235,7 +235,7 @@ describe("hubEmail", () => {
   it("exposes its generated definition to explicitly selected Vercel Workflows", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       workflowProvider: "vercel",
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -255,7 +255,7 @@ describe("hubEmail", () => {
       appType: "custom",
       configFile: false,
       plugins: [
-        hubEmail({ driver: "unemail/driver/resend" }),
+        hubEmail({ driver: "resend" }),
         workflow,
       ],
       root,
@@ -292,7 +292,7 @@ describe("hubEmail", () => {
     const server = await createServer({
       appType: "custom",
       configFile: false,
-      plugins: [hubEmail({ driver: "unemail/driver/resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])],
+      plugins: [hubEmail({ driver: "resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])],
       root,
       server: { middlewareMode: true },
     })
@@ -315,7 +315,7 @@ describe("hubEmail", () => {
     await mkdir(join(secondServerDir, "emails", "first"), { recursive: true })
     await writeFile(join(firstServerDir, "emails", "first.md"), "First")
     await writeFile(join(secondServerDir, "emails", "first", "second.md"), "Second")
-    const plugin = hubEmail({ driver: "unemail/driver/resend" })
+    const plugin = hubEmail({ driver: "resend" })
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root, serverDirs: [firstServerDir, secondServerDir] })).resolves.toEqual({
       "first/second": join(root, ".vitehub", "email", "templates", "first%2Fsecond.mjs"),
       first: join(root, ".vitehub", "email", "templates", "first.mjs"),
@@ -329,7 +329,7 @@ describe("hubEmail", () => {
     await mkdir(appRoot)
     await writeFile(join(appRoot, "package.json"), JSON.stringify({ private: true }))
     await writeFile(join(root, "server", "emails", "welcome.md"), "Welcome")
-    const plugin = hubEmail({ driver: "unemail/driver/resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
+    const plugin = hubEmail({ driver: "resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
     await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(appRoot, ".vitehub", "email", "definition.mjs") },
@@ -349,7 +349,7 @@ describe("hubEmail", () => {
     await writeFile(join(templatesRoot, "monthly-recap.md"), "Hello\n@../shared/footer.md")
     await writeFile(sharedTemplate, "First footer")
     const plugin = hubEmail({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       hosting: "vercel",
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -409,7 +409,7 @@ describe("hubEmail", () => {
     await mkdir(join(root, "server", "emails"), { recursive: true })
     await writeFile(template, "Initial template")
     const plugin = hubEmail({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -451,7 +451,7 @@ describe("hubEmail", () => {
       configFile: false,
       nitro: { preset: "cloudflare-module" },
       plugins: [hubEmail({
-        driver: "unemail/driver/resend",
+        driver: "resend",
         options: {
           apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
         },
@@ -482,13 +482,13 @@ describe("hubEmail", () => {
     }
   })
 
-  it("rejects driver names outside Unemail driver subpaths", () => {
-    expect(() => hubEmail({ driver: "resend" as "unemail/driver/resend" })).toThrow("unemail/driver/*")
+  it("rejects unknown built-in driver names", () => {
+    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend" or "cloudflare-email"')
   })
 
   it("rejects secret defaults that would be included in build output", () => {
     expect(() => hubEmail({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       options: {
         apiKey: env({ default: "re_build-secret", secret: true, source: env.source("RESEND_API_KEY") }),
       },
@@ -496,7 +496,7 @@ describe("hubEmail", () => {
   })
 
   it("marks the package as noExternal for server environments", async () => {
-    const plugin = hubEmail({ driver: "unemail/driver/resend" })
+    const plugin = hubEmail({ driver: "resend" })
     const config = plugin.config as (config: { ssr?: { noExternal?: string[] } }) => Promise<unknown>
     const configEnvironment = plugin.configEnvironment as (name: string, config: { consumer?: string; resolve?: { noExternal?: string[] } }) => unknown
 

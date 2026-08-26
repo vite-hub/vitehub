@@ -10,6 +10,8 @@ describe("@vite-hub/email package contract", () => {
   it("exposes only the documented public entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       ".",
+      "./drivers/cloudflare-email",
+      "./drivers/resend",
       "./markdown",
       "./package.json",
       "./server",

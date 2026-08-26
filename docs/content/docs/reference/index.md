@@ -30,7 +30,7 @@ instead of one root barrel.
 | `@vite-hub/box` | Box Definitions and provider-neutral execution sessions | `@vite-hub/box` |
 | `@vite-hub/channels` | Provider-neutral Channel definitions, server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
-| `@vite-hub/email` | Declarative Unemail provider integration, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
+| `@vite-hub/email` | Portable provider integration, built-in transports, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
 | `@vite-hub/history` | Shared history records, cursors, pages, and store contracts for stateful features | `@vite-hub/history` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |

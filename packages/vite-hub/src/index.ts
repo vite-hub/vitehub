@@ -698,7 +698,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.email) {
     const emailOptions = options.email === true
-      ? { driver: "unemail/driver/cloudflare-email" as const }
+      ? { driver: "cloudflare-email" as const }
       : options.email
     plugins.push(hubEmail({
       ...emailOptions,
