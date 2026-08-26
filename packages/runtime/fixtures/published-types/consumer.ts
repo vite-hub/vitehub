@@ -1,4 +1,40 @@
-import { ViteHubError, type ViteHubErrorShape } from "@vite-hub/runtime"
+import {
+  createExecutionContext,
+  ViteHubError,
+  type ExecutionContext,
+  type RuntimeCapabilities,
+  type ViteHubErrorShape,
+} from "@vite-hub/runtime"
+
+type RuntimeExports = typeof import("@vite-hub/runtime")
+const hasNoResolveExecutionContext: "resolveExecutionContext" extends keyof RuntimeExports ? false : true = true
+const hasNoResolveRuntimeContext: "resolveRuntimeContext" extends keyof RuntimeExports ? false : true = true
+
+void hasNoResolveExecutionContext
+void hasNoResolveRuntimeContext
+
+const defaultContext = createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  waitUntil: () => {},
+})
+
+defaultContext satisfies ExecutionContext
+defaultContext.capabilities satisfies RuntimeCapabilities
+defaultContext.runtimeConfig satisfies Record<string, unknown>
+
+const capabilities: RuntimeCapabilities = {}
+const runtimeConfig = { region: "local" }
+const configuredContext = createExecutionContext({
+  capabilities,
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig,
+  waitUntil: () => {},
+})
+
+configuredContext.capabilities satisfies RuntimeCapabilities
+configuredContext.runtimeConfig satisfies { region: string }
 
 const error = new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
   details: { provider: "fixture" },

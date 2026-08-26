@@ -44,6 +44,8 @@ const decision = await resolveCapabilityPolicy("require-approval", {
 })
 ```
 
+`createExecutionContext()` always returns a complete Execution Context. It creates fresh empty `capabilities` and `runtimeConfig` objects when the host omits them, and preserves the supplied objects when the host provides them.
+
 An omitted policy resolves to `allow`. Pass `require-approval` or `deny` when an operation needs an explicit gate.
 
 ## Execution authority

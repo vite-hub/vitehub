@@ -16,11 +16,39 @@ import {
   type ApprovalDecision,
   type ApprovalRequest,
   type LeaseStore,
+  type RuntimeCapabilities,
   type RunLifecycleHooks,
   ViteHubError,
 } from "../src/index.ts"
 
 describe("@vite-hub/runtime", () => {
+  it("creates complete execution contexts from omitted host fields", () => {
+    const first = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
+    const second = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
+
+    expect(first.capabilities).toEqual({})
+    expect(first.runtimeConfig).toEqual({})
+    expect(first.capabilities).not.toBe(second.capabilities)
+    expect(first.runtimeConfig).not.toBe(second.runtimeConfig)
+  })
+
+  it("preserves supplied execution context fields", () => {
+    const capabilities: RuntimeCapabilities = {
+      db: defineCapability("db", { query: vi.fn() }),
+    }
+    const runtimeConfig = { region: "local" }
+    const context = createExecutionContext({
+      capabilities,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+
+    expect(context.capabilities).toBe(capabilities)
+    expect(context.runtimeConfig).toBe(runtimeConfig)
+  })
+
   it("registers, finds, and resolves capability handles", () => {
     const db = defineCapability("db", { query: vi.fn() }, { name: "primary" })
     const context = createExecutionContext({

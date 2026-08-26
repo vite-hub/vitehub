@@ -233,11 +233,9 @@ export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
 
 export type ExecutionContext<TRuntimeConfig = Record<string, unknown>> =
   RuntimeHostContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
     runtimeConfig: TRuntimeConfig
   }
-
-export type ResolvedRuntimeHostContext<TRuntimeConfig = Record<string, unknown>> =
-  ExecutionContext<TRuntimeConfig>
 
 export interface CapabilityHandle<TKind extends string = string, TValue = unknown> {
   kind: TKind
@@ -708,27 +706,11 @@ type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRunti
 export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
 ): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
-  return resolveExecutionContext(context)
-}
-
-export function resolveExecutionContext<TContext extends RuntimeHostContext<any>>(
-  context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
   return {
     ...context,
-    capabilities: context.capabilities || {},
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
-  }
-}
-
-export function resolveRuntimeContext<TContext extends RuntimeHostContext<any>>(
-  context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
-  return {
-    ...context,
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
+    capabilities: context.capabilities ?? {},
+    // SAFETY: Execution Context construction establishes the asserted host contract.
+    runtimeConfig: (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>,
   }
 }
 
