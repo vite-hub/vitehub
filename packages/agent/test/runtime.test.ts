@@ -11321,7 +11321,7 @@ describe("agent message protocol", () => {
     })
 
     it("preserves source run identity when Workflow providers require a portable ID", async () => {
-      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgent, runAgentInline, workflow } = await import("../src/index.ts")
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
@@ -11375,7 +11375,7 @@ describe("agent message protocol", () => {
           // SAFETY: The captured payload comes from the Workflow boundary under test.
           payload: workflowPayload as never,
           provider: "cloudflare",
-        }, runAgent)).resolves.toMatchObject({ text: "completed" })
+        }, runAgentInline)).resolves.toMatchObject({ text: "completed" })
         await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "completed" })
         await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
       }
