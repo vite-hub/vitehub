@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import {
   resolveViteHubProjectRoot,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import { prepareSourceGeneration } from "@vite-hub/source/vite"
 
@@ -19,6 +20,7 @@ interface ViteHubTypesOptions {
 interface ViteHubPluginConfig {
   root?: string
   [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+  [VITEHUB_SERVER_DIRS]?: string[]
 }
 
 async function collectGeneratedTypeFiles(directory: string, root = directory): Promise<string[]> {
@@ -73,6 +75,7 @@ export function viteHubTypesPlugin(): Plugin &
     api: { prepareTypes: typeof writeViteHubTypes }
   } {
   let projectRoot: string | undefined
+  let serverDirs: string[] | undefined
   const refreshGeneratedTypes = async () => {
     if (projectRoot) await writeViteHubTypes({ projectRoot })
   }
@@ -86,10 +89,13 @@ export function viteHubTypesPlugin(): Plugin &
       const viteConfig = config as ViteHubPluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       await writeViteHubTypes({ projectRoot })
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
+      // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
+      serverDirs = (config as ViteHubPluginConfig)[VITEHUB_SERVER_DIRS]
       await writeViteHubTypes({ projectRoot })
     },
     buildStart: {
@@ -109,7 +115,7 @@ export function viteHubTypesPlugin(): Plugin &
             name: "prepare",
             async run(_args, context) {
               const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
-              await prepareSourceGeneration({ importBase: "vite-hub/source", projectRoot: root })
+              await prepareSourceGeneration({ importBase: "vite-hub/source", projectRoot: root, serverDirs })
               await writeViteHubTypes({ projectRoot: root })
               context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)
             },

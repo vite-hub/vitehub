@@ -12,6 +12,7 @@ import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/int
 import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
+import { hubSource as frameworkHubSource } from "../src/source/vite.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -200,8 +201,8 @@ describe("framework generated types", () => {
 
   it("refreshes build output and exposes the prepare lifecycle", async () => {
     const { root, viteRoot } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
     await Promise.all([
-      mkdir(join(root, "server/collections"), { recursive: true }),
       writeFile(join(root, ".vitehub/types/env.d.ts"), "interface ImportMetaEnv {}\n"),
       writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
     ])
@@ -229,6 +230,34 @@ describe("framework generated types", () => {
       `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
     )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
+  })
+
+  it("uses configured server directories during CLI preparation", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const serverDir = join(root, "api")
+    await mkdir(join(serverDir, "collections"), { recursive: true })
+    await writeFile(join(serverDir, "collections/meals.ts"), collectionModule("meals"))
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({ root: viteRoot, [VITEHUB_SERVER_DIRS]: [serverDir] })
+    const context = { rootDir: viteRoot, stdout: { write: vi.fn() } } as unknown as ViteHubCliContext
+    await prepareFeature(plugin).run([], context)
+
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
+      JSON.stringify(join(serverDir, "collections/meals.ts")),
+    )
+  })
+
+  it("binds the framework Source plugin to framework imports", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await frameworkHubSource().api.prepareSources({ projectRoot: root })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      'from "vite-hub/source/server"',
+    )
   })
 
   it("registers server Collections by filename", async () => {
