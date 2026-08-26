@@ -25,6 +25,7 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
   mkdirSync(dataDirectory, { recursive: true })
   return defineAgentInvocations({
     metadataContent: [
+      "channel.effect.content",
       "input.messages",
       "input.prompt",
       "message.content",

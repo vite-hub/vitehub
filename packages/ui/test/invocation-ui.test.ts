@@ -231,6 +231,33 @@ describe("Agent Invocation UI", () => {
     expect(delivery.findAll(".vh-invocation-event__markdown")).toHaveLength(1);
   });
 
+  it("discloses truncation beside a visible delivery body", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "truncated-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "Bounded reply.",
+          "channel.effect.kind": "reply",
+          "vitehub.observation.truncated": true,
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+
+    expect(delivery.get("summary").element.tagName).toBe("SUMMARY");
+    expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Bounded reply.");
+    expect(delivery.get(".vh-invocation-event__notice").text()).toContain("truncated");
+  });
+
   it("includes failure in a collapsed activity's accessible text", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -369,6 +396,26 @@ describe("Agent Invocation UI", () => {
     expect(rows[4]!.text()).toContain("Done.");
     expect(rows[3]!.get('[data-icon="telegram"]').attributes("data-icon")).toBe("telegram");
     expect(rows[3]!.get(".vh-invocation-delivery__body").text()).toBe("The Telegram reply body.");
+  });
+
+  it("keeps adjacent completed lifecycle activities grouped", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "completed-groups",
+      observations: [
+        { attributes: { "message.content": "Run it.", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "vitehub.activity.group": "github-completion" }, name: "github.first", sequence: 2, timestamp, type: "run" as const },
+        { attributes: { "vitehub.activity.group": "github-completion" }, name: "github.second", sequence: 3, timestamp, type: "run" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.findAll(".vh-invocation-lifecycle")).toHaveLength(1);
+    expect(wrapper.findAll(".vh-invocation-lifecycle li")).toHaveLength(2);
   });
 
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {

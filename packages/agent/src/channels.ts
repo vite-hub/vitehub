@@ -310,6 +310,7 @@ function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullReque
   if (!isRecord(input)) return
   const value = isRecord(input.pullRequest) && isRecord(input.pullRequest.pullRequest) ? input.pullRequest : input
   if (!isRecord(value.pullRequest) || !isRecord(value.repository) || !isRecord(value.run) || !isRecord(value.trigger)) return
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Required records are structurally validated above; optional fields are normalized before use.
   return value as unknown as GitHubPullRequestRunContext
 }
 
@@ -532,6 +533,7 @@ function chatFinishExtension(input: AgentRunInput): AgentChatFinishExtension | u
 }
 
 function chatFinishExtensionFromUnknown(value: unknown): AgentChatFinishExtension | undefined {
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: The function guard establishes the sole runtime member used by this extension contract.
   return isRecord(value) && typeof value.sendMessage === "function"
     ? value as unknown as AgentChatFinishExtension
     : undefined
@@ -546,7 +548,8 @@ function inputPayloadOrBody(input: unknown): GitHubIssueCommentPayload | undefin
   const payload = inputPayload(input)
   if (payload) return payload
   if (!isRecord(input) || typeof input.body !== "string") return
-  return JSON.parse(input.body || "{}") as GitHubIssueCommentPayload
+  const parsed: unknown = JSON.parse(input.body || "{}")
+  return inputPayload({ payload: parsed })
 }
 
 function inputGithubFacts(input: unknown): Record<string, unknown> | undefined {
@@ -894,14 +897,16 @@ function githubAppOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   return app === true ? {} : app
 }
 
-async function githubAppSetting<T, TRuntimeConfig extends AgentRuntimeConfig>(
+async function githubAppSetting<TRuntimeConfig extends AgentRuntimeConfig>(
   options: GitHubAppOptions<TRuntimeConfig>,
   env: Record<string, unknown>,
   key: keyof GitHubAppOptions<TRuntimeConfig>,
   envKey: string,
   context: AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>,
-): Promise<T | undefined> {
-  return await resolveGithubAppOption(options[key] as GitHubAppValue<T, TRuntimeConfig> | undefined, context) ?? unseal(env[envKey]) as T | undefined
+): Promise<unknown> {
+  // SAFETY: The option key selects values from this runtime configuration; resolution preserves their unknown boundary type.
+  const option = options[key] as GitHubAppValue<unknown, TRuntimeConfig> | undefined
+  return await resolveGithubAppOption(option, context) ?? unseal(env[envKey])
 }
 
 function requiredString(value: unknown, name: string): string {
@@ -1002,7 +1007,7 @@ async function githubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>
 ): Promise<string | false> {
   const options = githubAppOptions(app) || {}
   const env = await githubEnv(context)
-  const secret = await githubAppSetting<false | string | { unseal: () => string } | undefined, TRuntimeConfig>(options, env, "webhookSecret", "webhookSecret", context)
+  const secret = await githubAppSetting(options, env, "webhookSecret", "webhookSecret", context)
   if (secret === false) return false
   return cleanSecret(secret) || ""
 }

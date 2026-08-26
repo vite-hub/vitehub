@@ -223,7 +223,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const deliveryFailure = visibleDelivery
     ? stringAttribute(activity.attributes, "error.message")
     : undefined;
-  const hasDetails = Boolean(deliveryFailure)
+  const hasDetails = Boolean(deliveryFailure || activity.truncated)
     || (!visibleDelivery && (activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated)));
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
@@ -755,15 +755,26 @@ function renderInvocationActivities(
     return index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
   });
   let renderedWork = false;
-  const timeline = tail.flatMap((activity, offset) => {
+  const timeline: ReturnType<typeof renderActivitySequence> = [];
+  let externalRun: InvocationActivity[] = [];
+  const flushExternalRun = () => {
+    timeline.push(...renderActivitySequence(externalRun, invocation, expanded, toggleExpanded, inspect));
+    externalRun = [];
+  };
+  tail.forEach((activity, offset) => {
     const index = firstUser + 1 + offset;
     const isWork = index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
-    if (!isWork) return renderActivitySequence([activity], invocation, expanded, toggleExpanded, inspect);
-    if (renderedWork) return [];
+    if (!isWork) {
+      externalRun.push(activity);
+      return;
+    }
+    if (renderedWork) return;
+    flushExternalRun();
     renderedWork = true;
     const summary = renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect);
-    return summary ? [summary] : [];
+    if (summary) timeline.push(summary);
   });
+  flushExternalRun();
 
   return [
     ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
