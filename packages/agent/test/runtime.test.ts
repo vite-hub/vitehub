@@ -3896,6 +3896,45 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("records bounded reply content when trace content is enabled", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: () => undefined },
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish": event => event.reply({ markdown: "**Delivered reply**" }),
+      },
+    })
+
+    await expect(runAgentTrigger(agent, {
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      traceLog,
+      waitUntil: vi.fn(),
+    }, "portal.message", {})).resolves.toBe("ok")
+
+    const delivery = traceLog.entries().find(event => event.name === "agent.channel.delivery.effect")
+    expect(delivery?.attributes).toMatchObject({
+      "channel.effect.content": "**Delivered reply**",
+      "channel.effect.kind": "reply",
+    })
+  })
+
   it("does not fail invocations when delivery effects or hook observers fail", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

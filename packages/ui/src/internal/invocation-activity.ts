@@ -67,6 +67,7 @@ function messageRole(value: unknown): InvocationActivity["role"] {
 function activityBody(attributes: Record<string, unknown>): string | undefined {
   for (const key of [
     "vitehub.activity.progress",
+    "channel.effect.content",
     "result.text",
     "input.prompt",
     "input.messages",

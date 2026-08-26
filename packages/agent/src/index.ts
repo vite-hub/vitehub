@@ -2386,7 +2386,7 @@ function agentTelemetryUsesContent(registration: { content?: AgentTelemetryConte
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
-  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "vitehub.activity.body") return content.outputs === true
+  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
   return false
 }
 

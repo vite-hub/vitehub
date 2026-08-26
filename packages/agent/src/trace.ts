@@ -18,6 +18,7 @@ import type { TraceEvent } from "@vite-hub/runtime"
 export const agentInvocationJournalTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalTraceLog")
 export const agentInvocationJournalContentTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalContentTraceLog")
 const MAX_TRACE_TEXT_EVENT_LENGTH = 64 * 1024
+const MAX_CHANNEL_EFFECT_CONTENT_LENGTH = 16 * 1024
 
 export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   context: AgentInvocationContextStore
@@ -28,6 +29,19 @@ export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = A
 }
 
 export const agentInvocationTraceIdContextKey = "agent.invocation.traceId"
+
+function channelEffectContent(effect: AgentChannelDeliveryEffectIntent): string | undefined {
+  if (effect.kind !== "reply") return
+  if (typeof effect.payload === "string") return effect.payload.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH)
+  if (!effect.payload || !hasRuntimeType(effect.payload, "object")) return
+  const payload = effect.payload as { body?: unknown, markdown?: unknown }
+  const content = typeof payload.markdown === "string"
+    ? payload.markdown
+    : typeof payload.body === "string"
+      ? payload.body
+      : undefined
+  return content?.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH)
+}
 
 export function hasAgentTraceLog(context: { runtime: ResolvedAgentRuntimeContext }): boolean {
   return Boolean(context.runtime.traceLog)
@@ -323,6 +337,7 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
 ): Promise<void> {
   await traceAgentEvent(context, {
     attributes: invocationAttributes(context, {
+      "channel.effect.content": channelEffectContent(effect),
       "channel.effect.intent": effect.intent,
       "channel.effect.kind": effect.kind,
       ...attributes,

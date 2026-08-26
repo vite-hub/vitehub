@@ -138,6 +138,7 @@ type ActivityIcon =
   | "message"
   | "pull-request"
   | "search"
+  | "telegram"
   | "tool";
 
 function activityIcon(activity: InvocationActivity): ActivityIcon {
@@ -150,6 +151,8 @@ function activityIcon(activity: InvocationActivity): ActivityIcon {
   if (activity.kind === "reasoning" || activity.kind === "model") return "bot";
   if (activity.kind === "approval") return "approval";
   if (activity.kind === "delivery") {
+    const provider = String(activity.attributes["channel.delivery.provider"] ?? "").toLocaleLowerCase();
+    if (provider === "telegram") return "telegram";
     const delivery = String(activity.attributes["channel.effect.kind"] ?? "").toLocaleLowerCase();
     if (delivery === "reaction") return "eye";
     if (["reply", "status", "update"].includes(delivery)) return "message";
@@ -189,6 +192,7 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
     "M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
   ],
   search: ["m21 21-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16"],
+  telegram: ["M23.91 3.79 20.3 20.84c-.27 1.21-.98 1.51-1.99.94l-5.5-4.05-2.65 2.55c-.29.29-.54.54-1.1.54l.39-5.59 10.17-9.19c.44-.39-.1-.61-.69-.22L6.36 13.73.95 12.04c-1.18-.37-1.2-1.18.25-1.75L22.37 2.13c.98-.36 1.84.22 1.54 1.66Z"],
   tool: ["M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-2.4 2.4-2.1-2.1a4 4 0 0 0 5 5L3 18l3 3 9.3-9.3a4 4 0 0 0 5-5l-2.1 2.1-2.4-2.4z"],
 };
 
@@ -198,8 +202,9 @@ function renderActivityIcon(activity: InvocationActivity) {
 
 function renderNamedActivityIcon(icon: ActivityIcon) {
   return h("span", { class: "vh-invocation-event__icon", "data-icon": icon, "aria-hidden": "true" }, [
-    h("svg", { fill: "none", viewBox: "0 0 24 24" }, activityIconPaths[icon].map(path => h("path", {
+    h("svg", { fill: icon === "telegram" ? "currentColor" : "none", viewBox: "0 0 24 24" }, activityIconPaths[icon].map(path => h("path", {
       d: path,
+      stroke: icon === "telegram" ? "none" : undefined,
       "stroke-linecap": "round",
       "stroke-linejoin": "round",
     }))),
@@ -214,7 +219,8 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const suffix = agentConfigurationSummary(activity)
     ?? channelDeliverySummary(activity)
     ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
-  const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated);
+  const visibleDelivery = activity.kind === "delivery" && Boolean(activity.body);
+  const hasDetails = !visibleDelivery && (activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated));
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
   const summaryContent = [
@@ -245,6 +251,9 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
       class: "vh-invocation-event",
     }, [
       summary,
+      visibleDelivery
+        ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(activity.body!, "vh-invocation-event__markdown")])
+        : null,
       hasDetails ? h("div", { class: "vh-invocation-event__details" }, [
         activity.truncated
           ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
@@ -678,7 +687,6 @@ function renderActivitySequence(
 
 function isExternalActivity(activity: InvocationActivity): boolean {
   return activity.kind === "preparation"
-    || activity.kind === "delivery"
     || activity.kind === "action"
     || activity.kind === "system";
 }
@@ -699,7 +707,6 @@ function renderWorkSummary(
         h("span", { class: "vh-invocation-work__title" }, duration ? `Worked for ${duration}` : "Work details"),
         renderChevronDown("vh-invocation-work__disclosure"),
       ]),
-      h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
       h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect)),
     ]),
   ]);
@@ -734,6 +741,7 @@ function renderInvocationActivities(
 
   const prefix = activities.slice(0, firstUser + 1);
   const tail = activities.slice(firstUser + 1);
+  const delivery = tail.filter(activity => activity.kind === "delivery");
   const externalBeforeFinal = tail.filter((activity, offset) =>
     isExternalActivity(activity) && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
   );
@@ -742,7 +750,7 @@ function renderInvocationActivities(
   );
   const work = tail.filter((activity, offset) => {
     const index = firstUser + 1 + offset;
-    return index !== lastAssistant && !isExternalActivity(activity);
+    return index !== lastAssistant && activity.kind !== "delivery" && !isExternalActivity(activity);
   });
 
   return [
@@ -751,6 +759,7 @@ function renderInvocationActivities(
     renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect),
     ...(lastAssistant >= 0 ? [renderInvocationActivity(activities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
     ...renderActivitySequence(externalAfterFinal, invocation, expanded, toggleExpanded, inspect),
+    ...renderActivitySequence(delivery, invocation, expanded, toggleExpanded, inspect),
   ].filter(item => item !== null);
 }
 

@@ -299,7 +299,17 @@ describe("Agent Invocation UI", () => {
         { attributes: { "message.content": "Run it.", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" as const },
         { attributes: { "tool.id": "shell", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" as const },
         { attributes: { "tool.id": "shell", "tool.output": "passed", "tool.name": "shell" }, name: "agent.tool.finish", sequence: 3, timestamp, type: "run" as const },
-        { attributes: { "channel.effect.kind": "telegram.message.sent" }, name: "agent.channel.delivery", sequence: 4, timestamp, type: "run" as const },
+        {
+          attributes: {
+            "channel.delivery.provider": "telegram",
+            "channel.effect.content": "The Telegram reply body.",
+            "channel.effect.kind": "reply",
+          },
+          name: "agent.channel.delivery",
+          sequence: 4,
+          timestamp,
+          type: "run" as const,
+        },
         { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 5, timestamp, type: "lifecycle" as const },
       ],
       startedAt: timestamp,
@@ -315,14 +325,16 @@ describe("Agent Invocation UI", () => {
     const rows = wrapper.findAll(".vh-invocation-activities > li");
     expect(rows.map(row => row.classes().find(name => name.startsWith("vh-invocation-") && name !== "vh-invocation-activities"))).toEqual([
       "vh-invocation-message",
-      "vh-invocation-activity",
       "vh-invocation-work",
       "vh-invocation-message",
+      "vh-invocation-activity",
     ]);
-    expect(rows[1]!.attributes("data-kind")).toBe("delivery");
+    expect(rows[3]!.attributes("data-kind")).toBe("delivery");
     expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 5s");
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
-    expect(rows[3]!.text()).toContain("Done.");
+    expect(rows[2]!.text()).toContain("Done.");
+    expect(rows[3]!.get('[data-icon="telegram"]').attributes("data-icon")).toBe("telegram");
+    expect(rows[3]!.get(".vh-invocation-delivery__body").text()).toBe("The Telegram reply body.");
   });
 
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {

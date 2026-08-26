@@ -24,7 +24,6 @@ import {
   resolveAgentRouteName,
 } from "../agent-route";
 import { requestConsole } from "../client/request";
-import { relativeDuration } from "../client/time";
 import ConsoleSearch from "./console-search.vue";
 
 const route = useRoute();
@@ -37,7 +36,6 @@ const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
 const agentsError = ref<unknown>();
 const paginationRetryRevision = ref(0);
-const lastSuccessfulPollAt = ref<Date>();
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
@@ -47,9 +45,6 @@ const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hi
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
-const recordSuccessfulPoll = () => {
-  lastSuccessfulPollAt.value = new Date();
-};
 const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
 const detailPollInterval = computed(() =>
   pageVisible.value && selectedInvocationId.value ? 3_000 : false,
@@ -58,7 +53,6 @@ const detailPollInterval = computed(() =>
 const list = useAgentInvocations({
   baseURL: props.apiBase,
   immediate: pageVisible.value,
-  onSuccess: recordSuccessfulPoll,
   pollInterval: listPollInterval,
   request: requestConsole,
   requestSummaries: requestConsole,
@@ -67,7 +61,6 @@ const list = useAgentInvocations({
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
   immediate: pageVisible.value,
-  onSuccess: recordSuccessfulPoll,
   pollInterval: detailPollInterval,
   request: requestConsole,
 });
@@ -161,16 +154,6 @@ const splitterItems: SplitterItem[] = [
     class: "min-h-0 min-w-0 overflow-hidden",
   },
 ];
-const syncAgeMs = computed(() =>
-  lastSuccessfulPollAt.value ? nowMs.value - lastSuccessfulPollAt.value.valueOf() : 0,
-);
-const syncStale = computed(() => Boolean(lastSuccessfulPollAt.value) && syncAgeMs.value >= 30_000);
-const syncLabel = computed(() => {
-  if (!lastSuccessfulPollAt.value) return "Connecting";
-  if (!syncStale.value) return "Updated now";
-  return `Stale · ${relativeDuration(syncAgeMs.value)}`;
-});
-
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
@@ -372,7 +355,7 @@ onBeforeUnmount(() => {
       :min-size="13"
       :max-size="22"
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
+      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'px-2 py-1' }"
       collapsible
       resizable
     >
@@ -394,12 +377,9 @@ onBeforeUnmount(() => {
                 : selectedAgentLabel
             "
           >
-            <span
-              class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5"
-              aria-hidden="true"
-              ><i class="h-2/3 bg-inverted" /><i class="h-full bg-primary" /><i
-                class="h-4/5 bg-inverted"
-            /></span>
+            <span class="flex size-7 shrink-0 items-center justify-center" aria-hidden="true">
+              <UIcon name="i-lucide-box" class="size-4 text-muted" />
+            </span>
             <span v-if="!collapsed" class="grid min-w-0 flex-1 leading-none"
               ><small class="truncate text-[10px] font-bold uppercase tracking-[.12em] text-muted"
                 >ViteHub</small
@@ -520,33 +500,17 @@ onBeforeUnmount(() => {
       </template>
 
       <template #footer="{ collapsed, collapse }">
-        <template v-if="!collapsed"
-          ><span class="flex items-center gap-1.5 text-xs text-muted"
-            ><UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only</span
-          ><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-muted'">{{
-            syncLabel
-          }}</span></template
-        >
-        <UTooltip v-if="collapsed" text="Refresh sessions"
-          ><UButton
-            aria-label="Refresh sessions"
+        <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
+          <UButton
+            class="max-lg:hidden"
+            :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
             color="neutral"
-            icon="i-lucide-refresh-cw"
-            size="xs"
             variant="ghost"
-            :loading="list.isLoading.value || detail.isLoading.value"
-            @click="refresh"
-        /></UTooltip>
-        <UButton
-          class="max-lg:hidden"
-          :class="collapsed ? '' : 'ml-1'"
-          :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'"
-          @click="collapse(!collapsed)"
-        />
+            size="xs"
+            :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'"
+            @click="collapse(!collapsed)"
+          />
+        </UTooltip>
       </template>
     </UDashboardSidebar>
 
