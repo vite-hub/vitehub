@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
+import ts from "typescript"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
 import { packageInfos } from "../utils/repo"
@@ -76,7 +77,15 @@ async function writeConsumer(appDir: string, specs: Record<string, string>) {
   }
 
   await Promise.all([
-    writeFile(join(appDir, ".npmrc"), "auto-install-peers=false\nstrict-peer-dependencies=false\n", "utf8"),
+    writeFile(join(appDir, ".npmrc"), [
+      "auto-install-peers=false",
+      "hoist=false",
+      "node-linker=isolated",
+      "public-hoist-pattern[]=",
+      "shamefully-hoist=false",
+      "strict-peer-dependencies=false",
+      "",
+    ].join("\n"), "utf8"),
     writeFile(join(appDir, "package.json"), JSON.stringify({
       dependencies: specs,
       devDependencies: requiredPeers,
@@ -129,6 +138,7 @@ async function importPackagesWithoutRootFallback(appDir: string) {
       await importSpecifiers(runnerDir, publicPackageExportContracts
         .filter(contract => contract.packageName === info.packageName && contract.target.endsWith(".js") && contract.kind !== "type-only")
         .map(contract => contract.specifier))
+      await typecheckPackageExports(info.packageName, packageRoots.get(info.packageName)!, runnerDir)
     }
   }
   finally {
@@ -163,27 +173,39 @@ async function addOptionalPeers(appDir: string) {
   return Object.keys(peers)
 }
 
-async function typecheckExports(appDir: string) {
-  const modules = publicPackageExportContracts.filter(contract => contract.target.endsWith(".js"))
+async function typecheckPackageExports(packageName: string, packageRoot: string, runnerDir: string) {
+  const modules = publicPackageExportContracts.filter(contract =>
+    contract.packageName === packageName && contract.target.endsWith(".js"),
+  )
   const source = modules.map((contract, index) => [
     `import type * as Export${index} from ${JSON.stringify(contract.specifier)}`,
     `type Contract${index} = typeof Export${index}`,
     `declare const contract${index}: Contract${index}`,
     `void contract${index}`,
   ].join("\n")).join("\n")
-  await writeFile(join(appDir, "exports.ts"), `${source}\n`, "utf8")
-  await writeFile(join(appDir, "tsconfig.json"), JSON.stringify({
-    compilerOptions: {
-      module: "NodeNext",
-      moduleResolution: "NodeNext",
-      noEmit: true,
-      skipLibCheck: false,
-      strict: true,
-      target: "ESNext",
-    },
-    files: ["exports.ts"],
-  }, null, 2), "utf8")
-  await run("corepack", ["pnpm", "exec", "tsc", "-p", "tsconfig.json"], appDir)
+  await writeFile(join(runnerDir, "exports.ts"), `${source}\n`, "utf8")
+  const sourcePath = join(runnerDir, "exports.ts")
+  const options: ts.CompilerOptions = {
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    noEmit: true,
+    skipLibCheck: false,
+    strict: true,
+    target: ts.ScriptTarget.ESNext,
+  }
+  const program = ts.createProgram([sourcePath], options)
+  const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
+    diagnostic.file
+    && (diagnostic.file.fileName === sourcePath || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)),
+  )
+  expect(
+    ts.formatDiagnosticsWithColorAndContext(diagnostics, {
+      getCanonicalFileName: file => file,
+      getCurrentDirectory: () => runnerDir,
+      getNewLine: () => "\n",
+    }),
+    `${packageName} should expose valid declarations with its own dependency closure`,
+  ).toBe("")
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package exports from tarballs", () => {
@@ -225,8 +247,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         .filter(contract => contract.target.endsWith(".js") && contract.kind !== "type-only")
         .map(contract => contract.specifier))
       await importPackagesWithoutRootFallback(appDir)
-      await typecheckExports(appDir)
-
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
       const typeOnlyContracts = publicPackageExportContracts.filter(contract => contract.kind === "type-only")
       const resolved = await resolveSpecifiers(appDir, [...staticContracts, ...typeOnlyContracts].map(contract => contract.specifier))

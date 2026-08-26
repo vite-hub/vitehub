@@ -3,7 +3,7 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
-    copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
+    copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
       neverBundle: ["vite", "esbuild"],
       alwaysBundle: [/^@vite-hub\/internal/],
