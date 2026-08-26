@@ -199,7 +199,11 @@ function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRo
   }
 
   const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
-  return method ? { method, route: resolvedRoute } : { route: resolvedRoute }
+  return {
+    ...(hasObjectProperty(routeObject, "authorize") ? { authorize: true as const } : {}),
+    ...(method ? { method } : {}),
+    route: resolvedRoute,
+  }
 }
 
 function readAuthAccessRoutesConfig(body: string | undefined): ResolvedAuthAccessRoute[] {

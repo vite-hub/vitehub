@@ -16,6 +16,8 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 
+export { resolveAuthViteConfig }
+
 export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
 export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"

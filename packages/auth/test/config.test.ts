@@ -146,7 +146,7 @@ describe("resolveAuthViteConfig", () => {
         routes: [
           { route: "/app" },
           { route: "/app/**" },
-          { method: "POST", route: "/api/app" },
+          { authorize: true, method: "POST", route: "/api/app" },
         ],
       },
     })
