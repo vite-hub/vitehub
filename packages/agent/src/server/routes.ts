@@ -515,8 +515,8 @@ function createRuntimeContext(
 ): ViteAgentRouteRuntimeContext {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
   const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
-  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-  return createAgentRuntimeContext({
+  // SAFETY: This constructor supplies the required route request and runtime configuration before normalization.
+  const context = createAgentRuntimeContext<ViteAgentRouteRuntimeConfig>({
     ...(capabilities ? { capabilities } : {}),
     ...(agentIdentity ? { agentIdentity } : {}),
     ...(cloudflare ? { cloudflare } : {}),
@@ -527,7 +527,8 @@ function createRuntimeContext(
     runtimeConfig: {},
     ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
     waitUntil: waitUntilController.waitUntil,
-  }) as ViteAgentRouteRuntimeContext
+  }) as AgentRuntimeContext<ViteAgentRouteRuntimeConfig> & { request: Request, runtimeConfig: ViteAgentRouteRuntimeConfig }
+  return createExecutionContext(context)
 }
 
 function createRuntimeRequest(request: Request, body?: string): Request {

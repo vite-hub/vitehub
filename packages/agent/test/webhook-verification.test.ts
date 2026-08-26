@@ -153,6 +153,21 @@ describe("agent webhook verification", () => {
       })
   })
 
+  it("provides capabilities when verification context is omitted", async () => {
+    const secretToken = vi.fn(context => context.capabilities.webhook?.value)
+    await expect(verifyAgentWebhookRequest([{
+      id: "custom",
+      provider: "custom",
+      secretHeader: "x-webhook-secret",
+      secretToken,
+    }], new Request("https://example.com", {
+      headers: { "x-webhook-secret": "provided-token" },
+      method: "POST",
+    }))).rejects.toMatchObject({ statusCode: 401 })
+
+    expect(secretToken).toHaveBeenCalledWith(expect.objectContaining({ capabilities: {} }))
+  })
+
   it("allows explicit unverified webhook registrations", async () => {
     const invoked = vi.fn(() => "ok")
     const agent = defineAgent({

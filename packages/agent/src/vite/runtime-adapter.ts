@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { createExecutionContext } from "@vite-hub/runtime"
 
 import { agentWithColocatedInstructions } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
@@ -122,7 +123,8 @@ export function createViteAgentRuntimeContext(
   identity: AgentHostIdentity,
   options: { capabilities?: AgentRuntimeContext["capabilities"], fallbackRoute: string, run?: AgentRunMetadata },
 ): ViteAgentRuntimeContext {
-  return createAgentRuntimeContext({
+  // SAFETY: This adapter fixes the runtime to Vite and supplies its runtime configuration before normalization.
+  const context = createAgentRuntimeContext({
     agentIdentity: identity,
     request: createRequest(server, req, options.fallbackRoute),
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
@@ -130,16 +132,19 @@ export function createViteAgentRuntimeContext(
     runtime: "vite",
     runtimeConfig: {},
     waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentRuntimeContext
+  }) as AgentRuntimeContext & { runtime: "vite", runtimeConfig: AgentRuntimeConfig }
+  return createExecutionContext(context)
 }
 
 export function createViteAgentDiscoveryContext(identity: AgentHostIdentity): ViteAgentRuntimeContext {
-  return createAgentRuntimeContext({
+  // SAFETY: Discovery runs only in Vite and supplies its runtime configuration before normalization.
+  const context = createAgentRuntimeContext({
     agentIdentity: identity,
     runtime: "vite",
     runtimeConfig: {},
     waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentRuntimeContext
+  }) as AgentRuntimeContext & { runtime: "vite", runtimeConfig: AgentRuntimeConfig }
+  return createExecutionContext(context)
 }
 
 export async function writeViteResponse(res: ServerResponse, response: Response): Promise<void> {
