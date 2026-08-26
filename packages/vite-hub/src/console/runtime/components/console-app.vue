@@ -427,14 +427,16 @@ onBeforeUnmount(() => {
             :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadAgents }]"
           />
         </div>
-        <div v-if="!collapsed" class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
+        <div class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
           <UDashboardSearchButton
+            :collapsed="collapsed"
             block
             class="min-w-0 flex-1 bg-transparent ring-0 hover:bg-elevated/60"
             label="Search sessions"
           />
           <UTooltip text="Refresh sessions">
             <UButton
+              v-if="!collapsed"
               icon="i-lucide-refresh-cw"
               color="neutral"
               variant="ghost"
