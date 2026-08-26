@@ -32,16 +32,22 @@ function outputStateFile(rootDir: string): string {
 
 async function readOutputState(rootDir: string): Promise<CloudflareRateLimitOutputState> {
   try {
-    const parsed = JSON.parse(await readFile(outputStateFile(rootDir), "utf8")) as Partial<CloudflareRateLimitOutputState>
+    const parsed: unknown = JSON.parse(await readFile(outputStateFile(rootDir), "utf8"))
+    if (parsed === null || Object(parsed) !== parsed || Array.isArray(parsed)) {
+      throw new TypeError("[vitehub] Cloudflare Rate Limit output state must be a JSON object.")
+    }
+    // SAFETY: The object boundary above establishes that property reads are safe; each property is validated below before use.
+    const state = parsed as Record<string, unknown>
+    const bindings = Array.isArray(state.bindings)
+      ? state.bindings.filter((value): value is string => value?.constructor === String)
+      : []
     return {
-      bindings: Array.isArray(parsed.bindings)
-        ? parsed.bindings.filter((value): value is string => typeof value === "string")
-        : [],
-      standalone: parsed.standalone !== false && Array.isArray(parsed.bindings) && parsed.bindings.length > 0,
+      bindings,
+      standalone: state.standalone !== false && bindings.length > 0,
     }
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { bindings: [], standalone: false }
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { bindings: [], standalone: false }
     throw error
   }
 }

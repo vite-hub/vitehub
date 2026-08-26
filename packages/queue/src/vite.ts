@@ -254,6 +254,8 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       }
       const config = resolved
       const rootDir = nuxtProjectRoot || config.root
+      // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
+      const nitro = (config as { nitro?: unknown }).nitro
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "queue",
         rootDir,
@@ -264,7 +266,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
             definitions,
             providerImportAliases: internalOptions?.providerImportAliases,
             providerOutput,
-            queue: queue ?? (resolveNitroHosting(cloneNitroConfig((config as { nitro?: unknown }).nitro))
+            queue: queue ?? (resolveNitroHosting(cloneNitroConfig(nitro))
               ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
               : undefined),
             rootDir,

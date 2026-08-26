@@ -184,6 +184,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       }
       const config = resolved
       const rootDir = resolveViteHubProjectRoot(config.root)
+      // SAFETY: Vite plugin objects may expose ViteHub's optional agent extension, which the predicate reads defensively.
+      const plugins = config.plugins as AgentWorkflowRegistryPlugin[]
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "workflow",
         rootDir,
@@ -206,7 +208,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
             workflow,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
             workspaceImportBase: internalOptions?.workspaceImportBase,
-            transformRegistry: (config.plugins as AgentWorkflowRegistryPlugin[])
+            transformRegistry: plugins
               .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
               ?.vitehub?.agent?.transformWorkflowRegistry,
           }, write)
