@@ -13,7 +13,10 @@ const hostFixtures = ["cloudflare", "vercel", "netlify", "deno", "node-self-host
 const hostArtifacts: Record<(typeof hostFixtures)[number], string[]> = {
   cloudflare: [".output/server/wrangler.json"],
   deno: [".output/server/index.mjs", ".vitehub/schedule/deno-cron.mjs"],
-  netlify: [".netlify/v1/functions/vitehub-agent.mjs"],
+  netlify: [
+    ".netlify/v1/functions/vitehub-agent.mjs",
+    ".netlify/v1/functions/vitehub-schedule-heartbeat.mjs",
+  ],
   "node-self-hosted": [".output/server/index.mjs"],
   vercel: [".vercel/output/config.json"],
 }

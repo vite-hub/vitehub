@@ -44,7 +44,7 @@ export default defineConfig({
 The generated Nitro server imports discovered Agent Definitions and mounts both the webhook route pattern and the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher.
 Schedule keeps its package-owned `.vitehub/schedule/deno-cron.mjs` output. Use one application entrypoint to register that output before starting the server.
 
-```ts [server.ts]
+```ts [main.ts]
 await import(new URL('./.vitehub/schedule/deno-cron.mjs', import.meta.url).href)
 await import(new URL('./.output/server/index.mjs', import.meta.url).href)
 ```
@@ -59,29 +59,29 @@ test -f .output/server/index.mjs
 find .output .vitehub -maxdepth 4 -type f | sort
 ```
 
-The generated server runs locally with Deno network permission for the selected port.
+The generated Deno Deploy server listens locally on Deno's default port, `8000`.
 
 ```bash [Terminal]
-deno run --allow-net=127.0.0.1:8787 server.ts
+deno run --allow-net=0.0.0.0:8000 main.ts
 ```
 
 A route using `driver: 'deno-kv'` also requires Deno KV support.
 
 ```bash [Terminal]
-deno run --unstable-kv --allow-net=127.0.0.1:8787 server.ts
+deno run --unstable-kv --allow-net=0.0.0.0:8000 main.ts
 ```
 
 For a single discovered `support` Agent with the default chat route enabled, the generated route accepts the following request. The target Agent must attach a route-enabled `webChat()` Channel; Agents without one remain unreachable through the dispatcher.
 
 ```bash [Terminal]
-curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \
+curl -X POST http://127.0.0.1:8000/api/_vitehub/agents/support/chat \
   -H 'content-type: application/json' \
   -d '{"id":"local","messages":[{"id":"user-1","role":"user","parts":[{"type":"text","text":"ping"}]}]}'
 ```
 
 ## Production notes
 
-Deno Deploy uses `server.ts` as the application entrypoint. It registers generated static schedules before starting `.output/server/index.mjs`.
+Deno Deploy uses `main.ts` as the application entrypoint. It registers generated static schedules before starting `.output/server/index.mjs`.
 Keep generated-file imports confined to this deployment entrypoint. Agent Definitions and other application code should use Runtime Helpers and stable ViteHub imports.
 
 Use Deno environment variables for model keys and other Runtime Env.
