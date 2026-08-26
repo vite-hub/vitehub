@@ -36,4 +36,5 @@ packages/*/*.tgz
 *.log
 .DS_Store
 .vercel
+**/.netlify
 .env*.local

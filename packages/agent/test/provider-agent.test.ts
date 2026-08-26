@@ -16,6 +16,7 @@ import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -129,6 +130,29 @@ describe("Provider Agent Driver", () => {
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(requestedAfterTerminal).toBe(false)
+  })
+
+  it.each([
+    ["Codex omitted", "codex", undefined, "approval-required"],
+    ["Codex ask", "codex", "ask", "approval-required"],
+    ["Codex allow edits", "codex", "allow-edits", "auto-accept-edits"],
+    ["Codex allow all", "codex", "allow-all", "full-access"],
+    ["Claude Code omitted", "claude-code", undefined, "approval-required"],
+    ["Claude Code ask", "claude-code", "ask", "approval-required"],
+    ["Claude Code allow edits", "claude-code", "allow-edits", "auto-accept-edits"],
+    ["Claude Code allow all", "claude-code", "allow-all", "full-access"],
+  ] as const)("maps %s to its provider runtime mode", async (_label, providerName, permissions, runtimeMode) => {
+    const threadId = `thread-permissions-${providerName}-${permissions ?? "omitted"}`
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({
+      ...(permissions ? { permissions } : {}),
+      provider: providerName,
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+
+    expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode, threadId }))
   })
 
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
@@ -791,9 +815,11 @@ describe("Provider Agent Driver", () => {
       return undefined
     })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = collect(await adapter.stream!(context(threadId) as never))
     const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = collect(await adapter.stream!(liveContext as never))
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
     await ready
@@ -820,11 +846,13 @@ describe("Provider Agent Driver", () => {
     const controller = new AbortController()
     const primary = runtime(primaryThreadId, [], { afterEvents: () => new Promise(() => {}) })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const primaryResult = adapter.generate(context(primaryThreadId, {
-      input: { abortSignal: controller.signal, prompt: "hello" },
-    }) as never)
     const invocationId = `run-${primaryThreadId}`
+    const primaryContext = context(primaryThreadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    })
+    primaryContext.runtime = withAgentInvocationResponseOwner(primaryContext.runtime, invocationId)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const primaryResult = adapter.generate(primaryContext as never)
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
     const auxiliaryThreadId = "thread-auxiliary-input"
@@ -838,6 +866,36 @@ describe("Provider Agent Driver", () => {
     controller.abort("cancelled")
     await expect(primaryResult).rejects.toBe("cancelled")
     expect(primary.interruptTurn).toHaveBeenCalledWith(primaryThreadId, "turn-1")
+  })
+
+  it("declines approval requests from auxiliary provider runs", async () => {
+    const threadId = "thread-auxiliary-approval"
+    const provider = runtime(threadId, [
+      event("request.opened", threadId, { args: { command: "git status" }, requestType: "command" }, { requestId: "approval-1", turnId: "turn-1" }),
+      event("request.resolved", threadId, { decision: "decline" }, { requestId: "approval-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(auxiliaryContext as never)
+
+    expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "decline")
+  })
+
+  it("declines approval requests from uncontrolled direct provider runs", async () => {
+    const threadId = "thread-direct-approval"
+    const provider = runtime(threadId, [
+      event("request.opened", threadId, { args: { command: "git status" }, requestType: "command" }, { requestId: "approval-1", turnId: "turn-1" }),
+      event("request.resolved", threadId, { decision: "decline" }, { requestId: "approval-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const directContext = context(threadId)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(directContext as never)
+
+    expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "decline")
   })
 
   it("serves Capability tools through the provider MCP boundary", async () => {
@@ -897,8 +955,11 @@ describe("Provider Agent Driver", () => {
       },
     })!), reportToolStep)
 
+    const invocationId = "run-thread-tool-approval"
+    const approvalContext = context("thread-tool-approval", { tools })
+    approvalContext.runtime = withAgentInvocationResponseOwner(approvalContext.runtime, invocationId)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const output = createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-approval", { tools }) as never) as AsyncIterable<unknown>
+    const output = createProviderAgentAdapter({ provider: "codex" }).stream!(approvalContext as never) as AsyncIterable<unknown>
     const stream = output[Symbol.asyncIterator]()
     const approval = await stream.next()
     expect(approval.value).toEqual(expect.objectContaining({
@@ -909,10 +970,10 @@ describe("Provider Agent Driver", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const approvalId = (approval.value as { id: string }).id
     await expect(Promise.all([
-      sendAgentInvocationInput("run-thread-tool-approval", {
+      sendAgentInvocationInput(invocationId, {
         messages: [{ id: "approval", parts: [{ approved: true, id: approvalId, type: "approval-decision" }], role: "user" }],
       }, { mode: "respond" }),
-      sendAgentInvocationInput("run-thread-tool-approval", {
+      sendAgentInvocationInput(invocationId, {
         messages: [{ id: "duplicate", parts: [{ approved: false, id: approvalId, type: "approval-decision" }], role: "user" }],
       }, { mode: "respond" }),
     ])).resolves.toEqual(["accepted", "unsupported"])

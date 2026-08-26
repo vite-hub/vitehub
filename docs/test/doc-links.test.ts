@@ -44,6 +44,7 @@ to: "#install"
 ::
 <a href="/docs/html">HTML</a>
 <https://vitehub.dev/docs/autolink>
+https://vitehub.dev/docs/bare-autolink
 
 [guide]: /docs/guide
 [shortcut]: /docs/shortcut
@@ -67,6 +68,7 @@ to: "#install"
       "#install",
       "/docs/html",
       "https://vitehub.dev/docs/autolink",
+      "https://vitehub.dev/docs/bare-autolink",
     ]);
   });
 
@@ -184,6 +186,28 @@ to: /docs/missing-card
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs/missing" does not exist'),
     ]);
+  });
+
+  it("reports rendered .md routes that the browser cannot resolve", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Guide](./guide.md)",
+      "docs/content/docs/guide.md": "# Guide",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/guide.md" does not exist'),
+    ]);
+  });
+
+  it("accepts generated raw documentation routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Raw index](/raw/docs.md)\n[Raw guide](/raw/docs/guide.md)",
+      "docs/content/docs/guide.md": "# Guide",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
   });
 
   it("reports missing anchors in rendered MDC destinations", () => {

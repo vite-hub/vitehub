@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import remarkGfm from "remark-gfm";
 import remarkMdc from "remark-mdc";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -17,7 +18,7 @@ function walk(directory, predicate) {
 }
 
 function parseMarkdown(markdown) {
-  const parser = unified().use(remarkParse).use(remarkMdc);
+  const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMdc);
   return parser.runSync(parser.parse(markdown));
 }
 
@@ -108,7 +109,7 @@ function routeFromContentPath(contentRoot, path) {
 }
 
 function normalizeRoute(route) {
-  const normalized = route.replace(/\.md$/, "").replace(/\/index$/, "").replace(/\/{2,}/g, "/");
+  const normalized = route.replace(/\/index$/, "").replace(/\/{2,}/g, "/");
   return normalized.length > 1 ? normalized.replace(/\/$/, "") : normalized;
 }
 
@@ -156,6 +157,9 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   const markdownFiles = [...contentFiles, ...readmes];
   const routeFiles = new Map(contentFiles.map((path) => [routeFromContentPath(contentRoot, path), path]));
   const knownRoutes = new Set([...routeFiles.keys(), ...appRoutes(docsRoot), ...docsRoutes.map(normalizeRoute)]);
+  for (const route of routeFiles.keys()) {
+    if (route !== "/") knownRoutes.add(`/raw${route}.md`);
+  }
   const anchors = new Map(markdownFiles.map((path) => [path, markdownAnchors(readFileSync(path, "utf8"))]));
   const errors = [];
   let checked = 0;
