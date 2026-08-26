@@ -1119,6 +1119,10 @@ describe("ViteHub Nuxt integration", () => {
     })
     expect(defaultPrepareSources).not.toHaveBeenCalled()
     expect(setPrepareSources).toHaveBeenCalledWith(selectedPrepareSources)
+    const configuredPlugins = nuxt.options.vite.plugins as Plugin[]
+    expect(configuredPlugins.indexOf(selectedSource)).toBeLessThan(
+      configuredPlugins.findIndex(plugin => plugin.name === "vite-hub/types"),
+    )
   })
 
   it("rejects handlers that bypass a generated Collection route", async () => {

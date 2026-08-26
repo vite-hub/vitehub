@@ -630,8 +630,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
   const installedVitePlugins: unknown = [
-    ...plugins.filter(plugin => !existingNames.has(plugin.name)),
-    ...existing,
+    ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
+    ...flattenPlugins(existing).filter(plugin => !existingNames.has(plugin.name)
+      || !plugins.some(candidate => candidate.name === plugin.name)),
   ]
   // SAFETY: Both arrays contain Vite plugins normalized or preserved by this integration.
   nuxt.options.vite.plugins = installedVitePlugins as PluginOption[]

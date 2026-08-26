@@ -12,7 +12,10 @@ import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/int
 import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
-import { hubSource as frameworkHubSource } from "../src/source/vite.ts"
+import {
+  hubSource as frameworkHubSource,
+  prepareSourceGeneration as prepareFrameworkSourceGeneration,
+} from "../src/source/vite.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -262,6 +265,18 @@ describe("framework generated types", () => {
     )
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
       `./source/collections.d.ts`,
+    )
+  })
+
+  it("binds direct framework Source preparation to framework imports", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await prepareFrameworkSourceGeneration({ projectRoot: root })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      'from "vite-hub/source/server"',
     )
   })
 

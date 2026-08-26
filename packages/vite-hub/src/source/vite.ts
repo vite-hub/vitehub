@@ -1,11 +1,27 @@
-import { hubSource as sourceHubSource } from "@vite-hub/source/vite"
+import {
+  hubSource as sourceHubSource,
+  prepareSourceGeneration as prepareOwnerSourceGeneration,
+} from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../internal/types.ts"
 
-import type { SourceVitePluginOptions } from "@vite-hub/source/vite"
+import type { SourceGenerationOptions, SourceVitePluginOptions } from "@vite-hub/source/vite"
 import type { Plugin } from "vite"
 
-export * from "@vite-hub/source/vite"
+export {
+  mergeGeneratedSourceNitroConfig,
+  toRuntimeModuleSpecifier,
+  toTypeModuleSpecifier,
+} from "@vite-hub/source/vite"
+export type {
+  GeneratedSourceHandler,
+  SourceGenerationOptions,
+  SourceVitePluginOptions,
+} from "@vite-hub/source/vite"
+
+export function prepareSourceGeneration(options: SourceGenerationOptions) {
+  return prepareOwnerSourceGeneration({ importBase: "vite-hub/source", ...options })
+}
 
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin[] {
   const source = sourceHubSource({ importBase: "vite-hub/source", ...options })
