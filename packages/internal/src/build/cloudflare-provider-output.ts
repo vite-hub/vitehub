@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util"
 import { mergeProviderOutputConfig } from "./provider-output-config.ts"
 import type { CloudflareProviderOutputValue, ProviderOutputCatalog } from "./provider-output-catalog.ts"
 
+// SAFETY: ViteHub owns this namespaced global registry, and every bundled copy uses the same value type.
 const providerOutputCatalogRegistry = globalThis as typeof globalThis & {
   __vitehubProviderOutputCatalogsByNitroValue?: WeakMap<object, ProviderOutputCatalog>
 }
