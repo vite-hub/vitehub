@@ -27,9 +27,9 @@ export function emailProviderError(
 }
 
 export function isEmailProviderError(value: unknown): value is EmailProviderError {
-  if (!value || typeof value !== "object") return false
+  if (!(value instanceof Error)) return false
   const error = value as Partial<EmailProviderError>
-  return error.name === "EmailProviderError"
-    && typeof error.driver === "string"
+  return typeof error.driver === "string"
+    && error.driver.trim().length > 0
     && emailProviderErrorCodes.has(error.code as EmailProviderErrorCode)
 }

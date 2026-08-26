@@ -32,10 +32,35 @@ function attachmentPart(boundary: string, value: EmailAttachment): string {
   ].join("\r\n")
 }
 
+function bodyPart(message: EmailMessage): { contentType: string, lines: string[] } {
+  if (message.html !== undefined && message.text !== undefined) {
+    const boundary = `vitehub-alternative-${crypto.randomUUID()}`
+    return {
+      contentType: `multipart/alternative; boundary="${boundary}"`,
+      lines: [
+        `--${boundary}`,
+        "Content-Type: text/plain; charset=utf-8",
+        "Content-Transfer-Encoding: 8bit",
+        "",
+        message.text,
+        `--${boundary}`,
+        "Content-Type: text/html; charset=utf-8",
+        "Content-Transfer-Encoding: 8bit",
+        "",
+        message.html,
+        `--${boundary}--`,
+      ],
+    }
+  }
+  return {
+    contentType: message.html !== undefined ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
+    lines: [message.html ?? message.text ?? ""],
+  }
+}
+
 function rawMessage(message: EmailMessage, id: string): string {
   const boundary = `vitehub-${crypto.randomUUID()}`
-  const body = message.html ?? message.text ?? ""
-  const contentType = message.html ? "text/html; charset=utf-8" : "text/plain; charset=utf-8"
+  const body = bodyPart(message)
   const headers = [
     `From: ${safeHeader(formatAddress(addresses(message.from)[0]!))}`,
     `To: ${safeHeader(addresses(message.to).map(formatAddress).join(", "))}`,
@@ -46,16 +71,15 @@ function rawMessage(message: EmailMessage, id: string): string {
     "MIME-Version: 1.0",
     ...Object.entries(message.headers ?? {}).filter(([name]) => name.toLowerCase() !== "message-id").map(([name, value]) => `${safeHeader(name)}: ${safeHeader(value)}`),
   ]
-  if (!message.attachments?.length) return [...headers, `Content-Type: ${contentType}`, "", body].join("\r\n")
+  if (!message.attachments?.length) return [...headers, `Content-Type: ${body.contentType}`, "", ...body.lines].join("\r\n")
   return [
     ...headers,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     "",
     `--${boundary}`,
-    `Content-Type: ${contentType}`,
-    "Content-Transfer-Encoding: 8bit",
+    `Content-Type: ${body.contentType}`,
     "",
-    body,
+    ...body.lines,
     ...message.attachments.map(value => attachmentPart(boundary, value)),
     `--${boundary}--`,
     "",

@@ -15,6 +15,7 @@ const message: EmailMessage = {
   scheduledAt: new Date("2026-08-26T12:00:00.000Z"),
   subject: "Welcome",
   tags: [{ name: "kind", value: "welcome" }],
+  text: "Hello",
   to: ["maxi@example.com"],
 }
 
@@ -41,7 +42,7 @@ describe("Resend Email driver", () => {
     expect(init.headers).toMatchObject({ authorization: "Bearer re_secret", "Idempotency-Key": "send-1" })
     expect(JSON.parse(init.body as string)).toMatchObject({
       attachments: [{ content: "AQID", filename: "report.bin" }],
-      from: "ViteHub <hello@example.com>",
+      from: "\"ViteHub\" <hello@example.com>",
       reply_to: ["support@example.com"],
       scheduled_at: "2026-08-26T12:00:00.000Z",
       to: ["maxi@example.com"],
@@ -82,7 +83,21 @@ describe("Cloudflare Email driver", () => {
     await expect(driver.send(message, context)).resolves.toMatchObject({ data: { driver: "cloudflare-email" }, error: null })
     expect(Constructor).toHaveBeenCalledWith("hello@example.com", "maxi@example.com", expect.stringContaining("Content-Type: multipart/mixed"))
     expect(Constructor.mock.calls[0]![2]).toContain("AQID")
+    expect(Constructor.mock.calls[0]![2]).toContain("Content-Type: multipart/alternative")
+    expect(Constructor.mock.calls[0]![2]).toContain("Content-Type: text/plain; charset=utf-8")
+    expect(Constructor.mock.calls[0]![2]).toContain("Content-Type: text/html; charset=utf-8")
     expect(send).toHaveBeenCalledOnce()
+  })
+
+  it("quotes and escapes display names for both built-in drivers", async () => {
+    const namedMessage = { ...message, from: { email: "jane@example.com", name: 'Doe, "Jane"' } }
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    await resend({ apiKey: "re_secret", fetch: request }).send(namedMessage, context)
+    expect(JSON.parse(request.mock.calls[0]![1]?.body as string).from).toBe('"Doe, \\"Jane\\"" <jane@example.com>')
+
+    const Constructor = vi.fn()
+    await cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor }).send(namedMessage, context)
+    expect(Constructor.mock.calls[0]![2]).toContain('From: "Doe, \\"Jane\\"" <jane@example.com>')
   })
 
   it("rejects multiple envelope recipients before sending", async () => {

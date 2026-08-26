@@ -77,6 +77,38 @@ describe("createEmail", () => {
     expect(initialize).toHaveBeenCalledOnce()
   })
 
+  it("retries eager initialization after a transient failure", async () => {
+    const initialize = vi.fn()
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValue(undefined)
+    const client = createEmail({ driver: { ...fixtureDriver(), initialize } })
+
+    await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
+    expect(initialize).toHaveBeenCalledTimes(2)
+  })
+
+  it("applies unsubscribe headers and the first personalization before dispatch", async () => {
+    const driver = fixtureDriver()
+    const client = createEmail({ driver })
+
+    await client.send({
+      ...message,
+      personalizations: [{ subject: "Personal welcome", to: "jane@example.com" }],
+      unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" },
+    })
+
+    expect(driver.send).toHaveBeenCalledWith(expect.objectContaining({
+      headers: expect.objectContaining({
+        "List-Unsubscribe": "<https://example.com/unsubscribe>, <mailto:leave@example.com>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      }),
+      personalizations: undefined,
+      subject: "Personal welcome",
+      to: "jane@example.com",
+    }), expect.anything())
+  })
+
   it("serializes concurrent initialization for an eager driver", async () => {
     let finishInitialization: (() => void) | undefined
     const initialize = vi.fn(() => new Promise<void>((resolve) => {
@@ -155,6 +187,13 @@ describe("createEmail", () => {
     })
 
     await expect(client.send(message)).rejects.toBe(error)
+  })
+
+  it("preserves structurally valid custom provider errors", async () => {
+    const cause = Object.assign(new Error("slow down"), { code: "RATE_LIMIT" as const, driver: "custom", retryable: true })
+    const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+
+    await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
   })
 })
 

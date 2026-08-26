@@ -4090,6 +4090,101 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/auth/test/server.test.ts",
       "fingerprint": "7a0baa18e2a82ef197405824477e46aa9f3437c1ed4e6072e11d2ef5eebf180b"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "a3a0246beca9efdc837fdf5b5610d5ef251a6cefc10b8e3fbacbc3e9944d7aa4"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/drivers/shared.ts",
+      "fingerprint": "080200e6346f2d85d9f145ceb1014d51d6482dad486c31066f914b451aca6d7c"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "5b399c653b9e7e8e955032963ba68773d278aa45f64299c9f45a1a5a37d4b14e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "87ad8350b6992fe7f64071a1db6e8d0a0004b0f38483d8a1e687487dbc5181e0"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "665299aec7a462008baee97957ed53ab02aa75435ae11307e1bce2170383cdb1"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "899d81e6484d85e9ae8ff64488232287ed3f0fac3692c85e4edd8aae0c59c286"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "5f1d42bd262fe34822bb6bbca7cdf2301b7028f42b02714db1c301f38ddc97f8"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/drivers/cloudflare-email.ts",
+      "fingerprint": "18cafc7467465fd421f7eaecfe708b8c1ec63db4b651b5ab6146b26d4a448150"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/drivers/shared.ts",
+      "fingerprint": "ee9b721d4abdbaeb126edbf729b359c7a29b2a19e289e26250b9cb6a95b26d9b"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/provider.ts",
+      "fingerprint": "a0c19e5ac76a1b9acd8b7132e620ca95f2184fd100b26bba069c89f7f5ecb641"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "354d3792439b993a0e433a9a411dc64c82d59dd716b350c0fea6a878be8dbc85"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/drivers/cloudflare-email.ts",
+      "fingerprint": "098bb42abcc6d1f50fc5534b313f7bd542e0aaf5312716f605aefac94b8deb97"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/drivers/shared.ts",
+      "fingerprint": "61c24fe76c393f5da9efc87b6b7f13773c78d4f3f7c8e86be32de33a667c47b6"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/drivers/shared.ts",
+      "fingerprint": "c9ebea60394be07d4b0f3a7b086dbf83ec9d1b6940dd7581c414de51e068b00e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/provider.ts",
+      "fingerprint": "37eb9ea1065806f6f293ab06304bcd3e76ef97a7bd26916a607cef14671c3b69"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/provider.ts",
+      "fingerprint": "a5ae370e5188ccd88f28704b97aa2617c7819f7cf5f3f5f12bbbefa8004bce34"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/test/client.test.ts",
+      "fingerprint": "546c53ce52e03bd1701ffa68a7b332ab0b4dd1554f32ae6ce90b82be2f495b2d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/test/drivers.test.ts",
+      "fingerprint": "3e079b1b69f92edd5dfd2f3fcb3cd37d37a0a9c96731d4628729b1a5cce8021b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/test/drivers.test.ts",
+      "fingerprint": "268cec8406e332c7034841035de2e71163f0d6a3b78f4efaa613afc684dd9364"
     }
   ]
 }

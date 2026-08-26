@@ -14,7 +14,7 @@ export function addressValue(input: EmailAddress): { email: string, name?: strin
 
 export function formatAddress(input: EmailAddress): string {
   const address = addressValue(input)
-  return address.name ? `${address.name} <${address.email}>` : address.email
+  return address.name ? `"${address.name.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}" <${address.email}>` : address.email
 }
 
 export function bytesToBase64(value: Uint8Array): string {

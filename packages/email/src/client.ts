@@ -28,6 +28,33 @@ function resolveEmailDriver(source: EmailDriverSource): Promise<EmailDriver> {
   })
 }
 
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const normalizedName = name.toLowerCase()
+  return Object.keys(headers).some(header => header.toLowerCase() === normalizedName)
+}
+
+function prepareMessage(message: EmailMessage): EmailMessage {
+  const personalization = message.personalizations?.[0]
+  const { personalizations: _personalizations, ...prepared } = message
+  const headers = { ...prepared.headers }
+  if (prepared.unsubscribe) {
+    const { mailto, oneClick, url } = prepared.unsubscribe
+    const values = [url ? `<${url}>` : undefined, mailto ? `<mailto:${mailto}>` : undefined].filter(value => value !== undefined)
+    if (values.length > 0 && !hasHeader(headers, "list-unsubscribe")) headers["List-Unsubscribe"] = values.join(", ")
+    if ((oneClick ?? Boolean(url)) && url && !hasHeader(headers, "list-unsubscribe-post")) headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+  }
+  return {
+    ...prepared,
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(personalization ? {
+      bcc: personalization.bcc ?? prepared.bcc,
+      cc: personalization.cc ?? prepared.cc,
+      subject: personalization.subject ?? prepared.subject,
+      to: personalization.to,
+    } : {}),
+  }
+}
+
 export function createEmail(options: EmailDefinition): EmailClient {
   if (!options || typeof options !== "object" || !("driver" in options)) throw new TypeError("`createEmail()` expects an object with a driver.")
   if (typeof options.driver !== "function") assertEmailDriver(options.driver)
@@ -43,10 +70,14 @@ export function createEmail(options: EmailDefinition): EmailClient {
           await driver.initialize?.()
         }
         else {
-          initialization ??= Promise.resolve(driver.initialize?.())
+          initialization ??= Promise.resolve(driver.initialize?.()).catch((error: unknown) => {
+            initialization = undefined
+            throw error
+          })
           await initialization
         }
-        const result = await driver.send(message, { attempt: 1, driver: driver.name, meta: {}, signal: undefined, stream: message.stream })
+        const preparedMessage = prepareMessage(message)
+        const result = await driver.send(preparedMessage, { attempt: 1, driver: driver.name, meta: {}, signal: undefined, stream: preparedMessage.stream })
         if (result.error) throw result.error
         if (typeof result.data.id !== "string" || result.data.id.trim().length === 0) {
           throw emailError("EMAIL_PROVIDER_FAILED", `[vitehub] Email driver ${driverName} returned an invalid message id.`, { driver: driverName })
