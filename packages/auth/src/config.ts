@@ -87,8 +87,9 @@ function arrayLiteralBody(value: string | undefined): string | undefined {
 }
 
 function readEntryKey(entry: string): string | undefined {
-  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["'`]([^"'`]+)["'`])\s*(?::|$)/.exec(entry)
-  return match?.[1] || match?.[2]
+  const property = /^\s*(?:([A-Za-z_$][\w$]*)|["'`]([^"'`]+)["'`])\s*(?::|$)/.exec(entry)
+  if (property) return property[1] || property[2]
+  return /^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/.exec(entry)?.[1]
 }
 
 function readEntryValue(entry: string): string | undefined {
@@ -200,13 +201,12 @@ function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRo
 
   const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
   const authorize = readObjectEntries(routeObject).find(entry => entry.key === "authorize")
-  return {
-    ...(authorize && (typeof authorize.value === "undefined" || !/\bundefined\b/.test(authorize.value))
-      ? { authorize: true as const }
-      : {}),
-    ...(method ? { method } : {}),
+  const resolved: ResolvedAuthAccessRoute = {
     route: resolvedRoute,
   }
+  if (authorize) resolved.authorize = true
+  if (method) resolved.method = method
+  return resolved
 }
 
 function readAuthAccessRoutesConfig(body: string | undefined): ResolvedAuthAccessRoute[] {

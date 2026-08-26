@@ -165,17 +165,24 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
-  it("does not treat an undefined authorize property as a callback", async () => {
+  it("marks every declared authorize policy for fail-closed runtime enforcement", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [
       "  access: { routes: [",
       "    { authorize: undefined, route: '/app/**' },",
-      "    { authorize: enabled ? authorizeApp : undefined, route: '/admin/**' },",
+      "    { authorize: enabled ? authorizeApp : void 0, route: '/admin/**' },",
+      "    { authorize({ user }) { return user.isAdmin }, route: '/method/**' },",
+      "    { async authorize({ user }) { return user.isAdmin }, route: '/async-method/**' },",
       "  ] },",
     ])
 
     expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
-      access: { routes: [{ route: "/app/**" }, { route: "/admin/**" }] },
+      access: { routes: [
+        { authorize: true, route: "/app/**" },
+        { authorize: true, route: "/admin/**" },
+        { authorize: true, route: "/method/**" },
+        { authorize: true, route: "/async-method/**" },
+      ] },
     })
   })
 

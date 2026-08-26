@@ -105,10 +105,12 @@ function renderAuthRouteHandler(): string {
 
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
+  const requiredAuthorizeRouteIndexes = JSON.stringify(config?.access.routes.flatMap((route, index) => route.authorize ? [index] : []) ?? [])
   return [
     `import { requireAuthAccessRoutes } from ${JSON.stringify(AUTH_SERVER_ID)}`,
     "",
     `const routes = ${routes}`,
+    `const requiredAuthorizeRouteIndexes = ${requiredAuthorizeRouteIndexes}`,
     "",
     "function routeMatches(pattern, pathname) {",
     "  if (pattern.endsWith('/**')) {",
@@ -127,7 +129,7 @@ function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | unde
     "export default function viteHubAuthAccessMiddleware(event) {",
     "  const routeIndexes = matchAccessRoutes(event)",
     "  if (routeIndexes.length === 0) return",
-    "  return requireAuthAccessRoutes(event, routeIndexes)",
+    "  return requireAuthAccessRoutes(event, routeIndexes, undefined, requiredAuthorizeRouteIndexes)",
     "}",
     "",
   ].join("\n")
