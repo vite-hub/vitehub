@@ -22,15 +22,15 @@ export function discoverPackageExamples(root = repoRoot) {
     const showcasePath = join(packagesDir, packageEntry.name, "examples", "showcase.json");
     if (!existsSync(showcasePath)) continue;
     const showcase = JSON.parse(readFileSync(showcasePath, "utf8"));
-    for (const framework of Object.keys(showcase.frameworks ?? {})) {
-      discovered.push(`${packageEntry.name}:${framework}`);
+    for (const [framework, frameworkConfig] of Object.entries(showcase.frameworks ?? {})) {
+      if (frameworkConfig.modes?.build) discovered.push(`${packageEntry.name}:${framework}:build`);
     }
   }
   return discovered.sort();
 }
 
 export function assertManifestCompleteness(contracts, root = repoRoot) {
-  const keys = contracts.map(contract => `${contract.id}:${contract.framework}`);
+  const keys = contracts.map(contract => contractLabel(contract));
   const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
   if (duplicates.length > 0) throw new Error(`Duplicate package example contracts: ${[...new Set(duplicates)].join(", ")}`);
 
@@ -43,22 +43,22 @@ export function assertManifestCompleteness(contracts, root = repoRoot) {
 
   for (const contract of contracts) {
     if (!(["provider-output", "server-bundle"].includes(contract.artifact))) {
-      throw new Error(`${contract.id}:${contract.framework} has unknown artifact ${JSON.stringify(contract.artifact)}.`);
+      throw new Error(`${contractLabel(contract)} has unknown artifact ${JSON.stringify(contract.artifact)}.`);
     }
     if (!Array.isArray(contract.outputs) || contract.outputs.length === 0) {
-      throw new Error(`${contract.id}:${contract.framework} must declare at least one output.`);
+      throw new Error(`${contractLabel(contract)} must declare at least one output.`);
     }
-    for (const output of contract.outputs) assertRelativePath(output, `${contract.id}:${contract.framework} output`);
+    for (const output of contract.outputs) assertRelativePath(output, `${contractLabel(contract)} output`);
 
     const packageDir = join(root, "packages", contract.id);
     const exampleDir = join(packageDir, "examples", contract.framework);
     const packageManifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
     const exampleManifest = JSON.parse(readFileSync(join(exampleDir, "package.json"), "utf8"));
     if (!exampleManifest.name || exampleManifest.private !== true || exampleManifest.scripts?.build !== "vp build") {
-      throw new Error(`${contract.id}:${contract.framework} must be a named private package with a Vite+ build script.`);
+      throw new Error(`${contractLabel(contract)} must be a named private package with a Vite+ build script.`);
     }
     if (exampleManifest.dependencies?.[packageManifest.name] !== "workspace:*") {
-      throw new Error(`${contract.id}:${contract.framework} must consume ${packageManifest.name} through workspace:*.`);
+      throw new Error(`${contractLabel(contract)} must consume ${packageManifest.name} through workspace:*.`);
     }
   }
 }
@@ -72,7 +72,7 @@ export function assertExampleOutputs(contract, exampleDir) {
     const outputPath = join(exampleDir, output);
     const outputStat = existsSync(outputPath) ? statSync(outputPath) : undefined;
     if (!outputStat?.isFile() || outputStat.size === 0) {
-      throw new Error(`${contract.id}:${contract.framework} did not emit ${output}.`);
+      throw new Error(`${contractLabel(contract)} did not emit ${output}.`);
     }
     if (output.endsWith(".json")) JSON.parse(readFileSync(outputPath, "utf8"));
   }
@@ -84,20 +84,24 @@ export function runPackageExamples(contracts = loadExampleContracts(), root = re
     const packageDir = join(root, "packages", contract.id);
     const exampleDir = join(packageDir, "examples", contract.framework);
     if (!existsSync(join(packageDir, "dist"))) {
-      throw new Error(`Build the workspace packages before ${contract.id}:${contract.framework}.`);
+      throw new Error(`Build the workspace packages before ${contractLabel(contract)}.`);
     }
     cleanExampleOutput(exampleDir);
-    process.stdout.write(`[examples] ${contract.id}:${contract.framework} (${contract.artifact})\n`);
+    process.stdout.write(`[examples] ${contractLabel(contract)} (${contract.artifact})\n`);
     const result = spawnSync("corepack", ["pnpm", "--dir", exampleDir, "run", "build"], {
       cwd: root,
       env: process.env,
       stdio: "inherit",
     });
     if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`${contract.id}:${contract.framework} build exited with status ${result.status ?? "unknown"}.`);
+    if (result.status !== 0) throw new Error(`${contractLabel(contract)} exited with status ${result.status ?? "unknown"}.`);
     assertExampleOutputs(contract, exampleDir);
   }
   process.stdout.write(`Verified ${contracts.length} package example contracts.\n`);
+}
+
+function contractLabel(contract) {
+  return `${contract.id}:${contract.framework}:${contract.mode}`;
 }
 
 function assertRelativePath(path, label) {
