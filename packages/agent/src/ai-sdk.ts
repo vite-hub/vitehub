@@ -2047,6 +2047,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       })
       const lazyStream = (property: "fullStream" | "stream" | "textStream"): ReadableStream<unknown> => {
         let reader: ReadableStreamDefaultReader<unknown> | undefined
+        let cancelled = false
         const getReader = async () => {
           if (reader) return reader
           const result = await start()
@@ -2057,10 +2058,26 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             : ReadableStream.from(stream as AsyncIterable<unknown>).getReader()
           return reader
         }
+        const read = async () => {
+          if (providerAbortSignal.aborted) return { done: true as const, value: undefined }
+          let detachCancellation: () => void = () => undefined
+          const cancellation = new Promise<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>>((resolve) => {
+            const onAbort = () => resolve({ done: true, value: undefined })
+            providerAbortSignal.addEventListener("abort", onAbort, { once: true })
+            detachCancellation = () => providerAbortSignal.removeEventListener("abort", onAbort)
+          })
+          try {
+            return await Promise.race([(await getReader()).read(), cancellation])
+          }
+          finally {
+            detachCancellation()
+          }
+        }
         const stream = new ReadableStream({
           async pull(controller) {
             try {
-              const item = await (await getReader()).read()
+              const item = await read()
+              if (cancelled) return
               if (!item.done) {
                 controller.enqueue(item.value)
                 return
@@ -2075,6 +2092,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             }
           },
           async cancel(reason) {
+            cancelled = true
             cancelProvider(reason)
             try {
               await (await getReader()).cancel(reason)
