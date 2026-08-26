@@ -326,6 +326,9 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
+    await expect(resolved.workspace!.fs.glob("x\\{a,b\\}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
     await expect(resolved.workspace!.fs.glob("x".repeat(2_049))).rejects.toThrow(
       "[vitehub] Workspace glob pattern input exceeds the model-facing limit of 2048 bytes.",
     )

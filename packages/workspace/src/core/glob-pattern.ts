@@ -146,7 +146,8 @@ export function assertModelWorkspaceGlobPattern(
 
   let complexity = 0
   for (const item of patterns) {
-    complexity = boundedAdd(complexity, patternComplexity(item, limits.maxComplexity), limits.maxComplexity)
+    const normalized = item.replace(/\\/g, "/")
+    complexity = boundedAdd(complexity, patternComplexity(normalized, limits.maxComplexity), limits.maxComplexity)
     if (complexity > limits.maxComplexity) {
       throw new TypeError(`[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of ${limits.maxComplexity} expansions.`)
     }
