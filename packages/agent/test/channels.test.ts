@@ -333,7 +333,7 @@ describe("agent channels", () => {
       const resolved = await channel.adapter({} as never)
       expect(resolved).toBe(adapter)
       expect(createDiscordAdapter).toHaveBeenCalledWith({ botToken: "bot-token" })
-      expect((resolved as unknown as { [key: symbol]: unknown })[Symbol.for("vitehub.discord.longContent.mode")]).toBe("split")
+      expect(Reflect.get(resolved, Symbol.for("vitehub.discord.longContent.mode"))).toBe("split")
     }
     finally {
       vi.doUnmock("@chat-adapter/discord")

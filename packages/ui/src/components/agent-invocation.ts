@@ -219,8 +219,11 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const suffix = agentConfigurationSummary(activity)
     ?? channelDeliverySummary(activity)
     ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
-  const visibleDelivery = activity.kind === "delivery" && Boolean(activity.body);
-  const deliveryFailure = visibleDelivery
+  const deliveryBody = activity.kind === "delivery"
+    ? stringAttribute(activity.attributes, "channel.effect.content")
+    : undefined;
+  const visibleDelivery = Boolean(deliveryBody);
+  const deliveryFailure = activity.kind === "delivery"
     ? stringAttribute(activity.attributes, "error.message")
     : undefined;
   const hasDetails = Boolean(deliveryFailure || activity.truncated)
@@ -267,7 +270,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
             command.cwd ? h("div", { class: "vh-invocation-command__cwd" }, command.cwd) : null,
             command.output ? h("pre", terminalText(command.output)) : null,
           ])
-        : !visibleDelivery && activity.body
+        : activity.kind !== "delivery" && activity.body
           ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
           : null,
       inspectable
@@ -288,8 +291,8 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     key: activity.id,
   }, [
     event,
-    visibleDelivery
-      ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(activity.body!, "vh-invocation-event__markdown")])
+    deliveryBody
+      ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(deliveryBody, "vh-invocation-event__markdown")])
       : null,
   ]);
 }

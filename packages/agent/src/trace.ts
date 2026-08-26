@@ -38,10 +38,9 @@ function channelEffectContent(effect: AgentChannelDeliveryEffectIntent): { conte
       truncated: effect.payload.length > MAX_CHANNEL_EFFECT_CONTENT_LENGTH,
     }
   }
-  if (!isRuntimeRecord(effect.payload)) return { truncated: false }
-  const content = hasRuntimeType(effect.payload.body, "string")
+  const content = isRuntimeRecord(effect.payload) && hasRuntimeType(effect.payload.body, "string")
     ? effect.payload.body
-    : hasRuntimeType(effect.payload.markdown, "string")
+    : isRuntimeRecord(effect.payload) && hasRuntimeType(effect.payload.markdown, "string")
       ? effect.payload.markdown
       : hasRuntimeType(effect.metadata?.body, "string")
         ? effect.metadata.body

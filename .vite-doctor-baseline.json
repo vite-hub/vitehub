@@ -4535,6 +4535,166 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/src/channels.ts",
       "fingerprint": "4baa9472e793db770641902e588a795d6a9b681f4bc9717a52cfd703329dbf7d"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/trace.ts",
+      "fingerprint": "b8de1c3d695429962c717fc7d86452ee068da38b48f449bf8d1176e970493927"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "a66f2d481e98479a807cce389601d3b7fc71c234d2914ca7967a4096d92871e3"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "2a46079d0e0c3cdaeb9cb7b93a4bb50582c23c3a031fbe8e8dc3f9ac05943f88"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "0fba9c33032bc2c4163c5988cd40f13791ec109f7ac9aea4149b893f64bc0602"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "d180bbd428806704e8500c19b0411a83f2184cc6dc07ee97cbfcc729819fae0d"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "bed27017e43dde4841f48f2dba116b509af0576328e2db07096f2797d9da15f0"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "19ee3682c35d9c7dd43d57bf5d3c6da3d09bf29a4dc4c937cebeff2e9e10943d"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "dff6ba90500b64438e6081fcd6d358b5167081ec3db5e7aadea2aa6159b0ecf1"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "0a372211787964ff661785325caade87eb0b16991560b4588474785d182e4b7b"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "ec989d007df8dbea9d6dc4b0a7780363df6f8674ea74a03c78316850c35370f5"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "352c6433654cbaeebb9ad1de305cdf0d5c2fdc4f96773fbbcdc745e184378133"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "380d40c0c72e8448f0014c8a52066314faa5ab27c85ad6b0492c10ad872c806d"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "75d817ed0f0652548ce7c07b46504e0a76c8e4e97536bd2e06d21125ec976d62"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "2796c42cf3da45eb0a8308c15b56eabea52a21c2125f96d889dc1134b8a60639"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "94f5e16371041339c0ef5c975bf680837da69326e8df953c625fe48009c7502f"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "6578a3d6c113179cf1d7ff3216b29f915b0feb2c1800d2ce2b23d67210c7b67b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "f43a851eee967e0255ca379a14bb25c1aa9ac11c64674cc2ad230ca6b19bf32a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "3763d5f19adadb26a79966957a5d145d9d39f2cb374c195c2b862481bf2eef6f"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "27a1a1bb3b49d536f040ab0402b86e978c4bd6d3351dca04150f3fb23907b8de"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "432c246a8d2e80e7053c73eb661cf48711f898342dd7b0eb4e7b609d1eeb86cf"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "5745b93df32d52b28f164a91714b4f8660535be311e9476b27c05ac7dd2029bb"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "6bf010cc7193b4f0b7517eb92c7dbe2287887f41e3274c905f331d08bd6a2a71"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "5e892ef4c6707f69e16f615f02ae8f30b77777cecab9f53b552eaf98de43441c"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "7efa1d3de6871f42fb49301b8dfd83f3813d8f23179fc933818ba756dc07daa7"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "f3cd3f69b2a550fb993bef13ada361368c800bd476ee53f33dfcaf22724317fe"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "1281c9167331ce82b2f5d22757c41b5bd6f1e08eb1d179a816e52547b1a4140d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "fbdc5aff5706eb5bf4cf6fc5186dc0413b35b4f5ea7356a9cd2b2d747fc5fe31"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "68c3bf059c361f8c53b26cc4df30967076d00587134b0235a304bb85f8406b88"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "12b6c8904362a3c19b5e17ddcbd991c1e09c26f842c53dd12eda6d94ebcbad96"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "59fa840077f16a43c62b2d2d2c9398871a60b8b0a9e2a1c2977ae33a48150b00"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "36d95b6dc525b76309d761703aba8e1997844d0a181290a911d09ea8ba3b9627"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/channels.test.ts",
+      "fingerprint": "2987460fd4569ab1fc27452944b8292653953d5398048b4ae17fa5cf4602206d"
     }
   ]
 }

@@ -231,6 +231,33 @@ describe("Agent Invocation UI", () => {
     expect(delivery.findAll(".vh-invocation-event__markdown")).toHaveLength(1);
   });
 
+  it("does not present a failed non-reply delivery error as sent content", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-reaction",
+      observations: [{
+        attributes: {
+          "channel.effect.kind": "reaction",
+          "error.message": "Reaction delivery failed",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+
+    expect(delivery.find(".vh-invocation-delivery__body").exists()).toBe(false);
+    await delivery.get("summary").trigger("click");
+    expect(delivery.get(".vh-invocation-event__failure").text()).toBe("Reaction delivery failed");
+    expect(delivery.find(".vh-invocation-event__body").exists()).toBe(false);
+  });
+
   it("discloses truncation beside a visible delivery body", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
