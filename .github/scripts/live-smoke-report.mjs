@@ -44,13 +44,16 @@ export function aggregateStageEvidence({ evidence, setupStatus, runId, runAttemp
   const byProvider = new Map();
   for (const entry of evidence) {
     validateEvidence(entry);
-    if (entry.run.id !== String(runId) || entry.run.attempt !== runAttempt) {
-      throw new Error(`stage evidence for ${entry.provider} belongs to another run attempt`);
+    if (entry.run.id !== String(runId) || entry.run.attempt > runAttempt) {
+      throw new Error(`stage evidence for ${entry.provider} belongs to another run`);
     }
-    if (byProvider.has(entry.provider)) {
+    const previous = byProvider.get(entry.provider);
+    if (previous?.run.attempt === entry.run.attempt) {
       throw new Error(`duplicate evidence for ${entry.provider}`);
     }
-    byProvider.set(entry.provider, entry);
+    if (!previous || previous.run.attempt < entry.run.attempt) {
+      byProvider.set(entry.provider, entry);
+    }
   }
 
   const providers = liveSmokeProviders.map((provider) => {
@@ -65,7 +68,13 @@ export function aggregateStageEvidence({ evidence, setupStatus, runId, runAttemp
         reason: `shared package build ${setupStatus}`,
       });
     }
-    return byProvider.get(provider) ?? createStageEvidence({
+    const entry = byProvider.get(provider);
+    if (entry) {
+      return entry.run.attempt === runAttempt
+        ? entry
+        : { ...entry, evidenceAttempt: entry.run.attempt, run: { id: String(runId), attempt: runAttempt, url: runUrl } };
+    }
+    return createStageEvidence({
       provider,
       currentStage: "preflight",
       conclusion: "failure",

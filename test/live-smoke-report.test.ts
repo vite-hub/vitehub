@@ -92,6 +92,28 @@ describe("live smoke stage evidence", () => {
     })
   })
 
+  it("reuses the latest provider evidence from an earlier rerun attempt", () => {
+    const earlierRun = { ...run, runAttempt: 1 }
+    const report = aggregateStageEvidence({
+      evidence: [
+        createStageEvidence({ provider: "cloudflare", currentStage: "runtime", conclusion: "success", ...earlierRun }),
+        createStageEvidence({ provider: "vercel", currentStage: "deploy", conclusion: "failure", ...earlierRun }),
+        evidence("vercel"),
+      ],
+      setupStatus: "success",
+      ...run,
+    })
+
+    expect(report.conclusion).toBe("success")
+    expect(report.providers[0]).toMatchObject({
+      provider: "cloudflare",
+      conclusion: "success",
+      evidenceAttempt: 1,
+      run: { attempt: 2 },
+    })
+    expect(report.providers[1]).not.toHaveProperty("evidenceAttempt")
+  })
+
   it("attributes a shared setup failure to both provider preflights", () => {
     const report = aggregateStageEvidence({ evidence: [], setupStatus: "failure", ...run })
 
@@ -218,7 +240,8 @@ describe("live smoke workflow reporting contract", () => {
       expect(workflow).toContain(`LIVE_SMOKE_STAGE=${stage}`)
     }
     expect(workflow).toContain("if: always()")
-    expect(workflow).toContain("pattern: live-smoke-evidence-*-${{ github.run_attempt }}")
-    expect(workflow).toContain("merge-multiple: true")
+    expect(workflow).toContain("pattern: live-smoke-evidence-*")
+    expect(workflow).not.toContain("timeout-minutes: 30")
+    expect(workflow).not.toContain("merge-multiple: true")
   })
 })

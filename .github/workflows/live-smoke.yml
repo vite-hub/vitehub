@@ -41,7 +41,6 @@ jobs:
     needs: setup-cloudflare
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 30
     env:
       LIVE_SMOKE_STAGE: preflight
     strategy:
@@ -161,6 +160,7 @@ jobs:
 
       - name: Provision Cloudflare resources
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 15
         env:
           BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -172,6 +172,7 @@ jobs:
 
       - name: Provision Vercel resources
         if: matrix.provider == 'vercel'
+        timeout-minutes: 15
         env:
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
@@ -185,6 +186,7 @@ jobs:
 
       - name: Build playground (cloudflare)
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 15
         env:
           BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
@@ -197,10 +199,12 @@ jobs:
 
       - name: Provider Output Contract (cloudflare)
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 5
         run: vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts
 
       - name: Dry-run Cloudflare deploy
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 5
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -208,6 +212,7 @@ jobs:
 
       - name: Build playground (vercel)
         if: matrix.provider == 'vercel'
+        timeout-minutes: 15
         env:
           BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
           KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
@@ -224,6 +229,7 @@ jobs:
 
       - name: Provider Output Contract (vercel)
         if: matrix.provider == 'vercel'
+        timeout-minutes: 5
         run: vp test --config test/output/vitest.config.ts test/output/vercel.test.ts
 
       - name: Relax Vercel cron cadence for live deploy
@@ -246,6 +252,7 @@ jobs:
       - name: Deploy Cloudflare
         id: deploy_cloudflare
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 15
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -261,6 +268,7 @@ jobs:
       - name: Deploy Vercel
         id: deploy_vercel
         if: matrix.provider == 'vercel'
+        timeout-minutes: 15
         env:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
@@ -296,6 +304,7 @@ jobs:
         run: echo "LIVE_SMOKE_STAGE=runtime" >> "$GITHUB_ENV"
 
       - name: KV Live E2E (${{ matrix.provider }})
+        timeout-minutes: 10
         run: vp run kv:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Queue Live E2E (${{ matrix.provider }})
@@ -304,6 +313,7 @@ jobs:
 
       - name: Rate Limit Live E2E (cloudflare)
         if: matrix.provider == 'cloudflare'
+        timeout-minutes: 10
         run: vp run rate-limit:e2e --mode live --provider cloudflare --url "${{ steps.url.outputs.url }}"
 
       - name: Schedule Live E2E (${{ matrix.provider }})
@@ -311,6 +321,7 @@ jobs:
         run: vp run schedule:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
 
       - name: Sandbox Live E2E (${{ matrix.provider }})
+        timeout-minutes: 10
         run: vp run sandbox:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Workflow Live E2E (${{ matrix.provider }})
@@ -318,14 +329,17 @@ jobs:
         run: vp run workflow:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
       - name: Workspace Live E2E (${{ matrix.provider }})
+        timeout-minutes: 10
         run: vp run workspace:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Blob Live E2E
+        timeout-minutes: 10
         env:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
         run: vp run blob:e2e --mode live --url "${{ steps.url.outputs.url }}"
 
       - name: DB Live E2E
+        timeout-minutes: 10
         run: vp run database:e2e --url "${{ steps.url.outputs.url }}"
 
       - name: Create stage evidence
@@ -374,9 +388,8 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          pattern: live-smoke-evidence-*-${{ github.run_attempt }}
+          pattern: live-smoke-evidence-*
           path: live-smoke-evidence
-          merge-multiple: true
 
       - name: Aggregate provider stages
         env:
