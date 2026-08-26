@@ -172,7 +172,9 @@ function fetchOnce<TOutput>(
 function cancelResponseBody(response: Response): Effect.Effect<void> {
   const body = response.body
   return body
-    ? Effect.promise(() => body.cancel().catch(() => {}))
+    ? Effect.sync(() => {
+        void body.cancel().catch(() => {})
+      })
     : Effect.void
 }
 

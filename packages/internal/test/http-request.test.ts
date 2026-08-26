@@ -79,6 +79,17 @@ describe("HTTP request", () => {
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 
+  it("reports response status without waiting for body cancellation", async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}))
+    const fetch = vi.fn(async () => new Response(new ReadableStream({ cancel }), { status: 404 }))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ timeout: 10, url: "https://example.com/missing" }, { responseType: "text" }))
+      .rejects.toMatchObject({ message: "[vitehub] HTTP request failed with status 404." })
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it("rejects a streamed response above the configured byte limit without retrying", async () => {
     const cancel = vi.fn()
     const fetch = vi.fn(async () => new Response(new ReadableStream({
