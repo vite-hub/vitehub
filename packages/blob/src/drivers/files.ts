@@ -26,7 +26,9 @@ function getCloudflareBinding(options: ResolvedCloudflareR2BlobStoreConfig) {
   return binding
 }
 
-async function createAdapter(options: ResolvedBlobStoreConfig, putOptions: BlobPutOptions = {}): Promise<Adapter> {
+type FilesSdkBlobStoreConfig = Exclude<ResolvedBlobStoreConfig, { driver: "netlify-blobs" }>
+
+async function createAdapter(options: FilesSdkBlobStoreConfig, putOptions: BlobPutOptions = {}): Promise<Adapter> {
   switch (options.driver) {
     case "akamai":
       return (await importOptionalPeer<typeof import("files-sdk/akamai")>("files-sdk/akamai", options.driver, "files-sdk")).akamai(options)

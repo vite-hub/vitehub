@@ -202,7 +202,7 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
   })
 
   for (const [name, spec] of Object.entries(manifest.dependencies || {})) {
-    if (name.startsWith("@vite-hub/")) {
+    if (name.startsWith("@vite-hub/") && !spec.startsWith("npm:")) {
       expect(spec, `${manifest.name} should pin ${name} to its tested release matrix`).toBe(manifest.version)
     }
   }

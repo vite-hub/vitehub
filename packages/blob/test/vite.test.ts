@@ -377,7 +377,7 @@ describe("hubBlob", () => {
         "    const bytes = new Uint8Array(await new Response(body).arrayBuffer())",
         "    values.set(key, { bytes, metadata: options.metadata })",
         "    return { etag: 'netlify-etag', modified: true }",
-        "  }",
+        "  },",
         "  async getMetadata(key) { const value = values.get(key); return value ? { etag: 'netlify-etag', metadata: value.metadata } : null },",
         "  async getWithMetadata(key, options = {}) { const value = values.get(key); return value ? { data: options.type === 'blob' ? new Blob([value.bytes]) : value.bytes.buffer, etag: 'netlify-etag', metadata: value.metadata } : null },",
         "  async delete(key) { values.delete(key) },",

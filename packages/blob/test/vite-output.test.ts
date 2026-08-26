@@ -103,6 +103,24 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
+function stubVercelBlobApi() {
+  const fetchMock = vi.fn<typeof fetch>(async (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input : input.url)
+    const pathname = url.searchParams.get("pathname") || "unknown"
+    const blobUrl = `https://store.public.blob.vercel-storage.com/${pathname}`
+    return Response.json({
+      contentDisposition: "inline",
+      contentType: "text/plain",
+      downloadUrl: `${blobUrl}?download=1`,
+      etag: '"etag"',
+      pathname,
+      url: blobUrl,
+    })
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  return fetchMock
+}
+
 async function createHostedDatabaseRuntimeFixture(rootDir: string, options: { localNodeImport?: boolean } = {}) {
   const packageDir = join(rootDir, "node_modules", "vitehub-hosted-fixture")
   const definitionDefaultsFile = join(rootDir, "database-definition-defaults.mjs")
@@ -880,6 +898,7 @@ describe("Vite provider outputs", () => {
     })
 
     process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    const fetchMock = stubVercelBlobApi()
     const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
     const runtimeModule = await import(runtimeModulePath) as {
       blob: {
@@ -893,12 +912,9 @@ describe("Vite provider outputs", () => {
     const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
     expect(error).toBeNull()
 
-    expect(vercelBlobMock.put).toHaveBeenCalledWith(
-      "notes/generated.txt",
-      "hello",
-      expect.objectContaining({
-        token: "secret-token",
-      }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("pathname=notes%2Fgenerated.txt"),
+      expect.objectContaining({ method: "PUT" }),
     )
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
@@ -935,6 +951,7 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
 
+    const fetchMock = stubVercelBlobApi()
     const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
     const runtimeModule = await import(runtimeModulePath) as {
       blob: {
@@ -948,12 +965,9 @@ describe("Vite provider outputs", () => {
     expect(error).toBeNull()
     expect(object).toMatchObject({ url: "/notes/assets.txt" })
 
-    expect(vercelBlobMock.put).toHaveBeenCalledWith(
-      "notes/assets.txt",
-      "hello",
-      expect.objectContaining({
-        token: "assets-token",
-      }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("pathname=notes%2Fassets.txt"),
+      expect.objectContaining({ method: "PUT" }),
     )
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")

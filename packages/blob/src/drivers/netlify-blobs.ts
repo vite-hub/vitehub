@@ -43,6 +43,12 @@ function toBlobObject(pathname: string, etag: string | undefined, metadata: Stor
   }
 }
 
+async function normalizeBody(body: BlobPutBody) {
+  if (body instanceof ReadableStream) return await new Response(body as never).arrayBuffer()
+  if (ArrayBuffer.isView(body)) return new Uint8Array(body.buffer, body.byteOffset, body.byteLength).slice().buffer
+  return body
+}
+
 export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapter<NetlifyBlobsStoreConfig> {
   const store = createStore(options)
   return {
@@ -78,6 +84,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       let seen = 0
       let hasMore = false
       for await (const page of pages) {
+        const pageHasBlobs = page.blobs.length > 0
         for (const blob of page.blobs) {
           if (seen++ < offset) continue
           if (selected.length === limit) {
@@ -86,7 +93,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
           }
           selected.push(blob)
         }
-        if (offset < seen) {
+        if (!pageHasBlobs || offset < seen) {
           for (const directory of page.directories) folders.add(directory)
         }
         if (hasMore) break
@@ -104,14 +111,13 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const contentType = putOptions.contentType || (body instanceof Blob ? body.type : undefined)
-      const size = typeof body === "string"
-        ? new TextEncoder().encode(body).byteLength
-        : body instanceof Blob
-          ? body.size
-          : body instanceof ArrayBuffer || ArrayBuffer.isView(body)
-            ? body.byteLength
-            : Number(putOptions.contentLength) || 0
+      const normalizedBody = await normalizeBody(body)
+      const contentType = putOptions.contentType || (normalizedBody instanceof Blob ? normalizedBody.type : undefined)
+      const size = typeof normalizedBody === "string"
+        ? new TextEncoder().encode(normalizedBody).byteLength
+        : normalizedBody instanceof Blob
+          ? normalizedBody.size
+          : normalizedBody.byteLength
       const uploadedAt = new Date()
       const metadata: StoredMetadata = {
         __contentType: contentType,
@@ -119,7 +125,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         __size: size,
         __user: putOptions.customMetadata,
       }
-      const result = await store.set(pathname, body as Parameters<typeof store.set>[1], {
+      const result = await store.set(pathname, normalizedBody, {
         metadata,
       })
       return {

@@ -22,7 +22,8 @@ describe("optional peer imports", () => {
 
     expect(built).not.toContain('from "files-sdk"')
     expect(built).not.toContain('from "files-sdk/vercel-blob"')
-    expect(built).toContain('from "@vercel/blob"')
+    expect(built).not.toContain('from "@vercel/blob"')
+    expect(built).toContain("vercel-storage.com")
   })
 
   it("keeps the Cloudflare-native R2 driver free of HTTP fallback peers", async () => {
