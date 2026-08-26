@@ -661,7 +661,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            nuxt: "4.4.8",
+            nuxt: "4.5.2",
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
