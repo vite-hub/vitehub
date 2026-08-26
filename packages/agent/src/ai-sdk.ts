@@ -1101,9 +1101,12 @@ function withCapturedStreamUsage<T extends {
   const wrap = (getStream: () => AsyncIterable<unknown>): ReadableStream<unknown> => {
     let reader: ReadableStreamDefaultReader<unknown> | undefined
     let iterator: AsyncIterator<unknown> | undefined
+    let directCancel: ((reason?: unknown) => unknown) | undefined
     const getSource = () => {
       if (reader || iterator) return
       const stream = getStream()
+      const candidate = Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
+      if (hasRuntimeType(candidate, "function")) directCancel = candidate as (reason?: unknown) => unknown
       if (stream instanceof ReadableStream) reader = stream.getReader()
       else iterator = stream[Symbol.asyncIterator]()
     }
@@ -1113,6 +1116,7 @@ function withCapturedStreamUsage<T extends {
     }
     const cancelSource = async (reason?: unknown) => {
       getSource()
+      directCancel?.(reason)
       if (reader) {
         await reader.cancel(reason)
         return { done: true as const, value: reason }
