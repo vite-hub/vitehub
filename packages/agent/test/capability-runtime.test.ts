@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
 
 const runtime = () => ({
+  capabilities: {},
   memo: vi.fn(),
   runtime: "unknown" as const,
   runtimeConfig: {},

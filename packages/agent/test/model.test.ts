@@ -98,7 +98,7 @@ describe("Agent model materialization", () => {
       },
     })
 
-    await runAgent(agent, { ...runtime, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
+    await runAgent(agent, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
 
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "tenant-token" })
   })
@@ -121,7 +121,7 @@ describe("Agent model materialization", () => {
           }))
         },
       })],
-    }, { ...runtime, runtimeConfig: { gatewayKey: "capability-token" } }, {})
+    }, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "capability-token" } }, {})
 
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "capability-token" })
     expect(selectModel).toHaveBeenCalledWith("zai/glm-5v-turbo")

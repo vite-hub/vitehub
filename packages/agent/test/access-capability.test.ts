@@ -1,12 +1,13 @@
 import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { describe, expect, it, vi } from "vitest"
 
-import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
+import type { AgentToolSet, ResolvedAgentRuntimeContext } from "../src/types.ts"
 import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
 import { attachWorkspaceSourceRequestExecution } from "@vite-hub/workspace/runtime"
 
-function runtime(): AgentRuntimeContext {
+function runtime(): ResolvedAgentRuntimeContext {
   return {
+    capabilities: {},
     memo: (_key, create) => create(),
     runtime: "vite",
     runtimeConfig: {},
