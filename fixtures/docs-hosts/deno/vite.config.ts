@@ -11,7 +11,7 @@ export default defineConfig({
         driver: 'deno-kv',
       },
     }),
-    hubSchedule(),
+    hubSchedule({ providerOutput: 'standalone' }),
     nitro() as never,
   ],
 })

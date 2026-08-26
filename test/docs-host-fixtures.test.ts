@@ -10,12 +10,12 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = join(repoRoot, "fixtures/docs-hosts")
 const hostFixtures = ["cloudflare", "vercel", "netlify", "deno", "node-self-hosted"] as const
-const hostArtifacts: Record<(typeof hostFixtures)[number], string> = {
-  cloudflare: ".output/server/wrangler.json",
-  deno: ".output/server/index.mjs",
-  netlify: ".netlify/v1/functions/vitehub-agent.mjs",
-  "node-self-hosted": "dist/index.html",
-  vercel: ".vercel/output/config.json",
+const hostArtifacts: Record<(typeof hostFixtures)[number], string[]> = {
+  cloudflare: [".output/server/wrangler.json"],
+  deno: [".output/server/index.mjs", ".vitehub/schedule/deno-cron.mjs"],
+  netlify: [".netlify/v1/functions/vitehub-agent.mjs"],
+  "node-self-hosted": [".output/server/index.mjs"],
+  vercel: [".vercel/output/config.json"],
 }
 
 interface SnippetContract {
@@ -83,10 +83,12 @@ describe("host documentation fixtures", () => {
           VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host,
         })
 
-        await expect(
-          readFile(join(appRoot, hostArtifacts[host]), "utf8"),
-          `${host} should emit its documented deployment artifact`,
-        ).resolves.not.toHaveLength(0)
+        for (const artifact of hostArtifacts[host]) {
+          await expect(
+            readFile(join(appRoot, artifact), "utf8"),
+            `${host} should emit ${artifact}`,
+          ).resolves.not.toHaveLength(0)
+        }
       }
     }
     finally {

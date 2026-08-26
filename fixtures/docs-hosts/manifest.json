@@ -13,6 +13,7 @@
   { "page": "frameworks-hosts/vercel.md", "label": "vite.config.ts", "fixture": "vercel/database/vite.config.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/netlify.md", "label": "vite.config.ts", "fixture": "netlify/vite.config.ts", "verification": "build" },
   { "page": "frameworks-hosts/deno.md", "label": "vite.config.ts", "fixture": "deno/vite.config.ts", "verification": "build" },
+  { "page": "frameworks-hosts/deno.md", "label": "server.ts", "fixture": "deno/server.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/node-self-hosted.md", "label": "server/settings.ts", "fixture": "node-self-hosted/server/settings.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/node-self-hosted.md", "label": "vite.config.ts", "fixture": "node-self-hosted/vite.config.ts", "verification": "build" },
   { "page": "frameworks-hosts/node-self-hosted.md", "label": "server/manual-auth-handler.ts", "fixture": "node-self-hosted/server/manual-auth-handler.ts", "verification": "typecheck" }
