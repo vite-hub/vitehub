@@ -13,11 +13,53 @@ function walk(directory, predicate) {
     });
 }
 
+function withoutFencedCode(markdown) {
+  let fence;
+  return markdown.split("\n").map((line) => {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (!fence && delimiter) {
+      fence = delimiter;
+      return "";
+    }
+    if (fence) {
+      if (delimiter?.[0] === fence[0] && delimiter.length >= fence.length && /^\s*$/.test(line.slice(line.indexOf(delimiter) + delimiter.length))) {
+        fence = undefined;
+      }
+      return "";
+    }
+    return line;
+  }).join("\n");
+}
+
 function withoutCode(markdown) {
-  return markdown
-    .replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, "")
-    .replace(/^~~~[^\n]*\n[\s\S]*?^~~~\s*$/gm, "")
-    .replace(/`[^`\n]*`/g, "");
+  const withoutFences = withoutFencedCode(markdown);
+  let result = "";
+  for (let index = 0; index < withoutFences.length;) {
+    if (withoutFences[index] !== "`") {
+      result += withoutFences[index];
+      index += 1;
+      continue;
+    }
+    const opener = /^`+/.exec(withoutFences.slice(index))[0];
+    let closing = -1;
+    for (let cursor = index + opener.length; cursor < withoutFences.length;) {
+      const next = withoutFences.indexOf("`", cursor);
+      if (next === -1) break;
+      const delimiter = /^`+/.exec(withoutFences.slice(next))[0];
+      if (delimiter.length === opener.length) {
+        closing = next;
+        break;
+      }
+      cursor = next + delimiter.length;
+    }
+    if (closing === -1) {
+      result += opener;
+      index += opener.length;
+      continue;
+    }
+    index = closing + opener.length;
+  }
+  return result;
 }
 
 function rawMarkdownSlug(value) {
@@ -40,9 +82,7 @@ function markdownSlug(value) {
 export function markdownAnchors(markdown) {
   const anchors = new Set();
   const occurrences = new Map();
-  const source = markdown
-    .replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, "")
-    .replace(/^~~~[^\n]*\n[\s\S]*?^~~~\s*$/gm, "");
+  const source = withoutFencedCode(markdown);
   for (const line of source.split("\n")) {
     const heading = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
     if (!heading) continue;
@@ -75,6 +115,9 @@ export function markdownLinks(markdown) {
   }
   for (const match of source.matchAll(/<a\s[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
     links.push(match[1] ?? match[2] ?? match[3]);
+  }
+  for (const match of source.matchAll(/<([a-z][a-z\d+.-]*:[^<>\s]+)>/gi)) {
+    links.push(match[1]);
   }
   for (let index = 0; index < source.length; index += 1) {
     const bracket = source.indexOf("[", index);

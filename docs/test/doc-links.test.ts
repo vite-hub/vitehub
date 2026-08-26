@@ -42,19 +42,25 @@ to: "#install"
 ---
 ::
 <a href="/docs/html">HTML</a>
+<https://vitehub.dev/docs/autolink>
 
 [guide]: /docs/guide
 [shortcut]: /docs/shortcut
 
 \`[ignored](./missing.md)\`
+\`\`[also ignored](./missing.md)\`\`
 \`\`\`
 [ignored](./missing.md)
 \`\`\`
+\`\`\`\`
+[also ignored](./missing.md)
+\`\`\`\`
 `)).toEqual([
       "/docs/card",
       "/docs/card#install",
       "#install",
       "/docs/html",
+      "https://vitehub.dev/docs/autolink",
       "./guide.md#install",
       "./api_(stable).md",
       "/docs/guide",
@@ -131,6 +137,17 @@ to: /docs/missing-card
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs/missing-card" does not exist'),
       expect.stringContaining('route "/docs/missing-html" does not exist'),
+    ]);
+  });
+
+  it("reports missing same-site autolink routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n<https://vitehub.dev/docs/missing>",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing" does not exist'),
     ]);
   });
 
