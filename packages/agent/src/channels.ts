@@ -1126,14 +1126,19 @@ export function messageChannelReplyBody<TRuntimeConfig extends AgentRuntimeConfi
   if (typeof context.effect.metadata?.markdown === "string") return context.effect.metadata.markdown
 }
 
-const messageChannelDeliveredReplyBodies = new WeakMap<AgentChannelDeliveryEffectIntent, string | undefined>()
+const messageChannelDeliveredReplyBodies = new WeakMap<object, string | undefined>()
 
-export function messageChannelDeliveredReplyBody(effect: AgentChannelDeliveryEffectIntent): string | undefined {
-  return messageChannelDeliveredReplyBodies.get(effect)
+export function messageChannelDeliveredReplyBody<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): string | undefined {
+  return messageChannelDeliveredReplyBodies.get(context)
 }
 
-function setMessageChannelDeliveredReplyBody(effect: AgentChannelDeliveryEffectIntent, body: string | undefined): void {
-  messageChannelDeliveredReplyBodies.set(effect, body)
+function setMessageChannelDeliveredReplyBody<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+  body: string | undefined,
+): void {
+  messageChannelDeliveredReplyBodies.set(context, body)
 }
 
 function normalizedDeliveryArtifactPath(path: string): string | undefined {
@@ -1236,7 +1241,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     for await (const chunk of stream) body = `${body || ""}${chunk}`
   }
   body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(body, artifacts), artifacts)
-  setMessageChannelDeliveredReplyBody(context.effect, body)
+  setMessageChannelDeliveredReplyBody(context, body)
   if (!body && !attachments.length && !files.length) return
   const message: AgentChatMessage = {
     markdown: body || "",
@@ -1604,7 +1609,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const headers = githubApiHeaders(token, options.userAgent)
       const body = await githubBodyWithArtifacts(context, messageChannelReplyBody(context), options, command, headers)
       if (!body) return
-      setMessageChannelDeliveredReplyBody(context.effect, body)
+      setMessageChannelDeliveredReplyBody(context, body)
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`
       await githubApi(fetcher, url, {
         body: JSON.stringify({ body }),

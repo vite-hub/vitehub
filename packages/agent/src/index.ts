@@ -1200,6 +1200,23 @@ async function applyChannelDeliveryEffectIntents<
           }
         : intent
       let handlerCompleted = false
+      const deliveryEffectContext = {
+        ...context.runtimeContext,
+        channel: active.channel,
+        context: context.context,
+        effect: deliveredIntent,
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        ...(finish ? { finish: finish as never } : {}),
+        input: context.input,
+        request: context.runtimeContext.request,
+        run: context.run,
+        trigger: {
+          channelId: active.channelId,
+          ...(active.trigger?.id ? { id: active.trigger.id } : {}),
+          ...(active.trigger?.name ? { name: active.trigger.name } : {}),
+        },
+        workspace: context.workspace,
+      }
       try {
         await verifyOwnership?.()
         try {
@@ -1214,25 +1231,9 @@ async function applyChannelDeliveryEffectIntents<
           phase: "effect",
         }, async () => {
           await verifyOwnership?.()
-          await handler({
-            ...context.runtimeContext,
-            channel: active.channel,
-            context: context.context,
-            effect: deliveredIntent,
-            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            ...(finish ? { finish: finish as never } : {}),
-            input: context.input,
-            request: context.runtimeContext.request,
-            run: context.run,
-            trigger: {
-              channelId: active.channelId,
-              ...(active.trigger?.id ? { id: active.trigger.id } : {}),
-              ...(active.trigger?.name ? { name: active.trigger.name } : {}),
-            },
-            workspace: context.workspace,
-          })
+          await handler(deliveryEffectContext)
           const deliveredContent = intent.kind === "reply"
-            ? messageChannelDeliveredReplyBody(deliveredIntent) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
+            ? messageChannelDeliveredReplyBody(deliveryEffectContext) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
             : undefined
           const deliveredContentTruncated = streamedReplyContentTruncated
             || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
@@ -1263,7 +1264,7 @@ async function applyChannelDeliveryEffectIntents<
         }
         catch {}
         const deliveredContent = intent.kind === "reply"
-          ? messageChannelDeliveredReplyBody(deliveredIntent) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
+          ? messageChannelDeliveredReplyBody(deliveryEffectContext) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
           : undefined
         await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
           ...metadata,

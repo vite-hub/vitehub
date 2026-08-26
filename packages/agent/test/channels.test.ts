@@ -880,7 +880,7 @@ describe("agent channels", () => {
       kind: "reply" as const,
       payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nQuery: ![query](screenshots/login.png?raw=1)\nFragment: ![fragment](result.png#v1)\nHTML: <img src=\"screenshots/login.png\" width=\"400\">\nCode: `unused.png`" },
     }
-    await replyEffect({
+    const deliveryContext = {
       channel,
       effect,
       input: {
@@ -912,7 +912,8 @@ describe("agent channels", () => {
           stat: vi.fn(async (path: string) => ({ mediaType: "image/png", path, type: "file" as const })),
         },
       },
-    } as never)
+    } as never
+    await replyEffect(deliveryContext)
 
     expect(createdRefs).toEqual([{
       ref: "refs/heads/review-assets",
@@ -941,7 +942,7 @@ describe("agent channels", () => {
     expect(postedBodies[0]).not.toContain("Screenshot: screenshots/login.png")
     expect(postedBodies[0]).not.toContain("Root: result.png")
     expect(postedBodies[0]).not.toContain("[result](![")
-    expect(messageChannelDeliveredReplyBody(effect)).toBe(postedBodies[0])
+    expect(messageChannelDeliveredReplyBody(deliveryContext)).toBe(postedBodies[0])
   })
 
   it("normalizes hand-written GitHub PR status string payloads", async () => {
