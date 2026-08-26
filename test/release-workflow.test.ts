@@ -69,7 +69,7 @@ describe("release workflow artifact handoff", () => {
       expect(downstream).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1")
       expect(downstream).toContain("name: ${{ needs.verify.outputs.artifact_name }}")
       expect(downstream).toContain("EXPECTED_ARTIFACT_DIGEST: ${{ needs.verify.outputs.artifact_digest }}")
-      expect(downstream).toContain("GITHUB_RUN_ATTEMPT")
+      expect(downstream).not.toContain("GITHUB_RUN_ATTEMPT")
       expect(downstream).not.toContain("actions/checkout@")
     }
 
@@ -82,6 +82,11 @@ describe("release workflow artifact handoff", () => {
   })
 
   it("retains safe resume behavior", () => {
+    expect(verify).toContain("-${GITHUB_RUN_ATTEMPT}")
+    for (const downstream of [publishNpm, githubRelease]) {
+      expect(downstream).toContain("needs.verify.outputs.artifact_name")
+      expect(downstream).not.toContain("process.env.GITHUB_RUN_ATTEMPT")
+    }
     expect(publishNpm).toContain('npm view "${package_name}@${package_version}"')
     expect(publishNpm).toContain("is already published; skipping.")
     expect(githubRelease).toContain('gh release view "$release_tag"')

@@ -230,7 +230,6 @@ jobs:
           if (metadata.npmTag !== process.env.EXPECTED_NPM_TAG) throw new Error("Release artifact npm tag does not match verification")
           if (metadata.publish !== true) throw new Error("Release artifact is not publishable")
           if (metadata.ref !== process.env.GITHUB_REF) throw new Error("Release artifact ref does not match this workflow")
-          if (metadata.runAttempt !== process.env.GITHUB_RUN_ATTEMPT) throw new Error("Release artifact attempt does not match this workflow")
           if (metadata.runId !== process.env.GITHUB_RUN_ID) throw new Error("Release artifact run does not match this workflow")
           if (metadata.version !== process.env.EXPECTED_VERSION) throw new Error("Release artifact version does not match verification")
           NODE
@@ -370,13 +369,12 @@ jobs:
           prerelease="$(node -p "require('./${metadata}').prerelease")"
           release_tag="$(node -p "require('./${metadata}').refName")"
           release_run_id="$(node -p "require('./${metadata}').runId")"
-          release_run_attempt="$(node -p "require('./${metadata}').runAttempt")"
 
           if [[ ! "$EXPECTED_ARTIFACT_DIGEST" =~ ^[a-f0-9]{64}$ ]]; then
             echo "Missing verified release artifact digest." >&2
             exit 1
           fi
-          if [[ "$artifact_name" != "$EXPECTED_ARTIFACT_NAME" || "$artifact_commit" != "$GITHUB_SHA" || "$artifact_publish" != "true" || "$release_run_attempt" != "$GITHUB_RUN_ATTEMPT" || "$release_run_id" != "$GITHUB_RUN_ID" || "$release_tag" != "$GITHUB_REF_NAME" ]]; then
+          if [[ "$artifact_name" != "$EXPECTED_ARTIFACT_NAME" || "$artifact_commit" != "$GITHUB_SHA" || "$artifact_publish" != "true" || "$release_run_id" != "$GITHUB_RUN_ID" || "$release_tag" != "$GITHUB_REF_NAME" ]]; then
             echo "Release artifact metadata does not match this workflow." >&2
             exit 1
           fi
