@@ -1,11 +1,13 @@
 import { normalize, resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import {
-  createDefaultCloudflareOutputRoot,
-  defaultCloudflareCompatibilityDate,
-  writeCloudflareWranglerConfig,
-} from "@vite-hub/internal/build/cloudflare"
+  contributeProviderDeploymentOutput,
+  finalizeProviderDeploymentOutputs,
+  resetProviderDeploymentOutputs,
+  useProviderOutputCatalog,
+} from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import {
   createNoExternalMerger,
@@ -37,6 +39,15 @@ const browserRuntimeId = "#vitehub/browser/runtime"
 const resolvedBrowserRegistryId = `\0${browserRegistryId}`
 const resolvedBrowserRuntimeId = `\0${browserRuntimeId}`
 const mergeNoExternal = createNoExternalMerger("@vite-hub/browser")
+const browserWranglerConfigOwnership = {
+  keys: ["browser"],
+  arrays: {
+    compatibility_flags: {
+      preserveOnCleanup: true,
+      values: ["nodejs_compat"],
+    },
+  },
+}
 
 function resolveOptions(options: BrowserModuleOptions | false | undefined): Required<BrowserModuleOptions> {
   const binding = options && options.binding || "BROWSER"
@@ -122,6 +133,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   let enabled = options !== false
   let resolvedOptions = resolveOptions(options)
   let resolved: ResolvedConfig | undefined
+  let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   let projectRoot = process.cwd()
   let serverDirs: string[] | undefined
 
@@ -184,6 +196,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     },
     async configResolved(config) {
       resolved = config
+      providerOutput = useProviderOutputCatalog(config)
       applyConfig(config)
       await refreshRegistryTypes(config.root)
     },
@@ -207,35 +220,45 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
       if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
       if (id === resolvedBrowserRuntimeId) return runtimeContents()
     },
-    closeBundle: {
-      order: "post",
-      sequential: true,
-      async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-        await writeCloudflareWranglerConfig({
-          outputRoot: createDefaultCloudflareOutputRoot(resolved.root),
-          rootDir: resolved.root,
-          ...(enabled
-            ? {
-                wranglerConfig: {
-                  browser: browserBinding(resolvedOptions),
-                  compatibility_flags: ["nodejs_compat"],
-                },
-                wranglerConfigDefaults: {
-                  compatibility_date: defaultCloudflareCompatibilityDate,
-                },
-              }
-            : {}),
-          wranglerConfigOwnership: {
-            keys: ["browser"],
-            arrays: {
-              compatibility_flags: {
-                preserveOnCleanup: true,
-                values: ["nodejs_compat"],
-              },
+    buildStart() {
+      resetProviderDeploymentOutputs(providerOutput)
+    },
+    buildEnd() {
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      const rootDir = resolved.root
+      const clientOutDir = resolved.build.outDir
+      const cloudflare = enabled
+        ? {
+            wranglerConfig: {
+              browser: browserBinding(resolvedOptions),
+              compatibility_flags: ["nodejs_compat"],
+            },
+            wranglerConfigDefaults: {
+              compatibility_date: defaultCloudflareCompatibilityDate,
+            },
+            wranglerConfigOwnership: browserWranglerConfigOwnership,
+          }
+        : undefined
+      contributeProviderDeploymentOutput(providerOutput, {
+        owner: "browser",
+        rootDir,
+        write: async ({ write }) => await write({
+          clientOutDir,
+          rootDir,
+          cloudflare,
+          cleanup: {
+            cloudflare: {
+              wranglerConfigOwnership: browserWranglerConfigOwnership,
             },
           },
-        })
+        }),
+      })
+    },
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
   }

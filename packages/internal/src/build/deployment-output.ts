@@ -40,6 +40,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
+  wranglerConfigDefaults?: object
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
   wranglerConfig: object
 }
@@ -113,6 +114,7 @@ export type ProviderDeploymentOutputOwner =
   | "agent"
   | "database"
   | "blob"
+  | "browser"
   | "queue"
   | "rate-limit"
   | "schedule"
@@ -140,6 +142,7 @@ const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "agent",
   "database",
   "blob",
+  "browser",
   "queue",
   "rate-limit",
   "schedule",
@@ -218,6 +221,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       outputRoot,
       rootDir: options.rootDir,
       wranglerConfig: options.wranglerConfig,
+      wranglerConfigDefaults: options.wranglerConfigDefaults,
       wranglerConfigOwnership: options.wranglerConfigOwnership ?? { keys: options.wranglerConfigKeys },
     }),
     options.bundleEntry && staticIndex

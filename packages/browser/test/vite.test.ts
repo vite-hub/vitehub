@@ -13,6 +13,22 @@ const execFileAsync = promisify(execFile)
 const roots: string[] = []
 const tsc = resolve(import.meta.dirname, "../../../node_modules/typescript/bin/tsc")
 
+interface BrowserBuildConfig extends Record<string, unknown> {
+  browser?: Record<string, unknown> | false
+  build: { outDir: string }
+  command: "build"
+  mode: string
+  nitro: Record<string, unknown>
+  root: string
+}
+
+async function runBrowserProviderOutput(plugin: ReturnType<typeof hubBrowser>, config: BrowserBuildConfig): Promise<void> {
+  await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+  await (plugin.buildStart as unknown as () => Promise<void> | void)()
+  await (plugin.buildEnd as unknown as () => Promise<void> | void)()
+  await (plugin.closeBundle as { handler(): Promise<void> }).handler()
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
@@ -344,9 +360,12 @@ describe("hubBrowser", () => {
     const outputDir = join(root, "dist", root.split("/").at(-1)!.toLowerCase())
     const outputFile = join(outputDir, "wrangler.json")
     await mkdir(outputDir, { recursive: true })
-    await writeFile(outputFile, JSON.stringify({ compatibility_flags: ["custom"] }))
+    await writeFile(outputFile, JSON.stringify({
+      compatibility_flags: ["custom"],
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
+    }))
     const plugin = hubBrowser({ binding: "BROWSER", remote: true })
-    ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
+    await runBrowserProviderOutput(plugin, {
       browser: { binding: "BROWSER", remote: true },
       build: { outDir: "dist" },
       command: "build",
@@ -354,17 +373,17 @@ describe("hubBrowser", () => {
       nitro: {},
       root,
     })
-    await (plugin.closeBundle as { handler(): Promise<void> }).handler()
 
-    const output = JSON.parse(await readFile(outputFile, "utf8"))
-    expect(output).toEqual({
-      browser: { binding: "BROWSER", remote: true },
+    const enabledOutput = {
       compatibility_date: "2026-04-20",
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
+      browser: { binding: "BROWSER", remote: true },
       compatibility_flags: ["custom", "nodejs_compat"],
-    })
+    }
+    await expect(readFile(outputFile, "utf8")).resolves.toBe(`${JSON.stringify(enabledOutput, null, 2)}\n`)
 
     const disabledPlugin = hubBrowser(false)
-    ;(disabledPlugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
+    await runBrowserProviderOutput(disabledPlugin, {
       browser: false,
       build: { outDir: "dist" },
       command: "build",
@@ -372,11 +391,12 @@ describe("hubBrowser", () => {
       nitro: {},
       root,
     })
-    await (disabledPlugin.closeBundle as { handler(): Promise<void> }).handler()
-    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toEqual({
+    const disabledOutput = {
       compatibility_date: "2026-04-20",
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
       compatibility_flags: ["custom", "nodejs_compat"],
-    })
+    }
+    await expect(readFile(outputFile, "utf8")).resolves.toBe(`${JSON.stringify(disabledOutput, null, 2)}\n`)
   })
 
   it("preserves an existing standalone compatibility date", async () => {
@@ -387,17 +407,49 @@ describe("hubBrowser", () => {
     await mkdir(outputDir, { recursive: true })
     await writeFile(outputFile, JSON.stringify({ compatibility_date: "2026-08-01" }))
     const plugin = hubBrowser()
-    ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
+    await runBrowserProviderOutput(plugin, {
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
       nitro: {},
       root,
     })
-    await (plugin.closeBundle as { handler(): Promise<void> }).handler()
 
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
       compatibility_date: "2026-08-01",
+    })
+  })
+
+  it("replaces duplicate Browser contributions and clears repeat-build state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-repeat-"))
+    roots.push(root)
+    const config: BrowserBuildConfig = {
+      build: { outDir: "dist" },
+      command: "build",
+      mode: "production",
+      nitro: {},
+      root,
+    }
+    const first = hubBrowser({ binding: "STALE_BROWSER" })
+    const second = hubBrowser({ binding: "CURRENT_BROWSER", remote: true })
+    await (first.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await (second.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await (first.buildStart as unknown as () => void)()
+    await (second.buildStart as unknown as () => void)()
+    await (first.buildEnd as unknown as () => void)()
+    await (second.buildEnd as unknown as () => void)()
+    await (first.closeBundle as { handler(): Promise<void> }).handler()
+    await (second.closeBundle as { handler(): Promise<void> }).handler()
+
+    const outputFile = join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json")
+    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
+      browser: { binding: "CURRENT_BROWSER", remote: true },
+    })
+
+    await (second.buildStart as unknown as () => void)()
+    await (second.closeBundle as { handler(): Promise<void> }).handler()
+    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
+      browser: { binding: "CURRENT_BROWSER", remote: true },
     })
   })
 

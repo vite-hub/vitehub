@@ -29,7 +29,7 @@ describe("Provider Output finalizer", () => {
     const catalog = createProviderOutputCatalog()
     const writes: string[] = []
     const rootDir = await createTempProject()
-    const contribute = (owner: "agent" | "blob" | "database", value = owner) => {
+    const contribute = (owner: "agent" | "blob" | "browser" | "database", value = owner) => {
       contributeProviderDeploymentOutput(catalog, {
         owner,
         rootDir,
@@ -42,10 +42,11 @@ describe("Provider Output finalizer", () => {
     contribute("blob", "stale")
     contribute("agent")
     contribute("database")
+    contribute("browser")
     contribute("blob", "current")
     await finalizeProviderDeploymentOutputs(catalog)
 
-    expect(writes).toEqual(["agent", "database", "current"])
+    expect(writes).toEqual(["agent", "database", "current", "browser"])
   })
 
   it("clears settled contributions between repeat builds", async () => {
@@ -53,10 +54,10 @@ describe("Provider Output finalizer", () => {
     const rootDir = await createTempProject()
     const write = vi.fn(async () => undefined)
 
-    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write })
+    contributeProviderDeploymentOutput(catalog, { owner: "browser", rootDir, write })
     await finalizeProviderDeploymentOutputs(catalog)
     await finalizeProviderDeploymentOutputs(catalog)
-    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write })
+    contributeProviderDeploymentOutput(catalog, { owner: "browser", rootDir, write })
     await finalizeProviderDeploymentOutputs(catalog)
 
     expect(write).toHaveBeenCalledTimes(2)
@@ -73,8 +74,8 @@ describe("Provider Output finalizer", () => {
       started.push(name)
       await new Promise<void>(resolve => releases.push(resolve))
     }
-    contributeProviderDeploymentOutput(first, { owner: "blob", rootDir: firstRoot, write: block("first") })
-    contributeProviderDeploymentOutput(second, { owner: "blob", rootDir: secondRoot, write: block("second") })
+    contributeProviderDeploymentOutput(first, { owner: "browser", rootDir: firstRoot, write: block("first") })
+    contributeProviderDeploymentOutput(second, { owner: "browser", rootDir: secondRoot, write: block("second") })
 
     const finalizations = Promise.all([
       finalizeProviderDeploymentOutputs(first),
@@ -92,7 +93,7 @@ describe("Provider Output finalizer", () => {
     const started: string[] = []
     let releaseFirst!: () => void
     contributeProviderDeploymentOutput(first, {
-      owner: "blob",
+      owner: "browser",
       rootDir,
       write: async () => {
         started.push("first")
@@ -100,7 +101,7 @@ describe("Provider Output finalizer", () => {
       },
     })
     contributeProviderDeploymentOutput(second, {
-      owner: "blob",
+      owner: "browser",
       rootDir,
       write: async () => {
         started.push("second")
@@ -122,19 +123,19 @@ describe("Provider Output finalizer", () => {
     const rootDir = await createTempProject()
     const afterFailure = vi.fn(async () => undefined)
     contributeProviderDeploymentOutput(failed, {
-      owner: "agent",
+      owner: "browser",
       rootDir,
       write: async () => {
         throw new Error("writer failed")
       },
     })
-    contributeProviderDeploymentOutput(failed, { owner: "blob", rootDir, write: afterFailure })
+    contributeProviderDeploymentOutput(failed, { owner: "queue", rootDir, write: afterFailure })
 
     await expect(finalizeProviderDeploymentOutputs(failed)).rejects.toThrow("writer failed")
     expect(afterFailure).not.toHaveBeenCalled()
 
     const recoveredWrite = vi.fn(async () => undefined)
-    contributeProviderDeploymentOutput(recovered, { owner: "blob", rootDir, write: recoveredWrite })
+    contributeProviderDeploymentOutput(recovered, { owner: "browser", rootDir, write: recoveredWrite })
     await finalizeProviderDeploymentOutputs(recovered)
     expect(recoveredWrite).toHaveBeenCalledOnce()
   })
@@ -144,7 +145,7 @@ describe("Provider Output finalizer", () => {
     const rootDir = await createTempProject()
     const controller = new AbortController()
     const write = vi.fn(async () => undefined)
-    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write })
+    contributeProviderDeploymentOutput(catalog, { owner: "browser", rootDir, write })
     controller.abort(new Error("build aborted"))
 
     await expect(finalizeProviderDeploymentOutputs(catalog, { signal: controller.signal })).rejects.toThrow("build aborted")
