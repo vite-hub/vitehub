@@ -40,7 +40,11 @@ export function createStageEvidence({ provider, currentStage, conclusion, runId,
   return evidence;
 }
 
-export function aggregateStageEvidence({ evidence, setupStatus, matrixStatus, runId, runAttempt, runUrl }) {
+export function aggregateStageEvidence({ evidence, setupStatus, attemptProviders, runId, runAttempt, runUrl }) {
+  if (!Array.isArray(attemptProviders) || new Set(attemptProviders).size !== attemptProviders.length) {
+    throw new Error("attemptProviders must be a unique provider list");
+  }
+  for (const provider of attemptProviders) assertAllowed(provider, liveSmokeProviders, "attempt provider");
   const byProvider = new Map();
   for (const entry of evidence) {
     validateEvidence(entry);
@@ -56,8 +60,6 @@ export function aggregateStageEvidence({ evidence, setupStatus, matrixStatus, ru
     }
   }
 
-  const rerunHasKnownFailedProvider = matrixStatus === "failure"
-    && [...byProvider.values()].some(entry => entry.run.attempt < runAttempt && entry.conclusion !== "success");
   const providers = liveSmokeProviders.map((provider) => {
     if (setupStatus !== "success") {
       return createStageEvidence({
@@ -71,10 +73,8 @@ export function aggregateStageEvidence({ evidence, setupStatus, matrixStatus, ru
       });
     }
     const entry = byProvider.get(provider);
-    const preservesUntouchedSuccess = entry?.run.attempt < runAttempt
-      && entry.conclusion === "success"
-      && rerunHasKnownFailedProvider;
-    if (entry && !(matrixStatus === "failure" && entry.run.attempt < runAttempt && !preservesUntouchedSuccess)) {
+    const providerRanThisAttempt = attemptProviders.includes(provider);
+    if (entry && !(providerRanThisAttempt && entry.run.attempt < runAttempt)) {
       return entry.run.attempt === runAttempt
         ? entry
         : { ...entry, evidenceAttempt: entry.run.attempt, run: { id: String(runId), attempt: runAttempt, url: runUrl } };
@@ -86,7 +86,7 @@ export function aggregateStageEvidence({ evidence, setupStatus, matrixStatus, ru
       runId,
       runAttempt,
       runUrl,
-      reason: matrixStatus === "failure" && entry
+      reason: providerRanThisAttempt && entry
         ? "provider job failed without current-attempt stage evidence"
         : "provider stage evidence was not uploaded",
     });
@@ -252,12 +252,12 @@ function runFromCommandLine(args) {
     });
   }
   if (command === "aggregate") {
-    if (!options.directory || !options["setup-status"] || !options["matrix-status"]) {
-      throw new Error("aggregate requires --directory, --setup-status, and --matrix-status");
+    if (!options.directory || !options["setup-status"] || options["attempt-providers"] === undefined) {
+      throw new Error("aggregate requires --directory, --setup-status, and --attempt-providers");
     }
     return aggregateStageEvidence({
+      attemptProviders: options["attempt-providers"] ? options["attempt-providers"].split(",") : [],
       evidence: readEvidence(resolve(options.directory)),
-      matrixStatus: options["matrix-status"],
       setupStatus: options["setup-status"],
       ...run,
     });

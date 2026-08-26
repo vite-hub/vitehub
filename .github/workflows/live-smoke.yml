@@ -392,18 +392,35 @@ jobs:
           pattern: live-smoke-evidence-*
           path: live-smoke-evidence
 
+      - name: Identify provider jobs in this attempt
+        id: attempt
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
+              ...context.repo,
+              run_id: context.runId,
+              attempt_number: Number(process.env.GITHUB_RUN_ATTEMPT),
+              per_page: 100,
+            })
+            const providers = jobs.flatMap(({ name }) => {
+              const match = /^live smoke \((cloudflare|vercel)\)$/.exec(name)
+              return match ? [match[1]] : []
+            })
+            core.setOutput("providers", [...new Set(providers)].join(","))
+
       - name: Aggregate provider stages
         env:
           LIVE_SMOKE_RUN_ATTEMPT: ${{ github.run_attempt }}
           LIVE_SMOKE_RUN_ID: ${{ github.run_id }}
           LIVE_SMOKE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          LIVE_SMOKE_MATRIX_STATUS: ${{ needs.live-smoke.result }}
           LIVE_SMOKE_SETUP_STATUS: ${{ needs.setup-cloudflare.result }}
+          LIVE_SMOKE_ATTEMPT_PROVIDERS: ${{ steps.attempt.outputs.providers }}
         run: |
           node .github/scripts/live-smoke-report.mjs aggregate \
             --directory live-smoke-evidence \
-            --matrix-status "$LIVE_SMOKE_MATRIX_STATUS" \
             --setup-status "$LIVE_SMOKE_SETUP_STATUS" \
+            --attempt-providers "$LIVE_SMOKE_ATTEMPT_PROVIDERS" \
             --run-id "$LIVE_SMOKE_RUN_ID" \
             --run-attempt "$LIVE_SMOKE_RUN_ATTEMPT" \
             --run-url "$LIVE_SMOKE_RUN_URL" \
