@@ -1223,7 +1223,7 @@ async function* runProvider<
         nextEvent = events.next()
         continue
       }
-      if (isAuxiliaryAgentAdapterContext(context) && current.value.type === "request.opened" && current.value.requestId) {
+      if ((!invocationId || isAuxiliaryAgentAdapterContext(context)) && current.value.type === "request.opened" && current.value.requestId) {
         // SAFETY: A request.opened event always carries the provider approval request identifier expected by respondToRequest.
         await activeRuntime.respondToRequest(threadId, current.value.requestId as never, "decline")
       }
