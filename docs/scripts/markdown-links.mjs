@@ -94,11 +94,17 @@ export function markdownLinks(markdown) {
       if (typeof destination === "string") links.push(destination);
     }
     if (node.type === "html" && !node.value.startsWith("<!--")) {
-      for (const match of node.value.matchAll(/<(?:a\b[^>]*?\bhref|img\b[^>]*?\bsrc)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
+      for (const match of node.value.matchAll(/<(?:a\b[^>]*?\shref|img\b[^>]*?\ssrc)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
         links.push(match[1] ?? match[2] ?? match[3]);
       }
     }
   });
+  const frontmatter = markdown.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/)?.[1];
+  if (frontmatter) {
+    for (const match of frontmatter.matchAll(/^\s*(?:image|src):\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))/gmi)) {
+      links.push(match[1] ?? match[2] ?? match[3]);
+    }
+  }
   return links;
 }
 
@@ -125,17 +131,42 @@ function publicReadmes(repoRoot) {
     .filter(existsSync);
 }
 
+function staticHtmlAnchors(source) {
+  return new Set([...source.matchAll(/\sid\s*=\s*["']([^"']+)["']/g)].map((match) => match[1]));
+}
+
 function appRoutes(docsRoot) {
-  const routes = new Set(walk(join(docsRoot, "app/pages"), (path) => path.endsWith(".vue")).map((path) => {
+  const pagesRoot = join(docsRoot, "app/pages");
+  const componentsRoot = join(docsRoot, "app/components");
+  const componentFiles = walk(componentsRoot, (path) => path.endsWith(".vue"));
+  const components = new Map(componentFiles.map((path) => {
+    const name = relative(componentsRoot, path).replace(/\.vue$/, "").split(sep)
+      .map((part) => part.replace(/(^|-)(\w)/g, (_, _separator, letter) => letter.toUpperCase())).join("");
+    return [name, path];
+  }));
+  const routeAnchors = new Map(walk(pagesRoot, (path) => path.endsWith(".vue")).map((path) => {
     const route = relative(join(docsRoot, "app/pages"), path)
       .split(sep).join("/").replace(/\.vue$/, "").replace(/\/index$/, "").replace(/^index$/, "");
-    return normalizeRoute(`/${route}`);
+    const anchors = new Set();
+    const pending = [path];
+    const visited = new Set();
+    while (pending.length) {
+      const file = pending.pop();
+      if (visited.has(file)) continue;
+      visited.add(file);
+      const source = readFileSync(file, "utf8");
+      for (const anchor of staticHtmlAnchors(source)) anchors.add(anchor);
+      for (const [name, componentPath] of components) {
+        if (new RegExp(`<${name}(?:\\s|/|>)`).test(source)) pending.push(componentPath);
+      }
+    }
+    return [normalizeRoute(`/${route}`), anchors];
   }));
   for (const path of walk(join(docsRoot, "server/routes"), (path) => path.endsWith(".ts"))) {
-    routes.add(normalizeRoute(`/${relative(join(docsRoot, "server/routes"), path).split(sep).join("/").replace(/\.ts$/, "")}`));
+    routeAnchors.set(normalizeRoute(`/${relative(join(docsRoot, "server/routes"), path).split(sep).join("/").replace(/\.ts$/, "")}`), new Set());
   }
-  for (const route of ["/llms.txt", "/llms-full.txt", "/mcp"]) routes.add(route);
-  return routes;
+  for (const route of ["/llms.txt", "/llms-full.txt", "/mcp"]) routeAnchors.set(route, new Set());
+  return routeAnchors;
 }
 
 function decodeFragment(fragment) {
@@ -162,7 +193,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   const readmes = publicReadmes(repoRoot);
   const markdownFiles = [...contentFiles, ...readmes];
   const routeFiles = new Map(contentFiles.map((path) => [routeFromContentPath(contentRoot, path), path]));
-  const knownRoutes = new Set([...routeFiles.keys(), ...appRoutes(docsRoot), ...docsRoutes.map(normalizeRoute)]);
+  const applicationRoutes = appRoutes(docsRoot);
+  const knownRoutes = new Set([...routeFiles.keys(), ...applicationRoutes.keys(), ...docsRoutes.map(normalizeRoute)]);
   for (const route of routeFiles.keys()) {
     if (route !== "/") knownRoutes.add(`/raw${route}.md`);
   }
@@ -234,7 +266,10 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
           errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist in ${relative(repoRoot, targetFile)}`);
         }
       } else if (fragment && targetRoute) {
-        errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} cannot be validated for route ${JSON.stringify(targetRoute)}`);
+        const routeAnchors = applicationRoutes.get(targetRoute);
+        if (!routeAnchors?.has(fragment)) {
+          errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist for route ${JSON.stringify(targetRoute)}`);
+        }
       }
     }
   }
