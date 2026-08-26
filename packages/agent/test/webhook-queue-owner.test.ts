@@ -31,7 +31,7 @@ function queueState(claims: AgentWebhookQueueLease[] = []) {
     extendWebhookDeliveryLease: vi.fn(async () => true),
     retryWebhookDelivery: vi.fn(async () => true),
     webhookDeliveryScopes: vi.fn(async () => ["scope"]),
-  } as AgentWebhookQueueStateAdapter
+  } as unknown as AgentWebhookQueueStateAdapter
   return { queued, state }
 }
 
@@ -94,5 +94,33 @@ describe("Agent webhook queue owner", () => {
 
     await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
     await stop()
+  })
+
+  it("waits for scope discovery before stop resolves", async () => {
+    const { state } = queueState()
+    let finishDiscovery!: () => void
+    const discoveryBlocked = new Promise<void>((resolve) => {
+      finishDiscovery = resolve
+    })
+    const queue = createAgentWebhookQueue({
+      execute: async () => undefined,
+      resolveWaitUntil: async () => undefined,
+    })
+    const stop = queue.resume(async (registrar) => {
+      await discoveryBlocked
+      registrar.track(state, {})
+    })
+
+    const stopping = stop()
+    let stopped = false
+    void stopping.then(() => {
+      stopped = true
+    })
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+
+    finishDiscovery()
+    await stopping
+    expect(stopped).toBe(true)
   })
 })

@@ -152,6 +152,7 @@ export function createAgentWebhookQueue<Options>(
   const scheduled = new Map<string, { at: number; resolve: () => void; timer: ReturnType<typeof setTimeout> }>()
   const active = new Map<Promise<number | undefined>, { controller: AbortController; queueId: string }>()
   const drains = new Set<Promise<void>>()
+  const discoveries = new Set<Promise<void>>()
   let stopped = false
 
   const queueId = (registration: AgentWebhookQueueRegistration<Options>) => `${registration.backendId}:${registration.scope}`
@@ -290,6 +291,7 @@ export function createAgentWebhookQueue<Options>(
     scheduled.clear()
     pending.clear()
     for (const { controller } of active.values()) controller.abort(new Error(webhookQueueStopMessage))
+    await Promise.allSettled([...discoveries])
     await idle()
   }
 
@@ -316,8 +318,10 @@ export function createAgentWebhookQueue<Options>(
         })()
           .catch(error => console.error("[vitehub] Webhook queue discovery failed and will be retried.", error))
           .finally(() => {
+            discoveries.delete(discovery!)
             discovery = undefined
           })
+        discoveries.add(discovery)
         await discovery
       }
       void runDiscovery()
