@@ -134,6 +134,16 @@ https://vitehub.dev/docs/bare-autolink
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
   });
 
+  it("accepts relative links to public assets", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Logo](../vitehub-logo.svg)",
+      "docs/public/vitehub-logo.svg": "<svg />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
   it("reports missing rendered images", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",

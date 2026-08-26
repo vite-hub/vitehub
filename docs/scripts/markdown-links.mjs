@@ -235,8 +235,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
           ? normalizeRoute(path)
           : normalizeRoute(new URL(path, `${siteOrigin}${routeBase.endsWith("/") ? routeBase : `${routeBase}/`}`).pathname);
         targetFile = routeFiles.get(targetRoute);
-        if (!targetFile && path.startsWith("/")) {
-          const publicFile = resolve(publicRoot, `.${path}`);
+        if (!targetFile) {
+          const publicFile = resolve(publicRoot, `.${targetRoute}`);
           if (publicFile.startsWith(`${publicRoot}${sep}`) && existsSync(publicFile) && statSync(publicFile).isFile()) {
             targetFile = publicFile;
           }
