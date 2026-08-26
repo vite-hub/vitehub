@@ -4329,13 +4329,26 @@ export async function postChatErrorFallback(
   ).catch(() => false)
 }
 
-function createChatFinishExtension(input: AgentChatMessageTriggerInput, registration: AgentWebhookRegistrationDefinition): AgentChatQueuedFinishExtension {
+function createChatFinishExtension(
+  input: AgentChatMessageTriggerInput,
+  registration: AgentWebhookRegistrationDefinition,
+  abortSignal?: AbortSignal,
+): AgentChatQueuedFinishExtension {
   const messages: AgentChatMessage[] = []
   return {
     [chatFinishMessagesKey]: messages,
     provider: chatRegistrationOrigin(registration),
     ...(input.run ? { run: input.run } : {}),
     sendMessage: async (message) => {
+      if (isAsyncIterable(message)) {
+        const chunks: string[] = []
+        const stream = abortSignal ? abortableChatMessage(message, abortSignal) : message
+        for await (const chunk of stream) chunks.push(chunk)
+        messages.push((async function* () {
+          yield* chunks
+        })())
+        return
+      }
       messages.push(message)
     },
   }
@@ -5170,7 +5183,7 @@ async function handleChatSdkMessage(
         invocationDeadlineAbort,
       )
     }
-    const chatFinish = createChatFinishExtension(input, registration)
+    const chatFinish = createChatFinishExtension(input, registration, invocationDeadlineAbort?.signal)
     progress = manualDelivery ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal) : undefined
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now())
     const invocationInput = withChatFinishExtension(

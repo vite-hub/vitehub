@@ -11645,6 +11645,50 @@ describe("server helpers", () => {
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
+  it("consumes queued finish reply streams before delivery tracing completes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let consumed = false
+    const observe = vi.fn((event: { name: string; outcome: string }) => {
+      if (event.name === "channel:delivery-effect" && event.outcome === "success") {
+        expect(consumed).toBe(true)
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      hooks: {
+        "agent:finish": event => event.reply((async function* () {
+          yield "Streamed "
+          yield "reply"
+          consumed = true
+        })()),
+        "hook:observe": observe,
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_034), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
+      name: "channel:delivery-effect",
+      outcome: "success",
+    }))
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      markdown: "Streamed reply",
+    })
+  })
+
   it("delivers only explicit manual replies after deleting the placeholder", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
