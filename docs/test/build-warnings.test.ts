@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest"
+
+import { allowedMissingIcons, assertBuildWarningBudget, buildWarningBudget } from "../scripts/build.mjs"
+
+describe("docs build warning budget", () => {
+  it("accepts every explicitly budgeted warning and known missing icon", () => {
+    const warnings = [
+      ...buildWarningBudget.flatMap(entry => Array.from({ length: entry.maximum }, () => entry.text)),
+      ...allowedMissingIcons.map(icon => `WARN [Icon] failed to load icon ${icon}`),
+    ].join("\n")
+
+    expect(() => assertBuildWarningBudget(warnings)).not.toThrow()
+  })
+
+  it("rejects an exceeded warning budget and an unbudgeted warning", () => {
+    const timing = buildWarningBudget.find(entry => entry.name === "build plugin timings")
+    if (!timing) throw new Error("missing plugin timing budget")
+    const warnings = [
+      ...Array.from({ length: timing.maximum + 1 }, () => timing.text),
+      "WARN an unexpected docs build warning",
+    ].join("\n")
+
+    expect(() => assertBuildWarningBudget(warnings)).toThrow(/warning budget exceeded.*unbudgeted warning/s)
+  })
+
+  it("rejects a new missing icon", () => {
+    expect(() => assertBuildWarningBudget("WARN [Icon] failed to load icon custom:new-release-icon"))
+      .toThrow("new missing icon: custom:new-release-icon")
+  })
+})
