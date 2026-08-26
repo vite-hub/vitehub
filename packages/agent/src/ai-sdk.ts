@@ -1118,6 +1118,7 @@ function withCapturedStreamUsage<T extends {
     const cancelSource = async (reason?: unknown) => {
       getSource()
       if (reader) {
+        directCancel?.(reason)
         await reader.cancel(reason)
         return { done: true as const, value: reason }
       }
