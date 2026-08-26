@@ -52,10 +52,12 @@ describe("docs build warning budget", () => {
   it("rejects lowercase logger warnings and standard Node warnings", () => {
     const warnings = [
       "[warn] an unexpected docs build warning",
+      "(node:123) Warning: unexpected docs integration",
+      "(node:123) [DEP0040] DeprecationWarning: deprecated docs API",
       "(node:123) DeprecationWarning: deprecated docs integration",
       "ExperimentalWarning: experimental docs integration",
     ].join("\n")
 
-    expect(() => assertBuildWarningBudget(warnings)).toThrow(/unbudgeted warning.*DeprecationWarning.*ExperimentalWarning/s)
+    expect(() => assertBuildWarningBudget(warnings)).toThrow(/unbudgeted warning.*Warning: unexpected.*\[DEP0040].*DeprecationWarning.*ExperimentalWarning/s)
   })
 })
