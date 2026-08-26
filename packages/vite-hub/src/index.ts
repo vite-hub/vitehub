@@ -651,7 +651,11 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       console: options.console === true ? true : options.console,
       preset: plan.preset,
       resolveAuthConfig: options.auth
-        ? (root, serverDirs) => resolveAuthViteConfig(options.auth === true ? undefined : options.auth, root, { serverDirs })
+        ? (root, serverDirs, auth) => resolveAuthViteConfig(
+            auth ?? (options.auth === true ? undefined : options.auth),
+            root,
+            { serverDirs },
+          )
         : undefined,
     }), consoleInvocationRootPlugin())
   }

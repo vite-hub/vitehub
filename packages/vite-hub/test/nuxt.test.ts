@@ -411,6 +411,50 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("rejects Auth-backed production Console when replay config disables Auth", async () => {
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options.vite, { auth: false as const })
+
+    await expect(viteHubNuxtModule({
+      auth: true,
+      console: { access: "auth" },
+      preset: "node",
+    }, production.nuxt)).rejects.toThrow("requires a discovered ViteHub Auth Definition")
+  })
+
+  it("uses the normalized relative Vite root for Auth assertion and middleware", async () => {
+    const authDefinition = "/tmp/vitehub-nuxt/frontend/server/auth.ts"
+    await mkdir(resolve(authDefinition, ".."), { recursive: true })
+    await writeFile(authDefinition, `
+      export default defineAuth({
+        access: { routes: [
+          { route: "/_vitehub/**", authorize: authorizeConsole },
+          { route: "/api/_vitehub/console/**", authorize: authorizeConsole },
+        ] },
+      })
+    `)
+    try {
+      const production = createNuxt(false)
+      Reflect.deleteProperty(production.nuxt.options, "serverDir")
+      Object.assign(production.nuxt.options.vite, { root: "frontend" })
+
+      await viteHubNuxtModule({
+        auth: true,
+        console: { access: "auth" },
+        preset: "node",
+      }, production.nuxt)
+      const nitroConfig: Record<string, unknown> = {}
+      await production.runNitroConfigHook(nitroConfig)
+
+      expect(nitroConfig).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/auth/**" })]),
+      })
+    }
+    finally {
+      await rm("/tmp/vitehub-nuxt/frontend", { force: true, recursive: true })
+    }
+  })
+
   it("does not reinstall a configured ViteHub UI module for the console", async () => {
     const development = createNuxt(true)
     development.nuxt.options.modules = ["@vite-hub/ui/nuxt"]

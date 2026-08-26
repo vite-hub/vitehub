@@ -237,6 +237,17 @@ describe("vitehub", () => {
     }
   })
 
+  it("rejects Auth-backed production Console when top-level Auth is disabled", async () => {
+    const plugin = dependencyPluginByName(
+      vitehub({ auth: true, console: { access: "auth" }, preset: "node" }),
+      "vite-hub/console",
+    )
+
+    await expect(callHook(plugin.config, [{ auth: false }, { command: "build", mode: "production" }]))
+      .rejects.toThrow("requires a discovered ViteHub Auth Definition")
+    expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(false, expect.any(String), { serverDirs: undefined })
+  })
+
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/deployment-preset",

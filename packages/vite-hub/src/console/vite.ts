@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { Plugin } from "vite"
 
 import { serializeConsoleRefresh } from "./refresh.ts"
@@ -40,7 +40,7 @@ export type ConsoleOptions =
 interface ConsoleVitePluginOptions {
   console?: true | ConsoleOptions
   preset?: string
-  resolveAuthConfig?: (root: string, serverDirs?: string[]) => ResolvedAuthViteConfig | undefined
+  resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
 }
 
 const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
@@ -136,9 +136,14 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     async config(config, environment) {
       root = resolve(config.root || process.cwd())
       const configured = options.console ?? true
+      // SAFETY: ViteHub Auth and server discovery extend Vite's user config with these documented keys.
+      const viteConfig = config as typeof config & {
+        [VITEHUB_SERVER_DIRS]?: string[]
+        auth?: AuthModuleOptions
+      }
       assertConsoleProductionAccess(configured, {
         auth: configured !== true && configured.access === "auth"
-          ? options.resolveAuthConfig?.(root, (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS])
+          ? options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS], viteConfig.auth)
           : undefined,
         development: environment.command !== "build",
         preset: options.preset,
@@ -148,9 +153,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root))
 
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
-      const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
-      const nitro: ConsoleNitroConfig = viteConfig.nitro
-        ? { ...viteConfig.nitro }
+      const consoleConfig = viteConfig as typeof viteConfig & { nitro?: ConsoleNitroConfig }
+      const nitro: ConsoleNitroConfig = consoleConfig.nitro
+        ? { ...consoleConfig.nitro }
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
@@ -178,7 +183,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : []
       publicAssets.push({ baseURL: "/_vitehub/assets", dir: consolePublicRoot, fallthrough: false })
 
-      viteConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
+      consoleConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
     },
     async configResolved(config) {
       root = config.root

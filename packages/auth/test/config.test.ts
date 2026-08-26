@@ -152,6 +152,20 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
+  it("does not treat an undefined authorize property as a callback", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  access: { routes: [",
+      "    { authorize: undefined, route: '/app/**' },",
+      "    { authorize: enabled ? authorizeApp : undefined, route: '/admin/**' },",
+      "  ] },",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: { routes: [{ route: "/app/**" }, { route: "/admin/**" }] },
+    })
+  })
+
   it("resolves static middleware config from a callback Auth Definition", async () => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [
