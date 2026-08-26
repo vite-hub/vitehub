@@ -122,8 +122,11 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
   if (!Constructor) throw emailProviderError("cloudflare-email", "INVALID_OPTIONS", "EmailMessage constructor is unavailable.")
   return {
     name: "cloudflare-email",
-    async send(message) {
+    async send(message, context) {
       try {
+        if (context.signal?.aborted) {
+          return { data: null, error: emailProviderError("cloudflare-email", "CANCELLED", "Cloudflare Email send was cancelled.", { retryable: false }) }
+        }
         rejectTransportOwnedHeaders(message.headers)
         if (message.scheduledAt !== undefined) {
           return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support scheduled delivery.") }

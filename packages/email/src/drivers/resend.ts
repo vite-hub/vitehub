@@ -64,6 +64,9 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   return {
     name: "resend",
     async send(message, context) {
+      if (message.raw !== undefined) {
+        return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support raw message payloads.") }
+      }
       let body: string
       try {
         validateIdempotencyKey(message.idempotencyKey)

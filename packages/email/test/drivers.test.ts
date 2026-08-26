@@ -88,6 +88,16 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it("rejects raw message payloads before fetch", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, raw: "From: hello@example.com\r\n\r\nHello" }, context)).resolves.toMatchObject({
+      error: { code: "UNSUPPORTED", driver: "resend" },
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it("rejects an invalid scheduled date without making a request", async () => {
     const request = vi.fn()
     const driver = resend({ apiKey: "re_secret", fetch: request })
@@ -217,6 +227,20 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
 
     await expect(driver.send({ ...message, scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context)).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
+    expect(Constructor).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it("rejects an already-aborted send before Cloudflare delivery", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const send = vi.fn()
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
+
+    await expect(driver.send(message, { ...context, signal: controller.signal })).resolves.toMatchObject({
+      error: { code: "CANCELLED", driver: "cloudflare-email", retryable: false },
+    })
     expect(Constructor).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
   })
