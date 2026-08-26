@@ -136,6 +136,7 @@ export function createProviderOutputCatalog(): ProviderOutputCatalog {
 }
 
 export function useProviderOutputCatalog(config: object): ProviderOutputCatalog {
+  // SAFETY: The symbol property is optional and stores only ProviderOutputCatalog values on config objects owned by this module.
   const owner = config as ProviderOutputCatalogOwner
   let catalog = owner[providerOutputCatalog] ?? providerOutputCatalogs.get(config)
   if (!catalog) {
