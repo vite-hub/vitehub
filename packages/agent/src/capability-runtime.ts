@@ -1470,7 +1470,7 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   }
   if (options.abortSignal?.aborted) onAbort()
   else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
-  return (async function* () {
+  const wrapped = (async function* () {
     let completed = false
     let error: unknown
     let failed = false
@@ -1493,6 +1493,12 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
       await cleanup(completed, failed ? { error, failed: true } : { failed: false })
     }
   })()
+  Object.defineProperty(wrapped, Symbol.for("vitehub.agent.stream.cancel"), {
+    value: (reason?: unknown) => cleanup(false, reason === undefined
+      ? { completed: false, failed: false }
+      : { error: reason, failed: true }, reason),
+  })
+  return wrapped
 }
 
 export function withResponseCleanup(
