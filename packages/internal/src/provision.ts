@@ -70,29 +70,50 @@ interface ProvisionRequestOptions {
   query?: Record<string, string>
 }
 
-export type ProvisionRequest = <T>(path: string, options?: ProvisionRequestOptions) => Promise<T>
+interface ParsedProvisionRequestOptions<T> extends ProvisionRequestOptions {
+  parse: (value: unknown) => T
+}
+
+export interface ProvisionRequest {
+  (path: string, options?: ProvisionRequestOptions): Promise<unknown>
+  <T>(path: string, options: ParsedProvisionRequestOptions<T>): Promise<T>
+}
+
+export class ProvisionRequestError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "ProvisionRequestError"
+    this.status = status
+  }
+}
 
 // Minimal JSON REST client for provisioning. Uses the provided fetch; no SDK dependency.
 function createJsonClient(baseURL: string, headers: Record<string, string>, fetchImpl: typeof globalThis.fetch, baseQuery?: Record<string, string>): ProvisionRequest {
-  return async function request<T>(path: string, options: ProvisionRequestOptions = {}): Promise<T> {
+  return async function request<T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}): Promise<unknown> {
     const url = new URL(`${baseURL}${path}`)
     for (const [key, value] of Object.entries({ ...baseQuery, ...options.query })) {
       url.searchParams.set(key, value)
     }
     const init: RequestInit = { method: options.method ?? "GET", headers: { ...headers } }
-    if (typeof options.body !== "undefined") {
-      ;(init.headers as Record<string, string>)["content-type"] = "application/json"
+    if (options.body !== undefined) {
+      init.headers = { ...init.headers, "content-type": "application/json" }
       init.body = JSON.stringify(options.body)
     }
     const response = await fetchImpl(url, init)
     if (!response.ok) {
-      throw new Error(`Provision request failed: ${options.method ?? "GET"} ${path} (${response.status}).`)
+      throw new ProvisionRequestError(`Provision request failed: ${options.method ?? "GET"} ${path} (${response.status}).`, response.status)
     }
-    return await response.json() as T
+    const value: unknown = await response.json()
+    return "parse" in options ? options.parse(value) : value
   }
 }
 
-export type CloudflareProvisionRequest = <T>(path: string, options?: ProvisionRequestOptions) => Promise<CloudflareEnvelope<T>>
+export interface CloudflareProvisionRequest {
+  (path: string, options?: ProvisionRequestOptions): Promise<CloudflareEnvelope<unknown>>
+  <T>(path: string, options: ParsedProvisionRequestOptions<T>): Promise<CloudflareEnvelope<T>>
+}
 
 // Keep provisioning HTTP local so the CLI does not grow a public CI abstraction.
 export function createCloudflareProvisionClient(config: CloudflareProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): CloudflareProvisionRequest {
@@ -101,7 +122,19 @@ export function createCloudflareProvisionClient(config: CloudflareProvisionConfi
     { authorization: `Bearer ${config.token}` },
     fetchImpl,
   )
-  return <T>(path: string, options?: ProvisionRequestOptions) => client<CloudflareEnvelope<T>>(path, options)
+  return async <T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}) => {
+    // SAFETY: Without a parser, Cloudflare result data retains the request's unknown response contract.
+    const parse = "parse" in options ? options.parse : (value: unknown) => value as T
+    return await client(path, {
+      ...options,
+      parse(value) {
+        if (!value || Object(value) !== value) throw new Error("Cloudflare provisioning returned an invalid response.")
+        // SAFETY: The object check establishes the optional Cloudflare envelope representation.
+        const envelope = value as CloudflareEnvelope<unknown>
+        return { ...envelope, result: envelope.result === undefined ? undefined : parse(envelope.result) }
+      },
+    })
+  }
 }
 
 // Minimal Vercel REST client for provisioning. teamId is applied to every request as a query param.
