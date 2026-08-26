@@ -15,7 +15,8 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput, withAgentInvocationControlId } from "../src/internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -816,7 +817,7 @@ describe("Provider Agent Driver", () => {
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     const invocationId = `run-${threadId}`
     const liveContext = context(threadId)
-    liveContext.runtime = withAgentInvocationControlId(liveContext.runtime, invocationId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = collect(await adapter.stream!(liveContext as never))
 
@@ -849,7 +850,7 @@ describe("Provider Agent Driver", () => {
     const primaryContext = context(primaryThreadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
     })
-    primaryContext.runtime = withAgentInvocationControlId(primaryContext.runtime, invocationId)
+    primaryContext.runtime = withAgentInvocationResponseOwner(primaryContext.runtime, invocationId)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const primaryResult = adapter.generate(primaryContext as never)
 
@@ -956,7 +957,7 @@ describe("Provider Agent Driver", () => {
 
     const invocationId = "run-thread-tool-approval"
     const approvalContext = context("thread-tool-approval", { tools })
-    approvalContext.runtime = withAgentInvocationControlId(approvalContext.runtime, invocationId)
+    approvalContext.runtime = withAgentInvocationResponseOwner(approvalContext.runtime, invocationId)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const output = createProviderAgentAdapter({ provider: "codex" }).stream!(approvalContext as never) as AsyncIterable<unknown>
     const stream = output[Symbol.asyncIterator]()

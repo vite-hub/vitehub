@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts";
+import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts";
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
 
 describe("built-in Agent Driver selection", () => {
@@ -52,6 +52,30 @@ describe("built-in Agent Driver selection", () => {
         provider,
       });
     }
+  });
+
+  it("reports effective provider permissions in Agent inspection metadata", async () => {
+    const defaultAgent = defineAgent({ driver: { kind: "codex", model: "gpt-5.6-sol" } });
+    const fullAccessAgent = defineAgent({ driver: { kind: "claude-code", permissions: "allow-all" } });
+
+    expect(createAgentInspectionMetadata(defaultAgent).config?.driver.provider).toEqual({
+      model: "gpt-5.6-sol",
+      permissions: "ask",
+      provider: "codex",
+    });
+    expect((await resolveAgentInspectionMetadata(defaultAgent)).config?.driver.provider).toEqual({
+      model: "gpt-5.6-sol",
+      permissions: "ask",
+      provider: "codex",
+    });
+    expect(createAgentInspectionMetadata(fullAccessAgent).config?.driver.provider).toEqual({
+      permissions: "allow-all",
+      provider: "claude-code",
+    });
+    expect((await resolveAgentInspectionMetadata(fullAccessAgent)).config?.driver.provider).toEqual({
+      permissions: "allow-all",
+      provider: "claude-code",
+    });
   });
 
   it("preserves provider environment keys that overlap object prototype accessors", () => {

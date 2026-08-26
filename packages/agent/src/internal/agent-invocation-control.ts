@@ -17,10 +17,6 @@ export function agentInvocationControlId(context: InvocationControlContext): str
   return context[invocationControlId] ?? context.run?.runId
 }
 
-export function ownedAgentInvocationControlId(context: InvocationControlContext): string | undefined {
-  return context[invocationControlId]
-}
-
 export function withAgentInvocationControlId<TContext extends object>(context: TContext, id: string): TContext {
   return { ...context, [invocationControlId]: id }
 }

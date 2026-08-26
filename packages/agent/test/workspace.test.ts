@@ -3043,29 +3043,12 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("reports effective provider permissions and configured models in Agent inspection metadata", async () => {
+  it("preserves configured provider models in Agent inspection metadata", async () => {
     const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
-    const defaultAgent = defineAgent({ driver: { kind: "codex", model: "gpt-5.6-sol" } })
-    const fullAccessAgent = defineAgent({ driver: { kind: "claude-code", permissions: "allow-all" } })
+    const agent = defineAgent({ driver: { kind: "codex", model: "gpt-5.6-sol" } })
 
-    expect(createAgentInspectionMetadata(defaultAgent).config?.driver.provider).toEqual({
-      model: "gpt-5.6-sol",
-      permissions: "ask",
-      provider: "codex",
-    })
-    expect((await resolveAgentInspectionMetadata(defaultAgent)).config?.driver.provider).toEqual({
-      model: "gpt-5.6-sol",
-      permissions: "ask",
-      provider: "codex",
-    })
-    expect(createAgentInspectionMetadata(fullAccessAgent).config?.driver.provider).toEqual({
-      permissions: "allow-all",
-      provider: "claude-code",
-    })
-    expect((await resolveAgentInspectionMetadata(fullAccessAgent)).config?.driver.provider).toEqual({
-      permissions: "allow-all",
-      provider: "claude-code",
-    })
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider?.model).toBe("gpt-5.6-sol")
+    expect((await resolveAgentInspectionMetadata(agent)).config?.driver.provider?.model).toBe("gpt-5.6-sol")
   })
 
   it("reports unknown authority for an opaque custom Agent definition", async () => {
