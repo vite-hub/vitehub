@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import { defineAgent } from "../src/index.ts";
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts";
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
 
 describe("built-in Agent Driver selection", () => {
@@ -31,13 +31,27 @@ describe("built-in Agent Driver selection", () => {
   });
 
   it.each([
-    ["codex", "codex"],
-    ["claude-code", "claude-code"],
-  ])("selects %s by literal name", (name, provider) => {
-    // SAFETY: The table contains only the two supported built-in driver literals.
-    const driver = normalizeAgentDriver({ driver: name } as never);
+    ["Codex literal", "codex", "codex"],
+    ["Claude Code literal", "claude-code", "claude-code"],
+    ["Codex tagged config", { kind: "codex" }, "codex"],
+    ["Claude Code tagged config", { kind: "claude-code" }, "claude-code"],
+    ["Codex helper", codexDriver(), "codex"],
+    ["Claude Code helper", claudeCodeDriver(), "claude-code"],
+  ])("defaults %s permissions to ask", (_label, input, provider) => {
+    // SAFETY: The table contains only supported built-in Driver configuration forms.
+    const driver = normalizeAgentDriver({ driver: input } as never);
 
-    expect(driver).toMatchObject({ kind: "provider", provider });
+    expect(driver).toMatchObject({ kind: "provider", permissions: "ask", provider });
+  });
+
+  it.each(["ask", "allow-edits", "allow-all"] as const)("preserves explicit %s provider permissions", (permissions) => {
+    for (const provider of ["codex", "claude-code"] as const) {
+      expect(normalizeAgentDriver({ driver: { kind: provider, permissions } })).toMatchObject({
+        kind: "provider",
+        permissions,
+        provider,
+      });
+    }
   });
 
   it("preserves provider environment keys that overlap object prototype accessors", () => {

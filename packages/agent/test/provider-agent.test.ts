@@ -131,6 +131,29 @@ describe("Provider Agent Driver", () => {
     expect(requestedAfterTerminal).toBe(false)
   })
 
+  it.each([
+    ["Codex omitted", "codex", undefined, "approval-required"],
+    ["Codex ask", "codex", "ask", "approval-required"],
+    ["Codex allow edits", "codex", "allow-edits", "auto-accept-edits"],
+    ["Codex allow all", "codex", "allow-all", "full-access"],
+    ["Claude Code omitted", "claude-code", undefined, "approval-required"],
+    ["Claude Code ask", "claude-code", "ask", "approval-required"],
+    ["Claude Code allow edits", "claude-code", "allow-edits", "auto-accept-edits"],
+    ["Claude Code allow all", "claude-code", "allow-all", "full-access"],
+  ] as const)("maps %s to its provider runtime mode", async (_label, providerName, permissions, runtimeMode) => {
+    const threadId = `thread-permissions-${providerName}-${permissions ?? "omitted"}`
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({
+      ...(permissions ? { permissions } : {}),
+      provider: providerName,
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+
+    expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode, threadId }))
+  })
+
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
     const agent = defineAgent({ driver: "codex", runtime: false })
 
