@@ -2851,6 +2851,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const mergedNitro = nitroContext && hasHostedAgents && !denoOutput
         ? installAgentProviderRuntimePackages(mergedAgentNitro)
         : mergedAgentNitro
+      if (nitroContext) {
+        const replacement = isRecord(mergedNitro.replace) ? mergedNitro.replace : {}
+        mergedNitro.replace = {
+          __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(root),
+          ...replacement,
+        }
+      }
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
         define: {

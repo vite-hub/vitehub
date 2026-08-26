@@ -1218,6 +1218,39 @@ describe("agent Vite plugin", () => {
         externals: {
           inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),
+        },
+      },
+    })
+  })
+
+  it("replaces the Agent app root in Nitro server code without overriding user replacements", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const result = isRuntimeFunction(plugin.config)
+      ? await plugin.config.call(
+          {} as never,
+          {
+            [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+            nitro: {
+              replace: {
+                __VITEHUB_AGENT_APP_ROOT__: "configured",
+                __VITEHUB_OTHER_REPLACEMENT__: "other",
+              },
+            },
+            root: "/repo/apps/web",
+          } as never,
+          { command: "build", mode: "production" },
+        )
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: "configured",
+          __VITEHUB_OTHER_REPLACEMENT__: "other",
+        },
       },
     })
   })

@@ -41,15 +41,24 @@ const mocks = vi.hoisted(() => ({
   markdownTemplateLoad: vi.fn(),
   markdownTemplateResolveId: vi.fn(),
   outputHook: vi.fn(),
-  agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[]; nitro?: Record<string, unknown> }) => ({
-    nitro: {
-      ...config.nitro,
-      handlers: config[VITEHUB_SERVER_DIRS]?.map(serverDir => ({
-        handler: `${serverDir}/agents/support.ts`,
-      })),
-      modules: ["agent-module"],
-    },
-  })),
+  agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[]; nitro?: Record<string, unknown>; root?: string }) => {
+    const replace = config.nitro?.replace && typeof config.nitro.replace === "object"
+      ? config.nitro.replace as Record<string, unknown>
+      : {}
+    return {
+      nitro: {
+        ...config.nitro,
+        handlers: config[VITEHUB_SERVER_DIRS]?.map(serverDir => ({
+          handler: `${serverDir}/agents/support.ts`,
+        })),
+        modules: ["agent-module"],
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(config.root),
+          ...replace,
+        },
+      },
+    }
+  }),
   agentWorkflowRegistryTransform: vi.fn((code: string) => `// transformed\n${code}`),
   queueNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
@@ -651,7 +660,12 @@ describe("ViteHub Nuxt integration", () => {
     })
 
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
-    await runNitroConfigHook({})
+    const nitroConfig = {
+      replace: {
+        __VITEHUB_EXISTING_REPLACEMENT__: "existing",
+      },
+    }
+    await runNitroConfigHook(nitroConfig)
 
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -660,6 +674,10 @@ describe("ViteHub Nuxt integration", () => {
       }),
       expect.anything(),
     )
+    expect(nitroConfig.replace).toEqual({
+      __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt/custom-vite-root"),
+      __VITEHUB_EXISTING_REPLACEMENT__: "existing",
+    })
   })
 
   it("finalizes deployment output after later ViteHub post hooks", async () => {
