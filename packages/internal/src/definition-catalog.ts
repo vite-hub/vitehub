@@ -82,6 +82,7 @@ function readDirEntries(root: string): Dirent[] {
     return readdirSync(root, { withFileTypes: true })
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return []
     }
@@ -213,6 +214,7 @@ function createDefinition<TDefinition extends DiscoveredDefinition>(
     return source.createDefinition({ file, name })
   }
 
+  // SAFETY: Catalog sources may refine DiscoveredDefinition without supplying a custom factory.
   return {
     handler: file,
     name,

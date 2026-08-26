@@ -151,6 +151,7 @@ function resolveIsomorphicGitDependency(specifier: string) {
 }
 
 function resolveSandboxClassName(config: { className?: unknown } | undefined) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground accepts provider configuration at this runtime boundary.
   return typeof config?.className === "string" ? config.className : defaultCloudflareSandboxClassName
 }
 
@@ -613,6 +614,7 @@ async function rewriteWorkspaceAssetsRegistryForHostedRuntime(registryFile: stri
     contents = await readFile(registryFile, "utf8")
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return
     throw error
   }
@@ -736,18 +738,21 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     runtimeWrites.push(writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8"))
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.blob !== "undefined") {
     const blobRuntimeFile = resolve(generatedDir, "blob-runtime.mjs")
     alias["@vite-hub/blob"] = blobRuntimeFile
     runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob), "utf8"))
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
     alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"))
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.queue !== "undefined") {
     const queueRuntimeFile = resolve(generatedDir, "queue-runtime.mjs")
     alias["@vite-hub/queue"] = queueRuntimeFile
@@ -758,12 +763,14 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["@vite-hub/rate-limit"] = resolve(rateLimitPackageDir, "src/index.ts")
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.schedule !== "undefined") {
     const scheduleRuntimeFile = resolve(generatedDir, "schedule-runtime.mjs")
     alias["@vite-hub/schedule"] = scheduleRuntimeFile
     runtimeWrites.push(writeFile(scheduleRuntimeFile, renderScheduleRuntimeModule(scheduleRuntimeFile), "utf8"))
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.sandbox !== "undefined") {
     const sandboxRuntimeFile = resolve(generatedDir, "sandbox-runtime.mjs")
     alias["@vite-hub/sandbox/runtime/state"] = resolve(sandboxPackageDir, "src/runtime/state.ts")
@@ -771,12 +778,14 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     runtimeWrites.push(writeFile(sandboxRuntimeFile, renderSandboxRuntimeModule(sandboxRuntimeFile), "utf8"))
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.workflow !== "undefined") {
     const workflowRuntimeFile = resolve(generatedDir, "workflow-runtime.mjs")
     alias["@vite-hub/workflow"] = workflowRuntimeFile
     runtimeWrites.push(writeFile(workflowRuntimeFile, renderWorkflowRuntimeModule(workflowRuntimeFile), "utf8"))
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
     const workspaceStateRuntimeFile = resolve(generatedDir, "workspace-state-runtime.mjs")
@@ -1334,21 +1343,27 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
   }
 
   if (options.kv) {
+    // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
     configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv)
   }
+  // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
   configureCloudflareArtifacts({ cloudflare: { wrangler: wranglerConfig } as never }, options.workspace || false)
 
   if (artifacts.sandboxConfig && artifacts.sandboxConfig.provider === "cloudflare") {
     const sandboxClassName = resolveSandboxClassName(artifacts.sandboxConfig)
+    // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
     configureCloudflareSandbox({ cloudflare: { wrangler: wranglerConfig } as never }, {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider configuration is untyped until this runtime boundary validates it.
       binding: typeof artifacts.sandboxConfig.binding === "string" ? artifacts.sandboxConfig.binding : defaultCloudflareSandboxBinding,
       className: sandboxClassName,
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider configuration is untyped until this runtime boundary validates it.
       migrationTag: typeof artifacts.sandboxConfig.migrationTag === "string" ? artifacts.sandboxConfig.migrationTag : defaultCloudflareSandboxMigrationTag,
       name: toSafeAppName(`${workerName}-${sandboxClassName}`),
     })
     await writeCloudflareSandboxDockerfile(outputRoot)
   }
 
+  // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
   finalizeCloudflareWranglerConfig({ cloudflare: { wrangler: wranglerConfig } } as never)
   await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
 }
@@ -1398,6 +1413,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
     platform: "node",
   })
 
+  // SAFETY: This extends the owned Vercel config with its supported optional cron entries.
   const vercelConfig = createVercelConfigJson() as ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
   if (artifacts.scheduleDefinitions.length) {
     vercelConfig.crons = artifacts.scheduleDefinitions.map(definition => ({

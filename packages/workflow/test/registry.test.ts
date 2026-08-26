@@ -68,6 +68,7 @@ describe("Workflow registry", () => {
 
     await writeFile(registryFile, contents, "utf8")
     const generated = await import(`${pathToFileURL(registryFile).href}?test=workflow-owner`)
+    // SAFETY: The generated fixture above exports this exact Workflow registry contract.
     const registry = generated.default as Record<string, () => Promise<{
       handler: (context: { name: string, payload: number, provider: "openworkflow" }) => Promise<number>
       options: { owner: string, rootStep: false }

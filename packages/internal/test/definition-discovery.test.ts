@@ -120,6 +120,7 @@ describe("createRuntimeRegistryContents", () => {
     await mkdir(join(root, ".vitehub", owner), { recursive: true })
     await writeFile(registryFile, contents, "utf8")
     const generated = await import(`${pathToFileURL(registryFile).href}?owner=${owner}`)
+    // SAFETY: The generated fixture above exports this exact registry contract.
     const registry = generated.default as Record<string, () => Promise<{ default: string }>>
     await expect(registry[owner]!()).resolves.toMatchObject({ default: owner })
   })
