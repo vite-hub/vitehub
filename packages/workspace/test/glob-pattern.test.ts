@@ -33,7 +33,7 @@ describe("model-facing Workspace glob patterns", () => {
   })
 
   it("stays within a bounded child-process heap and deadline", () => {
-    const modulePath = fileURLToPath(new URL("../dist/index.js", import.meta.url))
+    const modulePath = fileURLToPath(new URL("../src/core/glob-pattern.ts", import.meta.url))
     const script = `
       import { assertModelWorkspaceGlobPattern } from ${JSON.stringify(modulePath)}
       const patterns = [
@@ -50,7 +50,7 @@ describe("model-facing Workspace glob patterns", () => {
         process.exit(3)
       }
     `
-    const result = spawnSync(process.execPath, ["--max-old-space-size=32", "--input-type=module", "--eval", script], {
+    const result = spawnSync(process.execPath, ["--experimental-transform-types", "--no-warnings", "--max-old-space-size=32", "--input-type=module", "--eval", script], {
       timeout: 2_000,
     })
 
