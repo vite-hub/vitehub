@@ -235,6 +235,7 @@ describe("package manifest contracts", () => {
   it("keeps the private Vercel Blob runtime owned by the blob package", () => {
     const manifest = readPackageManifest("blob")
     const frameworkManifest = readPackageManifest("vite-hub")
+    const kvManifest = readPackageManifest("kv")
 
     expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
     expect(manifest.peerDependencies?.["files-sdk"]).toEqual(expect.any(String))
@@ -244,6 +245,8 @@ describe("package manifest contracts", () => {
     expect(manifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))
     expect(frameworkManifest.dependencies?.["files-sdk"]).toBeUndefined()
     expect(frameworkManifest.dependencies?.["@vite-hub/netlify-blobs-runtime"]).toMatch(/^npm:@netlify\/blobs@/)
+    expect(kvManifest.dependencies?.unstorage).toBeUndefined()
+    expect(kvManifest.devDependencies?.unstorage).toEqual(expect.any(String))
   })
 })
 

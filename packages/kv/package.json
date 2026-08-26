@@ -41,14 +41,14 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "defu": "catalog:unjs",
-    "unstorage": "catalog:storage"
+    "defu": "catalog:unjs"
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "unstorage": "catalog:storage",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
