@@ -155,7 +155,7 @@ async function rawStreamingResult(beforeFirstEvent?: Promise<void>, onFirstEvent
   let started = false
   const fakeModel = {
     ...model([]),
-    async doStream() {
+    async doStream(options: { abortSignal?: AbortSignal }) {
       return {
         stream: new ReadableStream({
           cancel() {
@@ -165,7 +165,13 @@ async function rawStreamingResult(beforeFirstEvent?: Promise<void>, onFirstEvent
             if (started) return
             started = true
             onFirstEventRequested?.()
-            await beforeFirstEvent
+            if (beforeFirstEvent) {
+              await Promise.race([
+                beforeFirstEvent,
+                new Promise<void>((resolve) => options.abortSignal?.addEventListener("abort", () => resolve(), { once: true })),
+              ])
+            }
+            if (options.abortSignal?.aborted) return
             controller.enqueue({ type: "stream-start", warnings: [] })
             controller.enqueue({ id: "answer", type: "text-start" })
             controller.enqueue({ delta: "Finished", id: "answer", type: "text-delta" })
