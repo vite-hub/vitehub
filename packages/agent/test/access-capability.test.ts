@@ -300,6 +300,37 @@ describe("access capability", () => {
     await expect(resolved.tools!.inScope.execute!({ path: "customers/globex/brief.md" })).resolves.toBe(false)
   })
 
+  it("bounds model-facing glob patterns before preserving Workspace Scope filtering", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    const entries = await resolved.workspace!.fs.glob("customers/{acme,globex}/**")
+    expect(entries.map(entry => entry.path)).toEqual([
+      "customers",
+      "customers/acme",
+      "customers/acme/brief.md",
+    ])
+    await expect(resolved.workspace!.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.glob("x".repeat(2_049))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern input exceeds the model-facing limit of 2048 bytes.",
+    )
+  })
+
   it("can select Workspace Scope from an explicit trusted resolver", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -434,6 +465,9 @@ describe("access capability", () => {
 
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.glob("reports/{1..100000}.json")).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
   })
 
   it("falls back to default scope when an explicit resolver returns no scope", async () => {

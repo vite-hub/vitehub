@@ -527,6 +527,10 @@ describe("GitHub workspace store", () => {
       content: "ship it\n",
       mediaType: "text/markdown",
     });
+    await expect(store.glob("**/*.{md,json}")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "data/existing.json", type: "file" }),
+      expect.objectContaining({ path: "tasks/todo.md", type: "file" }),
+    ]));
     await store.setMeta!("loader", { digest: "abc" });
 
     const snapshot = await store.snapshot({ name: "sync workspace" });

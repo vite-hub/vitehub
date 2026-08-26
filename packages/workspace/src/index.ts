@@ -33,6 +33,11 @@ export type {
 export { createWorkspaceTools } from "./ai.ts"
 export type * from "./ai.ts"
 export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
+export {
+  assertModelWorkspaceGlobPattern,
+  modelWorkspaceGlobPatternLimits,
+} from "./core/glob-pattern.ts"
+export type { WorkspaceGlobPatternLimits } from "./core/glob-pattern.ts"
 export { isWorkspaceConflict } from "./core/errors.ts"
 export { normalizeSafeWorkspacePath } from "./core/path.ts"
 export { invalidateWorkspaceStore } from "./runtime/state.ts"

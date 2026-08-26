@@ -18,6 +18,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type {
+  GlobOptions,
   ListOptions,
   ReadonlyWorkspaceFacade,
   WorkspaceDefinition,
@@ -39,6 +40,7 @@ import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 type WorkspaceAccessRuntime = Pick<
   typeof import("@vite-hub/workspace/runtime") & typeof import("@vite-hub/workspace"),
   | "attachWorkspaceSourceRequestExecution"
+  | "assertModelWorkspaceGlobPattern"
   | "createWorkspaceSourceResolutionFacade"
   | "createWorkspaceTools"
   | "getWorkspaceSourceRequestExecution"
@@ -344,6 +346,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const scopedWorkspace = finalScope.all
         ? workspaceForScope
         : createScopedWorkspaceFacade(workspaceForScope as ReadonlyWorkspaceFacade<WorkspaceName>, finalScope, workspaceRuntime)
+      const modelSafeWorkspace = createModelSafeWorkspaceFacade(scopedWorkspace as ReadonlyWorkspaceFacade<WorkspaceName>, workspaceRuntime)
       context.context.set("access", {
         workspaceScope: {
           all: finalScope.all,
@@ -358,9 +361,27 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
         markTrustedWorkspaceSourceResolutionDefinition(context.context)
       }
-      setWorkspaceOverride(context, scopedWorkspace as ReadonlyWorkspaceFacade<WorkspaceName>)
+      setWorkspaceOverride(context, modelSafeWorkspace)
     },
   })
+}
+
+function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
+  workspace: ReadonlyWorkspaceFacade<Name>,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): ReadonlyWorkspaceFacade<Name> {
+  const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
+  const fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
+    ...workspace.fs,
+    async glob(pattern: string | string[], options?: GlobOptions) {
+      workspaceRuntime.assertModelWorkspaceGlobPattern(pattern as string | string[])
+      return await workspace.fs.glob(pattern as never, options)
+    },
+  }, sourceRequestExecution)
+  return {
+    ...workspace,
+    fs,
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
