@@ -28,11 +28,13 @@ async function cancelRequestBody(request: Request, reason: unknown): Promise<voi
 
 function requestWithBody(request: Request, bytes: Uint8Array): Request {
   const init: RequestInit = {
+    body: bytes.slice(),
     headers: request.headers,
     method: request.method,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
     signal: request.signal,
   }
-  if (bytes.byteLength) init.body = bytes.slice()
 
   const replayable = new Request(request, init)
   for (const key of Reflect.ownKeys(request)) {

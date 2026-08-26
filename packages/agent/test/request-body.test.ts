@@ -69,14 +69,31 @@ describe("Agent inbound request bodies", () => {
   })
 
   it("preserves host metadata on the replayable request", async () => {
-    const request = new Request("https://example.com/webhook", { body: "payload", method: "POST" })
+    const request = new Request("https://example.com/webhook", {
+      body: "payload",
+      method: "POST",
+      referrer: "https://referrer.example.com/path",
+      referrerPolicy: "origin",
+    })
     const cf = { colo: "SJC" }
     Object.defineProperty(request, "cf", { enumerable: true, value: cf })
 
     const captured = await captureAgentInboundBody(request)
 
     expect(Reflect.get(captured.request, "cf")).toBe(cf)
+    expect(captured.request.referrer).toBe(request.referrer)
+    expect(captured.request.referrerPolicy).toBe(request.referrerPolicy)
     await expect(captured.request.text()).resolves.toBe("payload")
+  })
+
+  it("replays a present zero-byte body after capture", async () => {
+    const captured = await captureAgentInboundBody(new Request("https://example.com/webhook", {
+      body: "",
+      method: "POST",
+    }))
+
+    expect(captured.bytes).toHaveLength(0)
+    await expect(captured.request.text()).resolves.toBe("")
   })
 
   it.each([
