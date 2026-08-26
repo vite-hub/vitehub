@@ -10,7 +10,16 @@ const conclusions = Object.freeze(["success", "failure", "cancelled"]);
 const issueLabel = "live-smoke-failure";
 const issueTitle = "Live Smoke failure";
 
-export function createStageEvidence({ provider, currentStage, conclusion, runId, runAttempt, runUrl, reason }) {
+export function createStageEvidence({
+  provider,
+  currentStage,
+  conclusion,
+  runId,
+  runAttempt,
+  runUrl,
+  observedAt = new Date().toISOString(),
+  reason,
+}) {
   assertAllowed(provider, liveSmokeProviders, "provider");
   assertAllowed(currentStage, liveSmokeStages, "stage");
   assertAllowed(conclusion, conclusions, "conclusion");
@@ -20,6 +29,7 @@ export function createStageEvidence({ provider, currentStage, conclusion, runId,
   if (!runId || !runUrl || !Number.isInteger(runAttempt) || runAttempt < 1) {
     throw new Error("runId, runUrl, and a positive integer runAttempt are required");
   }
+  assertTimestamp(observedAt);
 
   const currentIndex = liveSmokeStages.indexOf(currentStage);
   const stages = Object.fromEntries(liveSmokeStages.map((stage, index) => {
@@ -33,6 +43,7 @@ export function createStageEvidence({ provider, currentStage, conclusion, runId,
     provider,
     currentStage,
     conclusion,
+    observedAt,
     stages,
     run: { id: String(runId), attempt: runAttempt, url: runUrl },
   };
@@ -40,11 +51,20 @@ export function createStageEvidence({ provider, currentStage, conclusion, runId,
   return evidence;
 }
 
-export function aggregateStageEvidence({ evidence, setupStatus, attemptProviders, runId, runAttempt, runUrl }) {
+export function aggregateStageEvidence({
+  evidence,
+  setupStatus,
+  attemptProviders,
+  runId,
+  runAttempt,
+  runUrl,
+  observedAt = new Date().toISOString(),
+}) {
   if (!Array.isArray(attemptProviders) || new Set(attemptProviders).size !== attemptProviders.length) {
     throw new Error("attemptProviders must be a unique provider list");
   }
   for (const provider of attemptProviders) assertAllowed(provider, liveSmokeProviders, "attempt provider");
+  assertTimestamp(observedAt);
   const byProvider = new Map();
   for (const entry of evidence) {
     validateEvidence(entry);
@@ -69,6 +89,7 @@ export function aggregateStageEvidence({ evidence, setupStatus, attemptProviders
         runId,
         runAttempt,
         runUrl,
+        observedAt,
         reason: `shared package build ${setupStatus}`,
       });
     }
@@ -86,6 +107,7 @@ export function aggregateStageEvidence({ evidence, setupStatus, attemptProviders
       runId,
       runAttempt,
       runUrl,
+      observedAt,
       reason: providerRanThisAttempt && entry
         ? "provider job failed without current-attempt stage evidence"
         : "provider stage evidence was not uploaded",
@@ -95,6 +117,7 @@ export function aggregateStageEvidence({ evidence, setupStatus, attemptProviders
   return {
     schemaVersion: 1,
     conclusion: providers.every(provider => provider.conclusion === "success") ? "success" : "failure",
+    observedAt,
     providers,
     run: { id: String(runId), attempt: runAttempt, url: runUrl },
   };
@@ -183,12 +206,14 @@ function validateEvidence(evidence) {
   if (!evidence.run?.id || !evidence.run.url || !Number.isInteger(evidence.run.attempt)) {
     throw new Error("stage evidence has invalid run metadata");
   }
+  assertTimestamp(evidence.observedAt);
 }
 
 function validateReport(report) {
   if (!report || report.schemaVersion !== 1 || !Array.isArray(report.providers)) {
     throw new Error("unsupported live smoke report");
   }
+  assertTimestamp(report.observedAt);
   const providers = new Set();
   for (const evidence of report.providers) {
     validateEvidence(evidence);
@@ -207,6 +232,12 @@ function validateReport(report) {
 function assertAllowed(value, allowed, name) {
   if (!allowed.includes(value)) {
     throw new Error(`invalid ${name}: ${value}`);
+  }
+}
+
+function assertTimestamp(value) {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+    throw new Error(`invalid observation timestamp: ${value}`);
   }
 }
 
@@ -242,6 +273,7 @@ function runFromCommandLine(args) {
     runId: options["run-id"],
     runAttempt: Number(options["run-attempt"]),
     runUrl: options["run-url"],
+    observedAt: options["observed-at"] ?? new Date().toISOString(),
   };
   if (command === "evidence") {
     return createStageEvidence({
